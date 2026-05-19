@@ -6,22 +6,20 @@ Aplicação web single-page para gestão financeira pessoal e de pequenos negóc
 
 ## Como funciona
 
-Toda a aplicação está em um único arquivo HTML (`emprestimos.html`) — HTML + CSS + JS embutidos. Sem build, sem dependências, sem backend. Os dados ficam em `localStorage` do navegador.
+Toda a aplicação está em um único arquivo HTML (`index.html`) — HTML + CSS + JS embutidos. Sem build, sem dependências, sem backend. Os dados ficam em `localStorage` do navegador.
 
 ## Deploy
 
-### Opção 1 — Servidor estático (Nginx, Apache, S3, etc.)
-1. Coloque `emprestimos.html` na pasta web (ex: `/var/www/html/index.html`).
-2. Acesse `https://forekash.com.br`.
+### Opção 1 — Cloudflare Pages / Netlify / Vercel
+Conecte o repo, deploy estático (sem build). Configure o domínio custom `forekash.com.br` no painel do provedor.
 
 ### Opção 2 — GitHub Pages
-1. Suba o repositório no GitHub.
-2. Em **Settings → Pages**, habilite Pages na branch `main`, pasta raiz.
-3. Renomeie `emprestimos.html` para `index.html` ou crie um redirect.
-4. Configure o CNAME do `forekash.com.br` apontando para `<usuario>.github.io`.
+1. Em **Settings → Pages**, habilite Pages na branch `main`, pasta raiz.
+2. Configure o CNAME do `forekash.com.br` apontando para `<usuario>.github.io`.
 
-### Opção 3 — Netlify / Vercel / Cloudflare Pages
-Conecte o repo, deploy estático. Configure o domínio custom `forekash.com.br` no painel do provedor.
+### Opção 3 — Servidor estático (Nginx, Apache, S3, etc.)
+1. Coloque `index.html` na pasta web (ex: `/var/www/html/`).
+2. Acesse `https://forekash.com.br`.
 
 ### Opção 4 — Local (file://)
 Abra direto no navegador. Funciona mas algumas features (drag&drop, anexos) podem ter restrição de segurança.
@@ -44,8 +42,8 @@ location.reload();
 
 ## Estrutura do repositório
 
-- `emprestimos.html` — aplicação principal (single-file).
-- `emprestimos.html.bak.*` — backups históricos de pontos de evolução (catmap, dkb, kanban, etc.).
+- `index.html` — aplicação principal (single-file).
+- `emprestimos.html.bak.*` — backups históricos de pontos de evolução (catmap, dkb, kanban, etc.) do nome anterior do arquivo.
 - `_release/` — pacote pronto para deploy + README de instalação.
 - `mrkash.png` — logo / asset.
 - `smoke-rec-lock.js` — smoke test para lock de recebíveis.
