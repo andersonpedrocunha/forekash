@@ -27943,7 +27943,135 @@ function fluxoLoad(){
 function fluxoSave(){
   fluxo.activeYear = flxActiveYear;
   try{ localStorage.setItem(FLX_KEY, JSON.stringify(fluxo)); }catch(e){}
+  if (window.FK_MODE === 'cloud') cloudFluxoSync();
 }
+
+// ─── Cloud sync: Fluxo de Caixa (jsonb por ano) ──────────────
+// 1 row por (org_id, year). UPSERT por ano, DELETE de anos
+// removidos. activeYear é estado local (não vai pra cloud).
+
+let _flxCloudSyncInFlight = false;
+let _flxCloudSyncPending  = false;
+
+function _fluxoYearToData(y){
+  // Coleta tudo que diz respeito ao ano `y` num jsonb único
+  return {
+    inputs:           (fluxo.inputs && fluxo.inputs[y])           || {},
+    saldoInicial:     (fluxo.saldoInicial && fluxo.saldoInicial[y] !== undefined) ? fluxo.saldoInicial[y] : '',
+    saldoInicialMes:  (fluxo.saldoInicialMes && fluxo.saldoInicialMes[y] !== undefined) ? fluxo.saldoInicialMes[y] : 0,
+    rowModes:         (fluxo.rowModes && fluxo.rowModes[y])         || {},
+    manualOverrides:  (fluxo.manualOverrides && fluxo.manualOverrides[y]) || {},
+    confirmed:        (fluxo.confirmed && fluxo.confirmed[y])       || {}
+  };
+}
+
+function _fluxoApplyRowToData(year, d){
+  if (!fluxo) return;
+  if (!fluxo.years.includes(year)) fluxo.years.push(year);
+  fluxo.inputs[year]          = d.inputs || {};
+  fluxo.saldoInicial[year]    = d.saldoInicial !== undefined ? d.saldoInicial : '';
+  fluxo.saldoInicialMes[year] = d.saldoInicialMes !== undefined ? d.saldoInicialMes : 0;
+  fluxo.rowModes[year]        = d.rowModes || {};
+  fluxo.manualOverrides[year] = d.manualOverrides || {};
+  fluxo.confirmed[year]       = d.confirmed || {};
+}
+
+async function cloudFluxoFetch(){
+  if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
+  const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
+  if (!orgId) return;
+  if (!fluxo) fluxoLoad();
+  try {
+    const { data, error } = await window.sb
+      .from('fluxo_year')
+      .select('year, data')
+      .eq('org_id', orgId)
+      .order('year');
+    if (error) { console.warn('[FK] fluxo fetch erro:', error.message); return; }
+
+    if ((data || []).length === 0) {
+      // Cloud vazio → migra anos locais (se tiver dados não-vazios)
+      const hasLocalData = fluxo && fluxo.years && fluxo.years.length > 0;
+      if (hasLocalData) {
+        console.log('[FK] fluxo: cloud vazio, importando', fluxo.years.length, 'anos do localStorage...');
+        await cloudFluxoSync();
+      }
+      return;
+    }
+
+    // Reseta arrays/maps e re-popula com dados do cloud
+    fluxo.years = [];
+    fluxo.inputs = {};
+    fluxo.saldoInicial = {};
+    fluxo.saldoInicialMes = {};
+    fluxo.rowModes = {};
+    fluxo.manualOverrides = {};
+    fluxo.confirmed = {};
+    for (const row of data) {
+      _fluxoApplyRowToData(row.year, row.data || {});
+    }
+    fluxo.years.sort();
+    try { localStorage.setItem(FLX_KEY, JSON.stringify(fluxo)); } catch(_){}
+    try { if (typeof renderFluxo === 'function') renderFluxo(); } catch(_){}
+    console.log('[FK] fluxo fetch OK:', data.length, 'anos');
+  } catch(e) {
+    console.warn('[FK] fluxo fetch fail:', e.message || e);
+  }
+}
+
+async function cloudFluxoSync(){
+  if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
+  if (_flxCloudSyncInFlight) { _flxCloudSyncPending = true; return; }
+  _flxCloudSyncInFlight = true;
+  try {
+    const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
+    if (!orgId) return;
+    if (!fluxo) fluxoLoad();
+
+    // 1. Fetch anos no cloud
+    const { data: cloudRows, error: fetchErr } = await window.sb
+      .from('fluxo_year').select('year').eq('org_id', orgId);
+    if (fetchErr) throw fetchErr;
+
+    // 2. UPSERT 1 row por ano local
+    const localYears = (fluxo.years || []).map(String);
+    if (localYears.length > 0) {
+      const payload = localYears.map(y => ({
+        org_id: orgId,
+        year: y,
+        data: _fluxoYearToData(y)
+      }));
+      const { error: upErr } = await window.sb
+        .from('fluxo_year')
+        .upsert(payload, { onConflict: 'org_id,year' });
+      if (upErr) throw upErr;
+    }
+
+    // 3. DELETE anos cloud não presentes localmente
+    const localYearSet = new Set(localYears);
+    const toDelete = (cloudRows || [])
+      .filter(r => !localYearSet.has(String(r.year)))
+      .map(r => r.year);
+    if (toDelete.length > 0) {
+      const { error: delErr } = await window.sb
+        .from('fluxo_year').delete().eq('org_id', orgId).in('year', toDelete);
+      if (delErr) throw delErr;
+    }
+
+    console.log('[FK] fluxo sync OK:', localYears.length, 'anos');
+  } catch(e) {
+    console.warn('[FK] fluxo sync fail:', e.message || e);
+  } finally {
+    _flxCloudSyncInFlight = false;
+    if (_flxCloudSyncPending) {
+      _flxCloudSyncPending = false;
+      setTimeout(() => cloudFluxoSync(), 300);
+    }
+  }
+}
+
+window.cloudFluxoFetch = cloudFluxoFetch;
+window.cloudFluxoSync  = cloudFluxoSync;
 
 // ───── Derivações (dados de outros módulos) ─────
 // Cada linha tem um valor "auto" (puxado da aba de origem) e um "override" manual
@@ -74600,7 +74728,9 @@ async function fkcSyncCloudData(){
   try { if (typeof cloudCartoesFetch         === 'function') await cloudCartoesFetch();         } catch(e) { console.warn('[FK] sync cartões:', e); }
   try { if (typeof cloudExtratoFetch         === 'function') await cloudExtratoFetch();         } catch(e) { console.warn('[FK] sync extrato:', e); }
   try { if (typeof cloudVendedoresFetch      === 'function') await cloudVendedoresFetch();      } catch(e) { console.warn('[FK] sync vend:', e); }
-  // Fase 2 completa! Próximas Fases: jsonb blobs (fluxo, orçamento, etc) e snapshots.
+  // Fase 3 — jsonb blobs por ano
+  try { if (typeof cloudFluxoFetch           === 'function') await cloudFluxoFetch();           } catch(e) { console.warn('[FK] sync fluxo:', e); }
+  // TODO Fase 3: cloudOrcamentoFetch, cloudEstruturaFetch, cloudPessoasFetch, cloudReceitaFetch, cloudDispoFetch, cloudImpostosFetch
 }
 window.fkcSyncCloudData = fkcSyncCloudData;
 
