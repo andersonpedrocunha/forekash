@@ -38125,8 +38125,58 @@ function _ktFmtBRL(n){
 }
 
 // ─── Agregação: coleta eventos por dia ───
-// Fonte primária: extrato_lancamentos (que já agrega de todos os módulos via "Atualizar")
-// Fallback futuro: cartoes.faturas (vencimentos), loans (parcelas), impostos.parcelamentos
+// Fontes:
+//   - extrato_lancamentos (agrega manuais e importações)
+//   - cartoes.faturas (vencimento da fatura)
+//   - Pessoas / Impostos / Estrutura / Receita via DKB_ADAPTERS (dataVencimento
+//     + valor + status pago/pendente)
+function _ktDateForYmMeta(meta, y, m){
+  // m: 1..12. Retorna 'YYYY-MM-DD' a partir de meta.dataVencimento ou último dia do mês.
+  if (meta && meta.dataVencimento && /^\d{4}-\d{2}-\d{2}$/.test(meta.dataVencimento)){
+    return meta.dataVencimento;
+  }
+  const lastDay = new Date(y, m, 0).getDate();
+  return y + '-' + String(m).padStart(2,'0') + '-' + String(lastDay).padStart(2,'0');
+}
+
+function _ktPullDkbAdapter(adapterId, kind, origemLabel, byDay, startKey, endKey, descPrefix){
+  if (typeof DKB_ADAPTERS === 'undefined' || !DKB_ADAPTERS[adapterId]) return;
+  const ad = DKB_ADAPTERS[adapterId];
+  const items = (typeof ad.items === 'function') ? (ad.items() || []) : (ad.items || []);
+  for (const it of items){
+    if (!it) continue;
+    const valores = (typeof ad.valoresOf === 'function') ? (ad.valoresOf(it) || {}) : {};
+    const nome = (typeof ad.nameOf === 'function') ? ad.nameOf(it) : '';
+    const desc = (typeof ad.descOf === 'function') ? ad.descOf(it) : '';
+    for (const ym of Object.keys(valores)){
+      const v = Math.abs(parseFloat(valores[ym]) || 0);
+      if (v === 0) continue;
+      const parts = String(ym).split('-');
+      const y = parseInt(parts[0],10);
+      const m = parseInt(parts[1],10);
+      if (!isFinite(y) || !isFinite(m)) continue;
+      const meta = (it.meta && it.meta[ym]) || {};
+      const dateKey = _ktDateForYmMeta(meta, y, m);
+      if (dateKey < startKey || dateKey > endKey) continue;
+      const isPago = (typeof ad.pagoOf === 'function') ? !!ad.pagoOf(it, ym) : false;
+      if (!byDay[dateKey]) byDay[dateKey] = { inflow:0, outflow:0, items:[], pago:0, pendente:0 };
+      const slot = byDay[dateKey];
+      if (kind === 'receita') slot.inflow += v; else slot.outflow += v;
+      slot.items.push({
+        kind: kind,
+        desc: (descPrefix ? descPrefix + ' · ' : '') + (nome || '(sem nome)') + (desc ? ' (' + desc + ')' : ''),
+        valor: v,
+        status: isPago ? 'pago' : 'pendente',
+        conta: '',
+        contraparte: nome || '',
+        categoria: desc || '',
+        origem: origemLabel
+      });
+      if (isPago) slot.pago += v; else slot.pendente += v;
+    }
+  }
+}
+
 function kashtrackAggregateByDay(startKey, endKey){
   const byDay = {};  // 'YYYY-MM-DD' → { inflow, outflow, items:[], status:{pago,pendente} }
   const addDay = (key) => {
@@ -38186,6 +38236,70 @@ function kashtrackAggregateByDay(startKey, endKey){
       }
     }
   } catch(e){ console.warn('[KASHtrack] cartões:', e); }
+
+  // Pessoas (folha de pagamento) — saída por dia de vencimento do salário
+  try { _ktPullDkbAdapter('pes', 'gasto', 'Pessoas', byDay, startKey, endKey, 'Folha'); }
+  catch(e){ console.warn('[KASHtrack] pessoas:', e); }
+
+  // Impostos correntes
+  try { _ktPullDkbAdapter('imp-cor', 'gasto', 'Impostos', byDay, startKey, endKey, 'Imposto'); }
+  catch(e){ console.warn('[KASHtrack] imp-cor:', e); }
+
+  // Impostos parcelamentos
+  try { _ktPullDkbAdapter('imp-par', 'gasto', 'Impostos · Parcelamento', byDay, startKey, endKey, 'Parc. imposto'); }
+  catch(e){ console.warn('[KASHtrack] imp-par:', e); }
+
+  // Estrutura — despesas fixas recorrentes
+  try { _ktPullDkbAdapter('est-fixa', 'gasto', 'Estrutura', byDay, startKey, endKey, 'Despesa fixa'); }
+  catch(e){ console.warn('[KASHtrack] est-fixa:', e); }
+
+  // Receita — recebimentos previstos (estrutura diferente, com cell.dataVencimento)
+  try {
+    if (typeof receita !== 'undefined' && receita && receita.years && typeof receita.years === 'object'){
+      const meses_lower = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+      const clientesById = new Map((receita.clientes || []).map(c => [c.id, c]));
+      for (const yKey of Object.keys(receita.years)){
+        const yNum = parseInt(yKey, 10);
+        if (!isFinite(yNum)) continue;
+        const d = receita.years[yKey] || {};
+        for (const r of (d.clients || [])){
+          const c = clientesById.get(r.clienteId);
+          const nome = c ? (c.nome || '(sem nome)') : '(cliente removido)';
+          const meses = r.meses || {};
+          for (const mAbbr of Object.keys(meses)){
+            const cell = meses[mAbbr];
+            if (!cell || cell.valor === '' || cell.valor == null) continue;
+            const v = Math.abs(parseFloat(cell.valor) || 0);
+            if (v === 0) continue;
+            const mIdx = meses_lower.indexOf(mAbbr);
+            if (mIdx < 0) continue;
+            let dateKey;
+            if (cell.dataVencimento && /^\d{4}-\d{2}-\d{2}$/.test(cell.dataVencimento)){
+              dateKey = cell.dataVencimento;
+            } else {
+              const lastDay = new Date(yNum, mIdx + 1, 0).getDate();
+              dateKey = yNum + '-' + String(mIdx+1).padStart(2,'0') + '-' + String(lastDay).padStart(2,'0');
+            }
+            if (dateKey < startKey || dateKey > endKey) continue;
+            const isRecebido = cell.status === 'recebido';
+            const slot = addDay(dateKey);
+            slot.inflow += v;
+            slot.items.push({
+              kind: 'receita',
+              desc: 'Receita · ' + nome + (r.descricao ? ' (' + r.descricao + ')' : (r.tipo ? ' (' + r.tipo + ')' : '')),
+              valor: v,
+              status: isRecebido ? 'pago' : 'pendente',
+              conta: '',
+              contraparte: nome,
+              categoria: r.tipo || 'Receita',
+              origem: 'Receita'
+            });
+            if (isRecebido) slot.pago += v; else slot.pendente += v;
+          }
+        }
+      }
+    }
+  } catch(e){ console.warn('[KASHtrack] receita:', e); }
 
   return byDay;
 }
