@@ -73241,6 +73241,164 @@ async function fkcHandleForgotPassword(ev){
   }
 }
 
+// ═══════════════════════════════════════════════════
+//  CLOUD AUTO-BACKUP — snapshot do localStorage no Supabase
+// ═══════════════════════════════════════════════════
+// Stopgap até as Fases 2-4 (schema real). Cada user tem 1 row
+// na user_backups com jsonb do localStorage. Backup dispara em:
+//   - mudanças (debounced 5s via monkey-patch em setItem)
+//   - intervalo (30min)
+//   - visibilitychange (aba esconde)
+//   - beforeunload (via fetch keepalive)
+
+const FK_BACKUP_DEBOUNCE_MS  = 5 * 1000;        // 5s após mudança
+const FK_BACKUP_INTERVAL_MS  = 30 * 60 * 1000;  // 30min
+const FK_BACKUP_PREFIXES = ['taller_', 'forekash_', 'forekash:', 'home_market_', 'home_news_', 'home_quote_'];
+
+let _fkBackupTimer = null;
+let _fkBackupLastHash = null;
+let _fkBackupInFlight = false;
+let _fkBackupLoopStarted = false;
+
+function fkcCollectBackupPayload(){
+  const obj = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k) continue;
+    if (FK_BACKUP_PREFIXES.some(p => k.startsWith(p))) {
+      obj[k] = localStorage.getItem(k);
+    }
+  }
+  return obj;
+}
+
+async function fkcBackupNow(opts){
+  opts = opts || {};
+  if (window.FK_MODE !== 'cloud') return { ok:false, reason:'not_cloud' };
+  if (!window.sb || !window._FK_CLOUD_USER) return { ok:false, reason:'not_logged_in' };
+  if (_fkBackupInFlight) return { ok:false, reason:'in_flight' };
+  const payload = fkcCollectBackupPayload();
+  const json = JSON.stringify(payload);
+  // pseudo-hash leve: tamanho + prefixo. Não é seguro, mas pega 99% das mudanças.
+  const hash = String(json.length) + ':' + json.slice(0, 256);
+  if (!opts.force && hash === _fkBackupLastHash) return { ok:true, skipped:true };
+  _fkBackupInFlight = true;
+  try {
+    const { error } = await window.sb.from('user_backups').upsert({
+      user_id: window._FK_CLOUD_USER.id,
+      data: payload,
+      size_bytes: json.length
+    });
+    if (error) {
+      try{ console.warn('[FK] backup falhou:', error.message); }catch(_){}
+      return { ok:false, error: error.message };
+    }
+    _fkBackupLastHash = hash;
+    try { localStorage.setItem('forekash:backup:last_at', String(Date.now())); } catch(_) {}
+    try { console.log('[FK] backup OK,', Math.round(json.length/1024), 'KB'); } catch(_) {}
+    return { ok:true, bytes: json.length };
+  } finally {
+    _fkBackupInFlight = false;
+  }
+}
+
+function fkcScheduleBackup(){
+  if (window.FK_MODE !== 'cloud') return;
+  if (_fkBackupTimer) clearTimeout(_fkBackupTimer);
+  _fkBackupTimer = setTimeout(() => { fkcBackupNow(); }, FK_BACKUP_DEBOUNCE_MS);
+}
+
+function fkcStartBackupLoop(){
+  if (window.FK_MODE !== 'cloud') return;
+  if (_fkBackupLoopStarted) return;
+  _fkBackupLoopStarted = true;
+
+  // backup inicial + periódico
+  setTimeout(() => fkcBackupNow(), 4000);  // dá tempo do app terminar de bootar
+  setInterval(() => fkcBackupNow(), FK_BACKUP_INTERVAL_MS);
+
+  // backup ao trocar de aba / minimizar
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') fkcBackupNow();
+  });
+
+  // backup ao fechar — usa fetch keepalive (sendBeacon não suporta header Authorization)
+  window.addEventListener('beforeunload', () => {
+    try {
+      if (!window._FK_CLOUD_SESSION) return;
+      const payload = fkcCollectBackupPayload();
+      const json = JSON.stringify(payload);
+      const url = 'https://xgjqnwdhqlxhkgwowwej.supabase.co/rest/v1/user_backups?on_conflict=user_id';
+      fetch(url, {
+        method: 'POST',
+        keepalive: true,
+        headers: {
+          'apikey': 'sb_publishable_lEdzaSQqO38oiiXBBgM1dQ_-mOfl9NS',
+          'Authorization': 'Bearer ' + window._FK_CLOUD_SESSION.access_token,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates,return=minimal'
+        },
+        body: JSON.stringify({
+          user_id: window._FK_CLOUD_USER.id,
+          data: payload,
+          size_bytes: json.length
+        })
+      });
+    } catch(_) {}
+  });
+
+  // monkey-patch Storage.setItem pra disparar backup debounced em mudanças
+  try {
+    const _orig = Storage.prototype.setItem;
+    if (!Storage.prototype.__fk_patched) {
+      Storage.prototype.setItem = function(key, value){
+        _orig.call(this, key, value);
+        if (this === window.localStorage && key && FK_BACKUP_PREFIXES.some(p => key.startsWith(p))) {
+          fkcScheduleBackup();
+        }
+      };
+      Storage.prototype.__fk_patched = true;
+    }
+  } catch(_) {}
+}
+
+async function fkcRestoreFromBackup(opts){
+  opts = opts || {};
+  if (!window.sb || !window._FK_CLOUD_USER) {
+    alert('Você precisa estar logado em modo cloud pra restaurar.');
+    return null;
+  }
+  const { data, error } = await window.sb.from('user_backups')
+    .select('updated_at,size_bytes,data')
+    .eq('user_id', window._FK_CLOUD_USER.id)
+    .maybeSingle();
+  if (error) { alert('Erro: ' + error.message); return null; }
+  if (!data) { alert('Você não tem backup na nuvem ainda.'); return null; }
+  const dt = new Date(data.updated_at);
+  if (!opts.silent) {
+    const conf = confirm(
+      'Restaurar backup de ' + dt.toLocaleString('pt-BR') +
+      ' (' + Math.round((data.size_bytes || 0) / 1024) + ' KB)?\n\n' +
+      'ATENÇÃO: isso sobrescreve os dados locais atuais. A página vai recarregar.'
+    );
+    if (!conf) return null;
+  }
+  try {
+    const obj = data.data || {};
+    for (const k of Object.keys(obj)) {
+      localStorage.setItem(k, obj[k]);
+    }
+    if (!opts.silent) alert('Backup restaurado. A página vai recarregar.');
+    location.reload();
+  } catch(e) {
+    alert('Erro ao restaurar: ' + (e && e.message || e));
+  }
+}
+
+// Expõe pro console / debug
+window.fkcBackupNow = fkcBackupNow;
+window.fkcRestoreFromBackup = fkcRestoreFromBackup;
+
 // Detecta hash fragment "#access_token=...&type=recovery" deixado pelo link de
 // reset de senha do Supabase. Mostra prompt simples pra setar nova senha.
 async function fkcMaybeHandleRecoveryHash(){
@@ -73604,6 +73762,9 @@ let FK_APP_BOOTED = false;
 function fkBootApp(){
   if(FK_APP_BOOTED) return;
   FK_APP_BOOTED = true;
+  if (window.FK_MODE === 'cloud') {
+    _safeInit('fkcStartBackupLoop', () => fkcStartBackupLoop());
+  }
   _safeInit('settingsLoad',       () => settingsLoad());
   _safeInit('seedDemoDataIfEmpty',() => seedDemoDataIfEmpty());
   _safeInit('dispoLoad',          () => dispoLoad());
