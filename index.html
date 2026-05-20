@@ -22867,9 +22867,27 @@ function receitaLoad(){
   }
 }
 
+async function cloudReceitaFetch(){
+  const d = await cloudBlobFetch('receita');
+  if (d == null) {
+    if (receita && receita.years && Object.keys(receita.years).length > 0) {
+      console.log('[FK] receita: cloud vazio, importando do localStorage...');
+      await cloudBlobSync('receita', () => receita);
+    }
+    return;
+  }
+  receita = d;
+  try { localStorage.setItem(REC_KEY, JSON.stringify(receita)); } catch(_){}
+  try { if (typeof receitaLoad === 'function') receitaLoad(); } catch(_){}
+  try { if (typeof renderReceita === 'function') renderReceita(); } catch(_){}
+  console.log('[FK] receita fetch OK');
+}
+window.cloudReceitaFetch = cloudReceitaFetch;
+
 function receitaSave(){
   receita.activeYear = recActiveYear;
   try{ localStorage.setItem(REC_KEY, JSON.stringify(receita)); }catch(e){}
+  if (window.FK_MODE === 'cloud') cloudBlobSync('receita', () => receita);
   // Atualiza selo de salvamento geral
   const sb = document.getElementById('sb-save-ts');
   if(sb){
@@ -30796,7 +30814,92 @@ function orcamentoSave(){
   const yBlk = orcamento.years[orcActiveYear];
   if(yBlk) yBlk.ativa = orcActiveVerId;
   try{ localStorage.setItem(ORC_KEY, JSON.stringify(orcamento)); }catch(e){}
+  if (window.FK_MODE === 'cloud') cloudOrcamentoSync();
 }
+
+// ─── Cloud sync: Orçamento (jsonb por ano) ───────────────────
+let _orcCloudSyncInFlight = false;
+let _orcCloudSyncPending  = false;
+
+async function cloudOrcamentoFetch(){
+  if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
+  const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
+  if (!orgId) return;
+  if (!orcamento) orcamentoLoad();
+  try {
+    const { data, error } = await window.sb
+      .from('orcamento_year').select('year, data').eq('org_id', orgId).order('year');
+    if (error) { console.warn('[FK] orc fetch erro:', error.message); return; }
+
+    if ((data || []).length === 0) {
+      const localYears = Object.keys(orcamento.years || {});
+      if (localYears.length > 0) {
+        console.log('[FK] orc: cloud vazio, importando', localYears.length, 'anos do localStorage...');
+        await cloudOrcamentoSync();
+      }
+      return;
+    }
+
+    orcamento.years = {};
+    for (const row of data) {
+      orcamento.years[row.year] = row.data || { versions: [], ativa: null };
+    }
+    try { localStorage.setItem(ORC_KEY, JSON.stringify(orcamento)); } catch(_){}
+    try { if (typeof renderOrcamento === 'function') renderOrcamento(); } catch(_){}
+    console.log('[FK] orc fetch OK:', data.length, 'anos');
+  } catch(e) {
+    console.warn('[FK] orc fetch fail:', e.message || e);
+  }
+}
+
+async function cloudOrcamentoSync(){
+  if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
+  if (_orcCloudSyncInFlight) { _orcCloudSyncPending = true; return; }
+  _orcCloudSyncInFlight = true;
+  try {
+    const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
+    if (!orgId) return;
+    if (!orcamento) orcamentoLoad();
+
+    const { data: cloudRows, error: fetchErr } = await window.sb
+      .from('orcamento_year').select('year').eq('org_id', orgId);
+    if (fetchErr) throw fetchErr;
+
+    const localYears = Object.keys(orcamento.years || {});
+    if (localYears.length > 0) {
+      const payload = localYears.map(y => ({
+        org_id: orgId,
+        year: String(y),
+        data: orcamento.years[y] || {}
+      }));
+      const { error: upErr } = await window.sb
+        .from('orcamento_year')
+        .upsert(payload, { onConflict: 'org_id,year' });
+      if (upErr) throw upErr;
+    }
+
+    const localSet = new Set(localYears.map(String));
+    const toDelete = (cloudRows || []).filter(r => !localSet.has(String(r.year))).map(r => r.year);
+    if (toDelete.length > 0) {
+      const { error: delErr } = await window.sb
+        .from('orcamento_year').delete().eq('org_id', orgId).in('year', toDelete);
+      if (delErr) throw delErr;
+    }
+
+    console.log('[FK] orc sync OK:', localYears.length, 'anos');
+  } catch(e) {
+    console.warn('[FK] orc sync fail:', e.message || e);
+  } finally {
+    _orcCloudSyncInFlight = false;
+    if (_orcCloudSyncPending) {
+      _orcCloudSyncPending = false;
+      setTimeout(() => cloudOrcamentoSync(), 300);
+    }
+  }
+}
+
+window.cloudOrcamentoFetch = cloudOrcamentoFetch;
+window.cloudOrcamentoSync  = cloudOrcamentoSync;
 
 function orcEnsureYear(y){
   y = String(y);
@@ -40992,9 +41095,27 @@ function pessoasLoad(){
   pesActiveYear = pessoas.activeYear;
 }
 
+async function cloudPessoasFetch(){
+  const d = await cloudBlobFetch('pessoas');
+  if (d == null) {
+    if (pessoas && (pessoas.people||[]).length > 0) {
+      console.log('[FK] pessoas: cloud vazio, importando do localStorage...');
+      await cloudBlobSync('pessoas', () => pessoas);
+    }
+    return;
+  }
+  pessoas = d;
+  try { localStorage.setItem(PES_KEY, JSON.stringify(pessoas)); } catch(_){}
+  try { if (typeof pessoasLoad === 'function') pessoasLoad(); } catch(_){}
+  try { if (typeof renderPessoas === 'function') renderPessoas(); } catch(_){}
+  console.log('[FK] pessoas fetch OK');
+}
+window.cloudPessoasFetch = cloudPessoasFetch;
+
 function pessoasSave(){
   pessoas.activeYear = pesActiveYear;
   try{ localStorage.setItem(PES_KEY, JSON.stringify(pessoas)); }catch(e){}
+  if (window.FK_MODE === 'cloud') cloudBlobSync('pessoas', () => pessoas);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -56563,7 +56684,24 @@ function estLoad(){
 function estSave(){
   estrutura.activeYear = estActiveYear;
   try{ localStorage.setItem(EST_KEY, JSON.stringify(estrutura)); }catch(e){}
+  if (window.FK_MODE === 'cloud') cloudBlobSync('estrutura', () => estrutura);
 }
+async function cloudEstruturaFetch(){
+  const d = await cloudBlobFetch('estrutura');
+  if (d == null) {
+    if (estrutura && (estrutura.itens||[]).length > 0) {
+      console.log('[FK] estrutura: cloud vazio, importando do localStorage...');
+      await cloudBlobSync('estrutura', () => estrutura);
+    }
+    return;
+  }
+  estrutura = d;
+  try { localStorage.setItem(EST_KEY, JSON.stringify(estrutura)); } catch(_){}
+  try { if (typeof estLoad === 'function') estLoad(); } catch(_){}  // sanitiza
+  try { if (typeof renderEstrutura === 'function') renderEstrutura(); } catch(_){}
+  console.log('[FK] estrutura fetch OK');
+}
+window.cloudEstruturaFetch = cloudEstruturaFetch;
 
 function renderEstrutura(){
   if(!estrutura) return;
@@ -58115,7 +58253,31 @@ function impSave(){
       (k === '_plan' || k === '_planKey') ? undefined : v
     ));
   }catch(e){}
+  if (window.FK_MODE === 'cloud') {
+    // Aplica o mesmo replacer pra não enviar caches derivados pro cloud
+    cloudBlobSync('impostos', () => JSON.parse(JSON.stringify(impostos, (k,v) =>
+      (k === '_plan' || k === '_planKey') ? undefined : v
+    )));
+  }
 }
+async function cloudImpostosFetch(){
+  const d = await cloudBlobFetch('impostos');
+  if (d == null) {
+    if (impostos && ((impostos.correntes||[]).length > 0 || (impostos.parcelamentos||[]).length > 0)) {
+      console.log('[FK] impostos: cloud vazio, importando do localStorage...');
+      await cloudBlobSync('impostos', () => JSON.parse(JSON.stringify(impostos, (k,v) =>
+        (k === '_plan' || k === '_planKey') ? undefined : v
+      )));
+    }
+    return;
+  }
+  impostos = d;
+  try { localStorage.setItem(IMP_KEY, JSON.stringify(impostos)); } catch(_){}
+  try { if (typeof impLoad === 'function') impLoad(); } catch(_){}
+  try { if (typeof renderImpostos === 'function') renderImpostos(); } catch(_){}
+  console.log('[FK] impostos fetch OK');
+}
+window.cloudImpostosFetch = cloudImpostosFetch;
 
 function impRubrica(id){ return (impostos.rubricas||[]).find(r=>r.id===id) || null; }
 
@@ -60948,7 +61110,29 @@ function dispoLoad(){
 
 function dispoSave(){
   try{ localStorage.setItem(DISPO_KEY, JSON.stringify({ activeYear:dispoActiveYear, state:dispo })); }catch(e){}
+  if (window.FK_MODE === 'cloud') cloudBlobSync('dispo', () => ({ activeYear: dispoActiveYear, state: dispo }));
 }
+async function cloudDispoFetch(){
+  const d = await cloudBlobFetch('dispo');
+  if (d == null) {
+    if (dispo && ((dispo.contas||[]).length > 0 || (dispo.bancos||[]).length > 0)) {
+      console.log('[FK] dispo: cloud vazio, importando do localStorage...');
+      await cloudBlobSync('dispo', () => ({ activeYear: dispoActiveYear, state: dispo }));
+    }
+    return;
+  }
+  if (d && d.state) {
+    dispo = d.state;
+    if (d.activeYear) dispoActiveYear = d.activeYear;
+  } else {
+    dispo = d;
+  }
+  try { localStorage.setItem(DISPO_KEY, JSON.stringify({ activeYear: dispoActiveYear, state: dispo })); } catch(_){}
+  try { if (typeof dispoLoad === 'function') dispoLoad(); } catch(_){}
+  try { if (typeof renderDispo === 'function') renderDispo(); } catch(_){}
+  console.log('[FK] dispo fetch OK');
+}
+window.cloudDispoFetch = cloudDispoFetch;
 
 /* ════════════════════════════════════════════════════════
    MÓDULO ANÁLISE — pivot dinâmico cross-modulares
@@ -74711,6 +74895,68 @@ window.fkcBackupNow = fkcBackupNow;
 window.fkcRestoreFromBackup = fkcRestoreFromBackup;
 
 // ═══════════════════════════════════════════════════
+//  CLOUD BLOB SYNC — helper genérico (módulos jsonb-blob)
+// ═══════════════════════════════════════════════════
+// Pra módulos onde sync é "todo o estado vai como 1 blob jsonb"
+// (estrutura, pessoas, receita, dispo, impostos, etc). Mais
+// simples que decompor em colunas/tabelas, com trade-off de
+// last-write-wins em conflito multi-device.
+
+const _FK_BLOB_FLAGS = {};
+
+async function cloudBlobFetch(moduleName){
+  if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return null;
+  const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
+  if (!orgId) return null;
+  try {
+    const { data, error } = await window.sb
+      .from('module_blobs')
+      .select('data')
+      .eq('org_id', orgId)
+      .eq('module', moduleName)
+      .maybeSingle();
+    if (error) { console.warn('[FK] blob fetch erro:', moduleName, error.message); return null; }
+    if (!data) return null;  // cloud vazio
+    return data.data || {};
+  } catch(e) {
+    console.warn('[FK] blob fetch fail:', moduleName, e.message || e);
+    return null;
+  }
+}
+
+async function cloudBlobSync(moduleName, getDataFn){
+  if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
+  const flagK = moduleName;
+  const pendK = moduleName + '__pending';
+  if (_FK_BLOB_FLAGS[flagK]) { _FK_BLOB_FLAGS[pendK] = true; return; }
+  _FK_BLOB_FLAGS[flagK] = true;
+  try {
+    const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
+    if (!orgId) return;
+    let data;
+    try { data = (typeof getDataFn === 'function') ? getDataFn() : getDataFn; }
+    catch(_) { data = null; }
+    if (data === null || data === undefined) return;
+    const { error } = await window.sb
+      .from('module_blobs')
+      .upsert({ org_id: orgId, module: moduleName, data: data }, { onConflict: 'org_id,module' });
+    if (error) { console.warn('[FK] blob sync erro:', moduleName, error.message); return; }
+    console.log('[FK] blob sync OK:', moduleName);
+  } catch(e) {
+    console.warn('[FK] blob sync fail:', moduleName, e.message || e);
+  } finally {
+    _FK_BLOB_FLAGS[flagK] = false;
+    if (_FK_BLOB_FLAGS[pendK]) {
+      _FK_BLOB_FLAGS[pendK] = false;
+      setTimeout(() => cloudBlobSync(moduleName, getDataFn), 300);
+    }
+  }
+}
+
+window.cloudBlobFetch = cloudBlobFetch;
+window.cloudBlobSync  = cloudBlobSync;
+
+// ═══════════════════════════════════════════════════
 //  CLOUD DATA SYNC — ponto único de fetch das tabelas
 // ═══════════════════════════════════════════════════
 // Chamado por fkBootApp() em cloud mode. Cada módulo migrado da
@@ -74730,7 +74976,13 @@ async function fkcSyncCloudData(){
   try { if (typeof cloudVendedoresFetch      === 'function') await cloudVendedoresFetch();      } catch(e) { console.warn('[FK] sync vend:', e); }
   // Fase 3 — jsonb blobs por ano
   try { if (typeof cloudFluxoFetch           === 'function') await cloudFluxoFetch();           } catch(e) { console.warn('[FK] sync fluxo:', e); }
-  // TODO Fase 3: cloudOrcamentoFetch, cloudEstruturaFetch, cloudPessoasFetch, cloudReceitaFetch, cloudDispoFetch, cloudImpostosFetch
+  try { if (typeof cloudOrcamentoFetch       === 'function') await cloudOrcamentoFetch();       } catch(e) { console.warn('[FK] sync orc:', e); }
+  try { if (typeof cloudEstruturaFetch       === 'function') await cloudEstruturaFetch();       } catch(e) { console.warn('[FK] sync estrutura:', e); }
+  try { if (typeof cloudPessoasFetch         === 'function') await cloudPessoasFetch();         } catch(e) { console.warn('[FK] sync pessoas:', e); }
+  try { if (typeof cloudReceitaFetch         === 'function') await cloudReceitaFetch();         } catch(e) { console.warn('[FK] sync receita:', e); }
+  try { if (typeof cloudDispoFetch           === 'function') await cloudDispoFetch();           } catch(e) { console.warn('[FK] sync dispo:', e); }
+  try { if (typeof cloudImpostosFetch        === 'function') await cloudImpostosFetch();        } catch(e) { console.warn('[FK] sync imp:', e); }
+  // Fase 3 completa! Próxima: Fase 4 (board, viagens, support, settings, snapshots).
 }
 window.fkcSyncCloudData = fkcSyncCloudData;
 
