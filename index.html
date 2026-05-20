@@ -47744,8 +47744,140 @@ function _extLoad(){
 }
 function _extSave(){
   try { localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData)); } catch(e){}
+  if (window.FK_MODE === 'cloud') cloudExtratoSync();
 }
 _extLoad();
+
+// ─── Cloud sync: Extrato ─────────────────────────────────────
+// Reusa _cloudSyncTable e _cartNum/_cartInt/_cartDate definidos
+// no bloco de cartões.
+
+let _extCloudSyncInFlight = false;
+let _extCloudSyncPending  = false;
+
+const _EXT_COL_FIELDS = new Set([
+  'id', 'data', 'valor', 'descricao', 'categoria', 'contraparte', 'conta',
+  'status', 'tipo', 'centroCustoId', 'numeroDocumento', 'dataPagamento',
+  'notas', 'importadoDe'
+]);
+
+function _extToRow(l, orgId){
+  const meta = {};
+  for (const k of Object.keys(l || {})) {
+    if (!_EXT_COL_FIELDS.has(k)) meta[k] = l[k];
+  }
+  return {
+    org_id: orgId,
+    local_id: l.id,
+    data: _cartDate(l.data),
+    valor: _cartNum(l.valor),
+    descricao: l.descricao || null,
+    categoria: l.categoria || null,
+    contraparte: l.contraparte || null,
+    conta: l.conta || null,
+    status: l.status || null,
+    tipo: l.tipo || null,
+    centro_custo_id: _cartInt(l.centroCustoId),
+    numero_documento: l.numeroDocumento || null,
+    data_pagamento: _cartDate(l.dataPagamento),
+    notas: l.notas || null,
+    importado_de: l.importadoDe || null,
+    metadata: meta
+  };
+}
+
+function _extFromRow(r){
+  const out = {
+    id: r.local_id,
+    data: r.data || '',
+    valor: r.valor != null ? r.valor : 0,
+    descricao: r.descricao || '',
+    categoria: r.categoria || '',
+    contraparte: r.contraparte || '',
+    conta: r.conta || '',
+    status: r.status || 'pago',
+    tipo: r.tipo || 'gasto',
+    centroCustoId: r.centro_custo_id != null ? r.centro_custo_id : null,
+    numeroDocumento: r.numero_documento || '',
+    dataPagamento: r.data_pagamento || '',
+    notas: r.notas || '',
+    importadoDe: r.importado_de || ''
+  };
+  if (r.metadata && typeof r.metadata === 'object') {
+    for (const k of Object.keys(r.metadata)) {
+      if (!_EXT_COL_FIELDS.has(k)) out[k] = r.metadata[k];
+    }
+  }
+  return out;
+}
+
+async function cloudExtratoFetch(){
+  if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
+  const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
+  if (!orgId) return;
+  try {
+    // Paginação: extrato pode ter milhares de linhas. Supabase REST tem
+    // limite default de 1000. Iteramos em pages até esgotar.
+    const PAGE = 1000;
+    let allRows = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await window.sb
+        .from('extrato_lancamentos')
+        .select('local_id, data, valor, descricao, categoria, contraparte, conta, status, tipo, centro_custo_id, numero_documento, data_pagamento, notas, importado_de, metadata')
+        .eq('org_id', orgId)
+        .order('local_id')
+        .range(from, from + PAGE - 1);
+      if (error) { console.warn('[FK] extrato fetch erro:', error.message); return; }
+      if (!data || data.length === 0) break;
+      allRows = allRows.concat(data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+
+    if (allRows.length === 0) {
+      const localLen = (extratoData.lancamentos || []).length;
+      if (localLen > 0) {
+        console.log('[FK] extrato: cloud vazio, importando', localLen, 'do localStorage...');
+        await cloudExtratoSync();
+      }
+      return;
+    }
+
+    extratoData.lancamentos = allRows.map(_extFromRow);
+    extratoData.nextId = Math.max(0, ...extratoData.lancamentos.map(l => l.id || 0)) + 1;
+    try { localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData)); } catch(_){}
+    try { if (typeof renderExtrato === 'function') renderExtrato(); } catch(_){}
+    console.log('[FK] extrato fetch OK:', extratoData.lancamentos.length, 'lançamentos');
+  } catch(e) {
+    console.warn('[FK] extrato fetch fail:', e.message || e);
+  }
+}
+
+async function cloudExtratoSync(){
+  if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
+  if (_extCloudSyncInFlight) { _extCloudSyncPending = true; return; }
+  _extCloudSyncInFlight = true;
+  try {
+    const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
+    if (!orgId) return;
+    await _cloudSyncTable('extrato_lancamentos',
+                           extratoData.lancamentos || [],
+                           _extToRow, orgId);
+    console.log('[FK] extrato sync OK:', (extratoData.lancamentos || []).length, 'lançamentos');
+  } catch(e) {
+    console.warn('[FK] extrato sync fail:', e.message || e);
+  } finally {
+    _extCloudSyncInFlight = false;
+    if (_extCloudSyncPending) {
+      _extCloudSyncPending = false;
+      setTimeout(() => cloudExtratoSync(), 300);
+    }
+  }
+}
+
+window.cloudExtratoFetch = cloudExtratoFetch;
+window.cloudExtratoSync  = cloudExtratoSync;
 
 function _extInitPeriod(){
   if(_extState.period) return;
@@ -74372,7 +74504,8 @@ async function fkcSyncCloudData(){
   try { if (typeof cloudLoanModalidadesFetch === 'function') await cloudLoanModalidadesFetch(); } catch(e) { console.warn('[FK] sync LM:', e); }
   try { if (typeof cloudLoansFetch           === 'function') await cloudLoansFetch();           } catch(e) { console.warn('[FK] sync loans:', e); }
   try { if (typeof cloudCartoesFetch         === 'function') await cloudCartoesFetch();         } catch(e) { console.warn('[FK] sync cartões:', e); }
-  // TODO Fase 2: cloudExtratoFetch, cloudVendedoresFetch
+  try { if (typeof cloudExtratoFetch         === 'function') await cloudExtratoFetch();         } catch(e) { console.warn('[FK] sync extrato:', e); }
+  // TODO Fase 2: cloudVendedoresFetch
 }
 window.fkcSyncCloudData = fkcSyncCloudData;
 
