@@ -17,9 +17,11 @@
     (function(){
       var SUPABASE_URL = 'https://xgjqnwdhqlxhkgwowwej.supabase.co';
       var SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_lEdzaSQqO38oiiXBBgM1dQ_-mOfl9NS';
-      // FK_MODE: 'local' (default, comportamento atual com localStorage) | 'cloud' (Supabase).
-      // Toggle no console: localStorage.setItem('fk_cloud_mode','1'); location.reload();
-      window.FK_MODE = localStorage.getItem('fk_cloud_mode') === '1' ? 'cloud' : 'local';
+      // FK_MODE: 'cloud' (DEFAULT — multi-device, auth Supabase) | 'local' (opt-in legado).
+      // Escape hatch — pra forçar local mode (debug ou rollback emergencial):
+      //   localStorage.setItem('fk_force_local','1'); location.reload();
+      // Pra voltar pra cloud: localStorage.removeItem('fk_force_local'); location.reload();
+      window.FK_MODE = localStorage.getItem('fk_force_local') === '1' ? 'local' : 'cloud';
       if (window.supabase && typeof window.supabase.createClient === 'function') {
         window.sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
           auth: { persistSession: true, autoRefreshToken: true, storage: localStorage }
@@ -12552,6 +12554,10 @@
           <button type="button" id="mn-restore" onclick="fkcMenuRestore()" role="menuitem">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 7 8 12 3 17"/><polyline points="21 17 16 12 21 7"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
             Restaurar backup
+          </button>
+          <button type="button" id="mn-force-local" onclick="fkcForceLocalMode()" role="menuitem" style="color:#9CA3AF" title="Escape hatch — desabilita cloud mode neste device">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12h6"/><circle cx="12" cy="12" r="10"/></svg>
+            Reverter pra modo local
           </button>
         </div>
         <div class="mn-div"></div>
@@ -75229,8 +75235,25 @@ async function fkcMenuBackupNow(){
 async function fkcMenuRestore(){
   await fkcRestoreFromBackup();
 }
+// Escape hatch: força local mode no próximo reload
+function fkcForceLocalMode(){
+  const conf = confirm(
+    'Reverter pra MODO LOCAL neste dispositivo?\n\n' +
+    'Isso significa:\n' +
+    '• Dados ficam só no localStorage deste navegador\n' +
+    '• Sem sincronização entre devices\n' +
+    '• Sem backup automático na nuvem\n\n' +
+    'Use apenas pra debug ou em caso de problema com a nuvem. ' +
+    'Pode reverter pelo console com:\n' +
+    'localStorage.removeItem(\'fk_force_local\'); location.reload();'
+  );
+  if (!conf) return;
+  try { localStorage.setItem('fk_force_local', '1'); } catch(_){}
+  location.reload();
+}
 window.fkcMenuBackupNow = fkcMenuBackupNow;
 window.fkcMenuRestore = fkcMenuRestore;
+window.fkcForceLocalMode = fkcForceLocalMode;
 
 // Atualiza o status do "Backup agora" no menu com o timestamp do último backup
 function fkcRefreshMenuBackupStatus(){
