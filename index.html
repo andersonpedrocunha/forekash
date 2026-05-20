@@ -3204,6 +3204,13 @@
     .catmap-row.is-locked{background:#F8FAFC;border-color:#E5E7EB}
     .catmap-row.is-locked:hover{background:#F8FAFC;border-color:#CBD5E1}
     .catmap-row.is-locked .nm::after{content:" 🔒";font-size:.72rem;opacity:.6}
+
+    /* Paleta de cores pré-setadas (catmap, CC, etc) */
+    .fk-color-presets{display:inline-flex;gap:5px;flex-wrap:wrap;align-items:center;margin-left:4px}
+    .fk-color-presets .fk-color-swatch{width:18px;height:18px;border-radius:50%;border:2px solid #fff;
+      box-shadow:0 0 0 1px #CBD5E1;cursor:pointer;padding:0;transition:transform .12s, box-shadow .12s;flex-shrink:0}
+    .fk-color-presets .fk-color-swatch:hover{transform:scale(1.18);box-shadow:0 0 0 1.5px #475569}
+    .fk-color-presets-wrap{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap}
     /* DKB modal — pill read-only pra módulos sem categoria editável */
     .dkb-readonly-pill{display:inline-block;padding:8px 12px;background:#F1F5F9;border:1px solid #E2E8F0;border-radius:7px;color:#475569;font-size:.86rem;font-weight:600;font-family:inherit}
     /* MÓDULO Outras Operações */
@@ -16057,6 +16064,9 @@
                 <input type="text" id="cc-input-nome" placeholder="Ex: Vendas, Marketing, Operações..." maxlength="40" onkeydown="if(event.key==='Enter') ccAdd()">
                 <input type="color" id="cc-input-cor" value="#7C3AED" title="Cor do CC">
                 <button type="button" class="cc-btn-add" onclick="ccAdd()">+ Adicionar</button>
+              </div>
+              <div class="fk-color-presets-wrap" id="cc-toolbar-presets" style="margin-top:6px">
+                <span style="font-size:.72rem;color:#6B7280">Cores rápidas:</span>
               </div>
               <div class="cc-list" id="cc-list"></div>
             </div>
@@ -50803,6 +50813,44 @@ try {
 // ════════════════════════════════════════════════════════════
 //  CENTRO DE CUSTOS (Configurações)
 // ════════════════════════════════════════════════════════════
+// ─── Paleta de cores pré-setadas (compartilhada entre catmap, CC, etc) ───
+const FK_PRESET_COLORS = [
+  '#EF4444', '#F97316', '#EAB308', '#10B981', '#06B6D4',
+  '#3B82F6', '#6366F1', '#A855F7', '#EC4899', '#6B7280'
+];
+function fkColorPresetsHtml(inputId){
+  if (!inputId) return '';
+  let html = '<div class="fk-color-presets" role="group" aria-label="Cores pré-definidas">';
+  for (const c of FK_PRESET_COLORS){
+    html += '<button type="button" class="fk-color-swatch" style="background:' + c + '"'
+         +  ' onclick="fkColorPresetClick(\'' + inputId + '\', \'' + c + '\')"'
+         +  ' aria-label="Cor ' + c + '" title="' + c + '"></button>';
+  }
+  return html + '</div>';
+}
+function fkColorPresetClick(inputId, color){
+  const el = document.getElementById(inputId);
+  if (!el) return;
+  el.value = color;
+  try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch(_){}
+  try { el.dispatchEvent(new Event('input',  { bubbles: true })); } catch(_){}
+}
+window.fkColorPresetsHtml = fkColorPresetsHtml;
+window.fkColorPresetClick = fkColorPresetClick;
+
+// Popula presets em toolbars estáticas (cc-toolbar-presets etc) após DOM ready
+function _fkInitStaticColorPresets(){
+  const cc = document.getElementById('cc-toolbar-presets');
+  if (cc && !cc.querySelector('.fk-color-presets')) {
+    cc.insertAdjacentHTML('beforeend', fkColorPresetsHtml('cc-input-cor'));
+  }
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _fkInitStaticColorPresets);
+} else {
+  _fkInitStaticColorPresets();
+}
+
 const CC_KEY = 'forekash:cc:v1';
 let centrosCusto = []; // [{ id, nome, cor }]
 let _ccNextId = 1;
@@ -50951,13 +50999,14 @@ function ccRender(){
   let html = '';
   for(const c of sorted){
     if(_ccEditingId === c.id){
-      html += '<div class="cc-row editing">'
+      html += '<div class="cc-row editing" style="flex-wrap:wrap">'
         + '<input type="color" id="cc-edit-cor-' + c.id + '" value="' + (c.cor || '#7C3AED') + '" style="width:32px;height:30px;border:1px solid #CBD5E1;border-radius:5px;cursor:pointer;padding:1px;flex-shrink:0">'
         + '<div class="nm"><input type="text" id="cc-edit-nome-' + c.id + '" value="' + _extEsc(c.nome || '') + '" maxlength="40" onkeydown="if(event.key===\'Enter\') ccSaveEdit(' + c.id + '); if(event.key===\'Escape\') ccCancelEdit();"></div>'
         + '<div class="actions">'
         +   '<button class="save" onclick="ccSaveEdit(' + c.id + ')">Salvar</button>'
         +   '<button class="cancel" onclick="ccCancelEdit()">Cancelar</button>'
         + '</div>'
+        + '<div style="flex-basis:100%;margin-top:6px">' + fkColorPresetsHtml('cc-edit-cor-' + c.id) + '</div>'
         + '</div>';
     } else {
       html += '<div class="cc-row">'
@@ -51325,6 +51374,13 @@ function _catmapMergeDiscovered(){
   for(const f of found) foundByKey.set(f.nome.toLowerCase(), f);
   if(!Array.isArray(catmapData.categorias)) catmapData.categorias = [];
 
+  // Helper: detecta se a origem da auto-discovery foi um item criado pelo user
+  // (tag em Estrutura ou rubrica em Impostos), vs um nome de módulo do sistema.
+  const _isUserOrigin = (origem) => {
+    const o = String(origem || '');
+    return o.startsWith('Estrutura ·') || o.startsWith('Impostos ·');
+  };
+
   const kept = [];
   for(const c of catmapData.categorias){
     const key = (c.nome || '').toLowerCase();
@@ -51342,6 +51398,11 @@ function _catmapMergeDiscovered(){
           c.drcLineId = sugg.drcLineId;
           c.dreLineId = sugg.dreLineId;
           c.suggestionApplied = true;
+        }
+        // Backfill userCreated: tags em Estrutura / rubricas de Impostos foram criadas
+        // pelo user; categorias nominais de módulo (Receita, Pessoas, etc) não.
+        if(c.userCreated !== true && _isUserOrigin(c.origem)){
+          c.userCreated = true;
         }
         kept.push(c);
       } else {
@@ -51371,6 +51432,10 @@ function _catmapMergeDiscovered(){
       dreLineId: '',
       cor: f.cor || '#94A3B8',
       autoDiscovered: true,
+      // Tags de Estrutura e rubricas de Impostos foram criadas pelo user
+      // (não vêm de seed do sistema), então userCreated=true. Outras
+      // categorias auto-descobertas (nome de módulo) permanecem userCreated=false.
+      userCreated: _isUserOrigin(f.origem),
       origem: f.origem || ''
     };
     // Aplica sugestão de DRC/DRE pra entrada nova
@@ -51707,7 +51772,7 @@ function catmapRender(){
     if(collapsed) continue;
     for(const c of grp.cats){
     if(_catmapEditingId === c.id){
-      html += '<div class="catmap-row editing">'
+      html += '<div class="catmap-row editing" style="flex-wrap:wrap">'
         + '<input type="color" id="catmap-edit-cor-' + c.id + '" value="' + (c.cor || '#7C3AED') + '">'
         + '<input type="text" id="catmap-edit-nome-' + c.id + '" value="' + _extEsc(c.nome || '') + '" maxlength="60" onkeydown="if(event.key===\'Enter\') catmapSaveEdit(' + c.id + '); if(event.key===\'Escape\') catmapCancelEdit();">'
         + '<select id="catmap-edit-modulo-' + c.id + '" onchange="catmapApplySuggestion(' + c.id + ', true)">' + _catmapModuloOptions(c.moduloId || '') + '</select>'
@@ -51718,6 +51783,7 @@ function catmapRender(){
         +   '<button class="save" onclick="catmapSaveEdit(' + c.id + ')">Salvar</button>'
         +   '<button class="cancel" onclick="catmapCancelEdit()">Cancelar</button>'
         + '</div>'
+        + '<div style="flex-basis:100%;margin-top:6px">' + fkColorPresetsHtml('catmap-edit-cor-' + c.id) + '</div>'
         + '</div>';
     } else {
       const modNm = catmapModuloNome(c.moduloId);
@@ -51901,6 +51967,7 @@ function catmapOpenModal(tipoPreset){
     +     '<div class="field">'
     +       '<label for="catmap-modal-cor">Cor</label>'
     +       '<input type="color" id="catmap-modal-cor" value="#7C3AED">'
+    +       '<div style="margin-top:6px">' + fkColorPresetsHtml('catmap-modal-cor') + '</div>'
     +     '</div>'
     +   '</div>'
     +   '<div class="field full">'
