@@ -40919,7 +40919,101 @@ function vendedoresLoad(){
 }
 function vendedoresSave(){
   try { localStorage.setItem(VEND_KEY, JSON.stringify(vendedores)); } catch(e){}
+  if (window.FK_MODE === 'cloud') cloudVendedoresSync();
 }
+
+// ─── Cloud sync: Vendedores ──────────────────────────────────
+// 1 tabela, regras + ajustes como jsonb arrays (não vale 3 tabelas
+// porque são sempre carregados juntos).
+
+let _vendCloudSyncInFlight = false;
+let _vendCloudSyncPending  = false;
+
+const _VEND_COL_FIELDS = new Set(['id', 'nome', 'regras', 'ajustes']);
+
+function _vendToRow(v, orgId){
+  const meta = {};
+  for (const k of Object.keys(v || {})) {
+    if (!_VEND_COL_FIELDS.has(k)) meta[k] = v[k];
+  }
+  return {
+    org_id: orgId,
+    local_id: v.id,
+    nome: v.nome || null,
+    regras:  Array.isArray(v.regras)  ? v.regras  : [],
+    ajustes: Array.isArray(v.ajustes) ? v.ajustes : [],
+    metadata: meta
+  };
+}
+function _vendFromRow(r){
+  const out = {
+    id: r.local_id,
+    nome: r.nome || '',
+    regras: Array.isArray(r.regras) ? r.regras : [],
+    ajustes: Array.isArray(r.ajustes) ? r.ajustes : []
+  };
+  if (r.metadata && typeof r.metadata === 'object') {
+    for (const k of Object.keys(r.metadata)) {
+      if (!_VEND_COL_FIELDS.has(k)) out[k] = r.metadata[k];
+    }
+  }
+  return out;
+}
+
+async function cloudVendedoresFetch(){
+  if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
+  const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
+  if (!orgId) return;
+  if (!vendedores) vendedoresLoad();
+  try {
+    const { data, error } = await window.sb
+      .from('vendedores')
+      .select('local_id, nome, regras, ajustes, metadata')
+      .eq('org_id', orgId)
+      .order('local_id');
+    if (error) { console.warn('[FK] vend fetch erro:', error.message); return; }
+
+    if ((data || []).length === 0) {
+      if ((vendedores.lista || []).length > 0) {
+        console.log('[FK] vend: cloud vazio, importando', vendedores.lista.length, 'do localStorage...');
+        await cloudVendedoresSync();
+      }
+      return;
+    }
+
+    vendedores.lista = data.map(_vendFromRow);
+    vendedores.nextId = Math.max(0, ...vendedores.lista.map(v => v.id || 0)) + 1;
+    try { localStorage.setItem(VEND_KEY, JSON.stringify(vendedores)); } catch(_){}
+    try { if (typeof vendedoresRender === 'function') vendedoresRender(); } catch(_){}
+    console.log('[FK] vend fetch OK:', vendedores.lista.length, 'vendedores');
+  } catch(e) {
+    console.warn('[FK] vend fetch fail:', e.message || e);
+  }
+}
+
+async function cloudVendedoresSync(){
+  if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
+  if (_vendCloudSyncInFlight) { _vendCloudSyncPending = true; return; }
+  _vendCloudSyncInFlight = true;
+  try {
+    const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
+    if (!orgId) return;
+    if (!vendedores) vendedoresLoad();
+    await _cloudSyncTable('vendedores', vendedores.lista || [], _vendToRow, orgId);
+    console.log('[FK] vend sync OK:', (vendedores.lista || []).length, 'vendedores');
+  } catch(e) {
+    console.warn('[FK] vend sync fail:', e.message || e);
+  } finally {
+    _vendCloudSyncInFlight = false;
+    if (_vendCloudSyncPending) {
+      _vendCloudSyncPending = false;
+      setTimeout(() => cloudVendedoresSync(), 300);
+    }
+  }
+}
+
+window.cloudVendedoresFetch = cloudVendedoresFetch;
+window.cloudVendedoresSync  = cloudVendedoresSync;
 // Converte 'YYYY-MM' pra índice absoluto de meses (ano*12+mês)
 function _vendYmIdx(ym){
   if(!ym || !/^\d{4}-\d{2}$/.test(ym)) return null;
@@ -74505,7 +74599,8 @@ async function fkcSyncCloudData(){
   try { if (typeof cloudLoansFetch           === 'function') await cloudLoansFetch();           } catch(e) { console.warn('[FK] sync loans:', e); }
   try { if (typeof cloudCartoesFetch         === 'function') await cloudCartoesFetch();         } catch(e) { console.warn('[FK] sync cartões:', e); }
   try { if (typeof cloudExtratoFetch         === 'function') await cloudExtratoFetch();         } catch(e) { console.warn('[FK] sync extrato:', e); }
-  // TODO Fase 2: cloudVendedoresFetch
+  try { if (typeof cloudVendedoresFetch      === 'function') await cloudVendedoresFetch();      } catch(e) { console.warn('[FK] sync vend:', e); }
+  // Fase 2 completa! Próximas Fases: jsonb blobs (fluxo, orçamento, etc) e snapshots.
 }
 window.fkcSyncCloudData = fkcSyncCloudData;
 
