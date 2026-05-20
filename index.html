@@ -45912,8 +45912,265 @@ function cartLoad(){
 }
 function cartSave(){
   try { localStorage.setItem(CART_KEY, JSON.stringify(cartoes)); } catch(e){}
+  if (window.FK_MODE === 'cloud') cloudCartoesSync();
 }
 cartLoad();
+
+// ─── Cloud sync: Cartões (3 sub-arrays) ──────────────────────
+// Sincroniza cartoes.list, cartoes.faturas e cartoes.lancamentos
+// como 3 tabelas separadas com soft FK via *_local_id.
+
+let _cartCloudSyncInFlight = false;
+let _cartCloudSyncPending  = false;
+
+// Helpers de coerção
+const _cartNum = (v) => {
+  if (v === '' || v == null) return null;
+  const n = Number(String(v).replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
+};
+const _cartInt = (v) => {
+  if (v === '' || v == null) return null;
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : null;
+};
+const _cartDate = (v) => {
+  if (!v) return null;
+  const s = String(v);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}$/.test(s)) return s + '-01';
+  return null;
+};
+
+// CARTÕES — mapping
+const _CART_COL_FIELDS = new Set([
+  'id','nome','banco','bandeira','ultimos4','diaFechamento','diaVencimento','limite','cor','ativo'
+]);
+function _cartToRow(c, orgId){
+  const data = {};
+  for (const k of Object.keys(c || {})) {
+    if (!_CART_COL_FIELDS.has(k)) data[k] = c[k];
+  }
+  return {
+    org_id: orgId,
+    local_id: c.id,
+    nome: c.nome || null,
+    banco: c.banco || null,
+    bandeira: c.bandeira || null,
+    ultimos4: c.ultimos4 || null,
+    dia_fechamento: _cartInt(c.diaFechamento),
+    dia_vencimento: _cartInt(c.diaVencimento),
+    limite: _cartNum(c.limite),
+    cor: c.cor || null,
+    ativo: c.ativo !== false,
+    data: data
+  };
+}
+function _cartFromRow(r){
+  const out = {
+    id: r.local_id,
+    nome: r.nome || '',
+    banco: r.banco || '',
+    bandeira: r.bandeira || '',
+    ultimos4: r.ultimos4 || '',
+    diaFechamento: r.dia_fechamento != null ? r.dia_fechamento : 1,
+    diaVencimento: r.dia_vencimento != null ? r.dia_vencimento : 10,
+    limite: r.limite != null ? r.limite : 0,
+    cor: r.cor || '',
+    ativo: r.ativo !== false
+  };
+  if (r.data && typeof r.data === 'object') {
+    for (const k of Object.keys(r.data)) {
+      if (!_CART_COL_FIELDS.has(k)) out[k] = r.data[k];
+    }
+  }
+  return out;
+}
+
+// FATURAS — mapping
+const _FAT_COL_FIELDS = new Set([
+  'id','cartaoId','mesRef','status','valorTotal','valorPago','dataVencimento'
+]);
+function _faturaToRow(f, orgId){
+  const data = {};
+  for (const k of Object.keys(f || {})) {
+    if (!_FAT_COL_FIELDS.has(k)) data[k] = f[k];
+  }
+  return {
+    org_id: orgId,
+    local_id: f.id,
+    cartao_local_id: _cartInt(f.cartaoId),
+    mes_ref: f.mesRef || null,
+    status: f.status || null,
+    valor_total: _cartNum(f.valorTotal),
+    valor_pago: _cartNum(f.valorPago),
+    data_vencimento: _cartDate(f.dataVencimento),
+    data: data
+  };
+}
+function _faturaFromRow(r){
+  const out = {
+    id: r.local_id,
+    cartaoId: r.cartao_local_id,
+    mesRef: r.mes_ref || '',
+    status: r.status || '',
+    valorTotal: r.valor_total != null ? r.valor_total : 0,
+    valorPago: r.valor_pago != null ? r.valor_pago : 0,
+    dataVencimento: r.data_vencimento || ''
+  };
+  if (r.data && typeof r.data === 'object') {
+    for (const k of Object.keys(r.data)) {
+      if (!_FAT_COL_FIELDS.has(k)) out[k] = r.data[k];
+    }
+  }
+  return out;
+}
+
+// LANCAMENTOS — mapping
+const _LANC_COL_FIELDS = new Set([
+  'id','cartaoId','faturaId','data','valor','descricao','parcela','parcelas'
+]);
+function _lancToRow(l, orgId){
+  const dataExtras = {};
+  for (const k of Object.keys(l || {})) {
+    if (!_LANC_COL_FIELDS.has(k)) dataExtras[k] = l[k];
+  }
+  return {
+    org_id: orgId,
+    local_id: l.id,
+    cartao_local_id: _cartInt(l.cartaoId),
+    fatura_local_id: _cartInt(l.faturaId),
+    data_compra: _cartDate(l.data),
+    valor: _cartNum(l.valor),
+    descricao: l.descricao || null,
+    parcela: _cartInt(l.parcela),
+    parcelas: _cartInt(l.parcelas),
+    data: dataExtras
+  };
+}
+function _lancFromRow(r){
+  const out = {
+    id: r.local_id,
+    cartaoId: r.cartao_local_id,
+    faturaId: r.fatura_local_id,
+    data: r.data_compra || '',
+    valor: r.valor != null ? r.valor : 0,
+    descricao: r.descricao || '',
+    parcela: r.parcela != null ? r.parcela : 1,
+    parcelas: r.parcelas != null ? r.parcelas : 1
+  };
+  if (r.data && typeof r.data === 'object') {
+    // Merge campos extras do jsonb (cuidado: r.data é a coluna jsonb, evitar colisão com r.data_compra)
+    for (const k of Object.keys(r.data)) {
+      if (!_LANC_COL_FIELDS.has(k)) out[k] = r.data[k];
+    }
+  }
+  return out;
+}
+
+async function cloudCartoesFetch(){
+  if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
+  const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
+  if (!orgId) return;
+  try {
+    // Fetch paralelo das 3 tabelas
+    const [resCart, resFat, resLanc] = await Promise.all([
+      window.sb.from('cartoes')
+        .select('local_id, nome, banco, bandeira, ultimos4, dia_fechamento, dia_vencimento, limite, cor, ativo, data')
+        .eq('org_id', orgId).order('local_id'),
+      window.sb.from('cartao_faturas')
+        .select('local_id, cartao_local_id, mes_ref, status, valor_total, valor_pago, data_vencimento, data')
+        .eq('org_id', orgId).order('local_id'),
+      window.sb.from('cartao_lancamentos')
+        .select('local_id, cartao_local_id, fatura_local_id, data_compra, valor, descricao, parcela, parcelas, data')
+        .eq('org_id', orgId).order('local_id')
+    ]);
+    if (resCart.error) { console.warn('[FK] cart fetch erro:', resCart.error.message); return; }
+    if (resFat.error)  { console.warn('[FK] fat fetch erro:',  resFat.error.message);  return; }
+    if (resLanc.error) { console.warn('[FK] lanc fetch erro:', resLanc.error.message); return; }
+
+    const cloudCount = (resCart.data?.length || 0) + (resFat.data?.length || 0) + (resLanc.data?.length || 0);
+    const localCount = (cartoes.list?.length || 0) + (cartoes.faturas?.length || 0) + (cartoes.lancamentos?.length || 0);
+
+    if (cloudCount === 0) {
+      if (localCount > 0) {
+        console.log('[FK] cartões: cloud vazio, importando', localCount, 'do localStorage...');
+        await cloudCartoesSync();
+      }
+      return;
+    }
+
+    cartoes.list        = (resCart.data || []).map(_cartFromRow);
+    cartoes.faturas     = (resFat.data  || []).map(_faturaFromRow);
+    cartoes.lancamentos = (resLanc.data || []).map(_lancFromRow);
+    cartoes.nextCartaoId = Math.max(0, ...cartoes.list.map(c => c.id || 0)) + 1;
+    cartoes.nextFaturaId = Math.max(0, ...cartoes.faturas.map(f => f.id || 0)) + 1;
+    cartoes.nextLancId   = Math.max(0, ...cartoes.lancamentos.map(l => l.id || 0)) + 1;
+    try { localStorage.setItem(CART_KEY, JSON.stringify(cartoes)); } catch(_){}
+    try { if (typeof cartRender === 'function') cartRender(); } catch(_){}
+    console.log('[FK] cartões fetch OK:', cartoes.list.length, 'cartões /',
+                cartoes.faturas.length, 'faturas /', cartoes.lancamentos.length, 'lançamentos');
+  } catch(e) {
+    console.warn('[FK] cartões fetch fail:', e.message || e);
+  }
+}
+
+async function cloudCartoesSync(){
+  if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
+  if (_cartCloudSyncInFlight) { _cartCloudSyncPending = true; return; }
+  _cartCloudSyncInFlight = true;
+  try {
+    const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
+    if (!orgId) return;
+
+    // Sync cartoes (list)
+    await _cloudSyncTable('cartoes', cartoes.list || [], _cartToRow, orgId);
+    // Sync faturas
+    await _cloudSyncTable('cartao_faturas', cartoes.faturas || [], _faturaToRow, orgId);
+    // Sync lancamentos
+    await _cloudSyncTable('cartao_lancamentos', cartoes.lancamentos || [], _lancToRow, orgId);
+
+    console.log('[FK] cartões sync OK:', (cartoes.list||[]).length, 'cartões /',
+                (cartoes.faturas||[]).length, 'faturas /', (cartoes.lancamentos||[]).length, 'lançamentos');
+  } catch(e) {
+    console.warn('[FK] cartões sync fail:', e.message || e);
+  } finally {
+    _cartCloudSyncInFlight = false;
+    if (_cartCloudSyncPending) {
+      _cartCloudSyncPending = false;
+      setTimeout(() => cloudCartoesSync(), 300);
+    }
+  }
+}
+
+// Helper genérico: sincroniza uma tabela (upsert local + delete dos sumiu)
+async function _cloudSyncTable(tableName, localRows, toRowFn, orgId){
+  const { data: cloudRows, error: fetchErr } = await window.sb
+    .from(tableName).select('id, local_id').eq('org_id', orgId);
+  if (fetchErr) throw fetchErr;
+
+  if (localRows.length > 0) {
+    const toUpsert = localRows.map(r => toRowFn(r, orgId));
+    for (let i = 0; i < toUpsert.length; i += 500) {
+      const batch = toUpsert.slice(i, i + 500);
+      const { error: upErr } = await window.sb
+        .from(tableName).upsert(batch, { onConflict: 'org_id,local_id' });
+      if (upErr) throw upErr;
+    }
+  }
+  const localIds = new Set(localRows.map(r => r.id));
+  const toDelete = (cloudRows || []).filter(r => !localIds.has(r.local_id));
+  if (toDelete.length > 0) {
+    const ids = toDelete.map(r => r.id);
+    const { error: delErr } = await window.sb
+      .from(tableName).delete().eq('org_id', orgId).in('id', ids);
+    if (delErr) throw delErr;
+  }
+}
+
+window.cloudCartoesFetch = cloudCartoesFetch;
+window.cloudCartoesSync  = cloudCartoesSync;
+window._cloudSyncTable   = _cloudSyncTable;
 
 // ─── Calcular fatura pra uma data de compra ───
 // Regra: data >= dia de fechamento → próxima fatura; senão → fatura corrente
@@ -74114,7 +74371,8 @@ async function fkcSyncCloudData(){
   try { if (typeof cloudCatmapFetch          === 'function') await cloudCatmapFetch();          } catch(e) { console.warn('[FK] sync catmap:', e); }
   try { if (typeof cloudLoanModalidadesFetch === 'function') await cloudLoanModalidadesFetch(); } catch(e) { console.warn('[FK] sync LM:', e); }
   try { if (typeof cloudLoansFetch           === 'function') await cloudLoansFetch();           } catch(e) { console.warn('[FK] sync loans:', e); }
-  // TODO Fase 2: cloudCartoesFetch, cloudExtratoFetch, cloudVendedoresFetch
+  try { if (typeof cloudCartoesFetch         === 'function') await cloudCartoesFetch();         } catch(e) { console.warn('[FK] sync cartões:', e); }
+  // TODO Fase 2: cloudExtratoFetch, cloudVendedoresFetch
 }
 window.fkcSyncCloudData = fkcSyncCloudData;
 
