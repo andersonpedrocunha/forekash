@@ -51403,8 +51403,158 @@ function _catmapSave(){
   try {
     localStorage.setItem(CATMAP_KEY, JSON.stringify({ categorias: catmapData.categorias, nextId: catmapData.nextId }));
   } catch(e){ console.warn('catmap/save:', e); }
+  if (window.FK_MODE === 'cloud') {
+    cloudCatmapSync();  // fire-and-forget
+  }
 }
 _catmapLoad();
+
+// ─── Cloud sync: Categorias (catmap) ─────────────────────────
+// Mesma estratégia do CC: localStorage = cache rápido, cloud = source of truth.
+// Extrai campos primários como colunas; o resto (flags, origem extra) vai pro
+// jsonb 'metadata' pra evoluir schema sem migration.
+
+let _catmapCloudSyncInFlight = false;
+let _catmapCloudSyncPending  = false;
+
+// Campos "primários" promovidos a colunas (resto vai pro metadata jsonb)
+const _CATMAP_PRIMARY_FIELDS = new Set([
+  'id', 'nome', 'moduloId', 'drcLineId', 'dreLineId', 'cor', 'tipo',
+  'origem', 'autoDiscovered', 'userCreated', 'suggestionApplied'
+]);
+
+function _catmapToRow(c, orgId){
+  const metadata = {};
+  for (const k of Object.keys(c || {})) {
+    if (!_CATMAP_PRIMARY_FIELDS.has(k)) metadata[k] = c[k];
+  }
+  return {
+    org_id: orgId,
+    local_id: c.id,
+    nome: c.nome || '',
+    modulo_id: c.moduloId || null,
+    drc_line_id: c.drcLineId || null,
+    dre_line_id: c.dreLineId || null,
+    cor: c.cor || null,
+    tipo: c.tipo || null,
+    origem: c.origem || null,
+    auto_discovered: !!c.autoDiscovered,
+    user_created: c.userCreated !== false,  // default true
+    suggestion_applied: !!c.suggestionApplied,
+    metadata: metadata
+  };
+}
+
+function _catmapFromRow(r){
+  const out = {
+    id: r.local_id,
+    nome: r.nome,
+    moduloId: r.modulo_id || '',
+    drcLineId: r.drc_line_id || '',
+    dreLineId: r.dre_line_id || '',
+    cor: r.cor || '',
+    tipo: r.tipo || '',
+    origem: r.origem || '',
+    autoDiscovered: !!r.auto_discovered,
+    userCreated: !!r.user_created,
+    suggestionApplied: !!r.suggestion_applied
+  };
+  // Merge campos extras do metadata
+  if (r.metadata && typeof r.metadata === 'object') {
+    for (const k of Object.keys(r.metadata)) {
+      if (!_CATMAP_PRIMARY_FIELDS.has(k)) out[k] = r.metadata[k];
+    }
+  }
+  return out;
+}
+
+async function cloudCatmapFetch(){
+  if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
+  const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
+  if (!orgId) { console.warn('[FK] catmap fetch: sem org_id'); return; }
+  try {
+    const { data, error } = await window.sb
+      .from('catmap_categorias')
+      .select('local_id, nome, modulo_id, drc_line_id, dre_line_id, cor, tipo, origem, auto_discovered, user_created, suggestion_applied, metadata')
+      .eq('org_id', orgId)
+      .order('local_id');
+    if (error) { console.warn('[FK] catmap fetch erro:', error.message); return; }
+
+    if ((data || []).length === 0) {
+      // Cloud vazio → migra do localStorage se houver
+      if ((catmapData.categorias || []).length > 0) {
+        console.log('[FK] catmap: cloud vazio, importando', catmapData.categorias.length, 'do localStorage...');
+        await cloudCatmapSync();
+      }
+      return;
+    }
+
+    catmapData.categorias = data.map(_catmapFromRow);
+    catmapData.nextId = Math.max(0, ...catmapData.categorias.map(c => c.id || 0)) + 1;
+    try {
+      localStorage.setItem(CATMAP_KEY, JSON.stringify({
+        categorias: catmapData.categorias, nextId: catmapData.nextId
+      }));
+    } catch(_){}
+    try { if (typeof catmapRender === 'function') catmapRender(); } catch(_){}
+    console.log('[FK] catmap fetch OK:', catmapData.categorias.length, 'rows');
+  } catch(e) {
+    console.warn('[FK] catmap fetch fail:', e.message || e);
+  }
+}
+
+async function cloudCatmapSync(){
+  if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
+  if (_catmapCloudSyncInFlight) { _catmapCloudSyncPending = true; return; }
+  _catmapCloudSyncInFlight = true;
+  try {
+    const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
+    if (!orgId) { console.warn('[FK] catmap sync: sem org_id'); return; }
+
+    const { data: cloudRows, error: fetchErr } = await window.sb
+      .from('catmap_categorias')
+      .select('id, local_id')
+      .eq('org_id', orgId);
+    if (fetchErr) throw fetchErr;
+
+    if ((catmapData.categorias || []).length > 0) {
+      const toUpsert = catmapData.categorias.map(c => _catmapToRow(c, orgId));
+      // Em batches de 500 (catmap pode ter dezenas mas é seguro)
+      for (let i = 0; i < toUpsert.length; i += 500) {
+        const batch = toUpsert.slice(i, i + 500);
+        const { error: upErr } = await window.sb
+          .from('catmap_categorias')
+          .upsert(batch, { onConflict: 'org_id,local_id' });
+        if (upErr) throw upErr;
+      }
+    }
+
+    const localIds = new Set((catmapData.categorias || []).map(c => c.id));
+    const toDelete = (cloudRows || []).filter(r => !localIds.has(r.local_id));
+    if (toDelete.length > 0) {
+      const ids = toDelete.map(r => r.id);
+      const { error: delErr } = await window.sb
+        .from('catmap_categorias')
+        .delete()
+        .eq('org_id', orgId)
+        .in('id', ids);
+      if (delErr) throw delErr;
+    }
+
+    console.log('[FK] catmap sync OK:', (catmapData.categorias || []).length, 'rows');
+  } catch(e) {
+    console.warn('[FK] catmap sync fail:', e.message || e);
+  } finally {
+    _catmapCloudSyncInFlight = false;
+    if (_catmapCloudSyncPending) {
+      _catmapCloudSyncPending = false;
+      setTimeout(() => cloudCatmapSync(), 300);
+    }
+  }
+}
+
+window.cloudCatmapFetch = cloudCatmapFetch;
+window.cloudCatmapSync = cloudCatmapSync;
 
 function catmapById(id){
   return (catmapData.categorias || []).find(c => c.id === id) || null;
@@ -73619,8 +73769,9 @@ async function fkcSyncCloudData(){
   // Aguarda um tick pra garantir que JWT/orgId estão prontos
   await new Promise(r => setTimeout(r, 50));
   // Fase 2 — cada módulo migrado entra aqui
-  try { if (typeof cloudCCFetch === 'function') await cloudCCFetch(); } catch(e) { console.warn('[FK] sync CC:', e); }
-  // TODO Fase 2: cloudCatmapFetch, cloudLoansFetch, cloudCartoesFetch, cloudExtratoFetch, cloudVendedoresFetch
+  try { if (typeof cloudCCFetch     === 'function') await cloudCCFetch();     } catch(e) { console.warn('[FK] sync CC:', e); }
+  try { if (typeof cloudCatmapFetch === 'function') await cloudCatmapFetch(); } catch(e) { console.warn('[FK] sync catmap:', e); }
+  // TODO Fase 2: cloudLoansFetch, cloudCartoesFetch, cloudExtratoFetch, cloudVendedoresFetch
 }
 window.fkcSyncCloudData = fkcSyncCloudData;
 
