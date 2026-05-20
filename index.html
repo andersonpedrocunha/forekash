@@ -73295,7 +73295,7 @@ async function fkcBackupNow(opts){
   if (!opts.force && hash === _fkBackupLastHash) return { ok:true, skipped:true };
   _fkBackupInFlight = true;
   try {
-    const { error } = await window.sb.from('user_backups').upsert({
+    const { error } = await window.sb.from('user_backups').insert({
       user_id: window._FK_CLOUD_USER.id,
       data: payload,
       size_bytes: json.length
@@ -73312,6 +73312,19 @@ async function fkcBackupNow(opts){
     _fkBackupInFlight = false;
   }
 }
+
+// Lista os últimos backups na nuvem (default: 20)
+async function fkcListBackups(){
+  if (!window.sb || !window._FK_CLOUD_USER) return [];
+  const { data, error } = await window.sb.from('user_backups')
+    .select('id,created_at,size_bytes')
+    .eq('user_id', window._FK_CLOUD_USER.id)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (error) { try{ console.warn('[FK] list backups falhou:', error.message); }catch(_){} return []; }
+  return data || [];
+}
+window.fkcListBackups = fkcListBackups;
 
 function fkcScheduleBackup(){
   if (window.FK_MODE !== 'cloud') return;
@@ -73339,7 +73352,7 @@ function fkcStartBackupLoop(){
       if (!window._FK_CLOUD_SESSION) return;
       const payload = fkcCollectBackupPayload();
       const json = JSON.stringify(payload);
-      const url = 'https://xgjqnwdhqlxhkgwowwej.supabase.co/rest/v1/user_backups?on_conflict=user_id';
+      const url = 'https://xgjqnwdhqlxhkgwowwej.supabase.co/rest/v1/user_backups';
       fetch(url, {
         method: 'POST',
         keepalive: true,
@@ -73347,7 +73360,7 @@ function fkcStartBackupLoop(){
           'apikey': 'sb_publishable_lEdzaSQqO38oiiXBBgM1dQ_-mOfl9NS',
           'Authorization': 'Bearer ' + window._FK_CLOUD_SESSION.access_token,
           'Content-Type': 'application/json',
-          'Prefer': 'resolution=merge-duplicates,return=minimal'
+          'Prefer': 'return=minimal'
         },
         body: JSON.stringify({
           user_id: window._FK_CLOUD_USER.id,
@@ -73373,37 +73386,105 @@ function fkcStartBackupLoop(){
   } catch(_) {}
 }
 
-async function fkcRestoreFromBackup(opts){
-  opts = opts || {};
+// Restore com escolha de versão. Sem argumento → abre modal com lista.
+// Com backupId (number) → restaura aquele backup específico.
+async function fkcRestoreFromBackup(backupId){
   if (!window.sb || !window._FK_CLOUD_USER) {
     alert('Você precisa estar logado em modo cloud pra restaurar.');
     return null;
   }
+  if (backupId == null) {
+    // Modo interativo: abre modal com lista
+    return fkcOpenRestoreModal();
+  }
   const { data, error } = await window.sb.from('user_backups')
-    .select('updated_at,size_bytes,data')
+    .select('id,created_at,size_bytes,data')
     .eq('user_id', window._FK_CLOUD_USER.id)
+    .eq('id', backupId)
     .maybeSingle();
   if (error) { alert('Erro: ' + error.message); return null; }
-  if (!data) { alert('Você não tem backup na nuvem ainda.'); return null; }
-  const dt = new Date(data.updated_at);
-  if (!opts.silent) {
-    const conf = confirm(
-      'Restaurar backup de ' + dt.toLocaleString('pt-BR') +
-      ' (' + Math.round((data.size_bytes || 0) / 1024) + ' KB)?\n\n' +
-      'ATENÇÃO: isso sobrescreve os dados locais atuais. A página vai recarregar.'
-    );
-    if (!conf) return null;
-  }
+  if (!data) { alert('Backup não encontrado.'); return null; }
   try {
     const obj = data.data || {};
     for (const k of Object.keys(obj)) {
       localStorage.setItem(k, obj[k]);
     }
-    if (!opts.silent) alert('Backup restaurado. A página vai recarregar.');
+    alert('Backup restaurado (' + new Date(data.created_at).toLocaleString('pt-BR') + '). A página vai recarregar.');
     location.reload();
   } catch(e) {
     alert('Erro ao restaurar: ' + (e && e.message || e));
   }
+}
+
+// Modal pra escolher qual backup restaurar
+async function fkcOpenRestoreModal(){
+  const list = await fkcListBackups();
+  if (!list.length) { alert('Você ainda não tem backups na nuvem.'); return; }
+
+  // Cria overlay (idempotente — remove se já existir)
+  document.getElementById('fkc-restore-modal')?.remove();
+
+  const ov = document.createElement('div');
+  ov.id = 'fkc-restore-modal';
+  Object.assign(ov.style, {
+    position:'fixed', inset:'0', background:'rgba(0,0,0,.55)', zIndex:'99999',
+    display:'flex', alignItems:'center', justifyContent:'center', padding:'20px'
+  });
+
+  const card = document.createElement('div');
+  Object.assign(card.style, {
+    background:'#fff', borderRadius:'12px', padding:'20px 22px',
+    maxWidth:'520px', width:'100%', maxHeight:'80vh', overflow:'auto',
+    boxShadow:'0 20px 60px rgba(0,0,0,.35)', fontFamily:'inherit', color:'#111827'
+  });
+  card.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <h3 style="margin:0;font-size:1.1rem">Restaurar backup</h3>
+      <button id="fkc-restore-close" style="background:none;border:0;font-size:1.4rem;cursor:pointer;color:#6B7280">×</button>
+    </div>
+    <div style="color:#6B7280;font-size:.82rem;margin-bottom:14px">
+      Escolha uma versão. Mantemos os últimos 20 snapshots na nuvem.
+      <br>Restaurar <b>sobrescreve</b> os dados locais e recarrega a página.
+    </div>
+    <div id="fkc-restore-list" style="display:flex;flex-direction:column;gap:6px"></div>
+  `;
+  ov.appendChild(card);
+  document.body.appendChild(ov);
+
+  const listEl = card.querySelector('#fkc-restore-list');
+  list.forEach((b, idx) => {
+    const dt = new Date(b.created_at);
+    const sizeKb = Math.round((b.size_bytes || 0) / 1024);
+    const isLatest = idx === 0;
+    const row = document.createElement('button');
+    row.type = 'button';
+    Object.assign(row.style, {
+      display:'flex', justifyContent:'space-between', alignItems:'center',
+      padding:'10px 12px', background: isLatest ? '#ECFDF5' : '#F9FAFB',
+      border:'1px solid ' + (isLatest ? '#A7F3D0' : '#E5E7EB'),
+      borderRadius:'8px', cursor:'pointer', fontFamily:'inherit',
+      textAlign:'left', color:'#111827'
+    });
+    row.innerHTML = `
+      <span>
+        <b style="font-size:.92rem">${dt.toLocaleString('pt-BR')}</b>
+        ${isLatest ? ' <span style="color:#10B981;font-size:.72rem;margin-left:4px">· mais recente</span>' : ''}
+        <br><span style="color:#6B7280;font-size:.72rem">${sizeKb} KB</span>
+      </span>
+      <span style="color:#3B82F6;font-size:.82rem">Restaurar →</span>
+    `;
+    row.addEventListener('click', async () => {
+      const conf = confirm('Restaurar backup de ' + dt.toLocaleString('pt-BR') +
+        ' (' + sizeKb + ' KB)?\n\nIsso sobrescreve os dados locais atuais.');
+      if (!conf) return;
+      ov.remove();
+      await fkcRestoreFromBackup(b.id);
+    });
+    listEl.appendChild(row);
+  });
+
+  card.querySelector('#fkc-restore-close').addEventListener('click', () => ov.remove());
+  ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
 }
 
 // Expõe pro console / debug
