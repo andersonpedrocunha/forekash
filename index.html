@@ -32523,7 +32523,22 @@ function diagLoad(){
 }
 function diagSave(){
   try{ localStorage.setItem(DIAG_KEY, JSON.stringify(diagHistory.slice(0,20))); }catch(e){}
+  if (window.FK_MODE === 'cloud') cloudBlobSync('diag', () => (diagHistory || []).slice(0,20));
 }
+async function cloudDiagFetch(){
+  const d = await cloudBlobFetch('diag');
+  if (d == null) {
+    if (Array.isArray(diagHistory) && diagHistory.length > 0) {
+      console.log('[FK] diag: cloud vazio, importando do localStorage...');
+      await cloudBlobSync('diag', () => diagHistory.slice(0,20));
+    }
+    return;
+  }
+  if (Array.isArray(d)) diagHistory = d;
+  try { localStorage.setItem(DIAG_KEY, JSON.stringify(diagHistory)); } catch(_){}
+  console.log('[FK] diag fetch OK');
+}
+window.cloudDiagFetch = cloudDiagFetch;
 
 // ---------- Snapshot: coleta dados crus ----------
 function diagSnapshot(){
@@ -37215,7 +37230,24 @@ function _cacLoad(){
 function _cacSave(){
   try { localStorage.setItem(CAC_KEY, JSON.stringify(_cacConfig)); }
   catch(e){ console.error('cac save:', e); }
+  if (window.FK_MODE === 'cloud') cloudBlobSync('cac', () => _cacConfig);
 }
+async function cloudCacFetch(){
+  const d = await cloudBlobFetch('cac');
+  if (d == null) {
+    if (_cacConfig && Object.keys(_cacConfig).length > 0) {
+      console.log('[FK] cac: cloud vazio, importando do localStorage...');
+      await cloudBlobSync('cac', () => _cacConfig);
+    }
+    return;
+  }
+  if (d && typeof d === 'object') {
+    Object.assign(_cacConfig, d);
+    try { localStorage.setItem(CAC_KEY, JSON.stringify(_cacConfig)); } catch(_){}
+  }
+  console.log('[FK] cac fetch OK');
+}
+window.cloudCacFetch = cloudCacFetch;
 function _cacMesKey(){
   const offset = _cacConfig.periodOffset || 0;
   const d = new Date();
@@ -37883,7 +37915,26 @@ function outrasOpSave(){
   try {
     localStorage.setItem(OUTRAS_OP_KEY, JSON.stringify({ valores: outrasOp.valores, nextId: outrasOp.nextId }));
   } catch(e){ console.warn('outrasOp/save:', e); }
+  if (window.FK_MODE === 'cloud') cloudBlobSync('outras_op', () => ({ valores: outrasOp.valores, nextId: outrasOp.nextId }));
 }
+async function cloudOutrasOpFetch(){
+  const d = await cloudBlobFetch('outras_op');
+  if (d == null) {
+    const hasData = outrasOp && outrasOp.valores && Object.keys(outrasOp.valores).length > 0;
+    if (hasData) {
+      console.log('[FK] outras_op: cloud vazio, importando do localStorage...');
+      await cloudBlobSync('outras_op', () => ({ valores: outrasOp.valores, nextId: outrasOp.nextId }));
+    }
+    return;
+  }
+  if (d && typeof d === 'object') {
+    if (d.valores) outrasOp.valores = d.valores;
+    if (d.nextId) outrasOp.nextId = d.nextId;
+    try { localStorage.setItem(OUTRAS_OP_KEY, JSON.stringify({ valores: outrasOp.valores, nextId: outrasOp.nextId })); } catch(_){}
+  }
+  console.log('[FK] outras_op fetch OK');
+}
+window.cloudOutrasOpFetch = cloudOutrasOpFetch;
 outrasOpLoad();
 
 function _outrasOpYM(year, mIdx){ return year + '-' + String(mIdx+1).padStart(2,'0'); }
@@ -38346,6 +38397,7 @@ async function supHandleSubmit(ev){
     const arr = supLoadTickets();
     arr.unshift(ticket);
     localStorage.setItem(SUP_TICKETS_KEY, JSON.stringify(arr));
+    if (window.FK_MODE === 'cloud') cloudBlobSync('sup_tickets', () => arr);
   }catch(e){
     if(btn) btn.disabled = false;
     // Mensagem específica para quota excedida (localStorage ~5MB)
@@ -38381,6 +38433,23 @@ function supLoadTickets(){
     return Array.isArray(arr) ? arr : [];
   }catch(_){ return []; }
 }
+async function cloudSupTicketsFetch(){
+  const d = await cloudBlobFetch('sup_tickets');
+  if (d == null) {
+    const local = supLoadTickets();
+    if (local.length > 0) {
+      console.log('[FK] sup_tickets: cloud vazio, importando do localStorage...');
+      await cloudBlobSync('sup_tickets', () => local);
+    }
+    return;
+  }
+  if (Array.isArray(d)) {
+    try { localStorage.setItem(SUP_TICKETS_KEY, JSON.stringify(d)); } catch(_){}
+    try { if (typeof supRenderTickets === 'function') supRenderTickets(); } catch(_){}
+  }
+  console.log('[FK] sup_tickets fetch OK');
+}
+window.cloudSupTicketsFetch = cloudSupTicketsFetch;
 
 function supRenderTickets(){
   const wrap = document.getElementById('sup-tickets-wrap');
@@ -41699,7 +41768,32 @@ function viagLoad(){
 function viagSave(){
   try { localStorage.setItem(VIAGENS_KEY, JSON.stringify(viagens)); }
   catch(e){ console.error('viagens save:', e); }
+  if (window.FK_MODE === 'cloud') cloudBlobSync('viagens', () => viagens);
 }
+async function cloudViagensFetch(){
+  const d = await cloudBlobFetch('viagens');
+  if (d == null) {
+    const hasData = viagens && (viagens.itens||[]).length > 0;
+    if (hasData) {
+      console.log('[FK] viagens: cloud vazio, importando do localStorage...');
+      // Aviso de tamanho: anexos como base64 podem ser grandes
+      const size = JSON.stringify(viagens).length;
+      if (size > 500000) {
+        console.warn('[FK] viagens: payload grande (' + Math.round(size/1024) + ' KB) — considere migrar anexos pra Storage');
+      }
+      await cloudBlobSync('viagens', () => viagens);
+    }
+    return;
+  }
+  if (d && typeof d === 'object') {
+    viagens = d;
+    try { localStorage.setItem(VIAGENS_KEY, JSON.stringify(viagens)); } catch(_){}
+    try { if (typeof viagLoad === 'function') viagLoad(); } catch(_){}
+    try { if (typeof viagRender === 'function') viagRender(); } catch(_){}
+  }
+  console.log('[FK] viagens fetch OK');
+}
+window.cloudViagensFetch = cloudViagensFetch;
 viagLoad();
 
 function _viagTotalDesp(v){ return (v.despesas || []).reduce((s,d) => s + (parseFloat(d.valor)||0), 0); }
@@ -43453,7 +43547,27 @@ function bdLoad(){
 function bdSave(){
   try { localStorage.setItem(BD_KEY, JSON.stringify(board)); }
   catch(e){ console.error('board save:', e); }
+  if (window.FK_MODE === 'cloud') cloudBlobSync('board', () => board);
 }
+async function cloudBoardFetch(){
+  const d = await cloudBlobFetch('board');
+  if (d == null) {
+    const hasData = board && ((board.cards||[]).length > 0 || (board.globalTags||[]).length > 0);
+    if (hasData) {
+      console.log('[FK] board: cloud vazio, importando do localStorage...');
+      await cloudBlobSync('board', () => board);
+    }
+    return;
+  }
+  if (d && typeof d === 'object') {
+    board = d;
+    try { localStorage.setItem(BD_KEY, JSON.stringify(board)); } catch(_){}
+    try { if (typeof bdLoad === 'function') bdLoad(); } catch(_){}
+    try { if (typeof bdRender === 'function') bdRender(); } catch(_){}
+  }
+  console.log('[FK] board fetch OK');
+}
+window.cloudBoardFetch = cloudBoardFetch;
 bdLoad();
 
 function _bdFmt(n){ return (typeof fmtBRL === 'function') ? fmtBRL(n||0) : 'R$ ' + (n||0).toFixed(2); }
@@ -61180,7 +61294,24 @@ function _anaLoadState(){
 }
 function _anaSaveState(){
   try { localStorage.setItem(ANA_KEY, JSON.stringify(_anaState)); } catch(e){}
+  if (window.FK_MODE === 'cloud') cloudBlobSync('analise', () => _anaState);
 }
+async function cloudAnaliseFetch(){
+  const d = await cloudBlobFetch('analise');
+  if (d == null) {
+    if (_anaState && Object.keys(_anaState).length > 0) {
+      console.log('[FK] analise: cloud vazio, importando do localStorage...');
+      await cloudBlobSync('analise', () => _anaState);
+    }
+    return;
+  }
+  if (d && typeof d === 'object') {
+    Object.assign(_anaState, d);
+    try { localStorage.setItem(ANA_KEY, JSON.stringify(_anaState)); } catch(_){}
+  }
+  console.log('[FK] analise fetch OK');
+}
+window.cloudAnaliseFetch = cloudAnaliseFetch;
 
 /* ─── Inicialização do filtro de período ─── */
 function _anaInitPeriodo(){
@@ -72791,7 +72922,25 @@ function settingsSave(){
   try{
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   }catch(e){}
+  if (window.FK_MODE === 'cloud') cloudUkvSync('settings', () => settings);
 }
+async function cloudSettingsFetch(){
+  const d = await cloudUkvFetch('settings');
+  if (d == null) {
+    if (settings && typeof settings === 'object') {
+      console.log('[FK] settings: cloud vazio, importando do localStorage...');
+      await cloudUkvSync('settings', () => settings);
+    }
+    return;
+  }
+  if (d && typeof d === 'object') {
+    Object.assign(settings, d);
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch(_){}
+    try { if (typeof applyLogo === 'function') applyLogo(); } catch(_){}
+  }
+  console.log('[FK] settings fetch OK');
+}
+window.cloudSettingsFetch = cloudSettingsFetch;
 
 let _settingsDebounce = null;
 function settingsOnInput(){
@@ -74085,14 +74234,33 @@ function guiaLoadProgress(){
 }
 
 function guiaSaveProgress(){
+  let out = {};
   try{
-    const out = {};
     Object.keys(_guiaProgress || {}).forEach(k => {
       out[k] = Array.from(_guiaProgress[k]).sort((a,b)=>a-b);
     });
     localStorage.setItem(GUIA_KEY, JSON.stringify(out));
   }catch(e){}
+  if (window.FK_MODE === 'cloud') cloudUkvSync('guia_progress', () => out);
 }
+async function cloudGuiaProgressFetch(){
+  const d = await cloudUkvFetch('guia_progress');
+  if (d == null) {
+    if (_guiaProgress && Object.keys(_guiaProgress).length > 0) {
+      console.log('[FK] guia_progress: cloud vazio, importando do localStorage...');
+      const out = {};
+      Object.keys(_guiaProgress).forEach(k => { out[k] = Array.from(_guiaProgress[k]).sort((a,b)=>a-b); });
+      await cloudUkvSync('guia_progress', () => out);
+    }
+    return;
+  }
+  if (d && typeof d === 'object') {
+    try { localStorage.setItem(GUIA_KEY, JSON.stringify(d)); } catch(_){}
+    try { if (typeof guiaLoadProgress === 'function') guiaLoadProgress(); } catch(_){}
+  }
+  console.log('[FK] guia_progress fetch OK');
+}
+window.cloudGuiaProgressFetch = cloudGuiaProgressFetch;
 
 function guiaNodeDone(key){
   const n = GUIA_NODES.find(x => x.key === key);
@@ -74956,6 +75124,57 @@ async function cloudBlobSync(moduleName, getDataFn){
 window.cloudBlobFetch = cloudBlobFetch;
 window.cloudBlobSync  = cloudBlobSync;
 
+// ─── user_kv (per-user, cross-org) ──────────────────────────
+const _FK_UKV_FLAGS = {};
+
+async function cloudUkvFetch(key){
+  if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return null;
+  try {
+    const { data, error } = await window.sb
+      .from('user_kv')
+      .select('data')
+      .eq('user_id', window._FK_CLOUD_USER.id)
+      .eq('key', key)
+      .maybeSingle();
+    if (error) { console.warn('[FK] ukv fetch erro:', key, error.message); return null; }
+    if (!data) return null;
+    return data.data || {};
+  } catch(e) {
+    console.warn('[FK] ukv fetch fail:', key, e.message || e);
+    return null;
+  }
+}
+
+async function cloudUkvSync(key, getDataFn){
+  if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
+  const flagK = key;
+  const pendK = key + '__pending';
+  if (_FK_UKV_FLAGS[flagK]) { _FK_UKV_FLAGS[pendK] = true; return; }
+  _FK_UKV_FLAGS[flagK] = true;
+  try {
+    let data;
+    try { data = (typeof getDataFn === 'function') ? getDataFn() : getDataFn; }
+    catch(_) { data = null; }
+    if (data === null || data === undefined) return;
+    const { error } = await window.sb
+      .from('user_kv')
+      .upsert({ user_id: window._FK_CLOUD_USER.id, key: key, data: data }, { onConflict: 'user_id,key' });
+    if (error) { console.warn('[FK] ukv sync erro:', key, error.message); return; }
+    console.log('[FK] ukv sync OK:', key);
+  } catch(e) {
+    console.warn('[FK] ukv sync fail:', key, e.message || e);
+  } finally {
+    _FK_UKV_FLAGS[flagK] = false;
+    if (_FK_UKV_FLAGS[pendK]) {
+      _FK_UKV_FLAGS[pendK] = false;
+      setTimeout(() => cloudUkvSync(key, getDataFn), 300);
+    }
+  }
+}
+
+window.cloudUkvFetch = cloudUkvFetch;
+window.cloudUkvSync  = cloudUkvSync;
+
 // ═══════════════════════════════════════════════════
 //  CLOUD DATA SYNC — ponto único de fetch das tabelas
 // ═══════════════════════════════════════════════════
@@ -74982,7 +75201,18 @@ async function fkcSyncCloudData(){
   try { if (typeof cloudReceitaFetch         === 'function') await cloudReceitaFetch();         } catch(e) { console.warn('[FK] sync receita:', e); }
   try { if (typeof cloudDispoFetch           === 'function') await cloudDispoFetch();           } catch(e) { console.warn('[FK] sync dispo:', e); }
   try { if (typeof cloudImpostosFetch        === 'function') await cloudImpostosFetch();        } catch(e) { console.warn('[FK] sync imp:', e); }
-  // Fase 3 completa! Próxima: Fase 4 (board, viagens, support, settings, snapshots).
+  // Fase 4 — secundárias + snapshots + user-scoped
+  try { if (typeof cloudBoardFetch           === 'function') await cloudBoardFetch();           } catch(e) { console.warn('[FK] sync board:', e); }
+  try { if (typeof cloudViagensFetch         === 'function') await cloudViagensFetch();         } catch(e) { console.warn('[FK] sync viagens:', e); }
+  try { if (typeof cloudSupTicketsFetch      === 'function') await cloudSupTicketsFetch();      } catch(e) { console.warn('[FK] sync sup:', e); }
+  try { if (typeof cloudDiagFetch            === 'function') await cloudDiagFetch();            } catch(e) { console.warn('[FK] sync diag:', e); }
+  try { if (typeof cloudCacFetch             === 'function') await cloudCacFetch();             } catch(e) { console.warn('[FK] sync cac:', e); }
+  try { if (typeof cloudOutrasOpFetch        === 'function') await cloudOutrasOpFetch();        } catch(e) { console.warn('[FK] sync outras_op:', e); }
+  try { if (typeof cloudAnaliseFetch         === 'function') await cloudAnaliseFetch();         } catch(e) { console.warn('[FK] sync ana:', e); }
+  // Per-user (cross-org)
+  try { if (typeof cloudSettingsFetch        === 'function') await cloudSettingsFetch();        } catch(e) { console.warn('[FK] sync settings:', e); }
+  try { if (typeof cloudGuiaProgressFetch    === 'function') await cloudGuiaProgressFetch();    } catch(e) { console.warn('[FK] sync guia:', e); }
+  // Fase 4 completa. Próxima: Fase 5 (cutover, cloud-mode default, telemetria).
 }
 window.fkcSyncCloudData = fkcSyncCloudData;
 
