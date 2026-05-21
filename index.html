@@ -69344,23 +69344,20 @@ function _anaRenderMindMap(){
 // Estado compartilhado pros handlers de click
 let _anaMmCachedKpis = null;
 
-// Adiciona um KPI individual ao slide atual como widget ana-hero
+// Adiciona um KPI individual ao slide atual — texto simples (sem HTML problemático)
 function anaMmAddKpiToSlide(label, value, color, crit){
   if(!_anaState.presentation || !_anaState.presentation.slides) return;
   const cur = _anaSlideCurrent();
   if(!cur){ if(typeof toast === 'function') toast('Selecione um slide primeiro'); return; }
   if(!Array.isArray(cur.widgets)) cur.widgets = [];
-  // Adiciona widget de texto rico com o KPI estilizado
-  const variant = crit ? 'bad' : 'good';
-  const html = '<div class="ana-hero ' + variant + '" style="height:100%;display:flex;flex-direction:column;justify-content:center">'
-             +   '<div class="ana-hero-hd"><span class="lbl">' + label + '</span></div>'
-             +   '<div class="ana-hero-val">' + value + '</div>'
-             + '</div>';
+  // Usa <strong> + <br> · innerHTML parseado pela narrativa widget
+  const text = '<strong>' + label + '</strong><br><span style="font-size:1.5em;font-weight:800">' + value + '</span>';
   cur.widgets.push({
     id: _anaSlideWidgetNextId++,
     widget:'text',
-    cols:1, rows:2, x:0, y:0,
-    text: html
+    cols:2, rows:2, x:0, y:0,
+    text: text,
+    _isMindMapKpi: true
   });
   _anaSaveState();
   anaStudioCloseMindMap();
@@ -69368,7 +69365,7 @@ function anaMmAddKpiToSlide(label, value, color, crit){
   if(typeof toast === 'function') toast('✅ KPI "' + label + '" adicionado ao slide');
 }
 
-// Adiciona TODOS os KPIs de um módulo (3 KPIs lado a lado)
+// Adiciona TODOS os KPIs de um módulo em UM widget [3-COL] (renderiza tipo auto-narrativa)
 function anaMmAddModuleToSlide(modId, modLabel, modColor){
   if(!_anaState.presentation || !_anaMmCachedKpis) return;
   const cur = _anaSlideCurrent();
@@ -69376,51 +69373,72 @@ function anaMmAddModuleToSlide(modId, modLabel, modColor){
   const mod = _anaMmCachedKpis.modules.find(m => m.id === modId);
   if(!mod) return;
   if(!Array.isArray(cur.widgets)) cur.widgets = [];
-  for(const kpi of mod.kpis){
-    const variant = kpi.crit ? 'bad' : 'good';
-    const html = '<div class="ana-hero ' + variant + '" style="height:100%;display:flex;flex-direction:column;justify-content:center">'
-               +   '<div class="ana-hero-hd"><span class="lbl">' + modLabel + ' · ' + kpi.lbl + '</span></div>'
-               +   '<div class="ana-hero-val">' + kpi.val + '</div>'
-               + '</div>';
-    cur.widgets.push({
-      id: _anaSlideWidgetNextId++,
-      widget:'text',
-      cols:1, rows:2, x:0, y:0,
-      text: html
-    });
-  }
+  // Monta narrativa [3-COL] · 1 KPI por coluna · ícone conforme estado
+  const cols = mod.kpis.slice(0,3).map(kpi => {
+    const ico = kpi.crit ? '⚠' : '✓';
+    return ico + ' ' + kpi.lbl + '\n**' + kpi.val + '**';
+  });
+  const text = '[3-COL]\n' + cols.join('\n---\n');
+  cur.widgets.push({
+    id: _anaSlideWidgetNextId++,
+    widget:'text',
+    cols:4, rows:3, x:0, y:0,
+    text: text,
+    _isMindMapKpi: true
+  });
   _anaSaveState();
   anaStudioCloseMindMap();
   _anaRenderPresent();
   if(typeof toast === 'function') toast('✅ Módulo "' + modLabel + '" (' + mod.kpis.length + ' KPIs) adicionado');
 }
 
-// Adiciona TODOS os módulos × KPIs como visão geral
+// Adiciona visão geral · pega o KPI principal dos 5 módulos · agrupa em 2 widgets [3-COL]
 function anaMmAddAllToSlide(){
   if(!_anaState.presentation || !_anaMmCachedKpis) return;
   const cur = _anaSlideCurrent();
   if(!cur){ if(typeof toast === 'function') toast('Selecione um slide primeiro'); return; }
   if(!Array.isArray(cur.widgets)) cur.widgets = [];
-  for(const mod of _anaMmCachedKpis.modules){
-    // Adiciona só o KPI principal de cada módulo (primeiro da lista)
-    const kpi = mod.kpis[0];
-    if(!kpi) continue;
-    const variant = kpi.crit ? 'bad' : 'good';
-    const html = '<div class="ana-hero ' + variant + '" style="height:100%;display:flex;flex-direction:column;justify-content:center">'
-               +   '<div class="ana-hero-hd"><span class="lbl">' + mod.label + '</span></div>'
-               +   '<div class="ana-hero-val">' + kpi.val + '</div>'
-               + '</div>';
+  // Pega o KPI principal (primeiro) de cada módulo
+  const mainKpis = _anaMmCachedKpis.modules.map(mod => ({
+    label: mod.label,
+    val: (mod.kpis[0] || {}).val || '—',
+    crit: (mod.kpis[0] || {}).crit || false
+  }));
+  // Widget 1: 3 primeiros módulos (Receita, EBITDA, Caixa)
+  const grupo1 = mainKpis.slice(0,3);
+  const text1 = '[3-COL]\n' + grupo1.map(k => {
+    const ico = k.crit ? '⚠' : '✓';
+    return ico + ' ' + k.label + '\n**' + k.val + '**';
+  }).join('\n---\n');
+  cur.widgets.push({
+    id: _anaSlideWidgetNextId++,
+    widget:'text',
+    cols:4, rows:3, x:0, y:0,
+    text: text1,
+    _isMindMapKpi: true
+  });
+  // Widget 2: 2 últimos módulos (Pessoas, Clientes) — só se houver
+  if(mainKpis.length > 3){
+    const grupo2 = mainKpis.slice(3);
+    // Preenche com placeholder pra completar 3 cols
+    while(grupo2.length < 3) grupo2.push({ label:'—', val:'—', crit:false });
+    const text2 = '[3-COL]\n' + grupo2.map(k => {
+      if(k.label === '—') return '◎ —\n—';
+      const ico = k.crit ? '⚠' : '✓';
+      return ico + ' ' + k.label + '\n**' + k.val + '**';
+    }).join('\n---\n');
     cur.widgets.push({
       id: _anaSlideWidgetNextId++,
       widget:'text',
-      cols:1, rows:2, x:0, y:0,
-      text: html
+      cols:4, rows:3, x:0, y:0,
+      text: text2,
+      _isMindMapKpi: true
     });
   }
   _anaSaveState();
   anaStudioCloseMindMap();
   _anaRenderPresent();
-  if(typeof toast === 'function') toast('✅ Visão geral (5 KPIs principais) adicionada ao slide');
+  if(typeof toast === 'function') toast('✅ Visão geral adicionada · 5 KPIs em 2 cards');
 }
 try {
   window.anaMmAddKpiToSlide    = anaMmAddKpiToSlide;
