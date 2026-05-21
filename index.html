@@ -1988,13 +1988,6 @@
                             background:rgba(255,255,255,.6);color:var(--cv,#6B7280);
                             border:1px solid var(--cv,#6B7280);letter-spacing:.02em;
                             box-shadow:0 1px 2px rgba(0,0,0,.05)}
-    /* Notas convertidas ganham faixa lateral colorida indicando ação */
-    .notas-card.has-conv{position:relative}
-    .notas-card.has-conv::after{content:'✓';position:absolute;bottom:8px;left:10px;
-                                 width:20px;height:20px;border-radius:50%;background:#16A34A;
-                                 color:#fff;display:flex;align-items:center;justify-content:center;
-                                 font-size:.7rem;font-weight:900;font-family:-apple-system,sans-serif;
-                                 box-shadow:0 2px 6px rgba(22,163,74,.4);opacity:.9}
     /* Nota arquivada · grayscale + opacity */
     .notas-card.archived{filter:grayscale(.55);opacity:.7}
     .notas-card.archived:hover{filter:grayscale(0);opacity:1}
@@ -49419,6 +49412,33 @@ const NOTAS_CONV_LABELS = {
   prestacao:{ ico:'📋', label:'Viagem', color:'#F59E0B' }
 };
 
+// Conversões que precisam de confirmação real (Receita/Despesa) usam pending state
+// pra só marcar a nota DEPOIS que o modal do Extrato salvar com sucesso.
+let _notasPendingConvert = null;  // { noteId, type } | null
+// Patch extSaveModal pra detectar save bem-sucedido (executa só 1 vez)
+function _notasPatchExtSave(){
+  if(typeof extSaveModal !== 'function' || extSaveModal._notasPatched) return;
+  const _orig = extSaveModal;
+  window.extSaveModal = function(){
+    const before = (typeof ext !== 'undefined' && ext && Array.isArray(ext.lancamentos)) ? ext.lancamentos.length : -1;
+    const result = _orig.apply(this, arguments);
+    // Se foi um save bem-sucedido (array cresceu) E tem pending convert, marca a nota
+    const after = (typeof ext !== 'undefined' && ext && Array.isArray(ext.lancamentos)) ? ext.lancamentos.length : -1;
+    if(_notasPendingConvert && after > before){
+      try {
+        const note = notas.list.find(x => x.id === _notasPendingConvert.noteId);
+        if(note) notasMarkConverted(note, _notasPendingConvert.type);
+      } catch(e){}
+      _notasPendingConvert = null;
+    }
+    return result;
+  };
+  window.extSaveModal._notasPatched = true;
+}
+// Aplica patch logo + retry se extSaveModal ainda não existir (boot order)
+setTimeout(_notasPatchExtSave, 100);
+setTimeout(_notasPatchExtSave, 2000);
+
 // ── Arquivar / desarquivar ──
 function notasArchive(id){
   const n = notas.list.find(x => x.id === id);
@@ -49478,7 +49498,9 @@ function notasConvertTo(target){
       if(typeof toast === 'function') toast('⚠ Módulo Extrato não disponível');
       return;
     }
-    notasMarkConverted(n, 'receita');
+    // Marca pending — só vai virar "converted" se o save acontecer de fato
+    _notasPendingConvert = { noteId: n.id, type: 'receita' };
+    _notasPatchExtSave();
     notasCloseEditor();
     try {
       const extBtn = document.querySelector('[onclick*="mod-extrato"], [data-mod="extrato"]');
@@ -49488,7 +49510,7 @@ function notasConvertTo(target){
       try {
         extOpenModal('ganho', null);
         setTimeout(_notasPrefillExt, 280);
-        if(typeof toast === 'function') toast('💰 Lançar Ganho aberto com descrição preenchida');
+        if(typeof toast === 'function') toast('💰 Salve no Extrato pra vincular à nota');
       } catch(e){ console.warn('convert receita:', e); }
     }, 250);
   }
@@ -49499,7 +49521,8 @@ function notasConvertTo(target){
       if(typeof toast === 'function') toast('⚠ Módulo Extrato não disponível');
       return;
     }
-    notasMarkConverted(n, 'despesa');
+    _notasPendingConvert = { noteId: n.id, type: 'despesa' };
+    _notasPatchExtSave();
     notasCloseEditor();
     try {
       const extBtn = document.querySelector('[onclick*="mod-extrato"], [data-mod="extrato"]');
@@ -49509,7 +49532,7 @@ function notasConvertTo(target){
       try {
         extOpenModal('gasto', null);
         setTimeout(_notasPrefillExt, 280);
-        if(typeof toast === 'function') toast('💸 Lançar Gasto aberto com descrição preenchida');
+        if(typeof toast === 'function') toast('💸 Salve no Extrato pra vincular à nota');
       } catch(e){ console.warn('convert despesa:', e); }
     }, 250);
   }
