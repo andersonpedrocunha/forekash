@@ -7682,15 +7682,23 @@
                           border-radius:14px;flex-wrap:wrap;
                           box-shadow:0 1px 2px rgba(60,64,67,.04)}
     .ana-present-layout{display:grid;grid-template-columns:240px 1fr 300px;gap:18px;align-items:start}
-    /* BIBLIOTECA na aba Apresentação: chips transparentes pra não cobrir o slide */
-    .ana-present-layout .ana-custom-sidebar{background:transparent!important;border:none!important;box-shadow:none!important}
-    .ana-present-layout .ana-lib-chip,
-    .ana-present-layout .ana-lib-item{background:rgba(255,255,255,.6)!important;backdrop-filter:blur(4px);border-color:rgba(229,231,235,.5)!important}
-    .ana-present-layout .ana-lib-chip:hover,
-    .ana-present-layout .ana-lib-item:hover{background:rgba(232,240,254,.95)!important}
-    .ana-present-layout .ana-lib-chip.used{background:rgba(240,253,244,.7)!important}
-    .ana-present-layout .ana-lib-section h5{background:transparent!important}
-    .ana-present-layout .ana-sidebar-hd{background:transparent!important}
+    /* Lib na aba Apresentação: mantém background branco (visibilidade) */
+
+    /* Garante que os temas aplicados ao slide editor mudem o fundo visualmente */
+    .ana-slide-editor.ana-layout-none{background:#FFFFFF!important}
+    .ana-slide-editor.ana-layout-cream-exec{background:#F5F3EE!important;color:#0F172A}
+    .ana-slide-editor.ana-layout-editorial{background:#F8F8F5!important;color:#0F172A}
+    .ana-slide-editor.ana-layout-blueprint-dark{background:#0F172A!important;color:#F8FAFC}
+    .ana-slide-editor.ana-layout-blueprint-dark .ana-slide-edit-title,
+    .ana-slide-editor.ana-layout-blueprint-dark .ana-slide-edit-sub{color:#F8FAFC!important}
+    .ana-slide-editor.ana-layout-horizon{background:linear-gradient(180deg,#021024 0%,#052659 100%)!important;color:#F8FAFC}
+    .ana-slide-editor.ana-layout-horizon .ana-slide-edit-title,
+    .ana-slide-editor.ana-layout-horizon .ana-slide-edit-sub{color:#F8FAFC!important}
+    .ana-slide-editor.ana-layout-brand-dark{background:#0A0F1C!important;color:#F8FAFC;border-top:3px solid #10B981!important}
+    .ana-slide-editor.ana-layout-brand-dark .ana-slide-edit-title,
+    .ana-slide-editor.ana-layout-brand-dark .ana-slide-edit-sub{color:#F8FAFC!important}
+    .ana-slide-editor.ana-layout-light-pro{background:#FFFFFF!important;border-top:3px solid #1E293B!important;color:#0F172A}
+    .ana-slide-editor.ana-layout-document{background:#FAFBFC!important;background-image:linear-gradient(rgba(15,23,42,.1) 1px,transparent 1px),linear-gradient(90deg,rgba(15,23,42,.1) 1px,transparent 1px)!important;background-size:8px 8px!important;color:#0F172A}
     /* Coluna esquerda: lista de slides estilo NotebookLM source */
     .ana-slides-sidebar{background:#fff;border:1px solid #E8EAED;border-radius:14px;
                          padding:12px;max-height:calc(100vh - 240px);overflow-y:auto;
@@ -70553,25 +70561,47 @@ const DECK_THEMES = [
   { id:'light-pro',      name:'Light Pro',   icon:'⬜', bg:'#FFFFFF', accent:'#1E293B' },
   { id:'document',       name:'Document',    icon:'📐', bg:'#FAFBFC', accent:'#0F172A' }
 ];
-function anaThemeApply(themeId){
+function anaThemeApply(themeId, all){
   if(!_anaState.presentation || !Array.isArray(_anaState.presentation.slides)) return;
   const theme = DECK_THEMES.find(t => t.id === themeId);
   if(!theme) return;
-  const total = _anaState.presentation.slides.length;
-  // Não aplica tema em slides com layout deck-* (eles têm visual próprio)
-  let applied = 0;
+  // Modo padrão: aplica APENAS ao slide atual (preserva decks)
+  // Modo "all": força aplicação a TODOS os slides (incluindo decks — destrutivo)
+  if(all){
+    if(typeof anaConfirm === 'function'){
+      anaConfirm({
+        eyebrow:'Aplicar tema a todos',
+        title:'Aplicar "' + theme.name + '" a ' + _anaState.presentation.slides.length + ' slides?',
+        message:'O tema <strong>' + theme.name + '</strong> será aplicado a <strong>TODOS os slides</strong> (incluindo os que vieram de decks). <span style="color:#DC2626">Os slides de deck perderão o visual original.</span>',
+        okText:'Aplicar a todos',
+        cancelText:'Cancelar'
+      }, function(){ _anaThemeApplyAll(themeId, theme); });
+    } else _anaThemeApplyAll(themeId, theme);
+    return;
+  }
+  // Aplica só ao slide atual
+  const cur = _anaSlideCurrent();
+  if(!cur){ if(typeof toast === 'function') toast('Selecione um slide primeiro'); return; }
+  if(cur.layout && /^deck-/.test(cur.layout)){
+    if(typeof toast === 'function') toast('Esse slide é de um deck — use "Aplicar a todos" pra forçar troca');
+    return;
+  }
+  cur.layout = themeId;
+  _anaSaveState();
+  _anaRenderPresent();
+  if(typeof toast === 'function') toast('🎨 Tema "' + theme.name + '" aplicado ao slide');
+}
+function _anaThemeApplyAll(themeId, theme){
   for(const s of _anaState.presentation.slides){
-    if(s.layout && /^deck-/.test(s.layout)) continue; // preserva deck slides
     s.layout = themeId;
-    applied++;
+    // Se vier de deck, remove os widgets deck-slide (que tinham CSS hardcoded)
+    if(Array.isArray(s.widgets)) s.widgets = s.widgets.filter(w => w.widget !== 'deck-slide');
   }
   _anaSaveState();
   _anaRenderPresent();
-  if(typeof toast === 'function'){
-    if(applied === 0) toast('Tema só se aplica a slides em branco — seus slides são de decks');
-    else toast('🎨 Tema "' + theme.name + '" aplicado a ' + applied + ' slide' + (applied>1?'s':''));
-  }
+  if(typeof toast === 'function') toast('🎨 Tema "' + theme.name + '" aplicado a ' + _anaState.presentation.slides.length + ' slides');
 }
+try { window._anaThemeApplyAll = _anaThemeApplyAll; } catch(e){}
 function _themeMiniPreviewSVG(theme){
   const isDark = ['#0F172A','#021024','#0A0F1C'].indexOf(theme.bg) >= 0;
   const tx = isDark ? '#F8FAFC' : '#0F172A';
@@ -71387,9 +71417,10 @@ function _anaRenderSlideEditor(){
     const _themesAvailable = (typeof DECK_THEMES !== 'undefined' && Array.isArray(DECK_THEMES) && typeof _themeMiniPreviewSVG === 'function');
     let pickerHtml;
     if(_themesAvailable){
+      const _curThemeName = (DECK_THEMES.find(t => t.id === _curThemeId) || {}).name || 'Em branco';
       pickerHtml =
           '<div class="ana-layout-picker">'
-        +   '<span class="ana-layout-picker-lbl" title="Tema visual · aplica a todos os slides não-deck">Tema</span>'
+        +   '<span class="ana-layout-picker-lbl" title="Tema visual · aplica ao slide atual">Tema</span>'
         +   DECK_THEMES.map(t =>
               '<div class="ana-deck-thumb' + (_curThemeId === t.id ? ' active' : '') + '"'
               + ' onclick="anaThemeApply(\'' + t.id + '\')"'
@@ -71397,6 +71428,7 @@ function _anaRenderSlideEditor(){
               + _themeMiniPreviewSVG(t)
               + '</div>'
             ).join('')
+        +   '<button class="ana-layout-apply-all" onclick="anaThemeApply(\'' + (_curThemeId || 'none') + '\', true)" title="Aplica o tema atual (' + esc(_curThemeName) + ') a TODOS os slides">⇨ Aplicar a todos</button>'
         + '</div>';
     } else {
       // Fallback se decks não carregaram — picker antigo de layouts
