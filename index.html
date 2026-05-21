@@ -7508,22 +7508,31 @@
     .deck-scaler-inner{position:absolute;top:0;left:0;width:1280px;height:720px;transform-origin:0 0;will-change:transform}
 
     /* Quando o slide tem layout deck-*, faz canvas/widget transparentes */
-    [class*="ana-layout-deck-"]{padding:0!important;border-radius:10px!important;overflow:hidden!important;background:transparent!important}
+    [class*="ana-layout-deck-"]{padding:0!important;border-radius:10px!important;overflow:visible!important;background:transparent!important}
     [class*="ana-layout-deck-"] .ana-slide-edit-title,
     [class*="ana-layout-deck-"] .ana-slide-edit-sub{display:none!important}
+    /* Canvas mantém grid 4 cols pra aceitar widgets da biblioteca normalmente */
     [class*="ana-layout-deck-"] .ana-slide-canvas{
       background:transparent!important;border:none!important;padding:0!important;
-      grid-template-columns:1fr!important;grid-auto-rows:minmax(520px,1fr)!important;
-      min-height:520px!important
+      grid-template-columns:repeat(4,1fr)!important;
+      grid-auto-rows:180px!important;
+      gap:10px!important
     }
-    [class*="ana-layout-deck-"] .ana-custom-widget{
+    /* O widget deck-slide em si: sem moldura, conteúdo cheio */
+    [class*="ana-layout-deck-"] .ana-custom-widget[data-widget="deck-slide"],
+    [class*="ana-layout-deck-"] .ana-custom-widget.ana-cw-deck-slide{
       background:transparent!important;border:none!important;padding:0!important;
       box-shadow:none!important;overflow:hidden!important
     }
-    /* Some com o header do widget (1234 1h2h3h4h DECK · SLIDE) — ele atrapalha em deck */
-    [class*="ana-layout-deck-"] .ana-custom-widget > .ana-cw-header,
-    [class*="ana-layout-deck-"] .ana-custom-widget > .ana-cw-hd,
-    [class*="ana-layout-deck-"] .ana-custom-widget > .ana-cw-toolbar{display:none!important}
+    /* Header da toolbar do widget deck-slide (1234 1h2h3h4h · DECK · SLIDE) escondido */
+    [class*="ana-layout-deck-"] .ana-custom-widget[data-widget="deck-slide"] > .ana-cw-header,
+    [class*="ana-layout-deck-"] .ana-custom-widget[data-widget="deck-slide"] > .ana-cw-hd,
+    [class*="ana-layout-deck-"] .ana-custom-widget[data-widget="deck-slide"] > .ana-cw-toolbar{display:none!important}
+    /* Pista visual: contenteditable cinta roxa no hover */
+    [class*="ana-layout-deck-"] [contenteditable="true"]:hover{
+      box-shadow:inset 0 0 0 1px rgba(124,58,237,.25)!important;
+      cursor:text
+    }
     .deck-scaler-inner > .deck-1-frame,
     .deck-scaler-inner > .deck-2-frame,
     .deck-scaler-inner > .deck-3-frame,
@@ -69755,28 +69764,56 @@ function _deckInterpolate(html, extra){
 try {
   if (typeof ANA_WIDGETS !== 'undefined' && ANA_WIDGETS){
     ANA_WIDGETS['deck-slide'] = {
-      label:'Deck · Slide', category:'hero', defaultCols:4,
+      label:'Deck · Slide (editável)', category:'hero', defaultCols:4,
       render: (c, ctx) => {
         const w = ctx.item || {};
-        const html = w.deckHtml || '<div style="padding:40px;color:#9CA3AF">Slide de deck vazio</div>';
-        const filled = _deckInterpolate(html, w.deckExtra);
-        c.innerHTML = '<div class="deck-scaler"><div class="deck-scaler-inner">' + filled + '</div></div>';
+        let html = w.deckHtml || '<div style="padding:40px;color:#9CA3AF">Slide de deck vazio</div>';
+        // Interpola {{kpi.*}} só se ainda não foi editado (placeholders presentes)
+        if(!w.deckEdited){
+          html = _deckInterpolate(html, w.deckExtra);
+        }
+        c.innerHTML = '<div class="deck-scaler"><div class="deck-scaler-inner">' + html + '</div></div>';
         const scaler = c.querySelector('.deck-scaler');
         const inner  = c.querySelector('.deck-scaler-inner');
         if(!scaler || !inner) return;
+
+        // ── EDITABILIDADE: textos viram contenteditable, salvam no blur ──
+        try {
+          const editables = inner.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,td,th,strong,em,b,i,span:not([class*="topo-bg"]):not([class*="grad-sphere"]):not([class*="emergency-bar"]):not([class*="gold-glow"]):not([class*="scanlines"]):not([class*="blueprint-grid"])');
+          editables.forEach(el => {
+            // Evita duplo-editable em elementos pais que contêm filhos editáveis
+            if(el.querySelector('h1,h2,h3,h4,h5,h6,p,li,td')) return;
+            if(!el.textContent || !el.textContent.trim()) return;
+            el.setAttribute('contenteditable','true');
+            el.style.cursor = 'text';
+            el.style.outline = 'none';
+            el.addEventListener('focus', () => { el.style.boxShadow = 'inset 0 0 0 2px rgba(124,58,237,.4)'; });
+            el.addEventListener('blur', () => {
+              el.style.boxShadow = '';
+              w.deckHtml = inner.innerHTML;
+              w.deckEdited = true;
+              try { if(typeof _anaSaveState === 'function') _anaSaveState(); } catch(e){}
+            });
+            el.addEventListener('keydown', (e) => {
+              if(e.key === 'Enter' && !e.shiftKey && (el.tagName === 'H1' || el.tagName === 'H2' || el.tagName === 'H3' || el.tagName === 'H4' || el.tagName === 'SPAN')){
+                e.preventDefault(); el.blur();
+              }
+              if(e.key === 'Escape'){ e.preventDefault(); el.blur(); }
+              e.stopPropagation();
+            });
+          });
+        } catch(e){ console.warn('deck-slide editable:', e); }
+
         const applyScale = () => {
           const cw = scaler.clientWidth;
           if(!cw) { requestAnimationFrame(applyScale); return; }
-          const ch = scaler.clientHeight || (cw * 9 / 16);
-          const s = Math.min(cw/1280, ch/720);
+          const s = cw/1280;
           if(s > 0){
             inner.style.transform = 'scale(' + s + ')';
-            // Container precisa ter altura suficiente pro inner scaled
             scaler.style.height = (720 * s) + 'px';
           }
         };
         requestAnimationFrame(applyScale);
-        // Re-escala quando container muda de tamanho (responsivo)
         try {
           if(typeof ResizeObserver !== 'undefined'){
             if(scaler._ro) scaler._ro.disconnect();
@@ -70125,7 +70162,7 @@ function _anaDeckApplyConfirmed(deck){
       widgets: [{
         id: _anaSlideWidgetNextId++,
         widget:'deck-slide',
-        cols:4, rows:4, x:0, y:0,
+        cols:4, rows:3, x:0, y:0,   // ← 3 rows (não 4) deixa espaço pra adicionar widget da biblioteca
         deckHtml: slDef.html
       }]
     };
