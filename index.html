@@ -1939,6 +1939,11 @@
     .notas-filter-color:hover{transform:scale(1.15)}
     .notas-filter-color.active{border-color:#1F2937;box-shadow:0 0 0 2px rgba(31,41,55,.25)}
     .notas-count{font-size:.74rem;font-weight:700;color:#6B7280;font-variant-numeric:tabular-nums}
+    .notas-archived-btn{background:#fff;border:1px solid #E5E7EB;padding:6px 12px;border-radius:7px;
+                         cursor:pointer;font-size:.75rem;font-weight:700;color:#6B7280;font-family:inherit;
+                         transition:all .12s}
+    .notas-archived-btn:hover{border-color:#94A3B8;color:#1F2937}
+    .notas-archived-btn.active{background:#1F2937;color:#fff;border-color:#1F2937}
 
     .notas-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:18px}
     .notas-card{position:relative;padding:18px 18px 14px;border-radius:6px;cursor:pointer;
@@ -2016,9 +2021,21 @@
     .notas-editor-field textarea:focus{outline:none;border-color:#F59E0B;background:#fff;box-shadow:0 0 0 3px rgba(245,158,11,.15)}
     .notas-editor-field textarea{min-height:120px;font-family:'Plus Jakarta Sans',system-ui,sans-serif;line-height:1.5}
     .notas-editor-colors{display:flex;gap:8px;flex-wrap:wrap}
-    .notas-editor-color{width:32px;height:32px;border-radius:50%;cursor:pointer;border:2px solid #E5E7EB;transition:all .12s}
+    .notas-editor-color{width:32px;height:32px;border-radius:50%;cursor:pointer;border:2px solid #E5E7EB;transition:all .12s;background:#fff}
     .notas-editor-color:hover{transform:scale(1.12)}
     .notas-editor-color.active{border-color:#1F2937;box-shadow:0 0 0 3px rgba(31,41,55,.25)}
+    .notas-editor-color.c-yellow{background:#FDE68A!important}
+    .notas-editor-color.c-pink  {background:#FBCFE8!important}
+    .notas-editor-color.c-blue  {background:#BFDBFE!important}
+    .notas-editor-color.c-green {background:#A7F3D0!important}
+    .notas-editor-color.c-orange{background:#FDBA74!important}
+    .notas-editor-color.c-purple{background:#D8B4FE!important}
+    .notas-filter-color.c-yellow{background:#FDE68A!important}
+    .notas-filter-color.c-pink  {background:#FBCFE8!important}
+    .notas-filter-color.c-blue  {background:#BFDBFE!important}
+    .notas-filter-color.c-green {background:#A7F3D0!important}
+    .notas-filter-color.c-orange{background:#FDBA74!important}
+    .notas-filter-color.c-purple{background:#D8B4FE!important}
     .notas-editor-foot{display:flex;gap:10px;padding:14px 22px;border-top:1px solid #E5E7EB;background:#F9FAFB;justify-content:flex-end}
     .notas-editor-foot button{padding:9px 18px;border-radius:7px;font-weight:700;cursor:pointer;font-size:.84rem;border:1px solid transparent;font-family:inherit;transition:all .12s}
     .notas-btn-cancel{background:#fff;border-color:#D1D5DB!important;color:#374151}
@@ -15730,6 +15747,7 @@
               <button class="notas-new-btn" onclick="notasNew()">＋ Nova nota</button>
               <input type="text" class="notas-search" id="notas-search" placeholder="🔍 Buscar nota..." oninput="notasRender()">
               <div class="notas-filter-colors" id="notas-filter-colors"></div>
+              <button id="notas-archived-btn" class="notas-archived-btn" onclick="notasToggleArchived()" title="Ver arquivadas">📦 Arquivadas</button>
               <span style="flex:1"></span>
               <span class="notas-count" id="notas-count">0 notas</span>
             </div>
@@ -49111,8 +49129,7 @@ function notasRender(){
   // Filtro de cores na toolbar
   if(filterColorsEl){
     filterColorsEl.innerHTML = NOTAS_COLORS.map(c =>
-      '<div class="notas-filter-color' + (notasState.filterColor === c ? ' active' : '') + '"'
-      + ' style="background:' + NOTAS_COLOR_HEX[c] + '"'
+      '<div class="notas-filter-color c-' + c + (notasState.filterColor === c ? ' active' : '') + '"'
       + ' onclick="notasToggleFilterColor(\'' + c + '\')"'
       + ' title="Filtrar por ' + c + '"></div>'
     ).join('');
@@ -49120,7 +49137,10 @@ function notasRender(){
 
   // Filtra + ordena (pinned primeiro, depois por updatedAt desc)
   const search = (notasState.search || '').toLowerCase().trim();
+  const showArchived = !!notasState.showArchived;
   let items = (notas.list || []).filter(n => {
+    if(!showArchived && n.archived) return false;
+    if(showArchived && !n.archived) return false;
     if(notasState.filterColor && n.color !== notasState.filterColor) return false;
     if(search){
       const blob = (n.title || '') + ' ' + (n.body || '') + ' ' + ((n.tags||[]).join(' '));
@@ -49184,13 +49204,16 @@ function notasCardMenu(id, ev){
   if(!menu) return;
   const isOpen = menu.style.display === 'block';
   if(isOpen){ menu.style.display = 'none'; return; }
+  const n = notas.list.find(x => x.id === id);
+  const archiveLabel = (n && n.archived) ? '📤 Desarquivar' : '📦 Arquivar';
   menu.innerHTML =
       '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasQuickConvert(' + id + ', \'receita\')"><span class="ico">💰</span> Converter em Receita</button>'
     + '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasQuickConvert(' + id + ', \'despesa\')"><span class="ico">💸</span> Converter em Despesa</button>'
     + '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasQuickConvert(' + id + ', \'task\')"><span class="ico">✅</span> Converter em Task no Board</button>'
-    + '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasQuickConvert(' + id + ', \'prestacao\')"><span class="ico">📋</span> Converter em Prestação de conta</button>'
+    + '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasQuickConvert(' + id + ', \'prestacao\')"><span class="ico">📋</span> Converter em Prestação de viagem</button>'
     + '<div class="notas-quickmenu-sep"></div>'
     + '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasOpenEditor(' + id + ')"><span class="ico">✏</span> Editar</button>'
+    + '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasArchive(' + id + ')"><span class="ico">' + (n && n.archived ? '📤' : '📦') + '</span> ' + (n && n.archived ? 'Desarquivar' : 'Arquivar') + '</button>'
     + '<button class="notas-quickmenu-item danger" onclick="event.stopPropagation();notasDelete(' + id + ')"><span class="ico">🗑</span> Excluir</button>';
   menu.style.display = 'block';
   // Fecha ao clicar fora
@@ -49263,8 +49286,7 @@ function notasOpenEditor(id){
     +   '<div class="notas-editor-field">'
     +     '<label>Cor</label>'
     +     '<div class="notas-editor-colors">'
-    +       NOTAS_COLORS.map(c => '<div class="notas-editor-color' + (n.color === c ? ' active' : '') + '"'
-    +         + ' style="background:' + NOTAS_COLOR_HEX[c] + '"'
+    +       NOTAS_COLORS.map(c => '<div class="notas-editor-color c-' + c + (n.color === c ? ' active' : '') + '"'
     +         + ' onclick="notasSetColor(\'' + c + '\')"></div>').join('')
     +     '</div>'
     +   '</div>'
@@ -49356,7 +49378,29 @@ function notasToggleConvertMenu(ev){
   }
 }
 
-// ── Conversão pra outros módulos ──
+// ── Arquivar / desarquivar ──
+function notasArchive(id){
+  const n = notas.list.find(x => x.id === id);
+  if(!n) return;
+  n.archived = !n.archived;
+  n.updatedAt = Date.now();
+  notasSave();
+  if(typeof toast === 'function') toast(n.archived ? '📦 Nota arquivada' : '📤 Nota desarquivada');
+  // Se o editor está aberto pra essa nota, fecha
+  if(notasState.editingId === id) notasCloseEditor();
+  else notasRender();
+}
+function notasToggleArchived(){
+  notasState.showArchived = !notasState.showArchived;
+  const btn = document.getElementById('notas-archived-btn');
+  if(btn){
+    btn.classList.toggle('active', notasState.showArchived);
+    btn.textContent = notasState.showArchived ? '📤 Voltar pras ativas' : '📦 Arquivadas';
+  }
+  notasRender();
+}
+
+// ── Conversão pra outros módulos · ações reais ──
 function notasConvertTo(target){
   if(!notasState.editingId) return;
   notasSaveCurrent();
@@ -49364,61 +49408,150 @@ function notasConvertTo(target){
   if(!n) return;
   const summary = (n.title || (n.body || '').slice(0,60) || 'Nota sem título').trim();
   const body = n.body || '';
-  if(target === 'task'){
-    if(typeof bdOpenCardModal === 'function'){
-      // Cria card no Board no col 'todo' · pre-fill quando o modal abre
+
+  // ─── 1. Converter em RECEITA → abre modal Extrato lançar ganho ───
+  if(target === 'receita'){
+    if(typeof extOpenModal !== 'function'){
+      if(typeof toast === 'function') toast('⚠ Módulo Extrato não disponível');
+      return;
+    }
+    notasCloseEditor();
+    // Tenta navegar pra aba Extrato Financeiro
+    try {
+      const extBtn = document.querySelector('[onclick*="mod-extrato"], [data-mod="extrato"]');
+      if(extBtn) extBtn.click();
+    } catch(e){}
+    setTimeout(() => {
+      try {
+        extOpenModal('ganho', null);
+        setTimeout(() => {
+          // Pre-fill da descrição (primeiro input text grande)
+          const descInput = document.querySelector('#ext-modal-desc, #ext-form-desc, .ext-modal input[name="descricao"], .ext-modal input[type="text"]');
+          if(descInput) descInput.value = summary;
+          const obsInput = document.querySelector('#ext-modal-obs, #ext-form-obs, .ext-modal textarea');
+          if(obsInput && body) obsInput.value = body;
+        }, 220);
+        if(typeof toast === 'function') toast('💰 Lançar Ganho aberto · revise e salve');
+      } catch(e){ console.warn('convert receita:', e); }
+    }, 250);
+  }
+
+  // ─── 2. Converter em DESPESA → abre modal Extrato lançar gasto ───
+  else if(target === 'despesa'){
+    if(typeof extOpenModal !== 'function'){
+      if(typeof toast === 'function') toast('⚠ Módulo Extrato não disponível');
+      return;
+    }
+    notasCloseEditor();
+    try {
+      const extBtn = document.querySelector('[onclick*="mod-extrato"], [data-mod="extrato"]');
+      if(extBtn) extBtn.click();
+    } catch(e){}
+    setTimeout(() => {
+      try {
+        extOpenModal('gasto', null);
+        setTimeout(() => {
+          const descInput = document.querySelector('#ext-modal-desc, #ext-form-desc, .ext-modal input[name="descricao"], .ext-modal input[type="text"]');
+          if(descInput) descInput.value = summary;
+          const obsInput = document.querySelector('#ext-modal-obs, #ext-form-obs, .ext-modal textarea');
+          if(obsInput && body) obsInput.value = body;
+        }, 220);
+        if(typeof toast === 'function') toast('💸 Lançar Gasto aberto · revise e salve');
+      } catch(e){ console.warn('convert despesa:', e); }
+    }, 250);
+  }
+
+  // ─── 3. Converter em TASK → cria direto no backlog (sem modal) ───
+  else if(target === 'task'){
+    if(typeof board === 'undefined' || !board){
+      if(typeof toast === 'function') toast('⚠ Módulo Board não inicializado');
+      return;
+    }
+    try {
+      if(!Array.isArray(board.cards)) board.cards = [];
+      if(!board.nCard) board.nCard = (board.cards.reduce((m,c) => Math.max(m, c.id||0), 0) + 1);
+      const newCard = {
+        id: board.nCard++,
+        name: summary,
+        col: 'backlog',
+        priority: 'media',
+        tagIds: [],
+        deadline: null,
+        valor: null,
+        tipoFin: null,
+        desc: body || '',
+        createdAt: new Date().toISOString(),
+        doneAt: null,
+        notes: []
+      };
+      board.cards.push(newCard);
+      if(typeof bdSave === 'function') bdSave();
+      // Marca a nota como já-convertida
+      if(!n.tags.includes('task-criada')) n.tags.push('task-criada');
+      n.updatedAt = Date.now();
+      notasSave();
       notasCloseEditor();
-      // Switch pra Board
-      const boardBtn = document.getElementById('wf-tab-board-btn');
-      if(boardBtn) switchWfTab('board', boardBtn);
-      // Abre modal — espera pintar e injeta valores
-      setTimeout(() => {
-        try {
-          bdOpenCardModal(null, 'todo');
-          setTimeout(() => {
-            const titleInput = document.querySelector('#bd-modal input[type="text"], #bd-modal-title');
-            const bodyInput = document.querySelector('#bd-modal textarea, #bd-modal-desc');
-            if(titleInput && !titleInput.value) titleInput.value = summary;
-            if(bodyInput && !bodyInput.value) bodyInput.value = body;
-            if(typeof toast === 'function') toast('✅ Convertendo nota em task · revise e salve');
-          }, 200);
-        } catch(e){ console.warn('convert task:', e); if(typeof toast==='function') toast('⚠ Erro ao abrir o Board'); }
-      }, 250);
-    } else {
-      if(typeof toast === 'function') toast('⚠ Módulo Board não disponível');
+      if(typeof toast === 'function') toast('✅ Task "' + summary.slice(0,40) + '" criada no Backlog');
+    } catch(e){ console.warn('convert task:', e); if(typeof toast==='function') toast('⚠ Erro ao criar task'); }
+  }
+
+  // ─── 4. Converter em PRESTAÇÃO DE VIAGEM → cria rascunho em Viagens ───
+  else if(target === 'prestacao'){
+    if(typeof viagens === 'undefined' || !viagens){
+      if(typeof toast === 'function') toast('⚠ Módulo Viagens não inicializado');
+      return;
     }
-  } else if(target === 'receita' || target === 'despesa'){
-    // Pra Receita/Despesa, mostra orientação · não temos um form direto universal
+    try {
+      if(!Array.isArray(viagens.itens)) viagens.itens = [];
+      if(!viagens.nextId) viagens.nextId = (viagens.itens.reduce((m,v) => Math.max(m, v.id||0), 0) + 1);
+      const today = new Date().toISOString().slice(0,10);
+      const newViagem = {
+        id: viagens.nextId++,
+        titulo: summary,
+        destino: '',
+        colaborador: '',
+        proposito: body,
+        dataInicio: today,
+        dataFim: today,
+        adiantamento: 0,
+        status: 'rascunho',
+        despesas: [],
+        criadoEm: new Date().toISOString()
+      };
+      viagens.itens.push(newViagem);
+      if(typeof viagSave === 'function') viagSave();
+      // Marca nota como convertida
+      if(!n.tags.includes('prestacao-criada')) n.tags.push('prestacao-criada');
+      n.updatedAt = Date.now();
+      notasSave();
+      notasCloseEditor();
+      // Navega pra Viagens + abre editor desse item
+      try {
+        const viagBtn = document.getElementById('wf-tab-viagens-btn') || document.querySelector('[onclick*="\'viagens\'"]');
+        if(viagBtn) switchWfTab('viagens', viagBtn);
+        setTimeout(() => {
+          if(typeof viagOpenEditor === 'function') viagOpenEditor(newViagem.id);
+        }, 300);
+      } catch(e){}
+      if(typeof toast === 'function') toast('📋 Prestação de viagem criada em rascunho');
+    } catch(e){ console.warn('convert prestacao:', e); if(typeof toast==='function') toast('⚠ Erro ao criar prestação'); }
+  }
+
+  // ─── 5. Lembrete ───
+  else if(target === 'lembrete'){
     notasCloseEditor();
-    if(typeof toast === 'function'){
-      const dest = target === 'receita' ? '💰 Receita' : '💸 Extrato Financeiro';
-      toast('Vá em ' + dest + ' e adicione manualmente com este conteúdo:\n"' + summary + '"');
-    }
-    // Copia pra clipboard pra facilitar
+    if(typeof toast === 'function') toast('⏰ Abra KASHtrack pra adicionar um evento (conteúdo copiado)');
     try { navigator.clipboard.writeText(summary + (body ? '\n\n' + body : '')); } catch(e){}
-  } else if(target === 'prestacao'){
-    // Prestação: marca a nota com tag especial + sugere copy pra colaborador
-    if(!n.tags.includes('prestacao')) n.tags.push('prestacao');
-    n.color = 'orange';
-    n.updatedAt = Date.now();
-    notasSave();
-    notasCloseEditor();
-    if(typeof toast === 'function') toast('📋 Nota marcada como prestação de conta · tag adicionada');
-  } else if(target === 'lembrete'){
-    // Lembrete via KASHtrack — usa createdAt do KASHtrack se houver função
-    notasCloseEditor();
-    if(typeof toast === 'function') toast('⏰ Abra KASHtrack e adicione um evento com este conteúdo:\n"' + summary + '"');
-    try { navigator.clipboard.writeText(summary + (body ? '\n\n' + body : '')); } catch(e){}
-  } else if(target === 'slide'){
-    // Slide na Apresentação · adiciona widget text na presentation
+  }
+
+  // ─── 6. Slide ───
+  else if(target === 'slide'){
     try {
       if(typeof _anaState !== 'undefined' && _anaState.presentation){
         if(!Array.isArray(_anaState.presentation.slides)) _anaState.presentation.slides = [];
         const slide = {
           id: (typeof _anaSlideNextId !== 'undefined') ? _anaSlideNextId++ : Date.now(),
-          title: summary,
-          subtitle: '',
-          layout: 'none',
+          title: summary, subtitle:'', layout:'none',
           widgets: body ? [{
             id: (typeof _anaSlideWidgetNextId !== 'undefined') ? _anaSlideWidgetNextId++ : Date.now()+1,
             widget:'text', cols:4, rows:3, x:0, y:0,
@@ -49429,9 +49562,7 @@ function notasConvertTo(target){
         _anaState.presentation.currentId = slide.id;
         if(typeof _anaSaveState === 'function') _anaSaveState();
         notasCloseEditor();
-        if(typeof toast === 'function') toast('🎬 Slide criado na Apresentação · vá em KASHBOARD → Apresentação');
-      } else {
-        if(typeof toast === 'function') toast('⚠ Sistema de Apresentação não carregado');
+        if(typeof toast === 'function') toast('🎬 Slide criado na Apresentação');
       }
     } catch(e){ console.warn('convert slide:', e); }
   }
@@ -49451,6 +49582,8 @@ try {
   window.notasConvertTo = notasConvertTo;
   window.notasCardMenu = notasCardMenu;
   window.notasQuickConvert = notasQuickConvert;
+  window.notasArchive = notasArchive;
+  window.notasToggleArchived = notasToggleArchived;
 } catch(e){}
 
 // ════════════════════════════════════════════════════════════
