@@ -21705,7 +21705,7 @@ function toast(msg,dur=2800){
   setTimeout(()=>el.classList.remove('show'),dur);
 }
 // Modal de confirmação custom — substitui confirm() do browser por algo bonito
-function anaConfirm(opts, onOk){
+function anaConfirm(opts, onOk, onCancel){
   // opts pode ser string (mensagem) ou objeto
   if(typeof opts === 'string') opts = { message: opts };
   const cfg = Object.assign({
@@ -21716,6 +21716,8 @@ function anaConfirm(opts, onOk){
     cancelText: 'Cancelar',
     danger: false
   }, opts || {});
+  // Suporte a onCancel via opts (opcional · 3º arg ou opts.onCancel)
+  if(typeof onCancel !== 'function' && typeof cfg.onCancel === 'function') onCancel = cfg.onCancel;
   // Remove modal anterior se houver
   const old = document.getElementById('ana-confirm-overlay');
   if(old) old.remove();
@@ -21736,15 +21738,16 @@ function anaConfirm(opts, onOk){
     + '</div>';
   document.body.appendChild(ov);
   const close = () => { try{ ov.remove(); }catch(e){} document.removeEventListener('keydown', escHandler, true); };
+  const cancel = () => { close(); if(typeof onCancel === 'function') onCancel(); };
   const escHandler = (e) => {
-    if(e.key === 'Escape'){ e.preventDefault(); close(); }
+    if(e.key === 'Escape'){ e.preventDefault(); cancel(); }
     else if(e.key === 'Enter'){ e.preventDefault(); close(); if(typeof onOk === 'function') onOk(); }
   };
   ov.addEventListener('click', (e) => {
     const t = e.target;
-    if(t === ov){ close(); return; }
+    if(t === ov){ cancel(); return; }
     const act = t.getAttribute && t.getAttribute('data-act');
-    if(act === 'cancel'){ close(); }
+    if(act === 'cancel'){ cancel(); }
     else if(act === 'ok'){ close(); if(typeof onOk === 'function') onOk(); }
   });
   document.addEventListener('keydown', escHandler, true);
@@ -21755,6 +21758,70 @@ function anaConfirm(opts, onOk){
   }, 50);
 }
 try{ window.anaConfirm = anaConfirm; }catch(e){}
+
+// Versão Promise-based (pra usar com await em código async)
+function anaConfirmAsync(opts){
+  return new Promise(resolve => anaConfirm(opts, () => resolve(true), () => resolve(false)));
+}
+try{ window.anaConfirmAsync = anaConfirmAsync; }catch(e){}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Alert in-app (variante do anaConfirm sem botão Cancelar) — usado pra
+// substituir window.alert() nativo
+// ═══════════════════════════════════════════════════════════════════════
+function anaAlert(opts, onOk){
+  if(typeof opts === 'string') opts = { message: opts };
+  const cfg = Object.assign({
+    eyebrow: 'Aviso', title: '', message: '', okText: 'OK', danger: false
+  }, opts || {});
+  const old = document.getElementById('ana-confirm-overlay');
+  if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'ana-confirm-overlay';
+  ov.className = 'ana-confirm-overlay';
+  ov.innerHTML =
+      '<div class="ana-confirm-card' + (cfg.danger ? ' is-danger' : '') + '" role="dialog" aria-modal="true">'
+    +   '<div class="ana-confirm-head">'
+    +     '<div class="ana-confirm-eyebrow">' + (cfg.eyebrow||'').toString().replace(/[<>&]/g,'') + '</div>'
+    +     (cfg.title ? '<h3 class="ana-confirm-title">' + (cfg.title||'').toString().replace(/[<>&]/g,'') + '</h3>' : '')
+    +   '</div>'
+    +   '<div class="ana-confirm-body">' + (cfg.message||'') + '</div>'
+    +   '<div class="ana-confirm-foot" style="justify-content:flex-end">'
+    +     '<button type="button" class="ana-confirm-btn ana-confirm-btn-ok" data-act="ok">' + cfg.okText + '</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  const close = () => { try{ ov.remove(); }catch(e){} document.removeEventListener('keydown', escHandler, true); };
+  const escHandler = (e) => {
+    if(e.key === 'Escape' || e.key === 'Enter'){ e.preventDefault(); close(); if(typeof onOk === 'function') onOk(); }
+  };
+  ov.addEventListener('click', (e) => {
+    if(e.target === ov){ close(); if(typeof onOk === 'function') onOk(); return; }
+    const act = e.target.getAttribute && e.target.getAttribute('data-act');
+    if(act === 'ok'){ close(); if(typeof onOk === 'function') onOk(); }
+  });
+  document.addEventListener('keydown', escHandler, true);
+  setTimeout(() => {
+    const okBtn = ov.querySelector('.ana-confirm-btn-ok');
+    if(okBtn) okBtn.focus();
+  }, 50);
+}
+try{ window.anaAlert = anaAlert; }catch(e){}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Monkey-patch global em window.alert() — qualquer alert nativo no app
+// passa a usar o modal in-app bonito. Não interfere com browser/native
+// (mantém apenas o aviso visual, sem bloquear thread como o original).
+// ═══════════════════════════════════════════════════════════════════════
+try {
+  if(!window._fkOrigAlert){
+    window._fkOrigAlert = window.alert;
+    window.alert = function(msg){
+      try { anaAlert({ message: String(msg||'').replace(/\n/g,'<br>') }); }
+      catch(e){ window._fkOrigAlert(msg); }
+    };
+  }
+} catch(e){}
 
 // Aviso padrão para célula travada (com ✓ marcado) em qualquer módulo.
 // Throttled para não disparar várias vezes em sequência (ex.: propagação).
@@ -32962,6 +33029,11 @@ async function delOrcYear(y){
       confirmLabel: 'Excluir ano',
       destructive: true
     });
+  } else if(typeof anaConfirmAsync === 'function'){
+    ok = await anaConfirmAsync({
+      eyebrow:'Excluir ano', title:'Apagar orçamento de ' + y + '?',
+      message: msg, okText:'Excluir ano', cancelText:'Cancelar', danger:true
+    });
   } else {
     ok = confirm('Excluir ano '+y+'? Todas as versões serão removidas.');
   }
@@ -33603,14 +33675,22 @@ function orcDeleteVersion(){
   const blk = orcGetYearBlock(orcActiveYear);
   if(blk.versions.length <= 1){ toast('É preciso ter ao menos 1 versão'); return; }
   const cur = orcGetVersion();
-  if(!confirm('Excluir versão "'+cur.nome+'"? Isso não pode ser desfeito.')) return;
-  blk.versions = blk.versions.filter(v => v.id !== cur.id);
-  blk.ativa = blk.versions[0].id;
-  orcActiveVerId = blk.ativa;
-  orcamentoSave();
-  orcCloseVersionMenu();
-  renderOrcamento();
-  toast('Versão excluída');
+  const doDel = () => {
+    blk.versions = blk.versions.filter(v => v.id !== cur.id);
+    blk.ativa = blk.versions[0].id;
+    orcActiveVerId = blk.ativa;
+    orcamentoSave();
+    orcCloseVersionMenu();
+    renderOrcamento();
+    toast('Versão excluída');
+  };
+  if(typeof anaConfirm === 'function'){
+    anaConfirm({
+      eyebrow:'Excluir versão', title:'Apagar "' + cur.nome + '"?',
+      message:'Esta versão será removida permanentemente. <strong>Não pode ser desfeito.</strong>',
+      okText:'Excluir', cancelText:'Cancelar', danger:true
+    }, doDel);
+  } else doDel();
 }
 
 function orcCopyPrevYear(){
@@ -48777,12 +48857,19 @@ function _fcardDelete(){
     closeFornecedorCard();
     wfCadDeleteFornecedor(reg.id);
   } else {
-    const ok = confirm('Excluir o fornecedor "' + reg.nome + '"?');
-    if(!ok) return;
-    pessoas.registry = pessoas.registry.filter(r => r.id !== reg.id);
-    if(typeof pessoasSave === 'function') pessoasSave();
-    closeFornecedorCard();
-    if(typeof renderWfFornecedores === 'function') renderWfFornecedores();
+    const doDel = () => {
+      pessoas.registry = pessoas.registry.filter(r => r.id !== reg.id);
+      if(typeof pessoasSave === 'function') pessoasSave();
+      closeFornecedorCard();
+      if(typeof renderWfFornecedores === 'function') renderWfFornecedores();
+    };
+    if(typeof anaConfirm === 'function'){
+      anaConfirm({
+        eyebrow:'Excluir fornecedor', title:'Apagar "' + reg.nome + '"?',
+        message:'O fornecedor será removido. Lançamentos vinculados ficarão sem fornecedor.',
+        okText:'Excluir', cancelText:'Cancelar', danger:true
+      }, doDel);
+    } else doDel();
   }
 }
 try {
@@ -49583,11 +49670,27 @@ function notasSetColor(color){
   if(hd) hd.style.background = 'linear-gradient(135deg,' + NOTAS_COLOR_HEX[color] + ' 0%,' + NOTAS_COLOR_HEX[color] + 'DD 100%)';
 }
 function notasDelete(id){
-  if(!confirm('Excluir essa nota? (não pode desfazer)')) return;
-  notas.list = notas.list.filter(x => x.id !== id);
-  notasSave();
-  notasCloseEditor();
-  if(typeof toast === 'function') toast('🗑 Nota excluída');
+  const n = (notas.list || []).find(x => x.id === id);
+  const summary = n ? (n.title || (n.body || '').slice(0,40) || 'esta nota') : 'esta nota';
+  if(typeof anaConfirm === 'function'){
+    anaConfirm({
+      eyebrow: '🗑 Excluir nota',
+      title: 'Excluir "' + summary + '"?',
+      message: 'Esta ação <strong>não pode ser desfeita</strong>. Se quiser só esconder, use <strong>Arquivar</strong> em vez de excluir.',
+      okText: 'Excluir nota',
+      cancelText: 'Cancelar',
+      danger: true
+    }, () => {
+      notas.list = notas.list.filter(x => x.id !== id);
+      notasSave();
+      notasCloseEditor();
+      if(typeof toast === 'function') toast('🗑 Nota excluída');
+    });
+  } else {
+    notas.list = notas.list.filter(x => x.id !== id);
+    notasSave();
+    notasCloseEditor();
+  }
 }
 function notasToggleConvertMenu(ev){
   ev && ev.stopPropagation();
@@ -50697,10 +50800,20 @@ function cartSaveModal(){
 function cartDelete(id){
   const c = cartoes.list.find(x => x.id === id);
   if(!c) return;
-  // Tem faturas vinculadas?
   const temFat = cartoes.faturas.some(f => f.cartaoId === id);
-  const msg = temFat ? 'Excluir o cartão "' + c.apelido + '" também removerá todas as faturas e lançamentos vinculados. Continuar?' : 'Excluir o cartão "' + c.apelido + '"?';
-  if(!confirm(msg)) return;
+  const msg = temFat
+    ? 'Excluir <strong>"' + c.apelido + '"</strong> também removerá <strong>todas as faturas e lançamentos vinculados</strong>.'
+    : 'O cartão <strong>"' + c.apelido + '"</strong> será removido permanentemente.';
+  const doDel = () => { _cartDeleteConfirmed(id); };
+  if(typeof anaConfirm === 'function'){
+    anaConfirm({
+      eyebrow:'Excluir cartão', title:'Apagar cartão?',
+      message: msg, okText:'Excluir cartão', cancelText:'Cancelar', danger:true
+    }, doDel);
+  } else if(window.confirm(msg.replace(/<[^>]+>/g,''))) doDel();
+  return;
+}
+function _cartDeleteConfirmed(id){
   cartoes.list = cartoes.list.filter(x => x.id !== id);
   cartoes.faturas = cartoes.faturas.filter(f => f.cartaoId !== id);
   cartoes.lancamentos = cartoes.lancamentos.filter(l => l.cartaoId !== id);
@@ -51423,15 +51536,22 @@ function cartSaveLanc(cartaoId, _faturaId){
 function cartLancDel(lancId){
   const l = cartoes.lancamentos.find(x => x.id === lancId);
   if(!l) return;
-  if(l.parcela && l.parcela.parentId){
-    if(!confirm('Excluir TODAS as parcelas dessa compra?')) return;
-    cartoes.lancamentos = cartoes.lancamentos.filter(x => !(x.parcela && x.parcela.parentId === l.parcela.parentId));
-  } else {
-    if(!confirm('Excluir este lançamento?')) return;
-    cartoes.lancamentos = cartoes.lancamentos.filter(x => x.id !== lancId);
-  }
-  cartSave();
-  renderCartoes();
+  const isParcela = l.parcela && l.parcela.parentId;
+  const doDel = () => {
+    if(isParcela){
+      cartoes.lancamentos = cartoes.lancamentos.filter(x => !(x.parcela && x.parcela.parentId === l.parcela.parentId));
+    } else {
+      cartoes.lancamentos = cartoes.lancamentos.filter(x => x.id !== lancId);
+    }
+    cartSave();
+    renderCartoes();
+    if(typeof toast === 'function') toast('Lançamento excluído');
+  };
+  const cfg = isParcela
+    ? { eyebrow:'Excluir parcelas', title:'Apagar todas as parcelas?', message:'Todas as parcelas dessa compra serão removidas. <strong>Não pode ser desfeito.</strong>', okText:'Excluir parcelas', cancelText:'Cancelar', danger:true }
+    : { eyebrow:'Excluir lançamento', title:'Apagar este lançamento?', message:'O lançamento será removido permanentemente.', okText:'Excluir', cancelText:'Cancelar', danger:true };
+  if(typeof anaConfirm === 'function') anaConfirm(cfg, doDel);
+  else doDel();
 }
 
 // ─── Pagar fatura ───
@@ -55757,6 +55877,13 @@ async function ccDelete(id){
       cancelText: 'Cancelar'
     });
     if(!ok) return;
+  } else if(typeof anaConfirmAsync === 'function'){
+    const ok = await anaConfirmAsync({
+      eyebrow:'Excluir centro de custo', title:'Apagar "' + c.nome + '"?',
+      message:(usos > 0 ? '⚠ <strong>' + usos + '</strong> lançamento(s) usam este CC e ficarão sem vínculo.' : 'O centro de custo será removido.'),
+      okText:'Excluir', cancelText:'Cancelar', danger:true
+    });
+    if(!ok) return;
   } else {
     if(!confirm('Excluir centro de custo "' + c.nome + '"?')) return;
   }
@@ -56810,6 +56937,13 @@ async function catmapDelete(id){
         + '<div class="dkb-confirm-meta" style="color:#475569">A tag em Estrutura também será removida.</div>',
       okText: 'Sim, excluir',
       cancelText: 'Cancelar'
+    });
+    if(!ok) return;
+  } else if(typeof anaConfirmAsync === 'function'){
+    const ok = await anaConfirmAsync({
+      eyebrow:'Excluir categoria', title:'Apagar "' + c.nome + '"?',
+      message:(usos > 0 ? '⚠ <strong>' + usos + '</strong> lançamento(s) usam esta categoria · ficarão sem tag.' : 'A categoria será removida.'),
+      okText:'Excluir', cancelText:'Cancelar', danger:true
     });
     if(!ok) return;
   } else {
@@ -75534,12 +75668,20 @@ function delPesPessoa(id){
   if(!p) return;
   const view = pesRegView(p);
   const nome = view.nome || '(sem nome)';
-  if(!confirm(`Remover "${nome}" da planilha?`)) return;
-  const oldReg = p.pessoaId || 0;
-  pessoas.people = pessoas.people.filter(x=>x.id!==id);
-  if(oldReg) pesDeleteRegIfOrphan(oldReg);
-  pessoasSave();
-  renderPessoas();
+  const doDel = () => {
+    const oldReg = p.pessoaId || 0;
+    pessoas.people = pessoas.people.filter(x=>x.id!==id);
+    if(oldReg) pesDeleteRegIfOrphan(oldReg);
+    pessoasSave();
+    renderPessoas();
+  };
+  if(typeof anaConfirm === 'function'){
+    anaConfirm({
+      eyebrow:'Remover pessoa', title:'Apagar "' + nome + '"?',
+      message:'A pessoa será removida da planilha. Salários históricos também serão apagados.',
+      okText:'Remover', cancelText:'Cancelar', danger:true
+    }, doDel);
+  } else doDel();
 }
 
 // ─── PICKER de Pessoa (primeira coluna) ───
@@ -75631,6 +75773,16 @@ function openPessoaPicker(rowId, btn, event){
             const existe = pesFindRegByNome(lim);
             if(existe && existe.id !== r.id){
               const n1 = pesCountRowsForReg(r.id);
+              const doMerge = () => { pesReassignReg(r.id, existe.id); pessoasSave(); renderPessoas(); };
+              if(typeof anaConfirm === 'function'){
+                anaConfirm({
+                  eyebrow:'Mesclar pessoas',
+                  title:'Já existe "' + lim + '" na planilha',
+                  message:'Mesclar <strong>"' + r.nome + '"</strong> (' + n1 + ' linha' + (n1===1?'':'s') + ') em <strong>"' + lim + '"</strong>?',
+                  okText:'Mesclar', cancelText:'Cancelar'
+                }, doMerge);
+                return;
+              }
               if(!confirm(`Já existe uma pessoa "${lim}". Mesclar "${r.nome}" (${n1} linha${n1===1?'':'s'}) em "${lim}"?`)) return;
               pesReassignReg(r.id, existe.id);
               pesDeleteRegIfOrphan(r.id);
@@ -78285,14 +78437,20 @@ function deletePesTipo(id){
   const t = pesTipo(id); if(!t) return;
   const n = pessoas.people.filter(p=>p.tipoId===id).length;
   const msg = n > 0
-    ? `Remover o tipo "${t.nome}"? ${n} pessoa${n>1?'s':''} ficar${n>1?'ão':'á'} sem tipo.`
-    : `Remover o tipo "${t.nome}"?`;
-  if(!confirm(msg)) return;
-  pessoas.tipos = pessoas.tipos.filter(x=>x.id!==id);
-  // pessoas do tipo removido ficam com tipoId vazio (orphan group)
-  for(const p of pessoas.people){ if(p.tipoId === id) p.tipoId = ''; }
-  pessoasSave();
-  renderPesTipoList();
+    ? `<strong>${n} pessoa${n>1?'s':''}</strong> ficar${n>1?'ão':'á'} sem tipo. Você pode reassociar depois.`
+    : `O tipo será removido. Não pode ser desfeito.`;
+  const doDel = () => {
+    pessoas.tipos = pessoas.tipos.filter(x=>x.id!==id);
+    for(const p of pessoas.people){ if(p.tipoId === id) p.tipoId = ''; }
+    pessoasSave();
+    renderPesTipoList();
+  };
+  if(typeof anaConfirm === 'function'){
+    anaConfirm({
+      eyebrow:'Excluir tipo de pessoa', title:'Remover "' + t.nome + '"?',
+      message: msg, okText:'Excluir', cancelText:'Cancelar', danger:true
+    }, doDel);
+  } else doDel();
 }
 
 // ═══════════════════════════════════════════════════
