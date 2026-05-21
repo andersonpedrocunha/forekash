@@ -49800,6 +49800,31 @@ function notasSetColor(color){
 // se o try{} de exposição global lá embaixo ainda não rodou
 try { window.notasSetColor = notasSetColor; } catch(e){}
 
+// ═══════════════════════════════════════════════════════════════════
+// SAFETY NET: listener document-level em CAPTURE phase pra cores das
+// notas. Funciona mesmo se inline onclick for stripado, stopPropagation
+// for chamado, listener individual falhar, etc. Anti-bala.
+// ═══════════════════════════════════════════════════════════════════
+(function(){
+  if(typeof document === 'undefined' || document._notasColorDocListener) return;
+  document.addEventListener('click', function(ev){
+    try {
+      const t = ev.target;
+      if(!t || !t.closest) return;
+      const sw = t.closest('.notas-editor-color');
+      if(!sw) return;
+      // Só dentro do editor de notas (não confundir com filtros da toolbar)
+      if(!sw.closest('#notas-editor, .notas-editor-overlay')) return;
+      const c = sw.getAttribute('data-color');
+      if(!c) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      if(typeof notasSetColor === 'function') notasSetColor(c);
+    } catch(e){ console.warn('notas color doc listener:', e); }
+  }, true); // CAPTURE phase · roda ANTES de qualquer outro handler
+  document._notasColorDocListener = true;
+})();
+
 function notasDelete(id){
   const n = (notas.list || []).find(x => x.id === id);
   const summary = n ? (n.title || (n.body || '').slice(0,40) || 'esta nota') : 'esta nota';
