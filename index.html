@@ -7789,6 +7789,10 @@
     .ana-deck-thumb-blank{background:#FFFFFF;border:2px dashed #CBD5E1;display:flex;align-items:center;justify-content:center;color:#94A3B8;font-size:1.1rem;font-weight:700}
     .ana-deck-thumb-blank::after{content:'∅'}
     .ana-deck-thumb-blank:hover{border-color:#7C3AED;background:#FAFAFA;color:#7C3AED}
+    /* Row do "Aplicar a todos" — abaixo do picker de temas */
+    .ana-theme-apply-row{display:flex;justify-content:flex-end;padding:6px 0 0 0;margin-top:4px;border-top:1px dashed #E5E7EB}
+    .ana-theme-apply-row .ana-layout-apply-all{background:#F3F4F6;border:1px solid #D1D5DB;color:#374151;padding:6px 14px;border-radius:6px;font-size:.72rem;font-weight:700;cursor:pointer;transition:all .12s;font-family:inherit}
+    .ana-theme-apply-row .ana-layout-apply-all:hover{background:#7C3AED;border-color:#7C3AED;color:#fff}
 
     /* Picker de deck (galeria modelos) */
     .deck-picker-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
@@ -72052,9 +72056,12 @@ function _anaRenderSlideEditor(){
   // Aplica visual de capa quando isCover=true
   if(s.isCover) el.classList.add('is-cover');
   else el.classList.remove('is-cover');
-  // Remove qualquer classe de layout antiga e aplica a nova
-  for(const lay of SLIDE_LAYOUTS) el.classList.remove('ana-layout-' + lay.id);
-  el.classList.add('ana-layout-' + (s.layout || 'cream-exec'));
+  // Remove qualquer classe de layout antiga (TODAS ana-layout-*, incluindo
+  // temas que não estão em SLIDE_LAYOUTS · deck-* · etc) e aplica a nova
+  Array.from(el.classList).forEach(cls => {
+    if(cls.indexOf('ana-layout-') === 0) el.classList.remove(cls);
+  });
+  el.classList.add('ana-layout-' + (s.layout || 'none'));
   // Renderiza CONTROLES (fora do slide) + SLIDE separadamente
   const controls = document.getElementById('ana-slide-controls');
   if(controls){
@@ -72064,7 +72071,7 @@ function _anaRenderSlideEditor(){
     const _themesAvailable = (typeof DECK_THEMES !== 'undefined' && Array.isArray(DECK_THEMES) && typeof _themeMiniPreviewSVG === 'function');
     let pickerHtml;
     if(_themesAvailable){
-      const _curThemeName = (DECK_THEMES.find(t => t.id === _curThemeId) || {}).name || 'Em branco';
+      const _curThemeName = (DECK_THEMES.find(t => t.id === _curThemeId) || {}).name || 'Sem tema';
       pickerHtml =
           '<div class="ana-layout-picker">'
         +   '<span class="ana-layout-picker-lbl" title="Tema visual · aplica ao slide atual">Tema</span>'
@@ -72075,7 +72082,9 @@ function _anaRenderSlideEditor(){
               + _themeMiniPreviewSVG(t)
               + '</div>'
             ).join('')
-        +   '<button class="ana-layout-apply-all" onclick="anaThemeApply(\'' + (_curThemeId || 'none') + '\', true)" title="Aplica o tema atual (' + esc(_curThemeName) + ') a TODOS os slides">⇨ Aplicar a todos</button>'
+        + '</div>'
+        + '<div class="ana-theme-apply-row">'
+        +   '<button class="ana-layout-apply-all" onclick="anaThemeApply(\'' + (_curThemeId || 'none') + '\', true)" title="Aplica o tema atual a TODOS os slides da apresentação">⇨ Aplicar tema "' + esc(_curThemeName) + '" a todos os slides</button>'
         + '</div>';
     } else {
       // Fallback se decks não carregaram — picker antigo de layouts
