@@ -6930,7 +6930,27 @@
       color:#94B5D8 !important;font-weight:500;letter-spacing:.005em
     }
 
-    /* ── Componentes NotebookLM-style ────────────────────────── */
+    /* ── Componentes NotebookLM-style (self-contained — funcionam em qualquer layout) ── */
+    /* Wrapper base — todo widget nb-* herda esse fundo navy + topo SVG */
+    .nb-cover, .nb-trio, .nb-vs, .nb-canvas, .nb-spotlight, .nb-curve {
+      position:relative;
+      background:
+        radial-gradient(ellipse at 75% 50%, rgba(16,185,129,.08) 0%, transparent 55%),
+        linear-gradient(135deg,#0A1426 0%,#0F1F36 100%) !important;
+      border-radius:14px;
+      padding:30px 34px;
+      overflow:hidden;
+      min-height:380px;
+      color:#F8FAFC !important
+    }
+    .nb-cover::before, .nb-trio::before, .nb-vs::before,
+    .nb-canvas::before, .nb-spotlight::before, .nb-curve::before {
+      content:'';position:absolute;inset:0;pointer-events:none;
+      background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 400'><g fill='none' stroke='%2310B981' stroke-width='0.6' opacity='0.15'><path d='M-20,80 Q120,60 240,100 T520,90 T700,110'/><path d='M-20,140 Q140,118 280,150 T540,140 T700,160'/><path d='M-20,200 Q160,176 300,200 T560,190 T700,210'/><path d='M-20,260 Q140,236 280,260 T540,250 T700,270'/><path d='M-20,320 Q120,300 240,320 T520,310 T700,330'/></g><g fill='none' stroke='%231D3A5F' stroke-width='0.5' opacity='0.45'><path d='M-20,60 Q120,40 240,80 T520,70 T700,90'/><path d='M-20,120 Q140,100 280,130 T540,120 T700,140'/><path d='M-20,180 Q160,156 300,180 T560,170 T700,190'/><path d='M-20,240 Q140,216 280,240 T540,230 T700,250'/><path d='M-20,300 Q120,280 240,300 T520,290 T700,310'/><path d='M-20,360 Q160,336 300,360 T560,350 T700,370'/></g></svg>");
+      background-size:600px 400px; opacity:.7; border-radius:14px
+    }
+    .nb-cover > *, .nb-trio > *, .nb-vs > *, .nb-canvas > *,
+    .nb-spotlight > *, .nb-curve > * { position:relative; z-index:1 }
 
     /* Tags em brackets [LIKE THIS] estilo data-science */
     .nb-brackets{display:inline-flex;align-items:center;gap:5px;
@@ -6939,6 +6959,14 @@
       text-transform:uppercase;line-height:1}
     .nb-brackets::before{content:'['}
     .nb-brackets::after{content:']'}
+
+    /* Força cores DENTRO dos widgets nb-* (supera .ana-slide-edit-title) */
+    .nb-cover h2, .nb-trio h2, .nb-vs h3, .nb-canvas h4,
+    .nb-spotlight h2, .nb-spotlight h4, .nb-curve h2 { color:#F8FAFC !important }
+    .nb-cover .nb-cover-sub, .nb-trio .nb-trio-sub,
+    .nb-spotlight .sub, .nb-curve .sub { color:#94B5D8 !important }
+    .nb-vs h3.nb-vs-bad  { color:#FCA5A5 !important }
+    .nb-vs h3.nb-vs-good { color:#6EE7B7 !important }
 
     /* Cover meta row (fica no rodapé do slide cover) */
     .nb-cover-meta{display:flex;gap:34px;flex-wrap:wrap;align-items:flex-start;
@@ -6982,13 +7010,20 @@
     .nb-vs-col .nb-vs-bullets b::before{content:'['}
     .nb-vs-col .nb-vs-bullets b::after{content:']'}
 
-    /* CTA bar (faixa caps no rodapé) */
-    .nb-cta{position:absolute;left:0;right:0;bottom:0;
-      background:rgba(16,185,129,.08);border-top:1px solid rgba(16,185,129,.2);
-      padding:10px 28px;display:flex;align-items:center;justify-content:center;gap:10px;
-      font-family:inherit;font-size:.78rem;font-weight:600;color:#E8EEF4;
-      letter-spacing:.04em;text-transform:uppercase;text-align:center}
-    .nb-cta strong{color:#10B981;font-weight:800}
+    /* CTA bar (faixa caps em flow normal) */
+    .nb-cta{
+      background:linear-gradient(135deg,#0A1426 0%,#0F1F36 100%);
+      border:1px solid rgba(16,185,129,.3);border-radius:12px;
+      padding:14px 28px;display:flex;align-items:center;justify-content:center;gap:10px;
+      font-family:inherit;font-size:.86rem;font-weight:600;color:#E8EEF4 !important;
+      letter-spacing:.04em;text-transform:uppercase;text-align:center;min-height:54px;
+      position:relative;overflow:hidden}
+    .nb-cta::before{
+      content:'';position:absolute;inset:0;pointer-events:none;
+      background:linear-gradient(90deg,transparent,rgba(16,185,129,.12),transparent)
+    }
+    .nb-cta > *{position:relative;z-index:1}
+    .nb-cta strong{color:#10B981 !important;font-weight:800}
 
     /* CANVAS — multi-célula com [TAGS] */
     .nb-canvas{display:grid;gap:14px;padding:6px 0;height:100%;align-content:start}
@@ -68677,10 +68712,11 @@ try {
     ANA_WIDGETS['nb-cover'] = {
       label:'NB · Capa Cartografia', category:'hero', defaultCols:4,
       render: (c, ctx) => {
-        const slide = ctx.item || {};
-        const title = slide.title || 'Forekash — Cartografia';
-        const sub = slide.subtitle || 'Análise gerada por MR KASH';
-        const meta = slide.nbMeta || [
+        const w = ctx.item || {};
+        const data = w.nbCover || {};
+        const title = data.title || 'Forekash — Cartografia';
+        const sub = data.sub || 'Análise gerada por MR KASH';
+        const meta = data.meta || [
           { lbl:'ALVO',     val:'Visão executiva' },
           { lbl:'PARCEIRO', val:'Forekash' },
           { lbl:'DATA',     val: new Date().toLocaleDateString('pt-BR', { month:'long', year:'numeric' }) }
@@ -68704,11 +68740,10 @@ try {
     ANA_WIDGETS['nb-trio'] = {
       label:'NB · Trio (3 conceitos)', category:'hero', defaultCols:4,
       render: (c, ctx) => {
-        const slide = ctx.item || {};
-        const data = slide.nbTrio || {
-          title: slide.title || 'A Anatomia',
-          sub: slide.subtitle || 'três conceitos que se reforçam',
-          theme: slide.title || '',
+        const w = ctx.item || {};
+        const data = w.nbTrio || {
+          title: 'A Anatomia',
+          sub: 'três conceitos que se reforçam',
           items: [
             { n:'01', lbl:'Conceito 01', desc:'descrição curta do primeiro pilar.' },
             { n:'02', lbl:'Conceito 02', desc:'descrição curta do segundo pilar.' },
@@ -68766,10 +68801,10 @@ try {
     ANA_WIDGETS['nb-vs'] = {
       label:'NB · VS (Risco / Tese)', category:'hero', defaultCols:4,
       render: (c, ctx) => {
-        const slide = ctx.item || {};
-        const data = slide.nbVs || {
-          left:  { hd:'O Risco', tag:'Antes', illu:'chains',  bullets:[['Formato','Estrutura travada'],['Atuação','Difusa, sem foco'],['Destino','Decadência gradual']] },
-          right: { hd:'A Tese',  tag:'Depois', illu:'network', bullets:[['Formato','Rede porosa'],['Atuação','Sob demanda tipada'],['Destino','Capacidade durável']] }
+        const w = ctx.item || {};
+        const data = w.nbVs || {
+          left:  { hd:'O Risco', tag:'ANTES',  illu:'chains',  bullets:[['FORMATO','Estrutura travada'],['ATUAÇÃO','Difusa, sem foco'],['DESTINO','Decadência gradual']] },
+          right: { hd:'A Tese',  tag:'DEPOIS', illu:'network', bullets:[['FORMATO','Rede porosa'],['ATUAÇÃO','Sob demanda tipada'],['DESTINO','Capacidade durável']] }
         };
         const renderSide = (side, badCls) => ''
           + '<div class="nb-vs-col">'
@@ -68790,9 +68825,9 @@ try {
     ANA_WIDGETS['nb-canvas'] = {
       label:'NB · Canvas (template)', category:'hero', defaultCols:4,
       render: (c, ctx) => {
-        const slide = ctx.item || {};
-        const data = slide.nbCanvas || {
-          title: slide.title || 'Canvas',
+        const w = ctx.item || {};
+        const data = w.nbCanvas || {
+          title: 'Canvas',
           cells: [
             { tag:'SINTOMA',         title:'Dependência sem contrapartida', body:'Times de produto dependem de motores de risco sem SLA acordado.' },
             { tag:'ELEMENTOS ATUANTES', body:'POs, motor de risco, hábito da carteirada, memória de incidentes sistêmicos.' },
@@ -68815,10 +68850,10 @@ try {
     ANA_WIDGETS['nb-spotlight'] = {
       label:'NB · Spotlight (conceito)', category:'hero', defaultCols:4,
       render: (c, ctx) => {
-        const slide = ctx.item || {};
-        const data = slide.nbSpotlight || {
-          title: slide.title || 'Spotlight',
-          sub: slide.subtitle || 'um conceito chave',
+        const w = ctx.item || {};
+        const data = w.nbSpotlight || {
+          title: 'Spotlight',
+          sub: 'um conceito chave',
           left:  { lbl:'CONCEITO',  hd:'Definição', body:'Descrição curta do conceito chave que esse slide aborda.' },
           right: { lbl:'MECANISMO', hd:'Como funciona', body:'Como o mecanismo atua, em poucas palavras.' },
           illu: 'bridge',
@@ -68853,149 +68888,161 @@ try {
     ANA_WIDGETS['nb-cta'] = {
       label:'NB · CTA Bar (caps)', category:'text', defaultCols:4,
       render: (c, ctx) => {
-        const slide = ctx.item || {};
-        const txt = slide.nbCta || 'Esta é a frase de impacto. <strong>Decida agora.</strong>';
+        const w = ctx.item || {};
+        const txt = w.nbCta || 'Esta é a frase de impacto. <strong>Decida agora.</strong>';
         c.innerHTML = '<div class="nb-cta">' + txt + '</div>';
       }
     };
   }
 } catch(e){ console.warn('Cartografia widgets registration:', e); }
 
-// ─── Substitui o Storytelling generator pra usar Cartografia ───
+// ─── Storytelling generator (Cartografia) ─ dados vão NO WIDGET ─
 function anaStudioGenStorytellingCartografia(){
   const today = new Date();
   const monthLong = today.toLocaleDateString('pt-BR', { month:'long', year:'numeric' });
-
-  // SLIDE 1 — CAPA com brackets metadata e ilustração de network
-  const coverSlide = _anaStudioCreateSlide({
-    title: 'Cartografia do seu Caixa',
-    subtitle: 'Diagnóstico, Pontos Críticos e Próximos Passos · Gerado por MR KASH a partir dos seus dados',
-    isCover: true,
-    layout: 'cartografia',
-    widgets: []
-  });
-  coverSlide.nbMeta = [
-    { lbl:'ALVO',     val:'Visão executiva do período' },
-    { lbl:'PARCEIRO', val:'Forekash · MR KASH' },
-    { lbl:'DATA',     val: monthLong }
-  ];
-  coverSlide.widgets.push({ id:_anaSlideWidgetNextId++, widget:'nb-cover', cols:4, rows:3 });
-
-  // SLIDE 2 — A Anatomia do desempenho (TRIO)
   const facts = (typeof _anaCollectFacts === 'function') ? _anaCollectFacts() : null;
   const k = facts && typeof _anaCalcKPIs === 'function' ? _anaCalcKPIs(facts) : {};
   const x = facts && typeof _anaCalcIndicadoresExtra === 'function' ? _anaCalcIndicadoresExtra(k, facts) : {};
   const fmtBRLloc = (n) => (typeof fmtBRL === 'function') ? fmtBRL(n||0) : 'R$ ' + (n||0);
   const fmtPctLoc = (n) => (isFinite(n) ? n.toFixed(1).replace('.',',') : '0,0') + '%';
+  const isCritMargem = (k.margem || 0) < 5;
+  const isCritRunway = isFinite(k.runway) && k.runway < 3;
+  const isCritChurn  = (k.churn || 0) >= 15;
 
-  const trioSlide = _anaStudioCreateSlide({
+  // SLIDE 1 — CAPA com brackets metadata
+  _anaStudioCreateSlide({
+    title: 'Cartografia do seu Caixa',
+    subtitle: 'Diagnóstico, Pontos Críticos e Próximos Passos · Gerado por MR KASH a partir dos seus dados',
+    isCover: true,
+    layout: 'cartografia',
+    widgets: [{
+      widget:'nb-cover', cols:4, rows:3,
+      nbCover: {
+        title: 'Cartografia do seu Caixa',
+        sub:   'Diagnóstico · Pontos críticos · Próximos passos',
+        meta: [
+          { lbl:'ALVO',     val:'Visão executiva do período' },
+          { lbl:'PARCEIRO', val:'Forekash · MR KASH' },
+          { lbl:'DATA',     val: monthLong }
+        ]
+      }
+    }]
+  });
+
+  // SLIDE 2 — A Anatomia (TRIO)
+  _anaStudioCreateSlide({
     title: 'A Anatomia do período',
     subtitle: 'Três motores se reforçam — um trio que move o caixa',
     layout: 'cartografia',
-    widgets: []
+    widgets: [{
+      widget:'nb-trio', cols:4, rows:3,
+      nbTrio: {
+        title: 'A Anatomia do período',
+        sub:   'Três motores se reforçam — um trio que move o caixa pra frente.',
+        items: [
+          { n:'01', lbl:'Receita',  desc: fmtBRLloc(k.receita || 0) + ' no período · ' + (k.clientesAtivos||0) + ' clientes ativos.' },
+          { n:'02', lbl:'Margem',   desc: 'EBITDA ' + fmtBRLloc(k.ebitda || 0) + ' · margem ' + fmtPctLoc(k.margem || 0) + '.' },
+          { n:'03', lbl:'Saúde',    desc: 'Saldo ' + fmtBRLloc(k.saldo || 0) + ' · runway ' + (isFinite(k.runway) && k.runway>=0 ? k.runway.toFixed(1)+' meses' : '∞') + '.' }
+        ]
+      }
+    }, {
+      widget:'nb-cta', cols:4, rows:1,
+      nbCta: '<strong>MR KASH</strong> · Cada motor empurra o outro. Quebra de um trava a engrenagem inteira.'
+    }]
   });
-  trioSlide.nbTrio = {
-    title: 'A Anatomia do período',
-    sub:   'Três motores se reforçam — um trio que move o caixa pra frente.',
-    items: [
-      { n:'01', lbl:'Receita',  desc: fmtBRLloc(k.receita || 0) + ' no período · ' + (k.clientesAtivos||0) + ' clientes ativos.' },
-      { n:'02', lbl:'Margem',   desc: 'EBITDA ' + fmtBRLloc(k.ebitda || 0) + ' · margem ' + fmtPctLoc(k.margem || 0) + '.' },
-      { n:'03', lbl:'Saúde',    desc: 'Saldo ' + fmtBRLloc(k.saldo || 0) + ' · runway ' + (isFinite(k.runway) && k.runway>=0 ? k.runway.toFixed(1)+' meses' : '∞') + '.' }
-    ]
-  };
-  trioSlide.widgets.push({ id:_anaSlideWidgetNextId++, widget:'nb-trio', cols:4, rows:3 });
 
-  // SLIDE 3 — VS: Tendência operacional (margem) vs realidade financeira (caixa)
-  const vsSlide = _anaStudioCreateSlide({
+  // SLIDE 3 — TENSIONAMENTO (VS)
+  _anaStudioCreateSlide({
     title: 'O Tensionamento: Operação × Caixa',
     subtitle: 'Dois lados que precisam conversar',
     layout: 'cartografia',
-    widgets: []
+    widgets: [{
+      widget:'nb-vs', cols:4, rows:3,
+      nbVs: {
+        left: {
+          hd: isCritMargem ? 'Margem comprimida' : 'Operação ' + (k.margem >= 15 ? 'saudável' : 'ok'),
+          tag: 'OPERACIONAL',
+          illu: isCritMargem ? 'chains' : 'flow-cycle',
+          bullets: [
+            ['MARGEM',     fmtPctLoc(k.margem||0)],
+            ['BREAK-EVEN', fmtPctLoc(x.breakEven||0)],
+            ['% FOLHA',    fmtPctLoc(x.pctFolha||0)]
+          ]
+        },
+        right: {
+          hd: isCritRunway ? 'Caixa em atenção' : 'Caixa estável',
+          tag: 'FINANCEIRO',
+          illu: isCritRunway ? 'wave' : 'lighthouse',
+          bullets: [
+            ['SALDO',       fmtBRLloc(k.saldo||0)],
+            ['RUNWAY',      (isFinite(k.runway) && k.runway>=0 ? k.runway.toFixed(1) : '∞') + ' meses'],
+            ['BURN',        fmtBRLloc(x.burnMes||0) + '/mês']
+          ]
+        }
+      }
+    }, {
+      widget:'nb-cta', cols:4, rows:1,
+      nbCta: '<strong>OPERAÇÃO E CAIXA</strong> · Margem positiva sem runway é miragem. Runway sem margem é prorrogação.'
+    }]
   });
-  const isCritMargem = (k.margem || 0) < 5;
-  const isCritRunway = isFinite(k.runway) && k.runway < 3;
-  vsSlide.nbVs = {
-    left: {
-      hd: isCritMargem ? 'Margem comprimida' : 'Operação ' + (k.margem >= 15 ? 'saudável' : 'ok'),
-      tag: 'Operacional',
-      illu: isCritMargem ? 'chains' : 'flow-cycle',
-      bullets: [
-        ['Margem',     fmtPctLoc(k.margem||0)],
-        ['Break-even', fmtPctLoc(x.breakEven||0)],
-        ['% Folha',    fmtPctLoc(x.pctFolha||0)]
-      ]
-    },
-    right: {
-      hd: isCritRunway ? 'Caixa em atenção' : 'Caixa estável',
-      tag: 'Financeiro',
-      illu: isCritRunway ? 'wave' : 'lighthouse',
-      bullets: [
-        ['Saldo',         fmtBRLloc(k.saldo||0)],
-        ['Runway',        (isFinite(k.runway) && k.runway>=0 ? k.runway.toFixed(1) : '∞') + ' meses'],
-        ['Burn mensal',   fmtBRLloc(x.burnMes||0)]
-      ]
-    }
-  };
-  vsSlide.widgets.push({ id:_anaSlideWidgetNextId++, widget:'nb-vs', cols:4, rows:3 });
 
-  // SLIDE 4 — Canvas de tensão (4 células com [TAGS])
-  const canvasSlide = _anaStudioCreateSlide({
+  // SLIDE 4 — Canvas de tensão
+  let sintoma = 'Caixa equilibrado sem grandes alarmes';
+  if (isCritRunway) sintoma = 'Runway curto: caixa fica no vermelho sem mudança';
+  else if (isCritChurn) sintoma = 'Churn elevado: base de clientes encolhe rápido';
+  else if (isCritMargem) sintoma = 'Margem comprimida: cada receita custa demais';
+
+  _anaStudioCreateSlide({
     title: 'Canvas de Tensão',
     subtitle: 'Diagnóstico estruturado pra agir',
     layout: 'cartografia',
-    widgets: []
+    widgets: [{
+      widget:'nb-canvas', cols:4, rows:3,
+      nbCanvas: {
+        title: 'Canvas de Tensão',
+        cells: [
+          { tag:'SINTOMA',  title: sintoma,
+            body: 'Indicadores apontam um padrão consistente que exige decisão estruturada.' },
+          { tag:'ELEMENTOS ATUANTES',
+            body: 'Headcount ' + (k.headcount||0) + ' · % Folha ' + fmtPctLoc(x.pctFolha||0) + ' · % Empréstimos ' + fmtPctLoc(x.pctLoans||0) + '.' },
+          { tag:'GANHOS OCULTOS',
+            body: 'Manter o status quo poupa esforço de mudança e protege relacionamentos já estabelecidos com fornecedores/clientes.' },
+          { tag:'EXPERIMENTO PROPOSTO',
+            accent: true,
+            body: '<ul>'
+                + '<li><b>Ação:</b> renegociar prazos de pagamento com top 3 fornecedores nos próximos 30 dias.</li>'
+                + '<li><b>Critério de leitura:</b> alívio de R$ 15-25k/mês no fluxo.</li>'
+                + '<li><b>Critério de reversão:</b> se piorar relacionamento, retornar aos prazos atuais.</li>'
+                + '</ul>' }
+        ]
+      }
+    }, {
+      widget:'nb-cta', cols:4, rows:1,
+      nbCta: '<strong>SINTOMA → AÇÃO → CRITÉRIO</strong> · Sem critério de leitura, é tentativa. Sem critério de reversão, é aposta.'
+    }]
   });
-  // Detecta sintoma principal
-  const stRunway = isCritRunway;
-  const stChurn  = (k.churn||0) >= 15;
-  const stMarg   = isCritMargem;
-  let sintoma = 'Caixa equilibrado sem grandes alarmes';
-  if (stRunway) sintoma = 'Runway curto: caixa fica no vermelho sem mudança';
-  else if (stChurn) sintoma = 'Churn elevado: base de clientes encolhe rápido';
-  else if (stMarg)  sintoma = 'Margem comprimida: cada receita custa demais';
-  canvasSlide.nbCanvas = {
-    title: 'Canvas de Tensão',
-    cells: [
-      { tag:'SINTOMA',  title: sintoma,
-        body: 'Indicadores apontam um padrão consistente que exige decisão estruturada.' },
-      { tag:'ELEMENTOS ATUANTES',
-        body: 'Headcount ' + (k.headcount||0) + ' · % Folha ' + fmtPctLoc(x.pctFolha||0) + ' · % Empréstimos ' + fmtPctLoc(x.pctLoans||0) + '.' },
-      { tag:'GANHOS OCULTOS',
-        body: 'Manter o status quo poupa esforço de mudança e protege relacionamentos já estabelecidos com fornecedores/clientes.' },
-      { tag:'EXPERIMENTO PROPOSTO',
-        accent: true,
-        body: '<ul>'
-            + '<li><b>Ação:</b> renegociar prazos de pagamento com top 3 fornecedores nos próximos 30 dias.</li>'
-            + '<li><b>Critério de leitura:</b> alívio de R$ 15-25k/mês no fluxo.</li>'
-            + '<li><b>Critério de reversão:</b> se piorar relacionamento, retornar aos prazos atuais.</li>'
-            + '</ul>' }
-    ]
-  };
-  canvasSlide.widgets.push({ id:_anaSlideWidgetNextId++, widget:'nb-canvas', cols:4, rows:3 });
 
-  // SLIDE 5 — SPOTLIGHT: o próximo passo
-  const spotlightSlide = _anaStudioCreateSlide({
+  // SLIDE 5 — SPOTLIGHT
+  _anaStudioCreateSlide({
     title: 'Spotlight: o próximo movimento',
     subtitle: 'A travessia até o próximo ciclo',
     layout: 'cartografia',
-    widgets: []
-  });
-  spotlightSlide.nbSpotlight = {
-    title: 'Spotlight: o próximo movimento',
-    sub:   'A travessia até o próximo ciclo · não é big-bang, é ponte temporária.',
-    left:  { lbl:'O CONCEITO',  hd:'Estrutura temporária',
-             body:'Mecanismo que sustenta a operação enquanto o caixa ganha equilíbrio. Reversível, sem big-bang.' },
-    right: { lbl:'O MECANISMO', hd:'Renegociar + cortar + acelerar',
-             body:'Três frentes simultâneas: fornecedores, custos não-essenciais e recebíveis adiantados.' },
-    illu: 'bridge',
-    promise: 'A promessa: <strong>reposicionar o caixa em até 60 dias</strong> sem perder operação.'
-  };
-  spotlightSlide.widgets.push({ id:_anaSlideWidgetNextId++, widget:'nb-spotlight', cols:4, rows:3 });
-
-  // CTA bar em todos os slides (exceto cover)
-  [trioSlide, vsSlide, canvasSlide, spotlightSlide].forEach(s => {
-    s.nbCta = '<strong>MR KASH</strong> · Cada slide tem ação. Cada ação tem critério de leitura. Cada critério tem reversão.';
-    s.widgets.push({ id:_anaSlideWidgetNextId++, widget:'nb-cta', cols:4, rows:1 });
+    widgets: [{
+      widget:'nb-spotlight', cols:4, rows:3,
+      nbSpotlight: {
+        title: 'Spotlight: o próximo movimento',
+        sub:   'A travessia até o próximo ciclo · não é big-bang, é ponte temporária.',
+        left:  { lbl:'O CONCEITO',  hd:'Estrutura temporária',
+                 body:'Mecanismo que sustenta a operação enquanto o caixa ganha equilíbrio. Reversível, sem big-bang.' },
+        right: { lbl:'O MECANISMO', hd:'Renegociar + cortar + acelerar',
+                 body:'Três frentes simultâneas: fornecedores, custos não-essenciais e recebíveis adiantados.' },
+        illu: 'bridge',
+        promise: 'A promessa: <strong>reposicionar o caixa em até 60 dias</strong> sem perder operação.'
+      }
+    }, {
+      widget:'nb-cta', cols:4, rows:1,
+      nbCta: '<strong>MR KASH</strong> · A ponte sai no momento exato em que a estabilidade é atingida. Nem antes, nem depois.'
+    }]
   });
 
   _anaSaveState();
