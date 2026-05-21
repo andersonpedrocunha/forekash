@@ -69178,7 +69178,7 @@ function anaStudioOpenMindMap(){
       +   '<div class="ana-mm-hd">'
       +     '<div>'
       +       '<h2>🧠 Mind Map — Forekash</h2>'
-      +       '<p class="ana-mm-sub">Visualização em rede dos KPIs e módulos. Clique num nó pra adicionar ao slide atual.</p>'
+      +       '<p class="ana-mm-sub">Clique no centro (FOREKASH) pra adicionar visão geral · num módulo (Receita/EBITDA/Caixa…) pra adicionar todos seus KPIs · num KPI individual pra adicionar só ele ao slide.</p>'
       +     '</div>'
       +     '<button type="button" class="ana-mm-close" onclick="anaStudioCloseMindMap()" aria-label="Fechar">✕</button>'
       +   '</div>'
@@ -69216,30 +69216,27 @@ function _anaRenderMindMap(){
   const fmt = (n) => (typeof fmtBRL === 'function') ? fmtBRL(n||0) : 'R$ ' + (n||0);
   const pct = (n) => (isFinite(n) ? n.toFixed(0) : '0') + '%';
 
-  // Nó central + 5 módulos + KPIs por módulo
-  const W = 1100, H = 660;
+  // Canvas mais largo + módulos mais espaçados
+  const W = 1400, H = 880;
   const CX = W/2, CY = H/2;
-  // Determina estado crítico de cada KPI
   const isCritRunway = !isFinite(k.runway) ? false : k.runway < 3;
   const isCritChurn  = k.churn >= 15;
   const isCritMargem = k.margem < 5;
   const isCritFolha  = x.pctFolha >= 50;
-  const isCritEndiv  = k.endividamento > 0 && (x.pctLoans || 0) > 30;
 
-  // 5 módulos em volta do centro (108° apart)
   const moduleAngles = [0, 72, 144, 216, 288].map(d => (d - 90) * Math.PI / 180);
-  const modR = 200;
+  const modR = 270;  // ← antes 200 · módulos mais afastados do centro
   const modules = [
     { id:'rec',  label:'Receita',     ico:'📈', x:CX + Math.cos(moduleAngles[0]) * modR, y:CY + Math.sin(moduleAngles[0]) * modR, color:'#1A73E8',
       kpis:[
-        { lbl:'Receita Total', val: fmt(k.receita) },
-        { lbl:'MoM',           val: pct(x.momPct||0), crit: (x.momPct||0) < 0 },
-        { lbl:'Clientes',      val: (k.clientesAtivos||0) + '' }
+        { lbl:'Receita', val: fmt(k.receita) },
+        { lbl:'MoM',     val: pct(x.momPct||0), crit: (x.momPct||0) < 0 },
+        { lbl:'Clientes',val: (k.clientesAtivos||0) + '' }
       ] },
     { id:'ebt',  label:'EBITDA',      ico:'💰', x:CX + Math.cos(moduleAngles[1]) * modR, y:CY + Math.sin(moduleAngles[1]) * modR, color:'#673AB7',
       kpis:[
-        { lbl:'EBITDA', val: fmt(k.ebitda), crit: isCritMargem },
-        { lbl:'Margem', val: pct(k.margem), crit: isCritMargem },
+        { lbl:'EBITDA',     val: fmt(k.ebitda), crit: isCritMargem },
+        { lbl:'Margem',     val: pct(k.margem), crit: isCritMargem },
         { lbl:'Break-even', val: pct(x.breakEven||0) }
       ] },
     { id:'caix', label:'Caixa',       ico:'💵', x:CX + Math.cos(moduleAngles[2]) * modR, y:CY + Math.sin(moduleAngles[2]) * modR, color:'#1E8E3E',
@@ -69256,19 +69253,18 @@ function _anaRenderMindMap(){
       ] },
     { id:'cli',  label:'Clientes',    ico:'🏷', x:CX + Math.cos(moduleAngles[4]) * modR, y:CY + Math.sin(moduleAngles[4]) * modR, color:'#E91E63',
       kpis:[
-        { lbl:'Ativos',  val: (k.clientesAtivos||0) + '' },
-        { lbl:'Churn',   val: pct(k.churn||0), crit: isCritChurn },
-        { lbl:'LTV',     val: fmt(k.ltv) }
+        { lbl:'Ativos', val: (k.clientesAtivos||0) + '' },
+        { lbl:'Churn',  val: pct(k.churn||0), crit: isCritChurn },
+        { lbl:'LTV',    val: fmt(k.ltv) }
       ] }
   ];
 
-  // KPIs em volta de cada módulo (60° spread)
+  // KPIs posicionados radialmente · spread maior + radius maior pra evitar overlap
   function placeKpis(mod){
-    // Determina ângulo do módulo em relação ao centro
     const dx = mod.x - CX, dy = mod.y - CY;
     const baseAng = Math.atan2(dy, dx);
-    const kpiR = 100;
-    const spread = Math.PI / 2.5;  // ~72°
+    const kpiR = 170;   // ← antes 100 · KPIs bem mais longe do módulo
+    const spread = Math.PI * 0.55;  // ~100° (era ~72°)
     const n = mod.kpis.length;
     return mod.kpis.map((kpi, i) => {
       const ang = baseAng + (i - (n-1)/2) * spread / Math.max(1, n-1);
@@ -69279,58 +69275,152 @@ function _anaRenderMindMap(){
     });
   }
 
-  // Build SVG
+  // Bubble dimensions
+  const KPI_W = 110, KPI_H = 42;
+
   let edges = '';
   let nodes = '';
-  // Conexões centro → módulos
+  // Edges centro → módulos
   for (const m of modules){
     edges += '<line x1="' + CX + '" y1="' + CY + '" x2="' + m.x.toFixed(1) + '" y2="' + m.y.toFixed(1)
-          + '" stroke="' + m.color + '" stroke-width="2.4" stroke-opacity="0.32" stroke-linecap="round"/>';
+          + '" stroke="' + m.color + '" stroke-width="2.4" stroke-opacity=".32" stroke-linecap="round"/>';
   }
-  // Conexões módulo → KPIs
+  // Edges módulo → KPIs · KPI bubbles
   for (const m of modules){
     const placed = placeKpis(m);
     for (const kpi of placed){
       const edgeColor = kpi.crit ? '#EA4335' : m.color;
       edges += '<line x1="' + m.x.toFixed(1) + '" y1="' + m.y.toFixed(1) + '" x2="' + kpi.x.toFixed(1) + '" y2="' + kpi.y.toFixed(1)
-            + '" stroke="' + edgeColor + '" stroke-width="1.5" stroke-opacity="0.35" stroke-dasharray="' + (kpi.crit ? '4 3' : '') + '"/>';
+            + '" stroke="' + edgeColor + '" stroke-width="1.5" stroke-opacity=".35" stroke-dasharray="' + (kpi.crit ? '4 3' : '') + '"/>';
     }
-    // KPI bubbles
     for (const kpi of placed){
       const fillColor = kpi.crit ? '#FCE8E6' : '#fff';
       const strokeColor = kpi.crit ? '#EA4335' : '#E8EAED';
       const valColor = kpi.crit ? '#C5221F' : '#202124';
-      nodes += '<g class="ana-mm-node ana-mm-node-kpi" data-mod="' + m.id + '" data-kpi="' + kpi.lbl + '">'
-            +   '<rect x="' + (kpi.x - 56) + '" y="' + (kpi.y - 22) + '" width="112" height="44" rx="14" fill="' + fillColor + '" stroke="' + strokeColor + '" stroke-width="1.5"/>'
-            +   '<text x="' + kpi.x + '" y="' + (kpi.y - 5) + '" text-anchor="middle" font-size="9" font-weight="600" fill="#5F6368">' + kpi.lbl + '</text>'
-            +   '<text x="' + kpi.x + '" y="' + (kpi.y + 11) + '" text-anchor="middle" font-size="12" font-weight="800" fill="' + valColor + '">' + kpi.val + '</text>'
+      const lblEsc = String(kpi.lbl).replace(/'/g,'&#39;');
+      const valEsc = String(kpi.val).replace(/'/g,'&#39;');
+      const critFlag = kpi.crit ? 'true' : 'false';
+      nodes += '<g class="ana-mm-node ana-mm-node-kpi" onclick="anaMmAddKpiToSlide(\'' + lblEsc + '\',\'' + valEsc + '\',\'' + m.color + '\',' + critFlag + ')">'
+            +   '<rect x="' + (kpi.x - KPI_W/2) + '" y="' + (kpi.y - KPI_H/2) + '" width="' + KPI_W + '" height="' + KPI_H + '" rx="12" fill="' + fillColor + '" stroke="' + strokeColor + '" stroke-width="1.5"/>'
+            +   '<text x="' + kpi.x + '" y="' + (kpi.y - 4) + '" text-anchor="middle" font-size="9" font-weight="600" fill="#5F6368" style="pointer-events:none">' + kpi.lbl + '</text>'
+            +   '<text x="' + kpi.x + '" y="' + (kpi.y + 12) + '" text-anchor="middle" font-size="12" font-weight="800" fill="' + valColor + '" style="pointer-events:none">' + kpi.val + '</text>'
             + '</g>';
     }
   }
-  // Module bubbles
+  // Module bubbles · click adiciona todos os KPIs do módulo
   for (const m of modules){
-    nodes += '<g class="ana-mm-node ana-mm-node-mod" data-mod="' + m.id + '">'
-          +   '<circle cx="' + m.x.toFixed(1) + '" cy="' + m.y.toFixed(1) + '" r="42" fill="' + m.color + '" fill-opacity="0.08" stroke="' + m.color + '" stroke-width="2.2"/>'
-          +   '<text x="' + m.x.toFixed(1) + '" y="' + (m.y - 4) + '" text-anchor="middle" font-size="18">' + m.ico + '</text>'
-          +   '<text x="' + m.x.toFixed(1) + '" y="' + (m.y + 14) + '" text-anchor="middle" font-size="11" font-weight="700" fill="' + m.color + '">' + m.label + '</text>'
+    const lblEsc = String(m.label).replace(/'/g,'&#39;');
+    nodes += '<g class="ana-mm-node ana-mm-node-mod" onclick="anaMmAddModuleToSlide(\'' + m.id + '\',\'' + lblEsc + '\',\'' + m.color + '\')">'
+          +   '<circle cx="' + m.x.toFixed(1) + '" cy="' + m.y.toFixed(1) + '" r="48" fill="' + m.color + '" fill-opacity=".1" stroke="' + m.color + '" stroke-width="2.4"/>'
+          +   '<text x="' + m.x.toFixed(1) + '" y="' + (m.y - 6) + '" text-anchor="middle" font-size="20" style="pointer-events:none">' + m.ico + '</text>'
+          +   '<text x="' + m.x.toFixed(1) + '" y="' + (m.y + 15) + '" text-anchor="middle" font-size="12" font-weight="800" fill="' + m.color + '" style="pointer-events:none">' + m.label + '</text>'
           + '</g>';
   }
-  // Central node — Forekash
-  nodes += '<g class="ana-mm-node ana-mm-node-center">'
-        +   '<circle cx="' + CX + '" cy="' + CY + '" r="58" fill="#0F172A" stroke="#10B981" stroke-width="3"/>'
-        +   '<text x="' + CX + '" y="' + (CY - 4) + '" text-anchor="middle" font-size="13" font-weight="800" fill="#F8FAFC">FOREKASH</text>'
-        +   '<text x="' + CX + '" y="' + (CY + 14) + '" text-anchor="middle" font-size="10" font-weight="600" fill="#10B981">' + fmt(k.receita || 0) + '</text>'
+  // Central node — Forekash · click adiciona tudo
+  nodes += '<g class="ana-mm-node ana-mm-node-center" onclick="anaMmAddAllToSlide()">'
+        +   '<circle cx="' + CX + '" cy="' + CY + '" r="64" fill="#0F172A" stroke="#10B981" stroke-width="3"/>'
+        +   '<text x="' + CX + '" y="' + (CY - 4) + '" text-anchor="middle" font-size="14" font-weight="800" fill="#F8FAFC" style="pointer-events:none">FOREKASH</text>'
+        +   '<text x="' + CX + '" y="' + (CY + 16) + '" text-anchor="middle" font-size="11" font-weight="600" fill="#10B981" style="pointer-events:none">' + fmt(k.receita || 0) + '</text>'
         + '</g>';
 
-  wrap.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" class="ana-mm-svg">'
+  wrap.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" class="ana-mm-svg" style="cursor:default">'
     + '<defs>'
     +   '<filter id="ana-mm-shadow" x="-50%" y="-50%" width="200%" height="200%">'
-    +     '<feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000" flood-opacity="0.06"/>'
+    +     '<feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000" flood-opacity=".06"/>'
     +   '</filter>'
     + '</defs>'
     + '<g filter="url(#ana-mm-shadow)">' + edges + nodes + '</g>'
     + '</svg>';
+  // Guarda dados pra os handlers de click usarem
+  _anaMmCachedKpis = { k:k, x:x, modules:modules, fmt:fmt, pct:pct };
 }
+
+// Estado compartilhado pros handlers de click
+let _anaMmCachedKpis = null;
+
+// Adiciona um KPI individual ao slide atual como widget ana-hero
+function anaMmAddKpiToSlide(label, value, color, crit){
+  if(!_anaState.presentation || !_anaState.presentation.slides) return;
+  const cur = _anaSlideCurrent();
+  if(!cur){ if(typeof toast === 'function') toast('Selecione um slide primeiro'); return; }
+  if(!Array.isArray(cur.widgets)) cur.widgets = [];
+  // Adiciona widget de texto rico com o KPI estilizado
+  const variant = crit ? 'bad' : 'good';
+  const html = '<div class="ana-hero ' + variant + '" style="height:100%;display:flex;flex-direction:column;justify-content:center">'
+             +   '<div class="ana-hero-hd"><span class="lbl">' + label + '</span></div>'
+             +   '<div class="ana-hero-val">' + value + '</div>'
+             + '</div>';
+  cur.widgets.push({
+    id: _anaSlideWidgetNextId++,
+    widget:'text',
+    cols:1, rows:2, x:0, y:0,
+    text: html
+  });
+  _anaSaveState();
+  anaStudioCloseMindMap();
+  _anaRenderPresent();
+  if(typeof toast === 'function') toast('✅ KPI "' + label + '" adicionado ao slide');
+}
+
+// Adiciona TODOS os KPIs de um módulo (3 KPIs lado a lado)
+function anaMmAddModuleToSlide(modId, modLabel, modColor){
+  if(!_anaState.presentation || !_anaMmCachedKpis) return;
+  const cur = _anaSlideCurrent();
+  if(!cur){ if(typeof toast === 'function') toast('Selecione um slide primeiro'); return; }
+  const mod = _anaMmCachedKpis.modules.find(m => m.id === modId);
+  if(!mod) return;
+  if(!Array.isArray(cur.widgets)) cur.widgets = [];
+  for(const kpi of mod.kpis){
+    const variant = kpi.crit ? 'bad' : 'good';
+    const html = '<div class="ana-hero ' + variant + '" style="height:100%;display:flex;flex-direction:column;justify-content:center">'
+               +   '<div class="ana-hero-hd"><span class="lbl">' + modLabel + ' · ' + kpi.lbl + '</span></div>'
+               +   '<div class="ana-hero-val">' + kpi.val + '</div>'
+               + '</div>';
+    cur.widgets.push({
+      id: _anaSlideWidgetNextId++,
+      widget:'text',
+      cols:1, rows:2, x:0, y:0,
+      text: html
+    });
+  }
+  _anaSaveState();
+  anaStudioCloseMindMap();
+  _anaRenderPresent();
+  if(typeof toast === 'function') toast('✅ Módulo "' + modLabel + '" (' + mod.kpis.length + ' KPIs) adicionado');
+}
+
+// Adiciona TODOS os módulos × KPIs como visão geral
+function anaMmAddAllToSlide(){
+  if(!_anaState.presentation || !_anaMmCachedKpis) return;
+  const cur = _anaSlideCurrent();
+  if(!cur){ if(typeof toast === 'function') toast('Selecione um slide primeiro'); return; }
+  if(!Array.isArray(cur.widgets)) cur.widgets = [];
+  for(const mod of _anaMmCachedKpis.modules){
+    // Adiciona só o KPI principal de cada módulo (primeiro da lista)
+    const kpi = mod.kpis[0];
+    if(!kpi) continue;
+    const variant = kpi.crit ? 'bad' : 'good';
+    const html = '<div class="ana-hero ' + variant + '" style="height:100%;display:flex;flex-direction:column;justify-content:center">'
+               +   '<div class="ana-hero-hd"><span class="lbl">' + mod.label + '</span></div>'
+               +   '<div class="ana-hero-val">' + kpi.val + '</div>'
+               + '</div>';
+    cur.widgets.push({
+      id: _anaSlideWidgetNextId++,
+      widget:'text',
+      cols:1, rows:2, x:0, y:0,
+      text: html
+    });
+  }
+  _anaSaveState();
+  anaStudioCloseMindMap();
+  _anaRenderPresent();
+  if(typeof toast === 'function') toast('✅ Visão geral (5 KPIs principais) adicionada ao slide');
+}
+try {
+  window.anaMmAddKpiToSlide    = anaMmAddKpiToSlide;
+  window.anaMmAddModuleToSlide = anaMmAddModuleToSlide;
+  window.anaMmAddAllToSlide    = anaMmAddAllToSlide;
+} catch(e){}
 
 try {
   window.anaStudioGenSlideKpis    = anaStudioGenSlideKpis;
