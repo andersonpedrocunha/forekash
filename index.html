@@ -6309,6 +6309,8 @@
     .ana-sinais.empty{background:linear-gradient(135deg,#ECFDF5 0%,#D1FAE5 100%);border-color:#A7F3D0}
     .ana-sinais-ico{font-size:1.15rem;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center}
     .ana-sinais-ico img.mrkash-avatar{width:28px;height:28px;border-radius:50%;object-fit:cover;border:1.5px solid rgba(16,185,129,.4);background:#0F172A;display:block}
+    /* Avatar inline pequeno (16px) pra usar ao lado do nome MR KASH no texto */
+    img.mrkash-inline{width:16px;height:16px;border-radius:50%;object-fit:cover;border:1px solid rgba(16,185,129,.4);background:#0F172A;display:inline-block;vertical-align:middle;margin-right:5px}
     .ana-sinais-hd{font-size:.74rem;font-weight:800;color:#991B1B;letter-spacing:.04em;flex-shrink:0;margin-right:4px;display:flex;align-items:center;gap:6px}
     .ana-sinais.empty .ana-sinais-hd{color:#065F46}
     .ana-sinais-list{display:flex;gap:6px;flex-wrap:wrap;flex:1}
@@ -15599,7 +15601,7 @@
             <aside class="ana-custom-sidebar" id="ana-present-lib-sidebar">
               <div class="ana-sidebar-hd">
                 <h4>Studio</h4>
-                <small>powered by MR KASH</small>
+                <small><img class="mrkash-inline" id="ana-studio-mrkash" alt="MR KASH" draggable="false">powered by MR KASH</small>
               </div>
 
               <!-- ── Ações de IA (NotebookLM-style action cards) ── -->
@@ -15624,7 +15626,7 @@
                       <line x1="6" y1="18" x2="12" y2="18"/>
                     </svg>
                   </span>
-                  <span class="lbl"><b>Storytelling completo</b><span>5 slides com narrativa MR KASH</span></span>
+                  <span class="lbl"><b>Storytelling completo</b><span><img class="mrkash-inline" id="ana-story-mrkash" alt="MR KASH" draggable="false">5 slides com narrativa MR KASH</span></span>
                 </button>
                 <button type="button" class="ana-studio-action" onclick="anaStudioOpenMindMap()">
                   <span class="ico">🧠</span>
@@ -33450,6 +33452,33 @@ const MRKASH_AVATAR_IMG = 'data:image/webp;base64,UklGRvQQAABXRUJQVlA4IOgQAADwYA
 
 // Wrapper HTML — usado nos pontos onde antes se injetava o SVG.
 const MRKASH_AVATAR_SVG = `<img src="${MRKASH_AVATAR_IMG}" alt="MR KASH" class="diag-mrcash-img" draggable="false">`;
+
+// Aplica a src do avatar em todas as imagens .mrkash-inline (no DOM atual e futuras)
+function _applyMrKashInlineImgs(root){
+  try {
+    const target = root || document;
+    const imgs = target.querySelectorAll('img.mrkash-inline:not([src]),img.mrkash-inline[src=""],img.mrkash-avatar:not([src]),img.mrkash-avatar[src=""]');
+    imgs.forEach(img => { img.src = MRKASH_AVATAR_IMG; });
+  } catch(e){}
+}
+// Roda assim que o DOM tiver pronto + observa mudanças pra pegar elementos renderizados depois
+if(document.readyState !== 'loading') _applyMrKashInlineImgs();
+else document.addEventListener('DOMContentLoaded', () => _applyMrKashInlineImgs());
+try {
+  if(typeof MutationObserver !== 'undefined'){
+    const mo = new MutationObserver(muts => {
+      for(const m of muts){
+        if(m.addedNodes && m.addedNodes.length){
+          for(const n of m.addedNodes){
+            if(n.nodeType === 1) _applyMrKashInlineImgs(n);
+          }
+        }
+      }
+    });
+    if(document.body) mo.observe(document.body, { childList:true, subtree:true });
+    else document.addEventListener('DOMContentLoaded', () => mo.observe(document.body, { childList:true, subtree:true }));
+  }
+} catch(e){}
 
 // Subtítulos do MR KASH no tom Mr. Robot — sorteados a cada renderização.
 const MRKASH_SUBTITLES = [
@@ -68135,13 +68164,15 @@ function anaTplOpen(){
   if(!ov) return;
   // Atualiza header pra refletir o conceito novo (decks completos)
   const titleEl = ov.querySelector('.confirm-title span');
-  if(titleEl) titleEl.textContent = '🎨 Modelos de apresentação';
+  if(titleEl) titleEl.innerHTML = '<img class="mrkash-inline" alt="MR KASH" draggable="false">Modelos de apresentação <small style="font-weight:500;color:#9CA3AF;font-size:.78rem">· by MR KASH</small>';
   const helpEl  = ov.querySelector('p');
-  if(helpEl) helpEl.textContent = 'Escolha um modelo de apresentação completa. Os KPIs reais entram automaticamente nos placeholders.';
+  if(helpEl) helpEl.innerHTML = 'Escolha um modelo de apresentação completa. Os KPIs reais entram automaticamente — o <strong>MR KASH</strong> preenche cada slide com seus números.';
   // Se o picker de decks existe, usa ele; senão fallback pro grid antigo
   if(typeof _anaRenderDeckGrid === 'function') _anaRenderDeckGrid();
   else _anaRenderTplGrid();
   ov.style.display = 'flex';
+  // Aplica src nos novos <img class="mrkash-inline">
+  if(typeof _applyMrKashInlineImgs === 'function') _applyMrKashInlineImgs(ov);
 }
 function anaTplClose(){
   const ov = document.getElementById('ov-ana-tpl');
@@ -69869,7 +69900,51 @@ const DECK_TEMPLATES = [
         + '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:30px">'
         + '<div style="width:50%"><h3 style="font-size:1.5rem;margin-bottom:15px">Ajuste do Centro de Gravidade</h3><p class="deck-1-sub" style="margin-bottom:20px">Redirecionamento de fluxos com foco em tração de margem limpa. O patamar atual de <strong>{{kpi.margem}}</strong> precisa evoluir via corte de gargalos operacionais.</p></div>'
         + '<div style="width:40%;text-align:center"><svg width="240" height="240" viewBox="0 0 100 100" fill="none"><circle cx="50" cy="50" r="40" stroke="#10B981" stroke-width="1.5" stroke-dasharray="4,4"/><circle cx="50" cy="50" r="25" stroke="#10B981" stroke-width="2"/><circle cx="50" cy="50" r="5" fill="#10B981"/><line x1="50" y1="10" x2="50" y2="90" stroke="rgba(148,181,216,.2)" stroke-width="1"/><line x1="100" y1="50" x2="0" y2="50" stroke="rgba(148,181,216,.2)" stroke-width="1"/></svg></div>'
-        + '</div><div class="deck-1-footer-banner">ALVO DE CONTROLE CRÍTICO: BLINDAGEM DE EBITDA EM {{kpi.ebitda}}</div></div></div>' }
+        + '</div><div class="deck-1-footer-banner">ALVO DE CONTROLE CRÍTICO: BLINDAGEM DE EBITDA EM {{kpi.ebitda}}</div></div></div>' },
+      { title:'Indicador Soberano · KPI Hero', html:
+        '<div class="deck-1-frame"><svg class="deck-1-topo-bg" viewBox="0 0 1280 720"><use href="#deck-1-topo"/></svg><div class="deck-1-content">'
+        + '<div><div class="deck-1-tag">[ INDICADOR CHAVE · SAÚDE DO CICLO ]</div><h2 class="deck-1-h2">A métrica que comanda a próxima decisão</h2></div>'
+        + '<div style="display:grid;grid-template-columns:1.3fr 1fr;align-items:center;gap:40px;margin-top:30px">'
+        +   '<div><div style="font-family:\'JetBrains Mono\',monospace;font-size:.8rem;color:#94B5D8;margin-bottom:10px">EBITDA DO PERÍODO</div><div style="font-size:7rem;font-weight:800;color:#10B981;line-height:1;letter-spacing:-.04em">{{kpi.ebitda}}</div><p class="deck-1-sub" style="margin-top:20px">Margem de <strong>{{kpi.margem}}</strong> com break-even em <strong>{{kpi.breakEven}}</strong>. Burn mensal de <strong>{{kpi.burnMes}}</strong> contra saldo de <strong>{{kpi.saldo}}</strong>.</p></div>'
+        +   '<div style="border-left:1px solid rgba(16,185,129,.2);padding-left:30px;display:flex;flex-direction:column;gap:18px">'
+        +     '<div><div style="font-family:\'JetBrains Mono\',monospace;font-size:.7rem;color:#94B5D8">[RUNWAY]</div><div style="font-size:1.8rem;font-weight:700;color:#F8FAFC;margin-top:4px">{{kpi.runway}}</div></div>'
+        +     '<div><div style="font-family:\'JetBrains Mono\',monospace;font-size:.7rem;color:#94B5D8">[RECEITA]</div><div style="font-size:1.8rem;font-weight:700;color:#F8FAFC;margin-top:4px">{{kpi.receita}}</div></div>'
+        +     '<div><div style="font-family:\'JetBrains Mono\',monospace;font-size:.7rem;color:#94B5D8">[CLIENTES ATIVOS]</div><div style="font-size:1.8rem;font-weight:700;color:#F8FAFC;margin-top:4px">{{kpi.clientesAtivos}}</div></div>'
+        +   '</div>'
+        + '</div></div></div>' },
+      { title:'Plano · Próximos 90 dias', html:
+        '<div class="deck-1-frame"><svg class="deck-1-topo-bg" viewBox="0 0 1280 720"><use href="#deck-1-topo"/></svg><div class="deck-1-content">'
+        + '<div><div class="deck-1-tag">[ ROTEIRO DE EXECUÇÃO ]</div><h2 class="deck-1-h2">Plano de Ação · 90 dias</h2></div>'
+        + '<div style="position:relative;margin-top:50px;padding-top:30px">'
+        +   '<div style="position:absolute;top:30px;left:6%;right:6%;height:2px;background:rgba(148,181,216,.2)"></div>'
+        +   '<div style="position:absolute;top:30px;left:6%;width:62%;height:2px;background:#10B981"></div>'
+        +   '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;position:relative;z-index:2">'
+        +     '<div style="text-align:center"><div style="width:60px;height:60px;border-radius:50%;background:#0F1F36;border:2px solid #10B981;margin:0 auto 14px;display:flex;align-items:center;justify-content:center;color:#10B981;font-family:\'JetBrains Mono\',monospace;font-weight:700">30d</div><h4 style="font-size:1.1rem;font-weight:700;color:#F8FAFC;margin:0 0 8px">Diagnóstico → Ação</h4><p style="font-size:.85rem;color:#94B5D8;line-height:1.5;margin:0">Renegociar top 3 fornecedores · Cortar despesas acessórias · Acelerar recebíveis</p></div>'
+        +     '<div style="text-align:center"><div style="width:60px;height:60px;border-radius:50%;background:#0F1F36;border:2px solid #10B981;margin:0 auto 14px;display:flex;align-items:center;justify-content:center;color:#10B981;font-family:\'JetBrains Mono\',monospace;font-weight:700">60d</div><h4 style="font-size:1.1rem;font-weight:700;color:#F8FAFC;margin:0 0 8px">Estabilização</h4><p style="font-size:.85rem;color:#94B5D8;line-height:1.5;margin:0">Margem retorna ao patamar saudável · Burn reduz 15% · Runway estende</p></div>'
+        +     '<div style="text-align:center"><div style="width:60px;height:60px;border-radius:50%;background:#0F1F36;border:2px solid rgba(148,181,216,.35);margin:0 auto 14px;display:flex;align-items:center;justify-content:center;color:#94B5D8;font-family:\'JetBrains Mono\',monospace;font-weight:700">90d</div><h4 style="font-size:1.1rem;font-weight:700;color:#F8FAFC;margin:0 0 8px">Aceleração</h4><p style="font-size:.85rem;color:#94B5D8;line-height:1.5;margin:0">EBITDA volta ao patamar de meta · Decisão sobre rodada de captação</p></div>'
+        +   '</div>'
+        + '</div></div></div>' },
+      { title:'Checklist · Critérios de Execução', html:
+        '<div class="deck-1-frame"><svg class="deck-1-topo-bg" viewBox="0 0 1280 720"><use href="#deck-1-topo"/></svg><div class="deck-1-content">'
+        + '<div><div class="deck-1-tag">[ MATRIZ DE EXECUÇÃO ]</div><h2 class="deck-1-h2">Critérios de Leitura e Reversão</h2></div>'
+        + '<div style="display:flex;flex-direction:column;gap:12px;margin-top:30px">'
+        +   '<div style="background:rgba(15,31,54,.6);border:1px solid rgba(16,185,129,.25);border-radius:6px;padding:16px 22px;display:flex;gap:18px;align-items:flex-start">'
+        +     '<div style="flex-shrink:0;width:20px;height:20px;border:2px solid #10B981;background:rgba(16,185,129,.1);border-radius:3px;position:relative;margin-top:3px"></div>'
+        +     '<div><div><span style="font-family:\'JetBrains Mono\',monospace;font-size:.72rem;color:#10B981;margin-right:10px">[P1]</span><span style="font-size:1rem;font-weight:700;color:#F8FAFC">Renegociar prazos com top 3 fornecedores</span></div><div style="font-size:.82rem;color:#94B5D8;margin-top:5px">AÇÃO <span style="color:#10B981">→</span> CRITÉRIO: alívio ≥ R$ 15k/mês em 30 dias <span style="color:#10B981">→</span> REVERSÃO: manter prazos se piorar relação</div></div>'
+        +   '</div>'
+        +   '<div style="background:rgba(15,31,54,.6);border:1px solid rgba(16,185,129,.25);border-radius:6px;padding:16px 22px;display:flex;gap:18px;align-items:flex-start">'
+        +     '<div style="flex-shrink:0;width:20px;height:20px;border:2px solid #10B981;background:rgba(16,185,129,.1);border-radius:3px;margin-top:3px"></div>'
+        +     '<div><div><span style="font-family:\'JetBrains Mono\',monospace;font-size:.72rem;color:#10B981;margin-right:10px">[P1]</span><span style="font-size:1rem;font-weight:700;color:#F8FAFC">Cortar despesas não-essenciais (≥ 5% do burn)</span></div><div style="font-size:.82rem;color:#94B5D8;margin-top:5px">AÇÃO <span style="color:#10B981">→</span> CRITÉRIO: burn ↓ 5% em 60 dias <span style="color:#10B981">→</span> REVERSÃO: reverter se NPS interno cair</div></div>'
+        +   '</div>'
+        +   '<div style="background:rgba(15,31,54,.6);border:1px solid rgba(16,185,129,.25);border-radius:6px;padding:16px 22px;display:flex;gap:18px;align-items:flex-start">'
+        +     '<div style="flex-shrink:0;width:20px;height:20px;border:2px solid #10B981;background:rgba(16,185,129,.1);border-radius:3px;margin-top:3px"></div>'
+        +     '<div><div><span style="font-family:\'JetBrains Mono\',monospace;font-size:.72rem;color:#10B981;margin-right:10px">[P2]</span><span style="font-size:1rem;font-weight:700;color:#F8FAFC">Acelerar recebíveis via antecipação seletiva</span></div><div style="font-size:.82rem;color:#94B5D8;margin-top:5px">AÇÃO <span style="color:#10B981">→</span> CRITÉRIO: saldo ↑ R$ 50k em 30 dias <span style="color:#10B981">→</span> REVERSÃO: pausar se custo &gt; 2% a.m.</div></div>'
+        +   '</div>'
+        +   '<div style="background:rgba(15,31,54,.6);border:1px solid rgba(16,185,129,.25);border-radius:6px;padding:16px 22px;display:flex;gap:18px;align-items:flex-start">'
+        +     '<div style="flex-shrink:0;width:20px;height:20px;border:2px solid #10B981;background:rgba(16,185,129,.1);border-radius:3px;margin-top:3px"></div>'
+        +     '<div><div><span style="font-family:\'JetBrains Mono\',monospace;font-size:.72rem;color:#10B981;margin-right:10px">[P3]</span><span style="font-size:1rem;font-weight:700;color:#F8FAFC">Plano B · linha de crédito de emergência</span></div><div style="font-size:.82rem;color:#94B5D8;margin-top:5px">AÇÃO <span style="color:#10B981">→</span> CRITÉRIO: aprovação em 45 dias <span style="color:#10B981">→</span> REVERSÃO: não usar se runway ≥ 6m</div></div>'
+        +   '</div>'
+        + '</div></div></div>' }
     ]
   },
 
@@ -69909,7 +69984,24 @@ const DECK_TEMPLATES = [
         + '<div class="deck-2-grid-2" style="margin-top:20px">'
         + '<div class="deck-2-col" style="background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);padding:40px;border-radius:8px"><h3 style="font-size:1.8rem;margin-bottom:15px;color:#6366F1">Próximo Passo Projetado</h3><p style="font-size:1.1rem;color:#CBD5E1;line-height:1.6;margin-bottom:20px">Expandindo a infraestrutura para capturar uma fatia de mercado latente de mais de 400 mil empresas no Brasil.</p><div style="font-size:1.3rem;font-weight:bold;color:#FFFFFF">Runway Atual: {{kpi.runway}}</div></div>'
         + '<div class="deck-2-col" style="display:flex;flex-direction:column;justify-content:center"><div style="font-size:1.1rem;color:#94A3B8;margin-bottom:10px">FOCO DA ALOCAÇÃO:</div><div style="font-size:1.4rem;font-weight:bold;margin-bottom:15px">🚀 60% Engenharia &amp; Integrações</div><div style="font-size:1.4rem;font-weight:bold;margin-bottom:15px">📈 40% Distribuição Enterprise</div></div>'
-        + '</div><div></div></div></div>' }
+        + '</div><div></div></div></div>' },
+      { title:'Mercado & TAM', html:
+        '<div class="deck-2-frame"><div class="deck-2-content">'
+        + '<div><span class="deck-2-accent-label">MARKET SIZE</span><h2 class="deck-2-h2">Um Mercado Subatendido e Faminto</h2></div>'
+        + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:30px">'
+        +   '<div style="background:rgba(99,102,241,.05);border:1px solid rgba(99,102,241,.15);border-radius:8px;padding:30px"><div style="font-size:.85rem;color:#A855F7;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">TAM</div><div style="font-size:3.2rem;font-weight:800;color:#FFFFFF;line-height:1">R$ 18b</div><div style="font-size:.95rem;color:#94A3B8;margin-top:8px">PMEs no Brasil · gestão financeira</div></div>'
+        +   '<div style="background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.25);border-radius:8px;padding:30px"><div style="font-size:.85rem;color:#A855F7;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">SAM</div><div style="font-size:3.2rem;font-weight:800;color:#FFFFFF;line-height:1">R$ 4,2b</div><div style="font-size:.95rem;color:#94A3B8;margin-top:8px">Faturamento R$ 1M–50M/ano</div></div>'
+        +   '<div style="background:linear-gradient(135deg,rgba(99,102,241,.18),rgba(244,63,94,.12));border:1px solid #6366F1;border-radius:8px;padding:30px"><div style="font-size:.85rem;color:#F8FAFC;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">SOM (3 anos)</div><div style="font-size:3.2rem;font-weight:800;background:linear-gradient(to right,#6366F1,#F43F5E);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1">R$ 280M</div><div style="font-size:.95rem;color:#CBD5E1;margin-top:8px">Captura realista · top 1% PMEs digitais</div></div>'
+        + '</div>'
+        + '<p style="font-size:1.05rem;color:#CBD5E1;line-height:1.6;margin-top:30px;max-width:880px">A maioria das soluções existentes ataca grandes empresas (SAP/Oracle) ou microempreendedores (Conta Azul). O <strong>middle market</strong> — onde os fundadores realmente sofrem com fechamento mensal — não tem player adequado.</p>'
+        + '</div></div>' },
+      { title:'O Time', html:
+        '<div class="deck-2-frame"><div class="deck-2-grad-sphere" style="bottom:-150px;right:-150px;top:auto"></div><div class="deck-2-content">'
+        + '<div><span class="deck-2-accent-label">FOUNDERS</span><h2 class="deck-2-h2">A Equipe por Trás do Forekash</h2></div>'
+        + '<div class="deck-2-grid-2" style="margin-top:30px">'
+        +   '<div class="deck-2-col" style="background:rgba(255,255,255,.04);border:1px solid rgba(99,102,241,.2);border-radius:10px;padding:30px"><div style="display:flex;align-items:center;gap:18px;margin-bottom:18px"><div style="width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#6366F1,#A855F7);display:flex;align-items:center;justify-content:center;font-size:1.5rem;font-weight:800;color:#FFFFFF">AP</div><div><div style="font-size:1.4rem;font-weight:800;color:#FFFFFF">Anderson Pedro</div><div style="font-size:.95rem;color:#A855F7;font-weight:600">CEO &amp; Co-founder</div></div></div><p style="font-size:.95rem;color:#CBD5E1;line-height:1.6;margin:0">10+ anos em fintech &amp; gestão financeira de PMEs. Construiu 2 produtos B2B SaaS anteriores. Passagem por consultorias top-tier.</p></div>'
+        +   '<div class="deck-2-col" style="background:rgba(255,255,255,.04);border:1px solid rgba(99,102,241,.2);border-radius:10px;padding:30px"><div style="display:flex;align-items:center;gap:18px;margin-bottom:18px"><div style="width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#F43F5E,#6366F1);display:flex;align-items:center;justify-content:center;font-size:1.5rem;font-weight:800;color:#FFFFFF">MK</div><div><div style="font-size:1.4rem;font-weight:800;color:#FFFFFF">MR KASH</div><div style="font-size:.95rem;color:#F43F5E;font-weight:600">IA · Diagnóstico em Tempo Real</div></div></div><p style="font-size:.95rem;color:#CBD5E1;line-height:1.6;margin:0">Motor de IA proprietário · regressão linear + clustering + anomaly detection. Lê dados crus &amp; explica o porquê de cada alerta em linguagem humana.</p></div>'
+        + '</div></div></div>' }
     ]
   },
 
@@ -69945,7 +70037,30 @@ const DECK_TEMPLATES = [
         + '<div style="display:flex;flex-direction:column;gap:20px;margin-top:10px">'
         + '<div style="background:#FFFFFF;border:1px solid #E2E0D9;padding:20px;border-radius:4px"><span style="font-family:\'Source Serif 4\',serif;font-weight:bold;font-size:1.1rem">Risco de Liquidez Temporal:</span><p style="margin-top:8px;font-size:1rem;color:#444444">Runway fixado em <strong>{{kpi.runway}}</strong>. O conselho deve pautar ajustes preventivos antes do quadrante de segurança mínima.</p></div>'
         + '<div style="background:#FFFFFF;border:1px solid #E2E0D9;padding:20px;border-radius:4px"><span style="font-family:\'Source Serif 4\',serif;font-weight:bold;font-size:1.1rem">Estratégia Corretiva:</span><p style="margin-top:8px;font-size:1rem;color:#444444">Otimizar custos indiretos em 12% nas próximas 4 semanas para estender a proteção do caixa.</p></div>'
-        + '</div></div><div></div></div></div>' }
+        + '</div></div><div></div></div></div>' },
+      { title:'Próximos 30 dias', html:
+        '<div class="deck-3-frame"><div class="deck-3-content">'
+        + '<div><h2 class="deck-3-serif-h2">Compromissos &amp; Próximos 30 dias</h2>'
+        + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:30px;margin-top:20px">'
+        +   '<div><div style="font-family:\'Source Serif 4\',serif;font-style:italic;font-size:.9rem;color:#7C2D12;margin-bottom:10px">Semanas 1–2</div><h4 style="font-family:\'Source Serif 4\',serif;font-size:1.3rem;color:#111111;margin:0 0 10px;border-bottom:1px solid #E2E0D9;padding-bottom:8px">Diagnóstico Detalhado</h4><p style="font-size:.95rem;color:#444444;line-height:1.6">Mapear top 10 linhas de despesa não-essenciais. Reunião com fornecedores estratégicos. Auditoria interna de processos.</p></div>'
+        +   '<div><div style="font-family:\'Source Serif 4\',serif;font-style:italic;font-size:.9rem;color:#7C2D12;margin-bottom:10px">Semanas 3–4</div><h4 style="font-family:\'Source Serif 4\',serif;font-size:1.3rem;color:#111111;margin:0 0 10px;border-bottom:1px solid #E2E0D9;padding-bottom:8px">Execução &amp; Mensuração</h4><p style="font-size:.95rem;color:#444444;line-height:1.6">Aplicar cortes acordados. Renegociar prazos. Implementar comitê semanal de tesouraria. Indicadores diários.</p></div>'
+        +   '<div><div style="font-family:\'Source Serif 4\',serif;font-style:italic;font-size:.9rem;color:#7C2D12;margin-bottom:10px">Reporte</div><h4 style="font-family:\'Source Serif 4\',serif;font-size:1.3rem;color:#111111;margin:0 0 10px;border-bottom:1px solid #E2E0D9;padding-bottom:8px">Próxima Sessão</h4><p style="font-size:.95rem;color:#444444;line-height:1.6">Apresentar variação mês-a-mês. Métrica de sucesso: redução de burn em 8–12% sem perda de receita.</p></div>'
+        + '</div></div><div style="font-family:\'Source Serif 4\',serif;font-style:italic;font-size:1rem;color:#555555;border-top:1px solid #CCCAA1;padding-top:18px">"Reuniões mensais com indicadores claros e responsáveis definidos — eis o pilar da governança madura."</div></div></div>' },
+      { title:'Anexo · Cenário Detalhado', html:
+        '<div class="deck-3-frame"><div class="deck-3-content">'
+        + '<div><h2 class="deck-3-serif-h2">Anexo Financeiro · Composição</h2>'
+        + '<table class="deck-3-table">'
+        +   '<thead><tr><th>Componente</th><th>Valor Atual</th><th>% do Total</th><th>Tendência</th></tr></thead>'
+        +   '<tbody>'
+        +     '<tr><td><strong>Folha e Encargos</strong></td><td>{{kpi.pctFolha}} da receita</td><td>maior linha de despesa</td><td><span class="deck-3-badge-down">Pressão</span></td></tr>'
+        +     '<tr><td><strong>Empréstimos / Dívida</strong></td><td>{{kpi.pctLoans}} da receita</td><td>compromisso financeiro</td><td><span class="deck-3-badge-up">Estável</span></td></tr>'
+        +     '<tr><td><strong>Burn Mensal</strong></td><td>{{kpi.burnMes}}</td><td>consumo mensal</td><td><span class="deck-3-badge-down">Atenção</span></td></tr>'
+        +     '<tr><td><strong>Saldo Disponível</strong></td><td>{{kpi.saldo}}</td><td>liquidez imediata</td><td><span class="deck-3-badge-up">Adequado</span></td></tr>'
+        +     '<tr><td><strong>Headcount</strong></td><td>{{kpi.headcount}} pessoas</td><td>capacidade operacional</td><td><span class="deck-3-badge-up">Estável</span></td></tr>'
+        +   '</tbody>'
+        + '</table></div>'
+        + '<div style="font-family:\'Source Serif 4\',serif;font-style:italic;font-size:.95rem;color:#666666;border-top:1px solid #E2E0D9;padding-top:15px">Dados consolidados via Forekash Intelligence Suite · cálculos auditáveis</div>'
+        + '</div></div>' }
     ]
   },
 
@@ -69973,7 +70088,28 @@ const DECK_TEMPLATES = [
         + '<div><span class="deck-4-weekly-badge" style="background:#FEF2F2;border-color:#FCA5A5;color:#DC2626">ALERT TRACKER</span><h1 class="deck-4-h1" style="font-size:1.8rem">Avisos Críticos Internos</h1>'
         + '<div class="deck-4-alert-box"><div style="background:#F59E0B;width:12px;height:12px;border-radius:50%;flex-shrink:0"></div><div style="font-size:1rem;color:#78350F;line-height:1.5"><strong>Atenção Burn Rate:</strong> Consumo de <strong>{{kpi.burnMes}}</strong> exige validação rigorosa dos lançamentos da próxima conciliação.</div></div>'
         + '<div style="margin-top:30px;border-left:3px solid #2563EB;padding-left:20px"><h3 style="font-size:1.1rem;font-weight:bold;margin-bottom:8px">Foco da próxima semana:</h3><p style="font-size:.95rem;color:#475569">Travar despesas extraordinárias não-homologadas e revisar provisionamentos tributários pendentes.</p></div>'
-        + '</div><div></div></div></div>' }
+        + '</div><div></div></div></div>' },
+      { title:'Backlog da Semana', html:
+        '<div class="deck-4-frame"><div class="deck-4-content">'
+        + '<div><span class="deck-4-weekly-badge">CHECKLIST</span><h1 class="deck-4-h1" style="font-size:1.8rem">Compromissos &amp; Próximas Entregas</h1>'
+        + '<div style="display:flex;flex-direction:column;gap:10px;margin-top:30px">'
+        +   '<div style="display:flex;gap:14px;align-items:center;background:#F8FAFC;border-left:3px solid #2563EB;border-radius:6px;padding:14px 18px"><span style="font-family:\'JetBrains Mono\',monospace;font-size:.72rem;color:#2563EB;font-weight:700">SEG</span><span style="flex:1;font-size:.95rem;color:#0F172A">Conciliação bancária · saldo de <strong>{{kpi.saldo}}</strong></span><span style="background:#DBEAFE;color:#2563EB;padding:3px 8px;border-radius:4px;font-size:.75rem;font-weight:700">EM ANDAMENTO</span></div>'
+        +   '<div style="display:flex;gap:14px;align-items:center;background:#F8FAFC;border-left:3px solid #10B981;border-radius:6px;padding:14px 18px"><span style="font-family:\'JetBrains Mono\',monospace;font-size:.72rem;color:#10B981;font-weight:700">TER</span><span style="flex:1;font-size:.95rem;color:#0F172A">Fechamento de receita do mês · meta <strong>{{kpi.receita}}</strong></span><span style="background:#D1FAE5;color:#10B981;padding:3px 8px;border-radius:4px;font-size:.75rem;font-weight:700">OK</span></div>'
+        +   '<div style="display:flex;gap:14px;align-items:center;background:#F8FAFC;border-left:3px solid #F59E0B;border-radius:6px;padding:14px 18px"><span style="font-family:\'JetBrains Mono\',monospace;font-size:.72rem;color:#F59E0B;font-weight:700">QUA</span><span style="flex:1;font-size:.95rem;color:#0F172A">Pagamento de fornecedores · revisar prazos</span><span style="background:#FEF3C7;color:#92400E;padding:3px 8px;border-radius:4px;font-size:.75rem;font-weight:700">PENDENTE</span></div>'
+        +   '<div style="display:flex;gap:14px;align-items:center;background:#F8FAFC;border-left:3px solid #2563EB;border-radius:6px;padding:14px 18px"><span style="font-family:\'JetBrains Mono\',monospace;font-size:.72rem;color:#2563EB;font-weight:700">QUI</span><span style="flex:1;font-size:.95rem;color:#0F172A">Cobranças em aberto · ligações pra top 5 inadimplentes</span><span style="background:#DBEAFE;color:#2563EB;padding:3px 8px;border-radius:4px;font-size:.75rem;font-weight:700">PLANEJADO</span></div>'
+        +   '<div style="display:flex;gap:14px;align-items:center;background:#F8FAFC;border-left:3px solid #94A3B8;border-radius:6px;padding:14px 18px"><span style="font-family:\'JetBrains Mono\',monospace;font-size:.72rem;color:#64748B;font-weight:700">SEX</span><span style="flex:1;font-size:.95rem;color:#0F172A">Relatório executivo · enviar pro fundador</span><span style="background:#F1F5F9;color:#64748B;padding:3px 8px;border-radius:4px;font-size:.75rem;font-weight:700">A FAZER</span></div>'
+        + '</div></div><div></div></div></div>' },
+      { title:'Sign-off da Sprint', html:
+        '<div class="deck-4-frame"><div class="deck-4-content">'
+        + '<div style="margin-top:40px"><span class="deck-4-weekly-badge" style="background:#D1FAE5;border-color:#6EE7B7;color:#10B981">SPRINT FECHADA</span><h1 class="deck-4-h1">Síntese da Semana &amp;<br>Mensagem ao Time</h1>'
+        + '<div style="margin-top:30px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:24px 28px;display:flex;gap:20px;align-items:center"><div style="width:8px;align-self:stretch;background:#2563EB;border-radius:4px"></div><p style="font-size:1.05rem;color:#0F172A;line-height:1.6;margin:0"><strong>Status geral:</strong> operação dentro do esperado. Saldo em <strong>{{kpi.saldo}}</strong>, receita em <strong>{{kpi.receita}}</strong> e margem em <strong>{{kpi.margem}}</strong>. <strong>{{kpi.clientesAtivos}}</strong> clientes ativos · headcount estável.</p></div>'
+        + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:20px">'
+        +   '<div class="deck-4-card"><div class="deck-4-card-lbl">Margem da semana</div><div class="deck-4-card-val" style="color:#10B981">{{kpi.margem}}</div></div>'
+        +   '<div class="deck-4-card"><div class="deck-4-card-lbl">Burn dia útil</div><div class="deck-4-card-val" style="color:#EF4444;font-size:1.4rem">{{kpi.burnMes}}</div></div>'
+        +   '<div class="deck-4-card"><div class="deck-4-card-lbl">Break-even</div><div class="deck-4-card-val" style="color:#0F172A;font-size:1.4rem">{{kpi.breakEven}}</div></div>'
+        + '</div></div>'
+        + '<div style="font-size:.85rem;color:#94A3B8;font-style:italic">Próximo stand-up: segunda-feira, 9h. Operação nominal.</div>'
+        + '</div></div>' }
     ]
   },
 
@@ -69994,7 +70130,58 @@ const DECK_TEMPLATES = [
         + '<div class="deck-5-card-scenario"><div style="color:#10B981;font-weight:bold;margin-bottom:15px">[01. OTIMISTA]</div><div class="deck-5-lbl">Receita Base</div><div class="deck-5-val">{{kpi.receita}}</div><div class="deck-5-lbl" style="margin-top:15px">EBITDA Proj.</div><div class="deck-5-val" style="color:#10B981">{{kpi.ebitda}}</div></div>'
         + '<div class="deck-5-card-scenario active"><div style="color:#06B6D4;font-weight:bold;margin-bottom:15px">[02. BASE]</div><div class="deck-5-lbl">Margem Atual</div><div class="deck-5-val">{{kpi.margem}}</div><div class="deck-5-lbl" style="margin-top:15px">Janela de Runway</div><div class="deck-5-val" style="color:#06B6D4">{{kpi.runway}}</div></div>'
         + '<div class="deck-5-card-scenario"><div style="color:#EF4444;font-weight:bold;margin-bottom:15px">[03. ESTRESSE]</div><div class="deck-5-lbl">Break-even</div><div class="deck-5-val">{{kpi.breakEven}}</div><div class="deck-5-lbl" style="margin-top:15px">Vulnerabilidade</div><div class="deck-5-val" style="color:#EF4444">Compressão</div></div>'
-        + '</div></div><div style="font-size:.8rem;color:#475569">*Projeções calculadas deterministicamente.</div></div></div>' }
+        + '</div></div><div style="font-size:.8rem;color:#475569">*Projeções calculadas deterministicamente.</div></div></div>' },
+      { title:'Cenário Otimista · Detalhado', html:
+        '<div class="deck-5-frame"><div class="deck-5-blueprint-grid"></div><div class="deck-5-content">'
+        + '<div><div style="color:#10B981;font-family:\'JetBrains Mono\',monospace;font-size:.85rem;margin-bottom:10px">[SCENARIO_01 // OPTIMISTIC_GROWTH_PATH]</div><h2 class="deck-5-cyan-title" style="color:#10B981">Trajetória de Aceleração de Receita</h2></div>'
+        +   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:30px">'
+        +     '<div style="border:1px solid rgba(16,185,129,.3);background:rgba(16,185,129,.04);padding:25px;border-radius:4px">'
+        +       '<div style="color:#10B981;font-family:\'JetBrains Mono\',monospace;font-size:.8rem;margin-bottom:15px">PREMISSAS_BASE</div>'
+        +       '<ul style="list-style:none;padding:0;margin:0;font-size:.95rem;color:#F1F5F9;line-height:2"><li>→ Receita cresce 25% no próximo ciclo</li><li>→ Churn estabiliza em níveis saudáveis</li><li>→ Margem expande para 22% (vs {{kpi.margem}} atual)</li><li>→ Novos clientes elevam ARR para 2x</li></ul>'
+        +     '</div>'
+        +     '<div style="display:flex;flex-direction:column;justify-content:center;align-items:center">'
+        +       '<svg width="280" height="160" viewBox="0 0 280 160" fill="none"><line x1="0" y1="140" x2="280" y2="140" stroke="#334155" stroke-width="1"/><line x1="0" y1="100" x2="280" y2="100" stroke="#334155" stroke-width=".5" stroke-dasharray="2,2"/><line x1="0" y1="60" x2="280" y2="60" stroke="#334155" stroke-width=".5" stroke-dasharray="2,2"/><path d="M0,130 L40,125 L80,110 L120,95 L160,75 L200,55 L240,35 L280,15" stroke="#10B981" stroke-width="2.5" fill="none"/><path d="M0,130 L40,125 L80,110 L120,95 L160,75 L200,55 L240,35 L280,15 L280,140 L0,140 Z" fill="rgba(16,185,129,.1)"/><circle cx="280" cy="15" r="5" fill="#10B981"/></svg>'
+        +       '<div style="color:#10B981;font-family:\'JetBrains Mono\',monospace;font-size:.85rem;margin-top:10px;font-weight:bold">+25% RECEITA / 18 meses</div>'
+        +     '</div>'
+        +   '</div>'
+        + '<div style="color:#475569;font-size:.78rem;border-top:1px solid #334155;padding-top:15px">CONFIDENCE_LEVEL: 0.42 // probability vector: HIGH_INVESTMENT_REQUIRED</div></div></div>' },
+      { title:'Cenário Base · Detalhado', html:
+        '<div class="deck-5-frame"><div class="deck-5-blueprint-grid"></div><div class="deck-5-content">'
+        + '<div><div style="color:#06B6D4;font-family:\'JetBrains Mono\',monospace;font-size:.85rem;margin-bottom:10px">[SCENARIO_02 // BASELINE_CORPORATE_PATH]</div><h2 class="deck-5-cyan-title">Manutenção da Trajetória Atual</h2></div>'
+        +   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:30px">'
+        +     '<div style="border:1px solid #06B6D4;background:rgba(6,182,212,.04);padding:25px;border-radius:4px">'
+        +       '<div style="color:#06B6D4;font-family:\'JetBrains Mono\',monospace;font-size:.8rem;margin-bottom:15px">VARIÁVEIS_OBSERVADAS</div>'
+        +       '<ul style="list-style:none;padding:0;margin:0;font-size:.95rem;color:#F1F5F9;line-height:2"><li>→ Receita mantém o patamar de {{kpi.receita}}</li><li>→ Margem oscila em torno de {{kpi.margem}}</li><li>→ Runway segue em {{kpi.runway}}</li><li>→ Burn estável em {{kpi.burnMes}}/mês</li></ul>'
+        +     '</div>'
+        +     '<div style="display:flex;flex-direction:column;justify-content:center;align-items:center">'
+        +       '<svg width="280" height="160" viewBox="0 0 280 160" fill="none"><line x1="0" y1="80" x2="280" y2="80" stroke="#334155" stroke-width="1"/><line x1="0" y1="100" x2="280" y2="100" stroke="#334155" stroke-width=".5" stroke-dasharray="2,2"/><line x1="0" y1="60" x2="280" y2="60" stroke="#334155" stroke-width=".5" stroke-dasharray="2,2"/><path d="M0,82 L40,78 L80,85 L120,78 L160,82 L200,76 L240,80 L280,78" stroke="#06B6D4" stroke-width="2.5" fill="none"/><circle cx="280" cy="78" r="5" fill="#06B6D4"/></svg>'
+        +       '<div style="color:#06B6D4;font-family:\'JetBrains Mono\',monospace;font-size:.85rem;margin-top:10px;font-weight:bold">VARIAÇÃO ±3% / 18 meses</div>'
+        +     '</div>'
+        +   '</div>'
+        + '<div style="color:#475569;font-size:.78rem;border-top:1px solid #334155;padding-top:15px">CONFIDENCE_LEVEL: 0.68 // probability vector: STATUS_QUO_PRESERVATION</div></div></div>' },
+      { title:'Cenário de Estresse', html:
+        '<div class="deck-5-frame"><div class="deck-5-blueprint-grid"></div><div class="deck-5-content">'
+        + '<div><div style="color:#EF4444;font-family:\'JetBrains Mono\',monospace;font-size:.85rem;margin-bottom:10px">[SCENARIO_03 // STRESS_VECTOR_ALERT]</div><h2 class="deck-5-cyan-title" style="color:#EF4444">Vetor de Compressão de Margem</h2></div>'
+        +   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:30px">'
+        +     '<div style="border:1px solid rgba(239,68,68,.4);background:rgba(239,68,68,.04);padding:25px;border-radius:4px">'
+        +       '<div style="color:#EF4444;font-family:\'JetBrains Mono\',monospace;font-size:.8rem;margin-bottom:15px">CONDIÇÕES_DE_GATILHO</div>'
+        +       '<ul style="list-style:none;padding:0;margin:0;font-size:.95rem;color:#F1F5F9;line-height:2"><li>→ Churn dobra · receita ↓ 15%</li><li>→ Custos sobem 8% (insumos)</li><li>→ Break-even sobe pra {{kpi.breakEven}}</li><li>→ Runway colapsa pra &lt; 3 meses</li></ul>'
+        +     '</div>'
+        +     '<div style="display:flex;flex-direction:column;justify-content:center;align-items:center">'
+        +       '<svg width="280" height="160" viewBox="0 0 280 160" fill="none"><line x1="0" y1="80" x2="280" y2="80" stroke="#334155" stroke-width="1"/><line x1="0" y1="100" x2="280" y2="100" stroke="#334155" stroke-width=".5" stroke-dasharray="2,2"/><path d="M0,75 L40,80 L80,90 L120,105 L160,120 L200,130 L240,138 L280,148" stroke="#EF4444" stroke-width="2.5" fill="none"/><path d="M0,75 L40,80 L80,90 L120,105 L160,120 L200,130 L240,138 L280,148 L280,150 L0,150 Z" fill="rgba(239,68,68,.1)"/><circle cx="280" cy="148" r="5" fill="#EF4444"/></svg>'
+        +       '<div style="color:#EF4444;font-family:\'JetBrains Mono\',monospace;font-size:.85rem;margin-top:10px;font-weight:bold">↓ 35% MARGEM / 12 meses</div>'
+        +     '</div>'
+        +   '</div>'
+        + '<div style="color:#475569;font-size:.78rem;border-top:1px solid #334155;padding-top:15px">CONFIDENCE_LEVEL: 0.28 // mitigation: PREEMPTIVE_COST_CONTAINMENT</div></div></div>' },
+      { title:'Decisão · Plano Recomendado', html:
+        '<div class="deck-5-frame"><div class="deck-5-blueprint-grid"></div><div class="deck-5-content">'
+        + '<div><div style="color:#06B6D4;font-family:\'JetBrains Mono\',monospace;font-size:.85rem;margin-bottom:10px">[OUTPUT // RECOMMENDED_PATH]</div><h2 class="deck-5-cyan-title">Plano Decisório &amp; Gatilhos de Reavaliação</h2></div>'
+        +   '<div style="display:flex;flex-direction:column;gap:14px;margin-top:30px">'
+        +     '<div style="background:rgba(6,182,212,.05);border:1px solid rgba(6,182,212,.3);padding:18px 24px;border-radius:4px"><div style="display:flex;justify-content:space-between;align-items:center"><div><div style="color:#06B6D4;font-family:\'JetBrains Mono\',monospace;font-size:.72rem">[01] DECISÃO IMEDIATA</div><div style="color:#F1F5F9;font-size:1.05rem;font-weight:bold;margin-top:4px">Operar no cenário BASE com vigilância dos gatilhos de ESTRESSE</div></div><span style="color:#06B6D4;font-family:monospace;font-size:1.2rem">→</span></div></div>'
+        +     '<div style="background:rgba(16,185,129,.05);border:1px solid rgba(16,185,129,.3);padding:18px 24px;border-radius:4px"><div style="color:#10B981;font-family:\'JetBrains Mono\',monospace;font-size:.72rem">[02] GATILHO POSITIVO</div><div style="color:#F1F5F9;font-size:1.05rem;font-weight:bold;margin-top:4px">Se churn ↓ + margem ↑ 3pp em 60 dias → migrar para Otimista (investir em aquisição)</div></div>'
+        +     '<div style="background:rgba(239,68,68,.05);border:1px solid rgba(239,68,68,.3);padding:18px 24px;border-radius:4px"><div style="color:#EF4444;font-family:\'JetBrains Mono\',monospace;font-size:.72rem">[03] GATILHO DEFENSIVO</div><div style="color:#F1F5F9;font-size:1.05rem;font-weight:bold;margin-top:4px">Se churn ↑ 50% OU receita ↓ 10% em 30 dias → acionar plano de contenção (cenário Crise)</div></div>'
+        +   '</div>'
+        + '<div style="color:#475569;font-size:.78rem;border-top:1px solid #334155;padding-top:15px">REVISÃO_PROGRAMADA: 30 dias // OWNER: Comitê de Tesouraria</div></div></div>' }
     ]
   },
 
@@ -70020,7 +70207,36 @@ const DECK_TEMPLATES = [
         + '<div style="display:flex;gap:30px;margin-top:40px">'
         + '<div style="flex:1;border-left:2px solid #DC2626;padding-left:20px"><h3 style="font-size:1.2rem;font-weight:bold;margin-bottom:10px;color:#F5F5F4">Corte de Sangria Fixa</h3><p style="font-size:.95rem;color:#A8A29E;line-height:1.5">Folha consome <strong>{{kpi.pctFolha}}</strong> do ARR. Redimensionar posições acessórias sem tração direta é obrigatório.</p></div>'
         + '<div style="flex:1;border-left:2px solid #E7E5E4;padding-left:20px"><h3 style="font-size:1.2rem;font-weight:bold;margin-bottom:10px;color:#F5F5F4">Break-even como Alvo</h3><p style="font-size:.95rem;color:#A8A29E;line-height:1.5">Migrar a operação rapidamente pra linha estável de Break-even em <strong>{{kpi.breakEven}}</strong>.</p></div>'
-        + '</div></div><div></div></div></div>' }
+        + '</div></div><div></div></div></div>' },
+      { title:'Plano 48 Horas', html:
+        '<div class="deck-6-frame"><div class="deck-6-emergency-bar"></div><div class="deck-6-content">'
+        + '<div><div style="font-family:monospace;font-size:.9rem;color:#DC2626;letter-spacing:.18em;font-weight:bold;margin-bottom:15px">[ JANELA CRÍTICA · 48 HORAS ]</div><h2 class="deck-6-h2">Movimentos Inadiáveis</h2>'
+        + '<div style="display:flex;flex-direction:column;gap:14px;margin-top:30px">'
+        +   '<div style="background:rgba(220,38,38,.08);border-left:4px solid #DC2626;padding:16px 22px;display:flex;gap:18px;align-items:center"><div style="font-family:monospace;font-size:1.4rem;font-weight:900;color:#DC2626;width:40px">01</div><div><h4 style="font-size:1.05rem;font-weight:800;color:#F5F5F4;margin:0;text-transform:uppercase">Congelar despesas discricionárias</h4><p style="font-size:.9rem;color:#A8A29E;margin:5px 0 0;line-height:1.5">Cortar toda compra/contratação não-aprovada por sócio. Liberação só com 2 assinaturas.</p></div></div>'
+        +   '<div style="background:rgba(220,38,38,.08);border-left:4px solid #DC2626;padding:16px 22px;display:flex;gap:18px;align-items:center"><div style="font-family:monospace;font-size:1.4rem;font-weight:900;color:#DC2626;width:40px">02</div><div><h4 style="font-size:1.05rem;font-weight:800;color:#F5F5F4;margin:0;text-transform:uppercase">Chamar credores estratégicos</h4><p style="font-size:.9rem;color:#A8A29E;margin:5px 0 0;line-height:1.5">Negociar prazos imediatamente · saldo de {{kpi.saldo}} contra burn de {{kpi.burnMes}} não sobrevive sem ar.</p></div></div>'
+        +   '<div style="background:rgba(220,38,38,.08);border-left:4px solid #DC2626;padding:16px 22px;display:flex;gap:18px;align-items:center"><div style="font-family:monospace;font-size:1.4rem;font-weight:900;color:#DC2626;width:40px">03</div><div><h4 style="font-size:1.05rem;font-weight:800;color:#F5F5F4;margin:0;text-transform:uppercase">Comunicação interna controlada</h4><p style="font-size:.9rem;color:#A8A29E;margin:5px 0 0;line-height:1.5">Reunião de sócios + líderes-chave. Tom transparente mas estratégico. Nada vazado · nada espontâneo.</p></div></div>'
+        +   '<div style="background:rgba(220,38,38,.08);border-left:4px solid #DC2626;padding:16px 22px;display:flex;gap:18px;align-items:center"><div style="font-family:monospace;font-size:1.4rem;font-weight:900;color:#DC2626;width:40px">04</div><div><h4 style="font-size:1.05rem;font-weight:800;color:#F5F5F4;margin:0;text-transform:uppercase">Lista de capital reserva</h4><p style="font-size:.9rem;color:#A8A29E;margin:5px 0 0;line-height:1.5">Mapear linhas de crédito · ativos vendáveis · investidores existentes dispostos a follow-on emergencial.</p></div></div>'
+        + '</div></div><div style="font-family:monospace;font-size:.82rem;color:#DC2626;font-weight:bold;letter-spacing:.04em">[ CHECKPOINT EM 24H · OWNER: CEO ]</div></div></div>' },
+      { title:'Plano 30 Dias', html:
+        '<div class="deck-6-frame"><div class="deck-6-emergency-bar"></div><div class="deck-6-content">'
+        + '<div><div style="font-family:monospace;font-size:.9rem;color:#DC2626;letter-spacing:.18em;font-weight:bold;margin-bottom:15px">[ HORIZONTE 30 DIAS · ESTABILIZAÇÃO ]</div><h2 class="deck-6-h2">Da Contingência à Reconstrução</h2>'
+        + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:30px">'
+        +   '<div style="border:1px solid rgba(220,38,38,.4);background:rgba(220,38,38,.04);padding:25px;border-radius:4px"><div style="font-family:monospace;font-size:.78rem;color:#DC2626;font-weight:bold;letter-spacing:.06em;text-transform:uppercase">Semana 1–2</div><h4 style="font-size:1.2rem;font-weight:800;color:#F5F5F4;margin:8px 0 12px;text-transform:uppercase">Contenção</h4><p style="font-size:.9rem;color:#A8A29E;line-height:1.5;margin:0">Negociar 100% dos contratos abertos. Reduzir burn em 30%. Lockdown de despesas variáveis.</p></div>'
+        +   '<div style="border:1px solid rgba(220,38,38,.4);background:rgba(220,38,38,.04);padding:25px;border-radius:4px"><div style="font-family:monospace;font-size:.78rem;color:#DC2626;font-weight:bold;letter-spacing:.06em;text-transform:uppercase">Semana 3</div><h4 style="font-size:1.2rem;font-weight:800;color:#F5F5F4;margin:8px 0 12px;text-transform:uppercase">Recuperação</h4><p style="font-size:.9rem;color:#A8A29E;line-height:1.5;margin:0">Acelerar recebíveis. Renegociar contratos de clientes-chave. Avaliar venda de ativos não-essenciais.</p></div>'
+        +   '<div style="border:1px solid rgba(220,38,38,.4);background:rgba(220,38,38,.04);padding:25px;border-radius:4px"><div style="font-family:monospace;font-size:.78rem;color:#DC2626;font-weight:bold;letter-spacing:.06em;text-transform:uppercase">Semana 4</div><h4 style="font-size:1.2rem;font-weight:800;color:#F5F5F4;margin:8px 0 12px;text-transform:uppercase">Decisão</h4><p style="font-size:.9rem;color:#A8A29E;line-height:1.5;margin:0">Decisão sobre captação emergencial. Reset de meta operacional. Comunicado externo ajustado.</p></div>'
+        + '</div></div>'
+        + '<div style="border-top:1px solid #44403C;padding-top:18px;font-family:monospace;font-size:.85rem;color:#E7E5E4">META 30 DIAS: estender runway de <strong style="color:#DC2626">{{kpi.runway}}</strong> para mínimo de <strong style="color:#10B981">6 meses</strong> sem captação adicional.</div>'
+        + '</div></div>' },
+      { title:'Critério de Saída da Crise', html:
+        '<div class="deck-6-frame"><div class="deck-6-emergency-bar"></div><div class="deck-6-content">'
+        + '<div><div style="font-family:monospace;font-size:.9rem;color:#10B981;letter-spacing:.18em;font-weight:bold;margin-bottom:15px">[ EXIT CRITERIA · NOMINAL OPERATION ]</div><h2 class="deck-6-h2">Quando Sairemos do Modo de Crise</h2>'
+        + '<div class="deck-6-critical-card" style="background:rgba(16,185,129,.05);border-color:rgba(16,185,129,.3);margin-top:30px"><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:30px">'
+        +   '<div><div style="font-family:monospace;font-size:.8rem;color:#A8A29E;text-transform:uppercase">Critério #1</div><div style="font-size:2.4rem;font-weight:900;color:#10B981;margin:8px 0;line-height:1">≥ 6m</div><div style="font-size:.85rem;color:#E7E5E4;line-height:1.5">Runway projetado restaurado para mínimo de 6 meses</div></div>'
+        +   '<div><div style="font-family:monospace;font-size:.8rem;color:#A8A29E;text-transform:uppercase">Critério #2</div><div style="font-size:2.4rem;font-weight:900;color:#10B981;margin:8px 0;line-height:1">≤ 70%</div><div style="font-size:.85rem;color:#E7E5E4;line-height:1.5">Break-even abaixo de 70% (hoje: {{kpi.breakEven}})</div></div>'
+        +   '<div><div style="font-family:monospace;font-size:.8rem;color:#A8A29E;text-transform:uppercase">Critério #3</div><div style="font-size:2.4rem;font-weight:900;color:#10B981;margin:8px 0;line-height:1">3 meses</div><div style="font-size:.85rem;color:#E7E5E4;line-height:1.5">Operação estável por 3 meses consecutivos</div></div>'
+        + '</div></div>'
+        + '<div style="font-family:monospace;font-size:.85rem;color:#10B981;font-weight:bold;letter-spacing:.04em">[ REVISÃO QUINZENAL · COMITÊ EXECUTIVO ]</div>'
+        + '</div></div>' }
     ]
   },
 
@@ -70041,7 +70257,37 @@ const DECK_TEMPLATES = [
         + '<div class="deck-7-box-feature"><div style="font-size:1.5rem;margin-bottom:10px">🔮</div><h3 style="font-size:1.2rem;font-weight:bold;margin-bottom:10px;color:#F59E0B">Previsão de Cenários</h3><p style="font-size:.95rem;color:#A7F3D0;line-height:1.5">Simule impactos automáticos de contratações ou perdas de receita sem encostar em planilhas.</p></div>'
         + '<div class="deck-7-box-feature"><div style="font-size:1.5rem;margin-bottom:10px">⚡</div><h3 style="font-size:1.2rem;font-weight:bold;margin-bottom:10px;color:#F59E0B">Integração Instantânea</h3><p style="font-size:.95rem;color:#A7F3D0;line-height:1.5">Dados de faturamento mapeados limpos, com posições de caixa agregadas.</p></div>'
         + '<div class="deck-7-box-feature"><div style="font-size:1.5rem;margin-bottom:10px">🛡️</div><h3 style="font-size:1.2rem;font-weight:bold;margin-bottom:10px;color:#F59E0B">Alertas de Proteção</h3><p style="font-size:.95rem;color:#A7F3D0;line-height:1.5">Descubra se sua taxa de queima está saudável ou exige ações rápidas.</p></div>'
-        + '</div></div><div style="font-size:.9rem;color:#A7F3D0;text-align:right">Junte-se à Comunidade de Líderes Financeiros</div></div></div>' }
+        + '</div></div><div style="font-size:.9rem;color:#A7F3D0;text-align:right">Junte-se à Comunidade de Líderes Financeiros</div></div></div>' },
+      { title:'Como Funciona', html:
+        '<div class="deck-7-frame"><div class="deck-7-content">'
+        + '<div><div style="font-size:.9rem;font-weight:600;color:#F59E0B;letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">COMO FUNCIONA</div><h2 class="deck-7-h2">3 Passos &amp; Você Tira Sua Empresa do Excel</h2>'
+        + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:36px">'
+        +   '<div style="position:relative"><div style="font-family:monospace;font-size:4rem;font-weight:900;color:rgba(245,158,11,.25);line-height:1;margin-bottom:12px">01</div><h4 style="font-size:1.2rem;font-weight:800;color:#F59E0B;margin:0 0 10px">Conecte sua operação</h4><p style="font-size:.92rem;color:#D1D5DB;line-height:1.6;margin:0">Importe ou conecte seus extratos, contas, vendas, folha. Mapeamento automático em até 24h.</p></div>'
+        +   '<div style="position:relative"><div style="font-family:monospace;font-size:4rem;font-weight:900;color:rgba(245,158,11,.25);line-height:1;margin-bottom:12px">02</div><h4 style="font-size:1.2rem;font-weight:800;color:#F59E0B;margin:0 0 10px">MR KASH lê os números</h4><p style="font-size:.92rem;color:#D1D5DB;line-height:1.6;margin:0">A IA proprietária analisa receitas, custos, sazonalidade e detecta gordura, alavanca e tempestade vindo.</p></div>'
+        +   '<div style="position:relative"><div style="font-family:monospace;font-size:4rem;font-weight:900;color:rgba(245,158,11,.25);line-height:1;margin-bottom:12px">03</div><h4 style="font-size:1.2rem;font-weight:800;color:#F59E0B;margin:0 0 10px">Decida com base em fato</h4><p style="font-size:.92rem;color:#D1D5DB;line-height:1.6;margin:0">Apresentações, cenários e alertas automáticos. Você decide com confiança, em minutos, não dias.</p></div>'
+        + '</div></div>'
+        + '<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:6px;padding:18px 24px;font-size:1rem;color:#FFFFFF"><strong style="color:#F59E0B">Implementação:</strong> 7 dias do contrato à primeira apresentação. Sem time de TI, sem treinamento longo.</div>'
+        + '</div></div>' },
+      { title:'Cases & Social Proof', html:
+        '<div class="deck-7-frame"><div class="deck-7-gold-glow" style="top:-150px;right:auto;left:-150px;bottom:auto"></div><div class="deck-7-content">'
+        + '<div><div style="font-size:.9rem;font-weight:600;color:#F59E0B;letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">CASES &amp; PROVA SOCIAL</div><h2 class="deck-7-h2">Empresas que Pararam de Improvisar</h2>'
+        + '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:20px;margin-top:30px">'
+        +   '<div style="background:rgba(255,255,255,.04);border-left:3px solid #F59E0B;padding:24px 28px;border-radius:6px"><p style="font-size:1.05rem;color:#FFFFFF;line-height:1.55;margin:0 0 14px;font-style:italic">"Saímos de 14 planilhas pra um único dashboard. Fechamento mensal caiu de 5 dias pra 2 horas."</p><div style="font-size:.85rem;color:#A7F3D0"><strong>— CFO</strong>, indústria · 87 funcionários · faturamento R$ 12M/ano</div></div>'
+        +   '<div style="background:rgba(255,255,255,.04);border-left:3px solid #F59E0B;padding:24px 28px;border-radius:6px"><p style="font-size:1.05rem;color:#FFFFFF;line-height:1.55;margin:0 0 14px;font-style:italic">"Detectamos um buraco de R$ 80k/mês na folha em 3 dias. O MR KASH apontou a anomalia direto."</p><div style="font-size:.85rem;color:#A7F3D0"><strong>— CEO</strong>, software · 32 funcionários · faturamento R$ 6M/ano</div></div>'
+        +   '<div style="background:rgba(255,255,255,.04);border-left:3px solid #F59E0B;padding:24px 28px;border-radius:6px"><p style="font-size:1.05rem;color:#FFFFFF;line-height:1.55;margin:0 0 14px;font-style:italic">"Apresentação pra board em 1 clique. Os investidores pediram acesso ao Forekash."</p><div style="font-size:.85rem;color:#A7F3D0"><strong>— Fundador</strong>, fintech · pré-série A</div></div>'
+        +   '<div style="background:rgba(255,255,255,.04);border-left:3px solid #F59E0B;padding:24px 28px;border-radius:6px"><p style="font-size:1.05rem;color:#FFFFFF;line-height:1.55;margin:0 0 14px;font-style:italic">"Diagnóstico de crise em 1 manhã. Salvou nosso runway em 4 meses adicionais."</p><div style="font-size:.85rem;color:#A7F3D0"><strong>— Diretora Financeira</strong>, e-commerce · 24 funcionários</div></div>'
+        + '</div></div></div></div>' },
+      { title:'Pricing & CTA', html:
+        '<div class="deck-7-frame"><div class="deck-7-gold-glow"></div><div class="deck-7-content">'
+        + '<div><div style="font-size:.9rem;font-weight:600;color:#F59E0B;letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">PROPOSTA &amp; PRÓXIMOS PASSOS</div><h2 class="deck-7-h2">Investimento Que Se Paga Em 1 Mês</h2>'
+        + '<div style="display:grid;grid-template-columns:1.2fr .8fr;gap:36px;margin-top:30px;align-items:center">'
+        +   '<div style="display:flex;flex-direction:column;gap:14px">'
+        +     '<div style="background:rgba(255,255,255,.04);border:1px solid rgba(245,158,11,.2);border-radius:8px;padding:22px 28px;display:flex;justify-content:space-between;align-items:center"><div><h4 style="font-size:1.1rem;font-weight:700;color:#FFFFFF;margin:0">Starter</h4><p style="font-size:.85rem;color:#A7F3D0;margin:5px 0 0">Pra começar · 1 usuário · KPIs básicos</p></div><div style="font-size:1.6rem;font-weight:800;color:#F59E0B">R$ 297/mês</div></div>'
+        +     '<div style="background:linear-gradient(135deg,rgba(245,158,11,.15),rgba(255,255,255,.04));border:2px solid #F59E0B;border-radius:8px;padding:22px 28px;display:flex;justify-content:space-between;align-items:center;position:relative"><div style="position:absolute;top:-10px;right:20px;background:#F59E0B;color:#064E3B;font-size:.7rem;font-weight:800;padding:3px 10px;border-radius:4px;letter-spacing:.05em">MAIS ESCOLHIDO</div><div><h4 style="font-size:1.2rem;font-weight:800;color:#FFFFFF;margin:0">Pro</h4><p style="font-size:.88rem;color:#A7F3D0;margin:5px 0 0">5 usuários · MR KASH completo · apresentações ilimitadas</p></div><div style="font-size:1.8rem;font-weight:800;color:#F59E0B">R$ 797/mês</div></div>'
+        +     '<div style="background:rgba(255,255,255,.04);border:1px solid rgba(245,158,11,.2);border-radius:8px;padding:22px 28px;display:flex;justify-content:space-between;align-items:center"><div><h4 style="font-size:1.1rem;font-weight:700;color:#FFFFFF;margin:0">Enterprise</h4><p style="font-size:.85rem;color:#A7F3D0;margin:5px 0 0">Usuários ilimitados · API · SLA dedicado · onboarding 1:1</p></div><div style="font-size:1.4rem;font-weight:800;color:#F59E0B">Sob consulta</div></div>'
+        +   '</div>'
+        +   '<div style="text-align:center"><div class="deck-7-cta-btn" style="display:block;margin-top:0;padding:18px 32px;font-size:1.15rem">Agendar Apresentação</div><p style="font-size:.9rem;color:#A7F3D0;margin-top:18px;line-height:1.5">14 dias grátis · sem cartão · cancele quando quiser</p></div>'
+        + '</div></div></div></div>' }
     ]
   },
 
@@ -70077,6 +70323,33 @@ const DECK_TEMPLATES = [
         + '<div style="color:#39FF14;margin-bottom:10px">&gt;&gt; verify --compliance=statutory_break_even</div></div>'
         + '<div style="margin-top:30px;font-size:.9rem">ASCII GRAPHIC DE SOBREVIVÊNCIA:<br>[████████████████░░░░] 78% SAFE EXPANSION WINDOWED</div></div>'
         + '<div class="deck-8-blink">STATUS: COMPROMISED BUT OPERATIONAL_</div>'
+        + '</div></div>' },
+      { title:'System Status', html:
+        '<div class="deck-8-frame"><div class="deck-8-crt-scanlines"></div><div class="deck-8-content">'
+        + '<div><div style="color:#39FF14">root@forekash:~$ systemctl status forekash-engine</div>'
+        + '<div style="margin-top:25px">● forekash-engine.service - Forekash Financial Daemon</div>'
+        + '<div style="margin-left:20px;color:#39FF14">Loaded: loaded (/etc/systemd/system/forekash.service; enabled)</div>'
+        + '<div style="margin-left:20px;margin-bottom:25px">Active: <span style="color:#FFFF00">active (degraded)</span> since {{kpi.data}}</div>'
+        + '<div style="border:1px solid #00FF41;padding:20px;margin-top:15px">'
+        +   '<div style="color:#FFFF00;font-weight:bold;margin-bottom:12px" class="deck-8-glitch-text">[VITAL SIGNS · LAST 30s]</div>'
+        +   '<div>RECEITA.STREAM........: <span style="color:#00FF41">FLOWING</span>     · {{kpi.receita}}</div>'
+        +   '<div>MARGIN.BUFFER.........: <span style="color:#FFFF00">WARN</span>        · {{kpi.margem}}</div>'
+        +   '<div>BURN.CONSUMPTION......: <span style="color:#FFFF00">ELEVATED</span>    · {{kpi.burnMes}}/mo</div>'
+        +   '<div>CLIENT.POOL...........: <span style="color:#00FF41">STABLE</span>      · {{kpi.clientesAtivos}} nodes</div>'
+        +   '<div>CHURN.RATE............: <span style="color:#00FF41">NOMINAL</span>     · {{kpi.churn}}</div>'
+        +   '<div>HEADCOUNT.PROC........: <span style="color:#00FF41">RUNNING</span>     · {{kpi.headcount}} units</div>'
+        + '</div></div>'
+        + '<div class="deck-8-blink">└─ press Q to exit · or hack the planet_</div>'
+        + '</div></div>' },
+      { title:'Sign-off · We Are fsociety', html:
+        '<div class="deck-8-frame"><div class="deck-8-crt-scanlines"></div><div class="deck-8-content">'
+        + '<div style="margin-top:30px"><div style="color:#39FF14">root@forekash:~$ shutdown -h now --reason="mission_complete"</div>'
+        + '<div style="margin-top:30px"># BROADCAST_MESSAGE_TO_ALL_NODES</div>'
+        + '<div style="margin-top:20px;border:1px solid #00FF41;padding:25px"><div style="font-size:1.1rem;line-height:1.6" class="deck-8-glitch-text">Hello, friend.</div>'
+        +   '<div style="font-size:.95rem;color:#00FF41;line-height:1.7;margin-top:14px">Os números nunca mentem. Só quem os lê.<br>O caixa não é segredo · é matemática.<br>O burn não é destino · é decisão.<br><br>Você viu a foto crua. Agora age.<br>Ou agirá quando não houver mais o quê salvar.</div>'
+        +   '<div style="margin-top:22px;font-size:1rem;color:#39FF14" class="deck-8-glitch-text">→ We are fsociety. We are finally free. ←</div>'
+        + '</div></div>'
+        + '<div class="deck-8-blink" style="font-size:.85rem">[SESSION_TERMINATED] · stay paranoid · trust the data_</div>'
         + '</div></div>' }
     ]
   },
@@ -70099,6 +70372,48 @@ const DECK_TEMPLATES = [
         + '<div class="deck-9-column-text" style="border-left:1px solid #E7E5E4;padding-left:40px">A geração líquida operacional performou no patamar de <strong>{{kpi.ebitda}}</strong> de EBITDA. A tese central para o próximo horizonte exige foco em blindagem corporativa, visando o Break-even formalmente calculado em <strong>{{kpi.breakEven}}</strong>.</div>'
         + '</div></div>'
         + '<div style="font-family:\'Playfair Display\',Georgia,serif;font-style:italic;font-size:1.1rem;color:#7C2D12;border-top:1px solid #E7E5E4;padding-top:15px">"A governança madura se constrói na leitura nua dos indicadores de tração."</div>'
+        + '</div></div>' },
+      { title:'O Que Funcionou', html:
+        '<div class="deck-9-frame"><div class="deck-9-content">'
+        + '<div><div style="font-size:.85rem;font-weight:bold;letter-spacing:.2em;text-transform:uppercase;color:#10B981;margin-bottom:15px">CAPÍTULO II · ACERTOS DA SAFRA</div><h2 class="deck-9-h2" style="border-bottom:2px solid #10B981;padding-bottom:15px">O Que Funcionou no Ciclo</h2>'
+        + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:30px;margin-top:30px">'
+        +   '<div><div style="font-family:\'Playfair Display\',Georgia,serif;font-size:2.5rem;font-weight:900;color:#10B981;line-height:1">01</div><h4 style="font-family:\'Playfair Display\',Georgia,serif;font-size:1.3rem;font-weight:700;color:#1C1917;margin:12px 0 10px">Disciplina de tesouraria</h4><p style="font-size:.95rem;color:#44403C;line-height:1.6">A manutenção do saldo em <strong>{{kpi.saldo}}</strong> mesmo sob pressão operacional revelou a maturidade do controle de fluxo.</p></div>'
+        +   '<div><div style="font-family:\'Playfair Display\',Georgia,serif;font-size:2.5rem;font-weight:900;color:#10B981;line-height:1">02</div><h4 style="font-family:\'Playfair Display\',Georgia,serif;font-size:1.3rem;font-weight:700;color:#1C1917;margin:12px 0 10px">Retenção de clientes</h4><p style="font-size:.95rem;color:#44403C;line-height:1.6">Mantivemos uma base estável de <strong>{{kpi.clientesAtivos}}</strong> contas ativas, com churn controlado em <strong>{{kpi.churn}}</strong>.</p></div>'
+        +   '<div><div style="font-family:\'Playfair Display\',Georgia,serif;font-size:2.5rem;font-weight:900;color:#10B981;line-height:1">03</div><h4 style="font-family:\'Playfair Display\',Georgia,serif;font-size:1.3rem;font-weight:700;color:#1C1917;margin:12px 0 10px">Estrutura enxuta</h4><p style="font-size:.95rem;color:#44403C;line-height:1.6">Headcount de <strong>{{kpi.headcount}}</strong> pessoas se manteve estável · produtividade por colaborador cresceu mês após mês.</p></div>'
+        + '</div></div>'
+        + '<div style="font-family:\'Playfair Display\',Georgia,serif;font-style:italic;font-size:1rem;color:#78716C;border-top:1px solid #E7E5E4;padding-top:18px">Os acertos foram silenciosos · não geraram manchete · mas sustentaram o ciclo.</div>'
+        + '</div></div>' },
+      { title:'O Que Não Funcionou', html:
+        '<div class="deck-9-frame"><div class="deck-9-content">'
+        + '<div><div style="font-size:.85rem;font-weight:bold;letter-spacing:.2em;text-transform:uppercase;color:#7C2D12;margin-bottom:15px">CAPÍTULO III · LIÇÕES DA SAFRA</div><h2 class="deck-9-h2" style="border-bottom:2px solid #7C2D12;padding-bottom:15px">As Apostas Que Falharam</h2>'
+        + '<div style="display:flex;flex-direction:column;gap:18px;margin-top:25px">'
+        +   '<div style="background:#FFFFFF;border-left:4px solid #7C2D12;padding:18px 24px"><h4 style="font-family:\'Playfair Display\',Georgia,serif;font-size:1.25rem;font-weight:700;color:#1C1917;margin:0 0 8px">Margem comprimida em {{kpi.margem}}</h4><p style="font-size:.95rem;color:#44403C;line-height:1.6;margin:0">A inflação de insumos não foi repassada com a velocidade necessária. A margem de contribuição não acompanhou o crescimento da estrutura fixa, gerando pressão silenciosa sobre o EBITDA.</p></div>'
+        +   '<div style="background:#FFFFFF;border-left:4px solid #7C2D12;padding:18px 24px"><h4 style="font-family:\'Playfair Display\',Georgia,serif;font-size:1.25rem;font-weight:700;color:#1C1917;margin:0 0 8px">Concentração em folha · {{kpi.pctFolha}} do ARR</h4><p style="font-size:.95rem;color:#44403C;line-height:1.6;margin:0">A folha cresceu além da curva natural da operação. Contratações foram feitas em premissas otimistas de receita que não se concretizaram no ciclo.</p></div>'
+        +   '<div style="background:#FFFFFF;border-left:4px solid #7C2D12;padding:18px 24px"><h4 style="font-family:\'Playfair Display\',Georgia,serif;font-size:1.25rem;font-weight:700;color:#1C1917;margin:0 0 8px">Apostas de mercado adiadas</h4><p style="font-size:.95rem;color:#44403C;line-height:1.6;margin:0">Dois lançamentos previstos não saíram do plano. A indecisão custou janela de mercado e capital alocado em pesquisa sem retorno mensurável.</p></div>'
+        + '</div></div>'
+        + '<div style="font-family:\'Playfair Display\',Georgia,serif;font-style:italic;font-size:1rem;color:#7C2D12;border-top:1px solid #E7E5E4;padding-top:18px">Falhar barato é privilégio de quem aprende rápido.</div>'
+        + '</div></div>' },
+      { title:'Aprendizados', html:
+        '<div class="deck-9-frame"><div class="deck-9-content">'
+        + '<div><div style="font-size:.85rem;font-weight:bold;letter-spacing:.2em;text-transform:uppercase;color:#7C2D12;margin-bottom:15px">CAPÍTULO IV · DESTILAÇÃO</div><h2 class="deck-9-h2">Os Aprendizados do Ciclo</h2>'
+        + '<div class="deck-9-editorial-grid" style="margin-top:25px">'
+        +   '<div class="deck-9-column-text">A primeira lição do ciclo foi que <strong>nenhuma margem se mantém sem disciplina</strong>. A pressão de custos exige reajuste contínuo · não trimestral, mas mensal · e cada repasse postergado vira contra-receita imediata no patrimônio operacional.<br><br>A segunda foi que <strong>contratações são apostas</strong>, não certezas. Cada novo headcount deve ter premissa de receita correspondente e gatilho explícito de revisão em 90 dias.</div>'
+        +   '<div class="deck-9-column-text" style="border-left:1px solid #E7E5E4;padding-left:40px">A terceira lição, mais sutil, foi sobre <strong>cadência decisória</strong>. As decisões adiadas não foram salvas pelo tempo · foram corroídas por ele. Janelas de mercado têm prazo curto · e indecisão tem custo real medido em runway.<br><br>A quarta · e talvez a mais valiosa · foi reconhecer que <strong>governança madura se faz com indicadores nus</strong>, não com narrativas.</div>'
+        + '</div></div>'
+        + '<div style="font-family:\'Playfair Display\',Georgia,serif;font-style:italic;font-size:1.1rem;color:#7C2D12;border-top:1px solid #E7E5E4;padding-top:18px">"O ciclo termina · mas a leitura dele começa agora."</div>'
+        + '</div></div>' },
+      { title:'A Aposta do Próximo Ano', html:
+        '<div class="deck-9-frame"><div class="deck-9-content">'
+        + '<div><div style="font-size:.85rem;font-weight:bold;letter-spacing:.2em;text-transform:uppercase;color:#7C2D12;margin-bottom:15px">CAPÍTULO V · A TESE QUE VEM</div><h2 class="deck-9-magazine-title" style="font-size:2.8rem">A Aposta para a Próxima Safra.</h2>'
+        + '<div style="display:grid;grid-template-columns:1.2fr .8fr;gap:50px;align-items:start;margin-top:30px">'
+        +   '<div class="deck-9-column-text" style="font-size:1.1rem">O próximo ciclo será construído sobre <strong>três premissas explícitas</strong>: blindar a margem em ≥ 18%, reduzir a participação da folha para abaixo de 50% do ARR, e ampliar o runway projetado para acima de 9 meses operacionais.<br><br>A tese central é simples · <strong>crescer com lucro</strong>. Não há concessão sobre EBITDA · não há margem para experimentos sem critério de leitura · não há contratação sem premissa explícita de receita.<br><br>A safra que se inicia exige <strong>disciplina · não otimismo</strong>.</div>'
+        +   '<div style="background:#FFFFFF;border:2px solid #7C2D12;border-radius:4px;padding:30px"><div style="font-family:monospace;font-size:.75rem;color:#7C2D12;letter-spacing:.1em;text-transform:uppercase;margin-bottom:14px">Metas do próximo ciclo</div>'
+        +     '<div style="margin-bottom:14px"><div style="font-family:\'Playfair Display\',Georgia,serif;font-size:1.6rem;font-weight:900;color:#1C1917">≥ 18%</div><div style="font-size:.85rem;color:#78716C">Margem operacional · (hoje: {{kpi.margem}})</div></div>'
+        +     '<div style="margin-bottom:14px"><div style="font-family:\'Playfair Display\',Georgia,serif;font-size:1.6rem;font-weight:900;color:#1C1917">≤ 50%</div><div style="font-size:.85rem;color:#78716C">% Folha sobre ARR · (hoje: {{kpi.pctFolha}})</div></div>'
+        +     '<div><div style="font-family:\'Playfair Display\',Georgia,serif;font-size:1.6rem;font-weight:900;color:#1C1917">≥ 9 meses</div><div style="font-size:.85rem;color:#78716C">Runway projetado · (hoje: {{kpi.runway}})</div></div>'
+        +   '</div>'
+        + '</div></div>'
+        + '<div style="font-family:\'Playfair Display\',Georgia,serif;font-style:italic;font-size:1rem;color:#78716C;border-top:1px solid #E7E5E4;padding-top:18px">A próxima crônica começa amanhã. As métricas dirão se aprendemos.</div>'
         + '</div></div>' }
     ]
   }
