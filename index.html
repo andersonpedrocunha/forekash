@@ -1979,6 +1979,12 @@
                          font-size:.85rem;line-height:1;font-family:inherit;transition:all .12s}
     .notas-card-pin-btn:hover{opacity:1;background:rgba(0,0,0,.08)}
     .notas-card.pinned .notas-card-pin-btn{opacity:.85}
+    /* Botão Restaurar (visível só em notas arquivadas) */
+    .notas-card-unarchive-btn{position:absolute;top:6px;right:34px;background:rgba(16,185,129,.15);
+                                border:1px solid #10B981;color:#065F46;cursor:pointer;padding:3px 10px;
+                                border-radius:6px;font-size:.65rem;font-weight:800;font-family:-apple-system,sans-serif;
+                                letter-spacing:.02em;transition:all .12s;line-height:1.2}
+    .notas-card-unarchive-btn:hover{background:#10B981;color:#fff;transform:scale(1.04)}
 
     /* Badges de conversão (mostra que a nota virou Task/Receita/etc) */
     .notas-card-conv-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;
@@ -49487,7 +49493,10 @@ function notasRender(){
     return '<div class="notas-card c-' + (n.color||'yellow') + (n.pinned ? ' pinned' : '') + (n.archived ? ' archived' : '') + ((n.converted||[]).length ? ' has-conv' : '') + '"'
          +   ' ondblclick="notasOpenEditor(' + n.id + ')"'
          +   ' title="Dois cliques pra editar">'
-         +   '<button class="notas-card-pin-btn" onclick="event.stopPropagation();notasTogglePin(' + n.id + ')" title="Fixar">📌</button>'
+         +   (n.archived
+              ? '<button class="notas-card-unarchive-btn" onclick="event.stopPropagation();notasArchive(' + n.id + ')" title="Restaurar nota (voltar pras ativas)">📤 Restaurar</button>'
+              : '<button class="notas-card-pin-btn" onclick="event.stopPropagation();notasTogglePin(' + n.id + ')" title="Fixar">📌</button>'
+            )
          +   '<button class="notas-card-menu-btn" onclick="event.stopPropagation();notasCardMenu(' + n.id + ', event)" title="Converter / Arquivar / Excluir">⋯</button>'
          +   '<div class="notas-card-quickmenu" id="notas-quickmenu-' + n.id + '" style="display:none"></div>'
          +   (convBadges ? '<div class="notas-card-conv-row">' + convBadges + '</div>' : '')
@@ -49514,7 +49523,7 @@ function notasCardMenu(id, ev){
   const isOpen = menu.style.display === 'block';
   if(isOpen){ menu.style.display = 'none'; return; }
   const n = notas.list.find(x => x.id === id);
-  const archiveLabel = (n && n.archived) ? '📤 Desarquivar' : '📦 Arquivar';
+  const archiveLabel = (n && n.archived) ? '📤 Restaurar' : '📦 Arquivar';
   menu.innerHTML =
       '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasQuickConvert(' + id + ', \'receita\')"><span class="ico">💰</span> Converter em Receita</button>'
     + '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasQuickConvert(' + id + ', \'despesa\')"><span class="ico">💸</span> Converter em Despesa</button>'
@@ -49522,7 +49531,7 @@ function notasCardMenu(id, ev){
     + '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasQuickConvert(' + id + ', \'prestacao\')"><span class="ico">📋</span> Converter em Prestação de viagem</button>'
     + '<div class="notas-quickmenu-sep"></div>'
     + '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasOpenEditor(' + id + ')"><span class="ico">✏</span> Editar</button>'
-    + '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasArchive(' + id + ')"><span class="ico">' + (n && n.archived ? '📤' : '📦') + '</span> ' + (n && n.archived ? 'Desarquivar' : 'Arquivar') + '</button>'
+    + '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasArchive(' + id + ')"><span class="ico">' + (n && n.archived ? '📤' : '📦') + '</span> ' + (n && n.archived ? 'Restaurar' : 'Arquivar') + '</button>'
     + '<button class="notas-quickmenu-item danger" onclick="event.stopPropagation();notasDelete(' + id + ')"><span class="ico">🗑</span> Excluir</button>';
   menu.style.display = 'block';
   // Fecha ao clicar fora
@@ -49622,17 +49631,20 @@ function notasOpenEditor(id){
     + '</div>';
   ov.style.display = 'flex';
   setTimeout(() => { const t = document.getElementById('notas-edit-title'); if(t) t.focus(); }, 50);
-  // Event delegation pros swatches de cor (mais robusto que inline onclick)
-  const colorsGrid = document.getElementById('notas-edit-colors-grid');
-  if(colorsGrid && !colorsGrid._notasColorBound){
-    colorsGrid.addEventListener('click', (ev) => {
-      const sw = ev.target.closest('.notas-editor-color');
-      if(!sw) return;
-      const c = sw.getAttribute('data-color');
-      if(c) notasSetColor(c);
+  // Bind direto em cada swatch (cada open recria os elementos · listeners fresh)
+  const swatches = ed.querySelectorAll('.notas-editor-color');
+  swatches.forEach(sw => {
+    const c = sw.getAttribute('data-color');
+    if(!c) return;
+    sw.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      notasSetColor(c);
     });
-    colorsGrid._notasColorBound = true;
-  }
+    sw.addEventListener('keydown', (ev) => {
+      if(ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); notasSetColor(c); }
+    });
+  });
 }
 function notasCloseEditor(){
   notasSaveCurrent();
