@@ -6301,7 +6301,31 @@
       border-radius:5px;cursor:pointer;font-size:.76rem;font-weight:700;font-family:inherit}
     .rec-kb-anexo-modal-bar .cl:hover{background:#F1F5F9}
     /* ══ KASHBOARD INDICADORES 2.0 — hero + sparklines + status ══ */
-    .ana-ind-wrap{display:flex;flex-direction:column;gap:14px;margin-bottom:16px}
+    .ana-ind-wrap{display:flex;flex-direction:column;gap:16px;margin-bottom:18px}
+
+    /* Strip de Sinais Críticos (auto-gerada quando há indicadores em estado crit/bad) */
+    .ana-sinais{display:flex;align-items:center;gap:10px;padding:10px 14px;background:linear-gradient(135deg,#FEF2F2 0%,#FEE2E2 100%);
+      border:1px solid #FECACA;border-radius:10px;flex-wrap:wrap}
+    .ana-sinais.empty{background:linear-gradient(135deg,#ECFDF5 0%,#D1FAE5 100%);border-color:#A7F3D0}
+    .ana-sinais-ico{font-size:1.15rem;flex-shrink:0}
+    .ana-sinais-hd{font-size:.74rem;font-weight:800;color:#991B1B;letter-spacing:.04em;flex-shrink:0;margin-right:4px}
+    .ana-sinais.empty .ana-sinais-hd{color:#065F46}
+    .ana-sinais-list{display:flex;gap:6px;flex-wrap:wrap;flex:1}
+    .ana-sinais-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:#fff;border:1px solid #FCA5A5;border-radius:14px;
+      font-size:.74rem;font-weight:700;color:#991B1B}
+    .ana-sinais-chip b{color:#0F172A;font-weight:800}
+    .ana-sinais-chip .v{color:#DC2626;font-weight:800;letter-spacing:-.01em}
+    .ana-sinais.empty .ana-sinais-empty-msg{font-size:.78rem;color:#065F46;font-weight:600}
+
+    /* Sub-tabs do KASHBOARD Charts */
+    .ana-kb-subtabs{display:inline-flex;gap:2px;padding:4px;background:#F1F5F9;border-radius:9px;flex-wrap:wrap;margin-bottom:2px}
+    .kb-st{padding:7px 14px;font-size:.78rem;font-weight:700;background:transparent;border:0;color:#64748B;cursor:pointer;border-radius:6px;
+      transition:all .15s;display:inline-flex;align-items:center;gap:6px;font-family:inherit}
+    .kb-st:hover{color:#0F172A}
+    .kb-st.active{background:#fff;color:#0F172A;box-shadow:0 1px 3px rgba(15,23,42,.1)}
+    .kb-st.exec.active{color:#7C3AED}
+    .kb-st .ico{font-size:.92rem}
+    .kb-st .badge{font-size:.62rem;font-weight:800;background:#EF4444;color:#fff;padding:1px 6px;border-radius:6px;margin-left:2px}
     /* HERO — 3 cards grandes no topo (visão executiva) */
     .ana-hero-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
     .ana-hero{background:linear-gradient(135deg,#fff 0%,#FAFAFA 100%);
@@ -64531,9 +64555,28 @@ function _anaDeltaSerie(serie){
   return { pct, dir: Math.abs(pct) < 1 ? 'neu' : (pct > 0 ? 'up' : 'dn') };
 }
 
+// State da sub-seção ativa do KASHBOARD Charts (persistido em localStorage)
+let _anaKbSection = null;
+function _anaKbGetSection(){
+  if (_anaKbSection) return _anaKbSection;
+  try { _anaKbSection = localStorage.getItem('forekash:kb:section') || 'exec'; }
+  catch(_) { _anaKbSection = 'exec'; }
+  return _anaKbSection;
+}
+function anaKbSetSection(section, btn){
+  if (!['exec','fin','crescimento','pessoas','clientes','cac'].includes(section)) return;
+  _anaKbSection = section;
+  try { localStorage.setItem('forekash:kb:section', section); } catch(_){}
+  if (typeof _anaCollectFacts === 'function' && typeof _anaRenderIndicadores === 'function'){
+    _anaRenderIndicadores(_anaCollectFacts());
+  }
+}
+window.anaKbSetSection = anaKbSetSection;
+
 function _anaRenderIndicadores(facts){
   const wrap = document.getElementById('ana-ind-wrap');
   if(!wrap) return;
+  const section = _anaKbGetSection();
   const k = _anaCalcKPIs(facts);
   const x = _anaCalcIndicadoresExtra(k, facts);
   const s = _anaCalcSeries(facts);
@@ -64619,65 +64662,144 @@ function _anaRenderIndicadores(facts){
   const stBE     = x.breakEven < 70 ? {s:'ok',l:'folga'}  : x.breakEven<90 ? {s:'att',l:'tight'}  : {s:'crit',l:'aperto'};
   const stPctFol = x.pctFolha < 30 ? {s:'ok',l:'baixo'}   : x.pctFolha<50 ? {s:'att',l:'médio'}   : {s:'crit',l:'alto'};
 
-  // ─── GRUPOS ───
-  const groupsHtml = '<div class="ana-ind-groups">'
-    + group('💰', 'Financeiro', x.meses + ' meses', [
-        ind({cls:'good',  lbl:'Burn Rate',  val:fmt(x.burnMes), sub:'custos totais/mês', help:'Folha + Estrutura + Comissões + Empréstimos dividido pelos meses do período'}),
-        ind({cls:'bad',   lbl:'Endividamento', val:fmt(k.endividamento), sub:'saldo total empréstimos', help:'Soma do saldo devedor de todos os empréstimos ativos hoje'}),
-        ind({cls: x.cashConversion>=20?'good':'warn', lbl:'Cash / Receita', val:fmtPct(x.cashConversion), sub:'saldo ÷ receita', help:'% do saldo de caixa em relação à receita do período. Quanto maior, mais liquidez'}),
-        ind({cls:'amber', lbl:'Break-even', val:fmtPct(x.breakEven), sub:'<span class="status ' + stBE.s + '">' + stBE.l + '</span>', help:'% da receita consumida pelos custos operacionais. Acima de 100% = prejuízo operacional'}),
-        ind({cls: stMarg.s==='ok'?'good':stMarg.s==='att'?'warn':'bad', lbl:'Margem EBITDA', val:fmtPct(k.margem), sub:'<span class="status ' + stMarg.s + '">' + stMarg.l + '</span>', help:'EBITDA dividido pela receita. Saudável > 15% (varia por setor)'}),
-        ind({cls:'purp',  lbl:'Total Custos Op.', val:fmt(x.totalCustos), sub:'folha + estrutura + comissões + empréstimos', help:'Custos operacionais totais somados no período'})
-      ])
-    + group('📊', 'Crescimento & Vendas', 'tendências', [
-        ind({cls: x.momPct>=0?'good':'bad', lbl:'MoM Receita', val:fmtPct(x.momPct), sub:'último mês vs anterior', spark:s.recMes, sparkColor:'#10B981', help:'Variação % da receita do último mês vs o anterior'}),
-        ind({cls: x.recYoyPrev>0 ? (x.yoyPct>=0?'good':'bad') : 'info', lbl:'YoY Receita',
-              val: x.recYoyPrev>0 ? fmtPct(x.yoyPct) : '—',
-              sub: x.recYoyPrev>0 ? 'vs ' + fmt(x.recYoyPrev) + ' ano anterior' : 'sem dados ano anterior',
-              help:'Variação % da receita do período vs mesma janela do ano anterior'}),
-        ind({cls:'info', lbl:'Ticket Médio', val:fmt(x.ticketMedio), sub:'receita ÷ clientes', help:'Receita total dividida pelo número de clientes ativos no período'}),
-        ind({cls:'purp', lbl:'LTV (proxy)', val:fmt(k.ltv), sub:'ticket mensal × 12', help:'Lifetime Value estimado: receita média mensal por cliente projetada por 12 meses'}),
-        ind({cls:'good', lbl:'Receita / Mês', val:fmt(x.receitaMes), sub:'média no período', spark:s.recMes, sparkColor:'#10B981'}),
-        ind({cls:'pink', lbl:'Receita / Cliente', val:fmt(x.ticketMedio), sub:'no período inteiro', help:'Mesmo que ticket médio — quanto cada cliente gerou em média'})
-      ])
-    + group('👥', 'Pessoas & Produtividade', 'RH', [
-        ind({cls:'purp', lbl:'Headcount Médio', val:fmtN(k.headcount), sub:'pessoas no período', spark:s.hcMes, sparkColor:'#7C3AED', help:'Média de pessoas ativas com salário > 0 mês a mês'}),
-        ind({cls: stPctFol.s==='ok'?'good':stPctFol.s==='att'?'warn':'bad', lbl:'% Folha / Receita', val:fmtPct(x.pctFolha), sub:'<span class="status ' + stPctFol.s + '">' + stPctFol.l + '</span>', help:'Quanto da receita é consumida pela folha. < 30% saudável (varia por setor)'}),
-        ind({cls:'purp', lbl:'Salário Médio', val:fmt(x.salarioMedio), sub:'por pessoa/mês', help:'Folha total dividida pelo headcount médio e pelos meses do período'}),
-        ind({cls:'good', lbl:'Receita / Func', val:fmt(x.receitaPorFunc), sub:'no período', help:'Quanto cada funcionário gerou de receita. Quanto maior, mais produtivo'}),
-        ind({cls:'warn', lbl:'Custo / Func', val:fmt(x.custoPorFunc), sub:'folha ÷ headcount', help:'Custo total de folha por funcionário no período'}),
-        ind({cls: stTurn.s==='ok'?'good':stTurn.s==='att'?'warn':'bad', lbl:'Turnover', val:fmtPct(k.turnover), sub:'<span class="status ' + stTurn.s + '">' + stTurn.l + '</span>', help:'% de pessoas que saíram em relação ao headcount inicial do período'})
-      ])
-    + group('🏷', 'Clientes & Retenção', 'base ativa', [
-        ind({cls:'good', lbl:'Clientes Ativos', val:fmtN(k.clientesAtivos), sub:'com receita no período', spark:s.cliMes, sparkColor:'#16A34A', help:'Clientes únicos que tiveram receita no período'}),
-        ind({cls: stChurn.s==='ok'?'good':stChurn.s==='att'?'warn':'bad', lbl:'Churn', val:fmtPct(k.churn), sub:'<span class="status ' + stChurn.s + '">' + stChurn.l + '</span>', deltaInvert:true, help:'% de clientes do mês inicial que sumiram no último mês do filtro'}),
-        ind({cls:'pink', lbl:'% Comissões / Receita', val:fmtPct(x.pctComissoes), sub:'comissões ÷ receita', help:'Quanto da receita vai pra comissões dos vendedores'}),
-        ind({cls:'pink', lbl:'% Estrutura / Receita', val:fmtPct(x.pctEstrutura), sub:'despesas fixas ÷ receita', help:'Quanto da receita é consumida por despesas estruturais'}),
-        ind({cls:'bad',  lbl:'% Empréstimos / Receita', val:fmtPct(x.pctLoans), sub:'parcelas ÷ receita', help:'Quanto da receita vai pra pagar parcelas de empréstimos'}),
-        ind({cls: stRunway.s==='ok'?'good':stRunway.s==='att'?'warn':'bad', lbl:'Runway',
-              val: (isFinite(k.runway) && k.runway>=0 ? k.runway.toFixed(1) : '∞') + ' m',
-              sub:'<span class="status ' + stRunway.s + '">' + stRunway.l + '</span>',
-              help:'Quantos meses o saldo de caixa atual dura no ritmo de gasto'})
-      ])
-    + group('🎯', 'Aquisição (CAC)', 'configure em Customizações', [
-        ind({cls: x.cacNovos > 0 ? 'purp' : 'warn', lbl:'CAC',
-              val: x.cacNovos > 0 ? fmt(x.cac) : '—',
-              sub:'por novo cliente no período',
-              help:'Custo de Aquisição de Cliente — soma das despesas (estrutura + folha) marcadas como CAC, com % por linha, dividida pelos novos clientes do período. Configure em Customizações > Indicadores customizados.'}),
-        ind({cls:'good', lbl:'Novos Clientes', val:fmtN(x.cacNovos), sub:'1ª receita no período', help:'Clientes que tiveram a primeira receita registrada dentro do período filtrado'}),
-        ind({cls:'pink', lbl:'Invest. Aquisição', val:fmt(x.cacDespTotal), sub:'despesas marcadas no CAC', help:'Soma das despesas e folha marcadas como CAC no período (já com % aplicado por linha e por mês)'}),
-        ind({cls: x.ltvCac >= 3 ? 'good' : x.ltvCac >= 1 ? 'warn' : 'bad', lbl:'LTV / CAC',
-              val: x.ltvCac > 0 ? x.ltvCac.toFixed(1) + 'x' : '—',
-              sub:'eficiência da máquina',
-              help:'LTV ÷ CAC. Saudável > 3x. Abaixo de 1x significa que cada cliente custa mais do que vale ao longo da vida'}),
-        ind({cls: x.cacPayback > 0 && x.cacPayback <= 6 ? 'good' : x.cacPayback <= 12 ? 'warn' : 'bad', lbl:'CAC Payback',
-              val: x.cacPayback > 0 ? x.cacPayback.toFixed(1) + ' m' : '—',
-              sub:'CAC ÷ ticket mensal',
-              help:'Quantos meses pra recuperar o CAC com a receita média mensal por cliente. Saudável < 6 meses (varia por modelo)'}),
-        ind({cls:'info', lbl:'Ticket Mensal', val:fmt(x.ticketMensal), sub:'receita média/cliente/mês', help:'Receita por cliente por mês — usado no cálculo do payback'})
-      ])
+  // ─── GRUPOS (cada um numa variável separada pra filtragem por sub-tab) ───
+  const gFin = [
+    ind({cls:'good',  lbl:'Burn Rate',  val:fmt(x.burnMes), sub:'custos totais/mês', help:'Folha + Estrutura + Comissões + Empréstimos dividido pelos meses do período'}),
+    ind({cls:'bad',   lbl:'Endividamento', val:fmt(k.endividamento), sub:'saldo total empréstimos', help:'Soma do saldo devedor de todos os empréstimos ativos hoje'}),
+    ind({cls: x.cashConversion>=20?'good':'warn', lbl:'Cash / Receita', val:fmtPct(x.cashConversion), sub:'saldo ÷ receita', help:'% do saldo de caixa em relação à receita do período. Quanto maior, mais liquidez'}),
+    ind({cls:'amber', lbl:'Break-even', val:fmtPct(x.breakEven), sub:'<span class="status ' + stBE.s + '">' + stBE.l + '</span>', help:'% da receita consumida pelos custos operacionais. Acima de 100% = prejuízo operacional'}),
+    ind({cls: stMarg.s==='ok'?'good':stMarg.s==='att'?'warn':'bad', lbl:'Margem EBITDA', val:fmtPct(k.margem), sub:'<span class="status ' + stMarg.s + '">' + stMarg.l + '</span>', help:'EBITDA dividido pela receita. Saudável > 15% (varia por setor)'}),
+    ind({cls:'purp',  lbl:'Total Custos Op.', val:fmt(x.totalCustos), sub:'folha + estrutura + comissões + empréstimos', help:'Custos operacionais totais somados no período'})
+  ];
+  const gCresc = [
+    ind({cls: x.momPct>=0?'good':'bad', lbl:'MoM Receita', val:fmtPct(x.momPct), sub:'último mês vs anterior', spark:s.recMes, sparkColor:'#10B981', help:'Variação % da receita do último mês vs o anterior'}),
+    ind({cls: x.recYoyPrev>0 ? (x.yoyPct>=0?'good':'bad') : 'info', lbl:'YoY Receita',
+          val: x.recYoyPrev>0 ? fmtPct(x.yoyPct) : '—',
+          sub: x.recYoyPrev>0 ? 'vs ' + fmt(x.recYoyPrev) + ' ano anterior' : 'sem dados ano anterior',
+          help:'Variação % da receita do período vs mesma janela do ano anterior'}),
+    ind({cls:'info', lbl:'Ticket Médio', val:fmt(x.ticketMedio), sub:'receita ÷ clientes', help:'Receita total dividida pelo número de clientes ativos no período'}),
+    ind({cls:'purp', lbl:'LTV (proxy)', val:fmt(k.ltv), sub:'ticket mensal × 12', help:'Lifetime Value estimado: receita média mensal por cliente projetada por 12 meses'}),
+    ind({cls:'good', lbl:'Receita / Mês', val:fmt(x.receitaMes), sub:'média no período', spark:s.recMes, sparkColor:'#10B981'}),
+    ind({cls:'pink', lbl:'Receita / Cliente', val:fmt(x.ticketMedio), sub:'no período inteiro', help:'Mesmo que ticket médio — quanto cada cliente gerou em média'})
+  ];
+  const gPess = [
+    ind({cls:'purp', lbl:'Headcount Médio', val:fmtN(k.headcount), sub:'pessoas no período', spark:s.hcMes, sparkColor:'#7C3AED', help:'Média de pessoas ativas com salário > 0 mês a mês'}),
+    ind({cls: stPctFol.s==='ok'?'good':stPctFol.s==='att'?'warn':'bad', lbl:'% Folha / Receita', val:fmtPct(x.pctFolha), sub:'<span class="status ' + stPctFol.s + '">' + stPctFol.l + '</span>', help:'Quanto da receita é consumida pela folha. < 30% saudável (varia por setor)'}),
+    ind({cls:'purp', lbl:'Salário Médio', val:fmt(x.salarioMedio), sub:'por pessoa/mês', help:'Folha total dividida pelo headcount médio e pelos meses do período'}),
+    ind({cls:'good', lbl:'Receita / Func', val:fmt(x.receitaPorFunc), sub:'no período', help:'Quanto cada funcionário gerou de receita. Quanto maior, mais produtivo'}),
+    ind({cls:'warn', lbl:'Custo / Func', val:fmt(x.custoPorFunc), sub:'folha ÷ headcount', help:'Custo total de folha por funcionário no período'}),
+    ind({cls: stTurn.s==='ok'?'good':stTurn.s==='att'?'warn':'bad', lbl:'Turnover', val:fmtPct(k.turnover), sub:'<span class="status ' + stTurn.s + '">' + stTurn.l + '</span>', help:'% de pessoas que saíram em relação ao headcount inicial do período'})
+  ];
+  const gClient = [
+    ind({cls:'good', lbl:'Clientes Ativos', val:fmtN(k.clientesAtivos), sub:'com receita no período', spark:s.cliMes, sparkColor:'#16A34A', help:'Clientes únicos que tiveram receita no período'}),
+    ind({cls: stChurn.s==='ok'?'good':stChurn.s==='att'?'warn':'bad', lbl:'Churn', val:fmtPct(k.churn), sub:'<span class="status ' + stChurn.s + '">' + stChurn.l + '</span>', deltaInvert:true, help:'% de clientes do mês inicial que sumiram no último mês do filtro'}),
+    ind({cls:'pink', lbl:'% Comissões / Receita', val:fmtPct(x.pctComissoes), sub:'comissões ÷ receita', help:'Quanto da receita vai pra comissões dos vendedores'}),
+    ind({cls:'pink', lbl:'% Estrutura / Receita', val:fmtPct(x.pctEstrutura), sub:'despesas fixas ÷ receita', help:'Quanto da receita é consumida por despesas estruturais'}),
+    ind({cls:'bad',  lbl:'% Empréstimos / Receita', val:fmtPct(x.pctLoans), sub:'parcelas ÷ receita', help:'Quanto da receita vai pra pagar parcelas de empréstimos'}),
+    ind({cls: stRunway.s==='ok'?'good':stRunway.s==='att'?'warn':'bad', lbl:'Runway',
+          val: (isFinite(k.runway) && k.runway>=0 ? k.runway.toFixed(1) : '∞') + ' m',
+          sub:'<span class="status ' + stRunway.s + '">' + stRunway.l + '</span>',
+          help:'Quantos meses o saldo de caixa atual dura no ritmo de gasto'})
+  ];
+  const gCAC = [
+    ind({cls: x.cacNovos > 0 ? 'purp' : 'warn', lbl:'CAC',
+          val: x.cacNovos > 0 ? fmt(x.cac) : '—',
+          sub:'por novo cliente no período',
+          help:'Custo de Aquisição de Cliente — soma das despesas (estrutura + folha) marcadas como CAC, com % por linha, dividida pelos novos clientes do período. Configure em Customizações > Indicadores customizados.'}),
+    ind({cls:'good', lbl:'Novos Clientes', val:fmtN(x.cacNovos), sub:'1ª receita no período', help:'Clientes que tiveram a primeira receita registrada dentro do período filtrado'}),
+    ind({cls:'pink', lbl:'Invest. Aquisição', val:fmt(x.cacDespTotal), sub:'despesas marcadas no CAC', help:'Soma das despesas e folha marcadas como CAC no período (já com % aplicado por linha e por mês)'}),
+    ind({cls: x.ltvCac >= 3 ? 'good' : x.ltvCac >= 1 ? 'warn' : 'bad', lbl:'LTV / CAC',
+          val: x.ltvCac > 0 ? x.ltvCac.toFixed(1) + 'x' : '—',
+          sub:'eficiência da máquina',
+          help:'LTV ÷ CAC. Saudável > 3x. Abaixo de 1x significa que cada cliente custa mais do que vale ao longo da vida'}),
+    ind({cls: x.cacPayback > 0 && x.cacPayback <= 6 ? 'good' : x.cacPayback <= 12 ? 'warn' : 'bad', lbl:'CAC Payback',
+          val: x.cacPayback > 0 ? x.cacPayback.toFixed(1) + ' m' : '—',
+          sub:'CAC ÷ ticket mensal',
+          help:'Quantos meses pra recuperar o CAC com a receita média mensal por cliente. Saudável < 6 meses (varia por modelo)'}),
+    ind({cls:'info', lbl:'Ticket Mensal', val:fmt(x.ticketMensal), sub:'receita média/cliente/mês', help:'Receita por cliente por mês — usado no cálculo do payback'})
+  ];
+
+  // ─── VISÃO EXECUTIVA (10 KPIs curados — 2 de cada categoria) ───
+  const gExec = [
+    ind({cls:'good',  lbl:'Receita / Mês', val:fmt(x.receitaMes), sub:'média no período', spark:s.recMes, sparkColor:'#10B981', help:'Receita média mensal no período filtrado'}),
+    ind({cls: stMarg.s==='ok'?'good':stMarg.s==='att'?'warn':'bad', lbl:'Margem EBITDA', val:fmtPct(k.margem), sub:'<span class="status ' + stMarg.s + '">' + stMarg.l + '</span>', help:'EBITDA dividido pela receita'}),
+    ind({cls: x.cashConversion>=20?'good':'warn', lbl:'Cash / Receita', val:fmtPct(x.cashConversion), sub:'liquidez', help:'% do saldo de caixa em relação à receita'}),
+    ind({cls: x.momPct>=0?'good':'bad', lbl:'MoM Receita', val:fmtPct(x.momPct), sub:'último mês vs anterior', spark:s.recMes, sparkColor:'#10B981'}),
+    ind({cls:'purp', lbl:'Headcount', val:fmtN(k.headcount), sub:'pessoas no período', spark:s.hcMes, sparkColor:'#7C3AED'}),
+    ind({cls: stPctFol.s==='ok'?'good':stPctFol.s==='att'?'warn':'bad', lbl:'% Folha / Receita', val:fmtPct(x.pctFolha), sub:'<span class="status ' + stPctFol.s + '">' + stPctFol.l + '</span>'}),
+    ind({cls:'good', lbl:'Clientes Ativos', val:fmtN(k.clientesAtivos), sub:'no período', spark:s.cliMes, sparkColor:'#16A34A'}),
+    ind({cls: stChurn.s==='ok'?'good':stChurn.s==='att'?'warn':'bad', lbl:'Churn', val:fmtPct(k.churn), sub:'<span class="status ' + stChurn.s + '">' + stChurn.l + '</span>'}),
+    ind({cls: stRunway.s==='ok'?'good':stRunway.s==='att'?'warn':'bad', lbl:'Runway',
+          val: (isFinite(k.runway) && k.runway>=0 ? k.runway.toFixed(1) : '∞') + ' m',
+          sub:'<span class="status ' + stRunway.s + '">' + stRunway.l + '</span>'}),
+    ind({cls: x.ltvCac >= 3 ? 'good' : x.ltvCac >= 1 ? 'warn' : 'bad', lbl:'LTV / CAC',
+          val: x.ltvCac > 0 ? x.ltvCac.toFixed(1) + 'x' : '—',
+          sub:'eficiência aquisição'})
+  ];
+
+  // ─── SINAIS CRÍTICOS (auto-extrair indicadores em estado crítico) ───
+  // Heurística: usa os status já calculados (stRunway, stChurn, stTurn, stMarg, stBE, stPctFol)
+  const criticos = [];
+  if (stRunway.s === 'crit') criticos.push({ lbl:'Runway', v: (isFinite(k.runway) && k.runway>=0 ? k.runway.toFixed(1) : '∞') + 'm' });
+  if (stChurn.s === 'crit')  criticos.push({ lbl:'Churn',  v: fmtPct(k.churn) });
+  if (stTurn.s === 'crit')   criticos.push({ lbl:'Turnover', v: fmtPct(k.turnover) });
+  if (stMarg.s === 'crit')   criticos.push({ lbl:'Margem EBITDA', v: fmtPct(k.margem) });
+  if (stBE.s === 'crit')     criticos.push({ lbl:'Break-even', v: fmtPct(x.breakEven) });
+  if (stPctFol.s === 'crit') criticos.push({ lbl:'% Folha', v: fmtPct(x.pctFolha) });
+  if (x.ltvCac > 0 && x.ltvCac < 1) criticos.push({ lbl:'LTV/CAC', v: x.ltvCac.toFixed(1) + 'x' });
+  if (x.cacPayback > 12)     criticos.push({ lbl:'CAC Payback', v: x.cacPayback.toFixed(1) + 'm' });
+
+  let sinaisHtml;
+  if (criticos.length === 0){
+    sinaisHtml = '<div class="ana-sinais empty">'
+      + '<span class="ana-sinais-ico">🛰️</span>'
+      + '<span class="ana-sinais-hd">MR KASH</span>'
+      + '<span class="ana-sinais-empty-msg">Nenhum sinal crítico detectado. Operação nominal.</span>'
+      + '</div>';
+  } else {
+    sinaisHtml = '<div class="ana-sinais">'
+      + '<span class="ana-sinais-ico">🚨</span>'
+      + '<span class="ana-sinais-hd">' + criticos.length + ' sinal' + (criticos.length>1?'is':'') + ' crítico' + (criticos.length>1?'s':'') + '</span>'
+      + '<div class="ana-sinais-list">'
+      + criticos.map(c => '<span class="ana-sinais-chip"><b>' + c.lbl + '</b><span class="v">' + c.v + '</span></span>').join('')
+      + '</div>'
+      + '</div>';
+  }
+
+  // ─── SUB-TABS ───
+  const tabs = [
+    { id:'exec',        lbl:'Visão Executiva', ico:'🎯' },
+    { id:'fin',         lbl:'Financeiro',      ico:'💰' },
+    { id:'crescimento', lbl:'Crescimento',     ico:'📊' },
+    { id:'pessoas',     lbl:'Pessoas',         ico:'👥' },
+    { id:'clientes',    lbl:'Clientes',        ico:'🏷' },
+    { id:'cac',         lbl:'Aquisição',       ico:'🎯' }
+  ];
+  const subtabsHtml = '<div class="ana-kb-subtabs" role="tablist">'
+    + tabs.map(t => '<button class="kb-st ' + t.id + (section === t.id ? ' active' : '') + '" onclick="anaKbSetSection(\'' + t.id + '\',this)" role="tab" aria-selected="' + (section === t.id ? 'true' : 'false') + '">'
+        + '<span class="ico">' + t.ico + '</span>' + t.lbl
+        + (t.id === 'exec' && criticos.length > 0 ? '<span class="badge">' + criticos.length + '</span>' : '')
+        + '</button>').join('')
     + '</div>';
-  wrap.innerHTML = heroHtml + groupsHtml;
+
+  // ─── Render do grupo ativo ───
+  let activeGroupHtml;
+  if (section === 'exec') {
+    activeGroupHtml = group('🎯', 'Visão Executiva', 'os 10 KPIs mais consultados', gExec);
+  } else if (section === 'fin') {
+    activeGroupHtml = group('💰', 'Financeiro', x.meses + ' meses', gFin);
+  } else if (section === 'crescimento') {
+    activeGroupHtml = group('📊', 'Crescimento & Vendas', 'tendências', gCresc);
+  } else if (section === 'pessoas') {
+    activeGroupHtml = group('👥', 'Pessoas & Produtividade', 'RH', gPess);
+  } else if (section === 'clientes') {
+    activeGroupHtml = group('🏷', 'Clientes & Retenção', 'base ativa', gClient);
+  } else if (section === 'cac') {
+    activeGroupHtml = group('🎯', 'Aquisição (CAC)', 'configure em Customizações', gCAC);
+  }
+
+  // ─── COMPOSIÇÃO FINAL ───
+  wrap.innerHTML = heroHtml + sinaisHtml + subtabsHtml + '<div class="ana-ind-groups">' + activeGroupHtml + '</div>';
 }
 
 /* ════════════════════════════════════════════════════════
