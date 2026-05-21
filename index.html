@@ -1949,10 +1949,8 @@
     .notas-card{position:relative;padding:18px 18px 14px;border-radius:6px;cursor:pointer;
                  box-shadow:0 4px 14px rgba(0,0,0,.08),0 1px 3px rgba(0,0,0,.06);
                  transition:all .18s;font-family:'Caveat',cursive,'Comic Sans MS',sans-serif;
-                 min-height:180px;display:flex;flex-direction:column;
-                 transform:rotate(var(--rot,0deg))}
-    .notas-card:hover{transform:rotate(0) translateY(-3px) scale(1.02);box-shadow:0 10px 28px rgba(0,0,0,.14),0 2px 6px rgba(0,0,0,.08)}
-    .notas-card.pinned{transform:rotate(0)}
+                 min-height:180px;display:flex;flex-direction:column}
+    .notas-card:hover{transform:translateY(-3px) scale(1.02);box-shadow:0 10px 28px rgba(0,0,0,.14),0 2px 6px rgba(0,0,0,.08)}
     .notas-card.pinned::before{content:'📌';position:absolute;top:-8px;left:50%;transform:translateX(-50%);font-size:1.1rem;text-shadow:0 1px 2px rgba(0,0,0,.2)}
     /* Cores dos post-its */
     .notas-card.c-yellow{background:linear-gradient(135deg,#FEF3C7 0%,#FDE68A 100%);color:#78350F}
@@ -49168,15 +49166,12 @@ function notasRender(){
   if(empty) empty.style.display = 'none';
 
   grid.innerHTML = items.map(n => {
-    // Rotação pseudo-random pra ficar com cara de post-it
-    const rot = ((n.id * 13) % 5) - 2;  // -2 a +2 graus
     const dt = n.updatedAt ? new Date(n.updatedAt) : null;
     const dtStr = dt ? (dt.toLocaleDateString('pt-BR',{ day:'2-digit', month:'short' })) : '';
     const tagsHtml = (n.tags || []).slice(0,3).map(t =>
       '<span class="notas-card-tag">' + esc(t) + '</span>'
     ).join('');
     return '<div class="notas-card c-' + (n.color||'yellow') + (n.pinned ? ' pinned' : '') + '"'
-         +   ' style="--rot:' + (n.pinned ? 0 : rot) + 'deg"'
          +   ' ondblclick="notasOpenEditor(' + n.id + ')"'
          +   ' title="Dois cliques pra editar">'
          +   '<button class="notas-card-pin-btn" onclick="event.stopPropagation();notasTogglePin(' + n.id + ')" title="Fixar">📌</button>'
@@ -49406,8 +49401,13 @@ function notasConvertTo(target){
   notasSaveCurrent();
   const n = notas.list.find(x => x.id === notasState.editingId);
   if(!n) return;
-  const summary = (n.title || (n.body || '').slice(0,60) || 'Nota sem título').trim();
-  const body = n.body || '';
+  // title = nome curto · body = conteúdo/descrição
+  const title = (n.title || '').trim();
+  const body = (n.body || '').trim();
+  // descrição preferida: body (o conteúdo é o "que aconteceu"); fallback: title
+  const descricao = body || title || 'Nota sem descrição';
+  // nome curto pra cards/títulos: title se houver, senão primeira linha do body
+  const shortName = title || body.split('\n')[0].slice(0,60) || 'Nota sem título';
 
   // ─── 1. Converter em RECEITA → abre modal Extrato lançar ganho ───
   if(target === 'receita'){
@@ -49427,9 +49427,10 @@ function notasConvertTo(target){
         setTimeout(() => {
           // Pre-fill da descrição (primeiro input text grande)
           const descInput = document.querySelector('#ext-modal-desc, #ext-form-desc, .ext-modal input[name="descricao"], .ext-modal input[type="text"]');
-          if(descInput) descInput.value = summary;
+          if(descInput) descInput.value = descricao;
+          // Observações: se title E body forem distintos, joga o title como contexto extra
           const obsInput = document.querySelector('#ext-modal-obs, #ext-form-obs, .ext-modal textarea');
-          if(obsInput && body) obsInput.value = body;
+          if(obsInput && title && title !== body) obsInput.value = '(Título: ' + title + ')';
         }, 220);
         if(typeof toast === 'function') toast('💰 Lançar Ganho aberto · revise e salve');
       } catch(e){ console.warn('convert receita:', e); }
@@ -49452,9 +49453,9 @@ function notasConvertTo(target){
         extOpenModal('gasto', null);
         setTimeout(() => {
           const descInput = document.querySelector('#ext-modal-desc, #ext-form-desc, .ext-modal input[name="descricao"], .ext-modal input[type="text"]');
-          if(descInput) descInput.value = summary;
+          if(descInput) descInput.value = descricao;
           const obsInput = document.querySelector('#ext-modal-obs, #ext-form-obs, .ext-modal textarea');
-          if(obsInput && body) obsInput.value = body;
+          if(obsInput && title && title !== body) obsInput.value = '(Título: ' + title + ')';
         }, 220);
         if(typeof toast === 'function') toast('💸 Lançar Gasto aberto · revise e salve');
       } catch(e){ console.warn('convert despesa:', e); }
@@ -49472,14 +49473,14 @@ function notasConvertTo(target){
       if(!board.nCard) board.nCard = (board.cards.reduce((m,c) => Math.max(m, c.id||0), 0) + 1);
       const newCard = {
         id: board.nCard++,
-        name: summary,
+        name: shortName,         // nome curto = título da nota (ou 1ª linha)
         col: 'backlog',
         priority: 'media',
         tagIds: [],
         deadline: null,
         valor: null,
         tipoFin: null,
-        desc: body || '',
+        desc: descricao,         // descrição = body da nota (conteúdo)
         createdAt: new Date().toISOString(),
         doneAt: null,
         notes: []
@@ -49491,7 +49492,7 @@ function notasConvertTo(target){
       n.updatedAt = Date.now();
       notasSave();
       notasCloseEditor();
-      if(typeof toast === 'function') toast('✅ Task "' + summary.slice(0,40) + '" criada no Backlog');
+      if(typeof toast === 'function') toast('✅ Task "' + shortName.slice(0,40) + '" criada no Backlog');
     } catch(e){ console.warn('convert task:', e); if(typeof toast==='function') toast('⚠ Erro ao criar task'); }
   }
 
@@ -49507,10 +49508,10 @@ function notasConvertTo(target){
       const today = new Date().toISOString().slice(0,10);
       const newViagem = {
         id: viagens.nextId++,
-        titulo: summary,
+        titulo: shortName,         // título curto da nota
         destino: '',
         colaborador: '',
-        proposito: body,
+        proposito: descricao,      // propósito = conteúdo (body) da nota
         dataInicio: today,
         dataFim: today,
         adiantamento: 0,
@@ -49541,7 +49542,7 @@ function notasConvertTo(target){
   else if(target === 'lembrete'){
     notasCloseEditor();
     if(typeof toast === 'function') toast('⏰ Abra KASHtrack pra adicionar um evento (conteúdo copiado)');
-    try { navigator.clipboard.writeText(summary + (body ? '\n\n' + body : '')); } catch(e){}
+    try { navigator.clipboard.writeText(shortName + (body ? '\n\n' + body : '')); } catch(e){}
   }
 
   // ─── 6. Slide ───
@@ -49551,7 +49552,7 @@ function notasConvertTo(target){
         if(!Array.isArray(_anaState.presentation.slides)) _anaState.presentation.slides = [];
         const slide = {
           id: (typeof _anaSlideNextId !== 'undefined') ? _anaSlideNextId++ : Date.now(),
-          title: summary, subtitle:'', layout:'none',
+          title: shortName, subtitle:'', layout:'none',
           widgets: body ? [{
             id: (typeof _anaSlideWidgetNextId !== 'undefined') ? _anaSlideWidgetNextId++ : Date.now()+1,
             widget:'text', cols:4, rows:3, x:0, y:0,
