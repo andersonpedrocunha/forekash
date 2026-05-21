@@ -2037,8 +2037,14 @@
     .notas-editor-field textarea:focus{outline:none;border-color:#F59E0B;background:#fff;box-shadow:0 0 0 3px rgba(245,158,11,.15)}
     .notas-editor-field textarea{min-height:120px;font-family:'Plus Jakarta Sans',system-ui,sans-serif;line-height:1.5}
     .notas-editor-colors{display:flex;gap:8px;flex-wrap:wrap}
-    .notas-editor-color{width:32px;height:32px;border-radius:50%;cursor:pointer;border:2px solid #E5E7EB;transition:all .12s;background:#fff;padding:0;font:inherit;-webkit-appearance:none;appearance:none;outline:none}
+    .notas-editor-color{display:inline-block;width:32px;height:32px;border-radius:50%;cursor:pointer!important;
+                         border:2px solid #E5E7EB;transition:all .12s;background:#fff;padding:0;
+                         font:inherit;-webkit-appearance:none;appearance:none;outline:none;
+                         text-decoration:none!important;color:transparent!important;
+                         user-select:none;-webkit-user-select:none;
+                         pointer-events:auto!important;position:relative;z-index:1}
     .notas-editor-color:focus-visible{box-shadow:0 0 0 3px rgba(124,58,237,.35)}
+    .notas-editor-color:active{transform:scale(.95)}
     .notas-editor-color:hover{transform:scale(1.12)}
     .notas-editor-color.active{border-color:#1F2937;box-shadow:0 0 0 3px rgba(31,41,55,.25)}
     .notas-editor-color.c-yellow{background:#FDE68A!important}
@@ -49723,9 +49729,8 @@ function notasOpenEditor(id){
     +   '<div class="notas-editor-field">'
     +     '<label>Cor</label>'
     +     '<div class="notas-editor-colors" id="notas-edit-colors-grid">'
-    +       NOTAS_COLORS.map(c => '<button type="button" class="notas-editor-color c-' + c + (n.color === c ? ' active' : '') + '"'
-    +         + ' data-color="' + c + '" title="' + c + '"'
-    +         + ' onclick="event.preventDefault();event.stopPropagation();notasSetColor(\'' + c + '\');return false;"></button>').join('')
+    +       NOTAS_COLORS.map(c => '<a href="#" class="notas-editor-color c-' + c + (n.color === c ? ' active' : '') + '"'
+    +         + ' data-color="' + c + '" title="Cor ' + c + '" role="button"></a>').join('')
     +     '</div>'
     +   '</div>'
     +   '<div class="notas-editor-field">'
@@ -49751,6 +49756,18 @@ function notasOpenEditor(id){
     + '</div>';
   ov.style.display = 'flex';
   setTimeout(() => { const t = document.getElementById('notas-edit-title'); if(t) t.focus(); }, 50);
+  // ── COR: bind via .onclick property (sobrescreve qualquer handler anterior) ──
+  NOTAS_COLORS.forEach(color => {
+    const sw = ed.querySelector('.notas-editor-color[data-color="' + color + '"]');
+    if(!sw) return;
+    sw.onclick = function(ev){
+      ev.preventDefault();
+      ev.stopPropagation();
+      console.log('[NOTAS] swatch onclick property fired:', color);
+      notasSetColor(color);
+      return false;
+    };
+  });
 }
 function notasCloseEditor(){
   notasSaveCurrent();
