@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>DAEMON · MR KASH</title>
+<style>
+  :root {
+    --bg:        #06080b;
+    --surf:      #0a0e14;
+    --surf-2:    #0f1620;
+    --bdr:       #1a2531;
+    --bdr-2:     #283747;
+    --green:     #00ff41;
+    --green-dim: #5ab87b;
+    --green-bg:  rgba(0,255,65,.08);
+    --amber:     #ffb300;
+    --red:       #ff3b3b;
+    --red-bg:    rgba(255,59,59,.12);
+    --muted:     #4a5568;
+    --txt:       #d4d4d4;
+    --txt-dim:   #8b9bab;
+  }
+  * { box-sizing: border-box }
+  html, body {
+    margin:0; padding:0;
+    background: var(--bg);
+    color: var(--txt);
+    font-family: 'JetBrains Mono','SF Mono','Fira Code','Menlo','Monaco','Courier New',monospace;
+    font-size: 13px;
+    line-height: 1.55;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  /* CRT scanlines + flicker */
+  body::before {
+    content:'';
+    position: fixed; inset:0; pointer-events:none; z-index:9999;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0,255,65,.025) 0px,
+      rgba(0,255,65,.025) 1px,
+      transparent 1px, transparent 3px
+    );
+    mix-blend-mode: overlay;
+  }
+  body::after {
+    content:'';
+    position: fixed; inset:0; pointer-events:none; z-index:9998;
+    background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,.4) 100%);
+  }
+  @keyframes flicker {
+    0%, 100% { opacity: 1 }
+    50% { opacity: .97 }
+    51% { opacity: .99 }
+  }
+  .frame { animation: flicker 7s infinite }
+
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 24px }
+
+  /* Top bar */
+  .topbar {
+    display:flex; justify-content:space-between; align-items:center;
+    padding: 10px 16px;
+    background: var(--surf);
+    border: 1px solid var(--bdr);
+    border-bottom: 2px solid var(--green);
+    border-radius: 6px 6px 0 0;
+    margin-bottom: 0;
+  }
+  .brand {
+    color: var(--green);
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-shadow: 0 0 6px rgba(0,255,65,.5);
+  }
+  .brand .v { color: var(--muted); font-weight:400; margin-left:8px }
+  .status { display:flex; align-items:center; gap:8px; font-size:11px; color: var(--green-dim); letter-spacing:.08em }
+  .pulse-dot {
+    width: 8px; height: 8px; border-radius:50%; background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 1.4s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1) }
+    50% { opacity: .35; transform: scale(.85) }
+  }
+
+  /* Terminal log */
+  .console {
+    background: var(--surf);
+    border: 1px solid var(--bdr);
+    border-top: 0;
+    padding: 14px 16px 18px;
+  }
+  .log-line { margin: 0; padding: 1px 0 }
+  .log-line .ts { color: var(--muted); margin-right: 8px }
+  .log-line .lvl { font-weight: 700; margin-right: 6px }
+  .log-line .lvl.info  { color: var(--green-dim) }
+  .log-line .lvl.warn  { color: var(--amber) }
+  .log-line .lvl.crit  { color: var(--red) }
+  .log-line .lvl.ok    { color: var(--green) }
+  .log-line .msg { color: var(--txt) }
+  .log-line .ok-mark { color: var(--green); text-shadow: 0 0 4px var(--green); margin-left:6px }
+  .prompt { color: var(--green); text-shadow: 0 0 4px var(--green); font-weight: 700 }
+  .cmd { color: var(--txt) }
+  .cursor::after {
+    content: '█';
+    color: var(--green);
+    animation: blink 1s steps(1) infinite;
+    margin-left: 2px;
+  }
+  @keyframes blink {
+    0%, 50% { opacity: 1 }
+    51%, 100% { opacity: 0 }
+  }
+
+  /* Section header */
+  .section-hd {
+    display:flex; align-items:center; gap:10px;
+    margin: 22px 0 10px;
+    color: var(--green);
+    text-shadow: 0 0 5px rgba(0,255,65,.4);
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .section-hd .bar { flex:1; height:1px; background: var(--bdr-2); position:relative }
+  .section-hd .bar::after {
+    content:''; position:absolute; left:0; top:0; bottom:0;
+    width: 80px; background: linear-gradient(90deg, var(--green), transparent);
+    opacity: .4;
+  }
+
+  /* RECON CYCLE — 7 dias */
+  .recon {
+    background: var(--surf);
+    border: 1px solid var(--bdr);
+    border-radius: 6px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+  }
+  .recon-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0,1fr));
+    gap: 8px;
+  }
+  .recon-day {
+    background: var(--surf-2);
+    border: 1px solid var(--bdr);
+    border-radius: 4px;
+    padding: 10px 8px;
+    text-align: center;
+    transition: all .2s;
+    cursor: pointer;
+  }
+  .recon-day:hover {
+    border-color: var(--green-dim);
+    box-shadow: 0 0 12px rgba(0,255,65,.15);
+  }
+  .recon-day.today {
+    border-color: var(--green);
+    box-shadow: 0 0 14px rgba(0,255,65,.3), inset 0 0 14px rgba(0,255,65,.06);
+  }
+  .recon-day .wd {
+    color: var(--muted);
+    font-size: 9px;
+    letter-spacing: .12em;
+    margin-bottom: 4px;
+  }
+  .recon-day .date {
+    color: var(--txt);
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+  .recon-day .icon {
+    font-size: 16px;
+    margin: 4px 0 6px;
+    text-shadow: 0 0 6px currentColor;
+  }
+  .recon-day.s-ok .icon    { color: var(--green) }
+  .recon-day.s-warn .icon  { color: var(--amber) }
+  .recon-day.s-crit .icon  { color: var(--red) }
+  .recon-day.s-idle .icon  { color: var(--muted) }
+  .recon-day .net {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--txt);
+  }
+  .recon-day .net.pos { color: var(--green); text-shadow: 0 0 4px rgba(0,255,65,.3) }
+  .recon-day .net.neg { color: var(--red); text-shadow: 0 0 4px rgba(255,59,59,.3) }
+  .recon-day .net.idle { color: var(--muted) }
+  .recon-day .severity {
+    margin-top: 6px;
+    font-size: 8px;
+    letter-spacing: .14em;
+    font-weight: 700;
+    padding: 2px 0;
+    border-radius: 2px;
+  }
+  .recon-day.s-ok .severity   { color: var(--green); background: rgba(0,255,65,.08) }
+  .recon-day.s-warn .severity { color: var(--amber); background: rgba(255,179,0,.1) }
+  .recon-day.s-crit .severity { color: var(--red); background: rgba(255,59,59,.12) }
+  .recon-day.s-idle .severity { color: var(--muted); background: rgba(74,85,104,.15) }
+
+  /* Reservoir bar */
+  .reservoir {
+    background: var(--surf);
+    border: 1px solid var(--bdr);
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin-bottom: 14px;
+  }
+  .reservoir-head { display:flex; justify-content:space-between; font-size: 11px; color: var(--green-dim); letter-spacing: .08em; margin-bottom: 8px; text-transform: uppercase }
+  .reservoir-head b { color: var(--green); text-shadow: 0 0 4px var(--green) }
+  .reservoir-bar {
+    height: 16px;
+    background: var(--surf-2);
+    border: 1px solid var(--bdr-2);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+    font-family: inherit;
+  }
+  .reservoir-fill {
+    height: 100%;
+    width: 86%;
+    background: linear-gradient(90deg, rgba(0,255,65,.3), var(--green));
+    box-shadow: 0 0 12px rgba(0,255,65,.4);
+    position: relative;
+  }
+  .reservoir-fill::after {
+    content:'';
+    position:absolute; right:0; top:0; bottom:0;
+    width: 2px; background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+  }
+  .reservoir-meta { display:flex; justify-content:space-between; font-size: 11px; margin-top: 6px; color: var(--txt-dim) }
+  .reservoir-meta .val { color: var(--green); font-weight: 700 }
+  .reservoir-meta .danger { color: var(--red) }
+
+  /* Console alerts */
+  .alerts {
+    background: var(--surf);
+    border: 1px solid var(--bdr);
+    border-radius: 6px;
+    padding: 16px 18px;
+  }
+  .alert {
+    padding: 8px 10px;
+    border-left: 2px solid;
+    margin-bottom: 6px;
+    background: var(--surf-2);
+    font-size: 12px;
+  }
+  .alert.crit { border-color: var(--red); background: var(--red-bg) }
+  .alert.warn { border-color: var(--amber); background: rgba(255,179,0,.05) }
+  .alert.info { border-color: var(--green-dim); background: var(--green-bg) }
+  .alert .lvl  { font-weight: 700; letter-spacing: .08em; margin-right: 8px }
+  .alert.crit .lvl { color: var(--red) }
+  .alert.warn .lvl { color: var(--amber) }
+  .alert.info .lvl { color: var(--green) }
+  .alert .target { color: var(--txt); font-weight: 700 }
+  .alert .body { color: var(--txt-dim); display: block; margin-top: 3px; font-size: 11px }
+  .alert .action { color: var(--green); margin-left: 4px; cursor: pointer; text-decoration: underline; text-decoration-style: dotted }
+
+  /* ASCII section divider */
+  .ascii-div {
+    color: var(--bdr-2);
+    font-size: 10px;
+    letter-spacing: -1px;
+    user-select: none;
+    white-space: nowrap;
+    overflow: hidden;
+    margin: 4px 0;
+  }
+
+  /* Footer */
+  .footer {
+    margin-top: 18px;
+    color: var(--muted);
+    font-size: 11px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .footer .right { color: var(--green-dim) }
+
+  /* Headings semânticas em mono */
+  h1, h2, h3 { font-family: inherit; font-weight: 700 }
+</style>
+</head>
+<body>
+<div class="wrap frame">
+
+  <!-- ━━━━━━━━━━ TOP BAR ━━━━━━━━━━ -->
+  <div class="topbar">
+    <div class="brand">[ DAEMON ]<span class="v">v1.0.0 · forekash.core</span></div>
+    <div class="status">
+      <span class="pulse-dot"></span>
+      <span>LISTENING · TARGET: cash_flow.local</span>
+    </div>
+  </div>
+
+  <!-- ━━━━━━━━━━ TERMINAL CONSOLE ━━━━━━━━━━ -->
+  <div class="console">
+    <p class="log-line"><span class="ts">[18:42:33]</span><span class="lvl info">INIT</span><span class="msg">Booting daemon...</span><span class="ok-mark">✓</span></p>
+    <p class="log-line"><span class="ts">[18:42:33]</span><span class="lvl info">AUTH</span><span class="msg">JWT claims OK · org=taller · uid=dc2164ae</span></p>
+    <p class="log-line"><span class="ts">[18:42:34]</span><span class="lvl info">SCAN</span><span class="msg">Probing 7-day window (T+0 → T+6)... 14 events found</span></p>
+    <p class="log-line"><span class="ts">[18:42:34]</span><span class="lvl ok">DONE</span><span class="msg">Reservoir mapped · 4 modules · 2 anomalies flagged</span></p>
+    <p class="log-line" style="margin-top:6px"><span class="prompt">root@forekash</span><span style="color:var(--muted)">:~$</span> <span class="cmd">recon --watch --window=7d</span><span class="cursor"></span></p>
+  </div>
+
+  <!-- ━━━━━━━━━━ RECON CYCLE ━━━━━━━━━━ -->
+  <div class="section-hd">
+    ▸ RECON CYCLE · 7 dias à frente
+    <span class="bar"></span>
+  </div>
+
+  <div class="recon">
+    <div class="recon-grid">
+      <div class="recon-day today s-ok">
+        <div class="wd">SEG</div>
+        <div class="date">25</div>
+        <div class="icon">●</div>
+        <div class="net pos">+R$ 15.000</div>
+        <div class="severity">NOMINAL</div>
+      </div>
+      <div class="recon-day s-ok">
+        <div class="wd">TER</div>
+        <div class="date">26</div>
+        <div class="icon">●</div>
+        <div class="net pos">+R$ 8.000</div>
+        <div class="severity">NOMINAL</div>
+      </div>
+      <div class="recon-day s-warn">
+        <div class="wd">QUA</div>
+        <div class="date">27</div>
+        <div class="icon">◐</div>
+        <div class="net neg">−R$ 2.000</div>
+        <div class="severity">UNSTABLE</div>
+      </div>
+      <div class="recon-day s-crit">
+        <div class="wd">QUI</div>
+        <div class="date">28</div>
+        <div class="icon">▲</div>
+        <div class="net neg">−R$ 22.000</div>
+        <div class="severity">CRITICAL</div>
+      </div>
+      <div class="recon-day s-idle">
+        <div class="wd">SEX</div>
+        <div class="date">29</div>
+        <div class="icon">○</div>
+        <div class="net idle">—</div>
+        <div class="severity">IDLE</div>
+      </div>
+      <div class="recon-day s-ok">
+        <div class="wd">SÁB</div>
+        <div class="date">30</div>
+        <div class="icon">●</div>
+        <div class="net pos">+R$ 45.000</div>
+        <div class="severity">SURGE</div>
+      </div>
+      <div class="recon-day s-idle">
+        <div class="wd">DOM</div>
+        <div class="date">31</div>
+        <div class="icon">○</div>
+        <div class="net idle">—</div>
+        <div class="severity">IDLE</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ━━━━━━━━━━ RESERVOIR ━━━━━━━━━━ -->
+  <div class="section-hd">
+    ▸ RESERVOIR STATUS · capacidade operacional
+    <span class="bar"></span>
+  </div>
+
+  <div class="reservoir">
+    <div class="reservoir-head">
+      <span>SALDO PROJETADO · T+6</span>
+      <span><b>86%</b> · STABLE</span>
+    </div>
+    <div class="reservoir-bar">
+      <div class="reservoir-fill"></div>
+    </div>
+    <div class="reservoir-meta">
+      <span>min: <span class="danger">R$ 0</span></span>
+      <span>now: <span class="val">R$ 327.400</span></span>
+      <span>cap: R$ 380.000</span>
+    </div>
+  </div>
+
+  <!-- ━━━━━━━━━━ CONSOLE OUTPUT (ALERTS) ━━━━━━━━━━ -->
+  <div class="section-hd">
+    ▸ THREAT MATRIX · alertas detectados
+    <span class="bar"></span>
+  </div>
+
+  <div class="alerts">
+    <div class="alert crit">
+      <span class="lvl">[CRITICAL]</span><span class="target">thu/28</span>
+      <span class="body">outflow=R$22.000 supera safe_threshold · reservoir dropdown projetado: 16%
+        <span class="action">› execute mitigation()</span>
+      </span>
+    </div>
+    <div class="alert warn">
+      <span class="lvl">[WARN]</span><span class="target">wed/27</span>
+      <span class="body">net=−R$2.000 · balance=stable · no immediate action required
+        <span class="action">› monitor</span>
+      </span>
+    </div>
+    <div class="alert info">
+      <span class="lvl">[INFO]</span><span class="target">sat/30</span>
+      <span class="body">incoming payload=R$45.000 scheduled · source=Receita·VarejoPlus
+        <span class="action">› confirm receivable</span>
+      </span>
+    </div>
+  </div>
+
+  <!-- ━━━━━━━━━━ FOOTER ━━━━━━━━━━ -->
+  <div class="ascii-div">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</div>
+  <div class="footer">
+    <div>daemon · process_id=4717 · uptime=00:42:18 · last_sync=2s ago</div>
+    <div class="right">"Hello, friend." — MR KASH</div>
+  </div>
+
+</div>
+</body>
+</html>
