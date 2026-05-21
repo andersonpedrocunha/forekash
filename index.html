@@ -49775,17 +49775,28 @@ function notasSaveCurrent(close){
   if(close) notasCloseEditor();
 }
 function notasSetColor(color){
+  console.log('[NOTAS] notasSetColor chamado:', color, 'editingId:', notasState && notasState.editingId);
   // Permite id=0 (estritamente null/undefined invalidam)
-  if(notasState.editingId == null) return;
+  if(!notasState || notasState.editingId == null){
+    console.warn('[NOTAS] editingId vazio · tentando recuperar do DOM');
+    // Fallback: tenta achar a nota mais recente (acabou de ser criada)
+    if(notas && Array.isArray(notas.list) && notas.list.length > 0){
+      const mostRecent = notas.list.reduce((m, n) => (!m || (n.updatedAt||0) > (m.updatedAt||0)) ? n : m, null);
+      if(mostRecent){ notasState.editingId = mostRecent.id; console.log('[NOTAS] recuperou editingId =', mostRecent.id); }
+    }
+    if(notasState.editingId == null){ console.warn('[NOTAS] desistindo · sem nota pra editar'); return; }
+  }
   if(!notas || !Array.isArray(notas.list)) return;
   const n = notas.list.find(x => x && x.id === notasState.editingId);
-  if(!n){ console.warn('notasSetColor: nota não encontrada id=', notasState.editingId); return; }
+  if(!n){ console.warn('[NOTAS] nota não encontrada id=', notasState.editingId); return; }
   n.color = color;
   n.updatedAt = Date.now();
-  try { notasSave(); } catch(e){ console.warn('notasSetColor save fail:', e); }
+  try { notasSave(); } catch(e){ console.warn('[NOTAS] save fail:', e); }
+  console.log('[NOTAS] cor salva:', color, 'em nota id:', n.id);
   // Atualiza UI · usa data-color em vez de index (mais robusto)
   try {
     const colorBtns = document.querySelectorAll('.notas-editor-color');
+    console.log('[NOTAS] encontrou', colorBtns.length, 'swatches');
     colorBtns.forEach(btn => {
       const c = btn.getAttribute('data-color');
       btn.classList.toggle('active', c === color);
@@ -49794,7 +49805,7 @@ function notasSetColor(color){
     if(hd && NOTAS_COLOR_HEX[color]){
       hd.style.background = 'linear-gradient(135deg,' + NOTAS_COLOR_HEX[color] + ' 0%,' + NOTAS_COLOR_HEX[color] + 'DD 100%)';
     }
-  } catch(e){ console.warn('notasSetColor ui:', e); }
+  } catch(e){ console.warn('[NOTAS] ui fail:', e); }
 }
 // Exposição IMEDIATA · garante que inline onclick acha sempre, mesmo
 // se o try{} de exposição global lá embaixo ainda não rodou
