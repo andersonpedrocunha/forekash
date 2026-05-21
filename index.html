@@ -1977,6 +1977,20 @@
     .notas-card-pin-btn:hover{opacity:1;background:rgba(0,0,0,.08)}
     .notas-card.pinned .notas-card-pin-btn{opacity:.85}
 
+    /* Quick-menu (3 pontos) — converter direto sem abrir editor */
+    .notas-card-quickmenu{position:absolute;top:30px;right:6px;background:#fff;
+                           border:1px solid #E5E7EB;border-radius:10px;padding:5px;
+                           box-shadow:0 12px 30px rgba(0,0,0,.18);min-width:230px;z-index:10;
+                           font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+    .notas-quickmenu-item{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:6px;
+                           cursor:pointer;font-size:.78rem;font-weight:600;color:#1F2937;
+                           transition:all .1s;border:none;background:transparent;width:100%;
+                           text-align:left;font-family:inherit}
+    .notas-quickmenu-item:hover{background:#F3E8FF;color:#7C3AED}
+    .notas-quickmenu-item.danger:hover{background:#FEF2F2;color:#DC2626}
+    .notas-quickmenu-item .ico{font-size:.95rem;width:18px;text-align:center;flex-shrink:0}
+    .notas-quickmenu-sep{height:1px;background:#F3F4F6;margin:4px 0}
+
     .notas-empty{text-align:center;padding:80px 40px;background:#fff;border:2px dashed #E5E7EB;
                   border-radius:12px;margin-top:40px}
     .notas-empty-icon{font-size:4rem;margin-bottom:18px;opacity:.5}
@@ -49143,9 +49157,11 @@ function notasRender(){
     ).join('');
     return '<div class="notas-card c-' + (n.color||'yellow') + (n.pinned ? ' pinned' : '') + '"'
          +   ' style="--rot:' + (n.pinned ? 0 : rot) + 'deg"'
-         +   ' onclick="notasOpenEditor(' + n.id + ')">'
+         +   ' ondblclick="notasOpenEditor(' + n.id + ')"'
+         +   ' title="Dois cliques pra editar">'
          +   '<button class="notas-card-pin-btn" onclick="event.stopPropagation();notasTogglePin(' + n.id + ')" title="Fixar">📌</button>'
-         +   '<button class="notas-card-menu-btn" onclick="event.stopPropagation();notasOpenEditor(' + n.id + ')" title="Editar">⋯</button>'
+         +   '<button class="notas-card-menu-btn" onclick="event.stopPropagation();notasCardMenu(' + n.id + ', event)" title="Converter / Excluir">⋯</button>'
+         +   '<div class="notas-card-quickmenu" id="notas-quickmenu-' + n.id + '" style="display:none"></div>'
          +   (n.title ? '<h3 class="notas-card-title">' + esc(n.title) + '</h3>' : '')
          +   '<div class="notas-card-body">' + esc(n.body || '') + '</div>'
          +   '<div class="notas-card-foot">'
@@ -49159,6 +49175,48 @@ function notasToggleFilterColor(color){
   notasState.filterColor = (notasState.filterColor === color) ? null : color;
   notasRender();
 }
+// Quick-menu inline ao clicar nos 3 pontos · converter sem abrir editor
+function notasCardMenu(id, ev){
+  ev && ev.stopPropagation();
+  // Fecha qualquer outro quickmenu aberto
+  document.querySelectorAll('.notas-card-quickmenu').forEach(m => { if(m.id !== 'notas-quickmenu-' + id) m.style.display = 'none'; });
+  const menu = document.getElementById('notas-quickmenu-' + id);
+  if(!menu) return;
+  const isOpen = menu.style.display === 'block';
+  if(isOpen){ menu.style.display = 'none'; return; }
+  menu.innerHTML =
+      '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasQuickConvert(' + id + ', \'receita\')"><span class="ico">💰</span> Converter em Receita</button>'
+    + '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasQuickConvert(' + id + ', \'despesa\')"><span class="ico">💸</span> Converter em Despesa</button>'
+    + '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasQuickConvert(' + id + ', \'task\')"><span class="ico">✅</span> Converter em Task no Board</button>'
+    + '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasQuickConvert(' + id + ', \'prestacao\')"><span class="ico">📋</span> Converter em Prestação de conta</button>'
+    + '<div class="notas-quickmenu-sep"></div>'
+    + '<button class="notas-quickmenu-item" onclick="event.stopPropagation();notasOpenEditor(' + id + ')"><span class="ico">✏</span> Editar</button>'
+    + '<button class="notas-quickmenu-item danger" onclick="event.stopPropagation();notasDelete(' + id + ')"><span class="ico">🗑</span> Excluir</button>';
+  menu.style.display = 'block';
+  // Fecha ao clicar fora
+  setTimeout(() => {
+    const closeHandler = (e) => {
+      if(!menu.contains(e.target) && !e.target.closest('.notas-card-menu-btn')){
+        menu.style.display = 'none';
+        document.removeEventListener('click', closeHandler);
+      }
+    };
+    document.addEventListener('click', closeHandler);
+  }, 10);
+}
+
+// Converte direto sem abrir editor · usa o id da nota clicada
+function notasQuickConvert(id, target){
+  const menu = document.getElementById('notas-quickmenu-' + id);
+  if(menu) menu.style.display = 'none';
+  // Seta o editingId temporariamente pra reusar notasConvertTo
+  const prevEditingId = notasState.editingId;
+  notasState.editingId = id;
+  notasConvertTo(target);
+  // Se a conversão não fechou o editor (ex: Receita só toast), restaura state
+  notasState.editingId = prevEditingId;
+}
+
 function notasTogglePin(id){
   const n = notas.list.find(x => x.id === id);
   if(!n) return;
@@ -49391,6 +49449,8 @@ try {
   window.notasTogglePin = notasTogglePin;
   window.notasToggleConvertMenu = notasToggleConvertMenu;
   window.notasConvertTo = notasConvertTo;
+  window.notasCardMenu = notasCardMenu;
+  window.notasQuickConvert = notasQuickConvert;
 } catch(e){}
 
 // ════════════════════════════════════════════════════════════
