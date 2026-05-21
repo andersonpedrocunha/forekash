@@ -3,7 +3,13 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Controle de Empréstimos — Taller</title>
+  <title>Forekash — Seu hub financeiro</title>
+  <meta name="description" content="Forekash — receita, folha, impostos, estoque e fluxo numa só planilha viva. MR KASH lê seus números e aponta gordura, alavanca e tempestade vindo."/>
+  <meta name="theme-color" content="#0F172A"/>
+  <!-- Favicon: chevron Forekash (>>) em SVG inline pra não exigir asset externo -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%230F172A'/%3E%3Cpath d='M11 13 L21 20 L11 27' stroke='%23F8FAFC' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Cpath d='M20 13 L30 20 L20 27' stroke='%2310B981' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E"/>
+  <!-- Apple touch icon (iOS home screen / Safari pinned tab) -->
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%230F172A'/%3E%3Cpath d='M11 13 L21 20 L11 27' stroke='%23F8FAFC' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Cpath d='M20 13 L30 20 L20 27' stroke='%2310B981' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E"/>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <script>
@@ -14261,7 +14267,7 @@
                 <div class="kt-fc-summary" id="kt-fc-summary"></div>
               </div>
               <div class="kt-alerts" id="kt-alerts">
-                <h3>📡 Central de alertas</h3>
+                <h3>🛰️ MR KASH detectou</h3>
                 <div id="kt-alerts-list"></div>
               </div>
             </div>
@@ -38995,20 +39001,50 @@ function kashtrackRenderForecast(){
          +    '</div>'
          +  '</div>';
 
-    // Coleta alertas
+    // Coleta alertas — voz MR KASH (corte, calculado, ocasionalmente irônico)
     if (w.kind === 'storm'){
       const dStr = d.getDate() + '/' + String(d.getMonth()+1).padStart(2,'0');
-      alerts.push({
-        kind: 'storm',
-        title: '🌩️ Tempestade em ' + dStr + (isToday ? ' (HOJE)' : ''),
-        msg: 'Saídas de ' + _ktFmtBRL(slot.outflow) + ' contra entradas de ' + _ktFmtBRL(slot.inflow) + '. Avalie antecipar recebimentos ou adiar pagamentos.'
-      });
+      const wdLong = KASHTRACK_FC_WEEKDAYS_LG[d.getDay()];
+      // Mensagens variadas baseadas em quão próximo está o evento
+      let title, msg;
+      if (isToday){
+        title = '🌩️ Tempestade · HOJE (' + dStr + ')';
+        msg = 'Saída de ' + _ktFmtBRL(slot.outflow) + ' sem cobertura (entrada: ' + _ktFmtBRL(slot.inflow) + '). Decidir agora — adiar pagamento ou puxar receita.';
+      } else if (i === 1){
+        title = '🌩️ Frente fria · amanhã (' + wdLong + ', ' + dStr + ')';
+        msg = '24h pra resolver. Saída de ' + _ktFmtBRL(slot.outflow) + ' contra entrada de ' + _ktFmtBRL(slot.inflow) + '. Mover alguma peça antes do horário comercial.';
+      } else if (i <= 3){
+        title = '🌩️ Tempestade em ' + i + ' dias (' + dStr + ')';
+        msg = wdLong + '. ' + _ktFmtBRL(slot.outflow) + ' saindo. ' + _ktFmtBRL(slot.inflow) + ' entrando. Gap visível — abrir guarda-chuva agora ou se molhar depois?';
+      } else {
+        title = '🌩️ Tempestade prevista · ' + dStr;
+        msg = wdLong + '. Volume de saída supera entrada por uma margem ruim. Você tem ' + i + ' dias pra reposicionar.';
+      }
+      alerts.push({ kind:'storm', title, msg });
     } else if (w.kind === 'cloudy' && slot.items.length > 0){
       const dStr = d.getDate() + '/' + String(d.getMonth()+1).padStart(2,'0');
+      const wdLong = KASHTRACK_FC_WEEKDAYS_LG[d.getDay()];
+      // Variação por proximidade
+      let title, msg;
+      if (isToday){
+        title = '⛅ Caixa empatado · HOJE';
+        msg = wdLong + '. Sem sobra, sem buraco. Cinza. Cada movimento conta.';
+      } else if (i === 1){
+        title = '⛅ Equilíbrio amanhã (' + dStr + ')';
+        msg = 'Entrada e saída quase no mesmo patamar (' + _ktFmtBRL(slot.inflow) + ' vs ' + _ktFmtBRL(slot.outflow) + '). Sem folga.';
+      } else {
+        title = '⛅ Nublado em ' + dStr;
+        msg = wdLong + '. Caixa fica empatado. Margem mínima — olho aberto.';
+      }
+      alerts.push({ kind:'cloudy', title, msg });
+    } else if (w.kind === 'sunny' && slot.inflow > 0 && slot.outflow === 0 && i > 0){
+      // Pico de entrada limpa — vale notar
+      const dStr = d.getDate() + '/' + String(d.getMonth()+1).padStart(2,'0');
+      const wdLong = KASHTRACK_FC_WEEKDAYS_LG[d.getDay()];
       alerts.push({
-        kind: 'cloudy',
-        title: '⛅ Atenção em ' + dStr,
-        msg: 'Caixa fica empatado. Volume de saídas próximo às entradas (' + _ktFmtBRL(slot.outflow) + ' vs ' + _ktFmtBRL(slot.inflow) + ').'
+        kind:'info',
+        title: '✓ Surto positivo · ' + dStr,
+        msg: wdLong + '. Entrada de ' + _ktFmtBRL(slot.inflow) + ' sem despesa programada. Reservatório enche.'
       });
     }
   }
@@ -39029,9 +39065,17 @@ function kashtrackRenderForecast(){
   if (alertsList){
     // Adiciona um alerta positivo se a semana for boa
     if (alerts.length === 0){
+      // Mensagem irônica-tranquila MR KASH
+      const emptyMsgs = [
+        { title:'☀️ Tudo nominal nos próximos 7 dias', body:'Nenhum sinal de tempestade no horizonte. Aproveita — eu fico de plantão.' },
+        { title:'☀️ Horizonte limpo · 7d', body:'Zero ameaças detectadas. Respira fundo. Mas continua olhando.' },
+        { title:'☀️ Céu azul · 7d à frente', body:'Sem frentes frias. Sem nuvens. Eu prefiro quando é assim — mas não conto com isso.' },
+        { title:'☀️ Sem ruído na semana', body:'Caixa estável. Padrão limpo. Continua entrando — e eu continuo monitorando.' }
+      ];
+      const m = emptyMsgs[Math.floor(Math.random() * emptyMsgs.length)];
       alertsList.innerHTML = '<div class="kt-alert sunny">'
         + '<div class="kt-alert-ico">☀️</div>'
-        + '<div class="kt-alert-body"><b>Céu limpo nos próximos 7 dias</b><span>Sem tempestades à vista. Continue acompanhando recebimentos pra manter o saldo positivo.</span></div>'
+        + '<div class="kt-alert-body"><b>' + m.title + '</b><span>' + m.body + '</span></div>'
         + '</div>';
     } else {
       alertsList.innerHTML = alerts.map(a =>
