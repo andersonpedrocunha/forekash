@@ -68999,21 +68999,25 @@ try { window.anaSlideAutoSubtitle = anaSlideAutoSubtitle; } catch(e){}
 function anaSlideAutoNarrativa(){
   const s = _anaSlideCurrent();
   if(!s) return;
-  // Acha o primeiro widget de texto
-  const txtW = (s.widgets||[]).find(w => w.widget === 'text');
-  if(!txtW){
-    // Adiciona um se não existir
+  if(!Array.isArray(s.widgets)) s.widgets = [];
+  // Procura SÓ widgets de auto-narrativa já existentes (marcados com _isAutoNarrativa)
+  // — não sobrescreve text widgets criados pelo user (Mind Map, biblioteca, etc)
+  const existing = s.widgets.find(w => w && w._isAutoNarrativa === true);
+  if(existing){
+    existing.text = _anaAutoNarrativaFromSlide(s);
+    if(typeof toast === 'function') toast('✨ Narrativa atualizada');
+  } else {
+    // Sempre adiciona como widget novo ABAIXO dos existentes
     s.widgets.push({
       id: _anaSlideWidgetNextId++,
-      widget:'text', cols:4, rows:2,
-      text: _anaAutoNarrativaFromSlide(s)
+      widget:'text', cols:4, rows:2, x:0, y:0,
+      text: _anaAutoNarrativaFromSlide(s),
+      _isAutoNarrativa: true
     });
-  } else {
-    txtW.text = _anaAutoNarrativaFromSlide(s);
+    if(typeof toast === 'function') toast('✨ Narrativa adicionada ao slide');
   }
   _anaSaveState();
   _anaRenderPresent();
-  if(typeof toast === 'function') toast('✨ Narrativa gerada');
 }
 try {
   window.anaSlideAutoTitle = anaSlideAutoTitle;
