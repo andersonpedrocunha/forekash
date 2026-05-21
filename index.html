@@ -7622,6 +7622,13 @@
     .deck-9-column-text{flex:1;font-size:1.05rem;line-height:1.6;color:#44403C;text-align:justify}
     .deck-9-column-text::first-letter{font-family:'Playfair Display',Georgia,serif;font-size:3rem;font-weight:bold;color:#7C2D12;float:left;margin-right:8px;line-height:1}
 
+    /* Picker inline de deck no topo do editor (substitui Template picker) */
+    .ana-deck-thumb{width:64px;height:36px;border-radius:5px;cursor:pointer;border:2px solid #E5E7EB;
+                     transition:all .12s;flex-shrink:0;position:relative;overflow:hidden;background:#0F172A}
+    .ana-deck-thumb svg{width:100%;height:100%;display:block}
+    .ana-deck-thumb:hover{border-color:#7C3AED;transform:scale(1.06);box-shadow:0 3px 10px rgba(124,58,237,.18)}
+    .ana-deck-thumb.active{border-color:#10B981;box-shadow:0 0 0 2px rgba(16,185,129,.3)}
+
     /* Picker de deck (galeria modelos) */
     .deck-picker-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
     .deck-picker-card{background:#fff;border:2px solid #E5E7EB;border-radius:12px;overflow:hidden;cursor:pointer;
@@ -70820,16 +70827,38 @@ function _anaRenderSlideEditor(){
   // Renderiza CONTROLES (fora do slide) + SLIDE separadamente
   const controls = document.getElementById('ana-slide-controls');
   if(controls){
+    // Detecta deck atual pelo layout do slide (ex: 'deck-cartografia' → 'cartografia')
+    const _curDeckId = (s.layout && /^deck-/.test(s.layout)) ? s.layout.replace(/^deck-/, '') : '';
+    const _decksAvailable = (typeof DECK_TEMPLATES !== 'undefined' && Array.isArray(DECK_TEMPLATES));
+    let pickerHtml;
+    if(_decksAvailable){
+      pickerHtml =
+          '<div class="ana-layout-picker">'
+        +   '<span class="ana-layout-picker-lbl" title="Aplicar deck inteiro · substitui apresentação">Deck</span>'
+        +   DECK_TEMPLATES.map(d =>
+              '<div class="ana-deck-thumb' + (_curDeckId === d.id ? ' active' : '') + '"'
+              + ' onclick="anaDeckApply(\'' + d.id + '\')"'
+              + ' title="' + esc(d.icon + ' ' + d.name + ' · ' + d.slides.length + ' slides · ' + d.persona) + '">'
+              + _deckMiniPreviewSVG(d)
+              + '</div>'
+            ).join('')
+        +   '<button class="ana-layout-apply-all" onclick="anaTplOpen()" title="Ver galeria completa de modelos">📐 Galeria</button>'
+        + '</div>';
+    } else {
+      // Fallback se decks não carregaram — picker antigo de layouts
+      pickerHtml =
+          '<div class="ana-layout-picker">'
+        +   '<span class="ana-layout-picker-lbl">Template</span>'
+        +   SLIDE_LAYOUTS.map(lay =>
+              '<div class="ana-layout-thumb ana-layout-thumb-' + lay.id + ((s.layout||'none')===lay.id?' active':'') + '"'
+              + ' onclick="anaSlideSetLayout(' + s.id + ', \'' + lay.id + '\')"'
+              + ' title="' + esc(lay.icon + ' ' + lay.name) + '"></div>'
+            ).join('')
+        +   '<button class="ana-layout-apply-all" onclick="anaSlideSetLayoutAll()" title="Aplicar este template a todos os slides">⇨ Aplicar a todos</button>'
+        + '</div>';
+    }
     controls.innerHTML =
-        '<div class="ana-layout-picker">'
-      +   '<span class="ana-layout-picker-lbl">Template</span>'
-      +   SLIDE_LAYOUTS.map(lay =>
-            '<div class="ana-layout-thumb ana-layout-thumb-' + lay.id + ((s.layout||'cream-exec')===lay.id?' active':'') + '"'
-            + ' onclick="anaSlideSetLayout(' + s.id + ', \'' + lay.id + '\')"'
-            + ' title="' + esc(lay.icon + ' ' + lay.name) + '"></div>'
-          ).join('')
-      +   '<button class="ana-layout-apply-all" onclick="anaSlideSetLayoutAll()" title="Aplicar este template a todos os slides da apresentação">⇨ Aplicar a todos</button>'
-      + '</div>'
+        pickerHtml
       + _anaRenderEditToolbar(s)
       + '<div class="ana-slide-auto-row">'
       +   '<button class="ana-slide-auto-btn" onclick="anaSlideAutoTitle()" title="Gerar título baseado nos widgets do slide">✨ Auto-título</button>'
