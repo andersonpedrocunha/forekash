@@ -42937,6 +42937,83 @@ async function triggerSeedFromUI(){
 }
 // Expose global para fácil acesso via console (DevTools)
 window.seedDemoData = seedDemoData;
+
+// ═══════════════════════════════════════════════════════════════════
+// forekashSeedToCloud() — semeia LOCAL + faz push pra cloud
+// Use no console pra deploy completo da demo (chefe ver de outro device)
+// ═══════════════════════════════════════════════════════════════════
+async function forekashSeedToCloud(opts){
+  const force = !!(opts && opts.force);
+  console.log('%c[FOREKASH SEED→CLOUD] iniciando…', 'background:#7C3AED;color:#fff;padding:2px 8px;border-radius:4px;font-weight:bold');
+
+  // 1. Wipe localStorage dos módulos se force=true
+  if(force){
+    const KEYS = [
+      'taller_loans_v3','taller_receita_v1','taller_pessoas_v1',
+      'taller_estrutura_v1','taller_disponibilidades_v1','taller_fluxo_v1',
+      'taller_orcamento_v1','taller_impostos_v1','taller_vendedores_v1',
+      'taller_analise_v1','forekash:cc:v1','forekash:catmap:v1',
+      'forekash:cartoes:v1','forekash:extrato:v1','forekash_board_v1',
+      'forekash_viagens_v1','forekash:notas:v1'
+    ];
+    for(const k of KEYS) try{ localStorage.removeItem(k); }catch(e){}
+    console.log('[FOREKASH] localStorage limpo de ' + KEYS.length + ' módulos');
+  }
+
+  // 2. Força seed em modo FORCE
+  try { seedDemoData({ force: true }); } catch(e){ console.error('seed:', e); }
+  console.log('[FOREKASH] seed localStorage OK');
+
+  // 3. Recarrega módulos em memória
+  const reloads = [
+    'loadData','receitaLoad','pessoasLoad','vendedoresLoad','estLoad',
+    'dispoLoad','fluxoLoad','impLoad','orcamentoLoad','_ccLoad',
+    '_catmapLoad','cartLoad','_extLoad','bdLoad','viagLoad','notasLoad'
+  ];
+  let loaded = 0;
+  for(const fn of reloads){
+    try { if(typeof window[fn] === 'function'){ window[fn](); loaded++; } } catch(e){}
+  }
+  console.log('[FOREKASH] ' + loaded + '/' + reloads.length + ' loaders rodaram');
+
+  // 4. Push cada módulo pra cloud
+  if(window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER){
+    console.warn('[FOREKASH] cloud não disponível · seed só local. Faça login e tenta de novo.');
+    return { localOnly: true };
+  }
+  const syncs = [
+    ['loans',         () => typeof cloudLoansSync === 'function' && cloudLoansSync()],
+    ['cc',            () => typeof cloudCCSync === 'function' && cloudCCSync()],
+    ['catmap',        () => typeof cloudCatmapSync === 'function' && cloudCatmapSync()],
+    ['cartoes',       () => typeof cloudCartoesSync === 'function' && cloudCartoesSync()],
+    ['extrato',       () => typeof cloudExtratoSync === 'function' && cloudExtratoSync()],
+    ['fluxo',         () => typeof cloudFluxoSync === 'function' && cloudFluxoSync()],
+    ['orcamento',     () => typeof cloudOrcamentoSync === 'function' && cloudOrcamentoSync()],
+    ['vendedores',    () => typeof cloudVendedoresSync === 'function' && cloudVendedoresSync()],
+    ['loan_modalid',  () => typeof cloudLoanModalidadesSync === 'function' && cloudLoanModalidadesSync()],
+    ['pessoas',       () => typeof cloudBlobSync === 'function' && cloudBlobSync('pessoas', () => pessoas)],
+    ['receita',       () => typeof cloudBlobSync === 'function' && cloudBlobSync('receita', () => receita)],
+    ['estrutura',     () => typeof cloudBlobSync === 'function' && cloudBlobSync('estrutura', () => est)],
+    ['dispo',         () => typeof cloudBlobSync === 'function' && cloudBlobSync('dispo', () => dispo)],
+    ['impostos',      () => typeof cloudBlobSync === 'function' && cloudBlobSync('impostos', () => impostos)],
+    ['board',         () => typeof cloudBlobSync === 'function' && cloudBlobSync('board', () => board)],
+    ['viagens',       () => typeof cloudBlobSync === 'function' && cloudBlobSync('viagens', () => viagens)],
+    ['notas',         () => typeof cloudBlobSync === 'function' && cloudBlobSync('notas', () => notas)]
+  ];
+  let pushed = 0, errors = 0;
+  for(const [name, fn] of syncs){
+    try {
+      const r = fn();
+      if(r && typeof r.then === 'function') await r;
+      pushed++;
+      console.log('[FOREKASH] ✓ push cloud: ' + name);
+    } catch(e){ errors++; console.warn('[FOREKASH] ✗ push ' + name + ':', e); }
+  }
+  console.log('%c[FOREKASH SEED→CLOUD] DONE · ' + pushed + ' OK, ' + errors + ' erros', 'background:#10B981;color:#fff;padding:2px 8px;border-radius:4px;font-weight:bold');
+  console.log('%cRecarregue (F5) pra ver tudo carregado da cloud', 'color:#7C3AED;font-weight:bold');
+  return { pushed, errors };
+}
+try { window.forekashSeedToCloud = forekashSeedToCloud; } catch(e){}
 window.triggerSeedFromUI = triggerSeedFromUI;
 
 function updateDashboard(){
