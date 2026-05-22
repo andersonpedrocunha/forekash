@@ -79081,6 +79081,487 @@ function seedDemoData(opts){
   localStorage.setItem(FLX_KEY, JSON.stringify(fluxoData));
   } // end isEmpty.fluxo
 
+  // ═══════════════════════════════════════════════════════════════
+  //  MÓDULOS EXTRAS — popular pra demo completa
+  //  Todos com guarda isEmpty pra não sobrescrever dados reais.
+  // ═══════════════════════════════════════════════════════════════
+
+  // ─── Centros de Custo ───
+  const CC_KEY_LOCAL = 'forekash:cc:v1';
+  const ccExisting = readJSON(CC_KEY_LOCAL);
+  isEmpty.cc = FORCE || !(ccExisting && Array.isArray(ccExisting.centros) && ccExisting.centros.length > 0);
+  if(isEmpty.cc){
+    const ccData = {
+      centros: [
+        { id:1, nome:'Comercial',     cor:'#FED7AA' },
+        { id:2, nome:'Operação',      cor:'#BFDBFE' },
+        { id:3, nome:'Tecnologia',    cor:'#D1FAE5' },
+        { id:4, nome:'Administrativo',cor:'#E0E7FF' },
+        { id:5, nome:'Marketing',     cor:'#FCE7F3' }
+      ],
+      nextId: 6
+    };
+    localStorage.setItem(CC_KEY_LOCAL, JSON.stringify(ccData));
+  }
+
+  // ─── Cartões + Faturas + Lançamentos ───
+  const CART_KEY_LOCAL = 'forekash:cartoes:v1';
+  const cartExisting = readJSON(CART_KEY_LOCAL);
+  isEmpty.cart = FORCE || !(cartExisting && Array.isArray(cartExisting.list) && cartExisting.list.length > 0
+                              && Array.isArray(cartExisting.lancamentos) && cartExisting.lancamentos.length > 0);
+  if(isEmpty.cart){
+    // 3 cartões com faturas dos últimos 4 meses + lançamentos realistas
+    const today = new Date();
+    const cards = [
+      { id:1, nome:'Itaú Empresarial', bandeira:'Mastercard', limite:25000, diaFechamento:5, diaVencimento:15, cor:'#FED7AA', ativo:true, ult4:'1234' },
+      { id:2, nome:'C6 Carbon',        bandeira:'Visa',        limite:15000, diaFechamento:25, diaVencimento:5,  cor:'#E5E7EB', ativo:true, ult4:'5678' },
+      { id:3, nome:'Nubank PJ',        bandeira:'Mastercard', limite:8000,  diaFechamento:10, diaVencimento:20, cor:'#E9D5FF', ativo:true, ult4:'9012' }
+    ];
+    const fats = [];
+    const lancs = [];
+    let nextFat = 1, nextLanc = 1;
+    // Gera 4 faturas por cartão (3 fechadas + 1 atual)
+    for(const c of cards){
+      for(let m = 3; m >= 0; m--){
+        const dt = new Date(today.getFullYear(), today.getMonth() - m, c.diaVencimento);
+        const ym = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0');
+        const fatId = nextFat++;
+        const isFatAberta = (m === 0);
+        fats.push({
+          id: fatId, cartaoId: c.id, mesRef: ym,
+          dataVencimento: dt.toISOString().slice(0,10),
+          status: isFatAberta ? 'aberta' : 'paga'
+        });
+      }
+    }
+    // Lançamentos espalhados pelas faturas (cada cartão tem 5-7 por fatura)
+    const descsItau = [
+      ['Posto Shell', 'Combustível', 280, 'Operação'],
+      ['Uber Empresa', 'Transporte', 145, 'Operação'],
+      ['Restaurante Cliente', 'Reunião comercial', 220, 'Comercial'],
+      ['Hotel Ibis', 'Hospedagem viagem', 480, 'Comercial'],
+      ['Material escritório', 'Kalunga', 165, 'Administrativo']
+    ];
+    const descsC6 = [
+      ['Google Workspace', 'SaaS mensal', 290, 'Tecnologia'],
+      ['AWS', 'Infra cloud', 1450, 'Tecnologia'],
+      ['Figma Pro', 'Design tool', 90, 'Tecnologia'],
+      ['Notion Team', 'Produtividade', 80, 'Tecnologia'],
+      ['Slack', 'Comunicação', 120, 'Tecnologia']
+    ];
+    const descsNu = [
+      ['iFood Almoço', 'Time', 380, 'Operação'],
+      ['Padaria escritório', 'Coffee break', 95, 'Operação'],
+      ['Coworking', 'Sala reunião', 250, 'Operação'],
+      ['Curso Udemy', 'Capacitação', 165, 'Tecnologia']
+    ];
+    const ccByName = { 'Comercial':1, 'Operação':2, 'Tecnologia':3, 'Administrativo':4, 'Marketing':5 };
+    function emitLancs(card, descs, fatList){
+      for(const f of fatList){
+        const ano = parseInt(f.mesRef.slice(0,4));
+        const mes = parseInt(f.mesRef.slice(5,7)) - 1;
+        const n = Math.min(descs.length, card.id === 1 ? 5 : 4);
+        for(let i = 0; i < n; i++){
+          const [desc, cat, baseVal, ccNome] = descs[i % descs.length];
+          // Pequena variação no valor pra parecer real
+          const variacao = 0.85 + (Math.sin(card.id + i + mes) * 0.3 + 0.5) * 0.4;
+          const valor = Math.round(baseVal * variacao);
+          const dia = Math.min(28, ((card.diaFechamento + i*3) % 28) + 1);
+          lancs.push({
+            id: nextLanc++, cartaoId: card.id, faturaId: f.id,
+            data: ano + '-' + String(mes+1).padStart(2,'0') + '-' + String(dia).padStart(2,'0'),
+            descricao: desc, categoria: cat, valor,
+            ccId: ccByName[ccNome] || null,
+            parcela: null, totalParc: null
+          });
+        }
+      }
+    }
+    emitLancs(cards[0], descsItau, fats.filter(f => f.cartaoId === 1));
+    emitLancs(cards[1], descsC6,   fats.filter(f => f.cartaoId === 2));
+    emitLancs(cards[2], descsNu,   fats.filter(f => f.cartaoId === 3));
+    const cartData = {
+      list: cards, faturas: fats, lancamentos: lancs,
+      nextCartaoId: cards.length + 1, nextFaturaId: nextFat, nextLancId: nextLanc
+    };
+    localStorage.setItem(CART_KEY_LOCAL, JSON.stringify(cartData));
+  }
+
+  // ─── Extrato Financeiro ───
+  const EXTRATO_KEY_LOCAL = 'forekash:extrato:v1';
+  const extExisting = readJSON(EXTRATO_KEY_LOCAL);
+  isEmpty.extrato = FORCE || !(extExisting && Array.isArray(extExisting.lancamentos) && extExisting.lancamentos.length > 0);
+  if(isEmpty.extrato){
+    // Gera ~40 lançamentos espalhados nos últimos 4 meses + mês atual
+    const lans = [];
+    let nx = 1;
+    const today = new Date();
+    const movs = [
+      // [diasAtras, descricao, valor, tipo, categoria, contraparte, ccNome]
+      [0,   'Recebimento NF Construtora Horizonte', 26000, 'credito', 'Receita', 'Construtora Horizonte', 'Comercial'],
+      [1,   'Pagamento Aluguel escritório',         -4500, 'debito',  'Estrutura', 'Imobiliária Centro',   'Administrativo'],
+      [2,   'Recebimento Edtech Foco',              34000, 'credito', 'Receita', 'Edtech Foco',           'Comercial'],
+      [3,   'AWS — Infra mensal',                   -1500, 'debito',  'Infra',     'Amazon Web Services',  'Tecnologia'],
+      [4,   'Salário · Ana Silva',                  -8500, 'debito',  'Folha',     'Ana Silva',            'Operação'],
+      [5,   'Salário · Bruno Costa',                -9200, 'debito',  'Folha',     'Bruno Costa',          'Operação'],
+      [6,   'Salário · Carla Mendes',              -10500, 'debito',  'Folha',     'Carla Mendes',         'Operação'],
+      [7,   'Salário · Diego Santos',              -12000, 'debito',  'Folha',     'Diego Santos',         'Administrativo'],
+      [8,   'Recebimento Varejo Plus',              20000, 'credito', 'Receita', 'Varejo Plus',           'Comercial'],
+      [10,  'DAS Simples Nacional',                 -8500, 'debito',  'Impostos',  'Receita Federal',      'Administrativo'],
+      [12,  'Pagamento fatura Itaú Empresarial',    -2850, 'debito',  'Cartão',    'Cartão Itaú',          'Operação'],
+      [14,  'Ads Google',                           -1200, 'debito',  'Marketing', 'Google',               'Marketing'],
+      [15,  'Contabilidade mensal',                 -1800, 'debito',  'Financeiro','Contabilidade Alpha',  'Administrativo'],
+      [18,  'Pagamento empréstimo Itaú',            -4200, 'debito',  'Empréstimo','Banco Itaú',           'Administrativo'],
+      [20,  'Recebimento Startup Nova',             12000, 'credito', 'Receita', 'Startup Nova',          'Comercial'],
+      [22,  'Internet Vivo Empresas',                -450, 'debito',  'Infra',     'Vivo Empresas',        'Tecnologia'],
+      [25,  'Plano de saúde Sulamerica',            -3200, 'debito',  'Saúde',     'Sulamerica',           'Administrativo'],
+      [28,  'Recebimento NF Construtora Horizonte', 28000, 'credito', 'Receita', 'Construtora Horizonte', 'Comercial'],
+      [32,  'Salário · Eduarda Lima',              -11000, 'debito',  'Folha',     'Eduarda Lima',         'Administrativo'],
+      [35,  'Caixa Econômica · Pronampe',           -2350, 'debito',  'Empréstimo','Caixa Econômica',      'Administrativo'],
+      [40,  'Recebimento Edtech Foco',              32000, 'credito', 'Receita', 'Edtech Foco',           'Comercial'],
+      [45,  'Pagamento fatura C6 Carbon',           -2200, 'debito',  'Cartão',    'Cartão C6',            'Tecnologia'],
+      [50,  'Recebimento Varejo Plus',              18000, 'credito', 'Receita', 'Varejo Plus',           'Comercial'],
+      [55,  'AWS — Infra mensal',                   -1450, 'debito',  'Infra',     'Amazon Web Services',  'Tecnologia'],
+      [60,  'FGTS · 13º provisão',                  -4600, 'debito',  'Folha',     'Caixa FGTS',           'Administrativo'],
+      [65,  'IRPJ trimestral',                      -6800, 'debito',  'Impostos',  'Receita Federal',      'Administrativo'],
+      [70,  'Recebimento Construtora Horizonte',    26000, 'credito', 'Receita', 'Construtora Horizonte', 'Comercial'],
+      [75,  'Pagamento Aluguel escritório',         -4500, 'debito',  'Estrutura', 'Imobiliária Centro',   'Administrativo'],
+      [80,  'Marketing · Meta Ads',                 -2800, 'debito',  'Marketing', 'Meta Platforms',       'Marketing'],
+      [85,  'Recebimento Edtech Foco',              30000, 'credito', 'Receita', 'Edtech Foco',           'Comercial'],
+      [90,  'Pagamento Notion + Slack',              -200, 'debito',  'Tecnologia','Notion',               'Tecnologia'],
+      [95,  'Pagamento Figma',                        -90, 'debito',  'Tecnologia','Figma',                'Tecnologia']
+    ];
+    const ccByName2 = { 'Comercial':1, 'Operação':2, 'Tecnologia':3, 'Administrativo':4, 'Marketing':5 };
+    const contas = ['b-itau:t-cc:1', 'b-unilos:t-cc:3', 'b-c6:t-cc:4'];
+    for(let i = 0; i < movs.length; i++){
+      const [days, desc, val, tipo, cat, ctp, ccNm] = movs[i];
+      const d = new Date(today);
+      d.setDate(d.getDate() - days);
+      lans.push({
+        id: nx++, data: d.toISOString().slice(0,10),
+        descricao: desc, valor: val, tipo,
+        categoria: cat, contraparte: ctp,
+        contaId: contas[i % contas.length],
+        documento: 'NF-' + (1000 + i),
+        ccId: ccByName2[ccNm] || null,
+        conciliado: days > 5,
+        criadoEm: d.toISOString()
+      });
+    }
+    localStorage.setItem(EXTRATO_KEY_LOCAL, JSON.stringify({ lancamentos: lans, nextId: nx }));
+  }
+
+  // ─── Board (kanban) ───
+  const BD_KEY_LOCAL = 'forekash_board_v1';
+  const bdExisting = readJSON(BD_KEY_LOCAL);
+  isEmpty.board = FORCE || !(bdExisting && Array.isArray(bdExisting.cards) && bdExisting.cards.length > 0);
+  if(isEmpty.board){
+    const BD_COLORS_LOCAL = [
+      { bg:'#E6F1FB', text:'#0C447C', dot:'#378ADD' },
+      { bg:'#EEEDFE', text:'#3C3489', dot:'#7F77DD' },
+      { bg:'#E1F5EE', text:'#085041', dot:'#1D9E75' },
+      { bg:'#FAEEDA', text:'#633806', dot:'#BA7517' },
+      { bg:'#FCEBEB', text:'#A32D2D', dot:'#E24B4A' }
+    ];
+    const now = new Date();
+    const ahead = (d) => { const x = new Date(now); x.setDate(x.getDate()+d); return x.toISOString().slice(0,10); };
+    const boardData = {
+      globalTags: [
+        { id:'t1', text:'Urgente',    color: BD_COLORS_LOCAL[4] },
+        { id:'t2', text:'Financeiro', color: BD_COLORS_LOCAL[3] },
+        { id:'t3', text:'Cliente',    color: BD_COLORS_LOCAL[0] },
+        { id:'t4', text:'Interno',    color: BD_COLORS_LOCAL[2] },
+        { id:'t5', text:'Estratégico',color: BD_COLORS_LOCAL[1] }
+      ],
+      cards: [
+        { id:1, name:'Aprovar proposta Construtora Horizonte v2', priority:'alta', col:'todo',
+          tagIds:['t1','t3','t5'], deadline: ahead(2), valor:42000, tipoFin:'receber',
+          responsavelPesId:4, responsavelNome:'Diego Santos', moduloVinculado:'receita',
+          createdAt: ahead(-3) + 'T10:00:00Z', doneAt:null },
+        { id:2, name:'Pagar fatura cartão Itaú · 15/mes', priority:'media', col:'todo',
+          tagIds:['t2'], deadline: ahead(5), valor:2850, tipoFin:'pagar',
+          responsavelPesId:5, responsavelNome:'Eduarda Lima', moduloVinculado:'fluxo',
+          createdAt: ahead(-2) + 'T09:00:00Z', doneAt:null },
+        { id:3, name:'Conciliar extrato Itaú abril', priority:'media', col:'doing',
+          tagIds:['t2','t4'], deadline: ahead(1), valor:null, tipoFin:'conciliar',
+          responsavelPesId:5, responsavelNome:'Eduarda Lima', moduloVinculado:'outro',
+          createdAt: ahead(-4) + 'T14:00:00Z', doneAt:null },
+        { id:4, name:'Reunião kickoff Edtech Foco', priority:'alta', col:'doing',
+          tagIds:['t3'], deadline: ahead(0), valor:null, tipoFin:'outro',
+          responsavelPesId:1, responsavelNome:'Ana Silva', moduloVinculado:'receita',
+          createdAt: ahead(-1) + 'T11:00:00Z', doneAt:null },
+        { id:5, name:'Renovar contrato AWS · Reserved Instances', priority:'baixa', col:'backlog',
+          tagIds:['t4','t5'], deadline: ahead(15), valor:18000, tipoFin:'pagar',
+          responsavelPesId:2, responsavelNome:'Bruno Costa', moduloVinculado:'estrutura',
+          createdAt: ahead(-7) + 'T15:00:00Z', doneAt:null },
+        { id:6, name:'Apresentação trimestral pro chefe', priority:'alta', col:'doing',
+          tagIds:['t1','t5'], deadline: ahead(3), valor:null, tipoFin:'outro',
+          responsavelPesId:4, responsavelNome:'Diego Santos', moduloVinculado:'outro',
+          createdAt: ahead(-2) + 'T08:00:00Z', doneAt:null },
+        { id:7, name:'Aprovar prestação viagem · São Paulo', priority:'media', col:'blocked',
+          tagIds:['t2','t4'], deadline: ahead(-1), valor:3850, tipoFin:'aprovar',
+          responsavelPesId:4, responsavelNome:'Diego Santos', moduloVinculado:'viagens',
+          createdAt: ahead(-5) + 'T16:00:00Z', doneAt:null },
+        { id:8, name:'Fechar folha de pagamento abril', priority:'alta', col:'done',
+          tagIds:['t2','t4'], deadline: ahead(-4), valor:null, tipoFin:'outro',
+          responsavelPesId:5, responsavelNome:'Eduarda Lima', moduloVinculado:'pessoas',
+          createdAt: ahead(-10) + 'T10:00:00Z', doneAt: ahead(-4) + 'T17:00:00Z' },
+        { id:9, name:'Pagar DAS · Receita Federal', priority:'alta', col:'done',
+          tagIds:['t1','t2'], deadline: ahead(-6), valor:8500, tipoFin:'pagar',
+          responsavelPesId:5, responsavelNome:'Eduarda Lima', moduloVinculado:'impostos',
+          createdAt: ahead(-12) + 'T09:00:00Z', doneAt: ahead(-6) + 'T11:00:00Z' },
+        { id:10, name:'Levantar proposta Varejo Plus Q2', priority:'media', col:'backlog',
+          tagIds:['t3','t5'], deadline: ahead(10), valor:24000, tipoFin:'receber',
+          responsavelPesId:1, responsavelNome:'Ana Silva', moduloVinculado:'receita',
+          createdAt: ahead(-2) + 'T13:00:00Z', doneAt:null },
+        { id:11, name:'Definir orçamento marketing Q3', priority:'baixa', col:'backlog',
+          tagIds:['t5'], deadline: ahead(20), valor:null, tipoFin:'outro',
+          responsavelPesId:4, responsavelNome:'Diego Santos', moduloVinculado:'outro',
+          createdAt: ahead(-1) + 'T16:00:00Z', doneAt:null },
+        { id:12, name:'Onboarding cliente Startup Nova', priority:'media', col:'todo',
+          tagIds:['t3'], deadline: ahead(4), valor:null, tipoFin:'outro',
+          responsavelPesId:3, responsavelNome:'Carla Mendes', moduloVinculado:'receita',
+          createdAt: ahead(-1) + 'T10:00:00Z', doneAt:null }
+      ],
+      nCard: 13, nTag: 6
+    };
+    localStorage.setItem(BD_KEY_LOCAL, JSON.stringify(boardData));
+  }
+
+  // ─── Viagens (prestações de conta) ───
+  const VIAGENS_KEY_LOCAL = 'forekash_viagens_v1';
+  const viagExisting = readJSON(VIAGENS_KEY_LOCAL);
+  isEmpty.viagens = FORCE || !(viagExisting && Array.isArray(viagExisting.itens) && viagExisting.itens.length > 0);
+  if(isEmpty.viagens){
+    const t = new Date();
+    const ago = (d) => { const x = new Date(t); x.setDate(x.getDate()-d); return x.toISOString().slice(0,10); };
+    const viagensData = {
+      itens: [
+        { id:1, titulo:'Visita técnica · Construtora Horizonte', destino:'São Paulo · SP',
+          colaborador:'Diego Santos', proposito:'Kickoff projeto módulo financeiro v2',
+          dataInicio: ago(35), dataFim: ago(33), adiantamento: 2500,
+          status:'finalizada', criadoEm: ago(40) + 'T10:00:00Z',
+          despesas:[
+            { id:1, data: ago(35), categoria:'transporte',  descricao:'Passagem aérea GRU-CGH ida/volta', valor: 1280, pagamento:'empresa' },
+            { id:2, data: ago(35), categoria:'hospedagem', descricao:'Hotel Ibis 2 diárias',             valor:  920, pagamento:'colaborador' },
+            { id:3, data: ago(34), categoria:'refeicao',    descricao:'Almoço cliente · Restaurante Fasano',  valor: 285, pagamento:'colaborador' },
+            { id:4, data: ago(33), categoria:'transporte',  descricao:'Uber 4 corridas',                 valor:  165, pagamento:'colaborador' }
+          ]
+        },
+        { id:2, titulo:'Conferência Edtech · São Paulo', destino:'São Paulo · SP',
+          colaborador:'Ana Silva', proposito:'Networking e prospecção clientes EAD',
+          dataInicio: ago(20), dataFim: ago(18), adiantamento: 1800,
+          status:'aprovacao', criadoEm: ago(22) + 'T10:00:00Z',
+          despesas:[
+            { id:5, data: ago(20), categoria:'transporte',  descricao:'Passagem aérea',                  valor: 980, pagamento:'empresa' },
+            { id:6, data: ago(20), categoria:'hospedagem', descricao:'Hotel Pullman 2 diárias',          valor: 1450, pagamento:'colaborador' },
+            { id:7, data: ago(19), categoria:'refeicao',    descricao:'Jantar networking',                valor: 320, pagamento:'colaborador' },
+            { id:8, data: ago(18), categoria:'outros',      descricao:'Material e insumos do evento',     valor: 180, pagamento:'colaborador' }
+          ]
+        },
+        { id:3, titulo:'Reunião comercial · Belo Horizonte', destino:'Belo Horizonte · MG',
+          colaborador:'Bruno Costa', proposito:'Apresentação proposta Varejo Plus Q2',
+          dataInicio: ago(7), dataFim: ago(5), adiantamento: 1500,
+          status:'lancada', criadoEm: ago(10) + 'T10:00:00Z',
+          despesas:[
+            { id:9, data: ago(7),  categoria:'transporte',  descricao:'Passagem GRU-CNF',                valor: 720, pagamento:'empresa' },
+            { id:10, data: ago(7),  categoria:'hospedagem', descricao:'Hotel BH Plaza 2 diárias',         valor: 680, pagamento:'colaborador' },
+            { id:11, data: ago(6),  categoria:'refeicao',    descricao:'Reunião + almoço Varejo Plus',    valor: 240, pagamento:'colaborador' },
+            { id:12, data: ago(5),  categoria:'transporte',  descricao:'Uber + estacionamento',           valor:  95, pagamento:'colaborador' }
+          ]
+        },
+        { id:4, titulo:'Visita Startup Nova · Florianópolis', destino:'Florianópolis · SC',
+          colaborador:'Carla Mendes', proposito:'Discovery MVP conversacional',
+          dataInicio: ago(2), dataFim: ago(0), adiantamento: 0,
+          status:'rascunho', criadoEm: ago(3) + 'T10:00:00Z',
+          despesas:[
+            { id:13, data: ago(2), categoria:'transporte',  descricao:'Passagem aérea',                  valor: 1140, pagamento:'colaborador' },
+            { id:14, data: ago(2), categoria:'hospedagem', descricao:'Airbnb 2 diárias',                  valor:  580, pagamento:'colaborador' }
+          ]
+        }
+      ],
+      nextId: 5, nextDespId: 15
+    };
+    localStorage.setItem(VIAGENS_KEY_LOCAL, JSON.stringify(viagensData));
+  }
+
+  // ─── Vendedores ───
+  const VEND_KEY_LOCAL = 'taller_vendedores_v1';
+  const vendExisting = readJSON(VEND_KEY_LOCAL);
+  isEmpty.vendedores = FORCE || !(vendExisting && Array.isArray(vendExisting.lista) && vendExisting.lista.length > 0);
+  if(isEmpty.vendedores){
+    const vendData = {
+      lista: [
+        { id:1, nome:'Diego Santos',  ativo:true,  pessoaId:4,
+          regras:[{ id:1, modo:'simples', clientes:[1,2,3], faixas:[], percentual:5, fixo:0 }],
+          ajustes:[] },
+        { id:2, nome:'Ana Silva',     ativo:true,  pessoaId:1,
+          regras:[{ id:2, modo:'faixas', clientes:[4,5], faixas:[
+            { de:0,     ate:10000, perc:3 },
+            { de:10000, ate:25000, perc:5 },
+            { de:25000, ate:null,  perc:7 }
+          ], percentual:0, fixo:0 }],
+          ajustes:[] },
+        { id:3, nome:'Bruno Costa',   ativo:false, pessoaId:2,
+          regras:[],  // sem regras = não recebe comissão
+          ajustes:[] }
+      ],
+      nextId: 4
+    };
+    localStorage.setItem(VEND_KEY_LOCAL, JSON.stringify(vendData));
+  }
+
+  // ─── Impostos · valores correntes mensais ───
+  const IMP_KEY_LOCAL = 'taller_impostos_v1';
+  const impExisting = readJSON(IMP_KEY_LOCAL);
+  const impHasValues = (() => {
+    if(!impExisting || !Array.isArray(impExisting.correntes)) return false;
+    return impExisting.correntes.some(c => c && c.valores && Object.keys(c.valores).length > 0);
+  })();
+  isEmpty.impostos = FORCE || !impHasValues;
+  if(isEmpty.impostos){
+    // Preenche DAS, IRPJ, CSLL, PIS, COFINS, ISS mês a mês nos 2 anos
+    function impMes(y, vals){
+      const o = {};
+      const max = (y === Y) ? Math.min(vals.length, curM+1) : Math.min(vals.length, 12);
+      for(let i = 0; i < max; i++){
+        if(vals[i] != null) o[keyYM(y,i)] = vals[i];
+      }
+      return o;
+    }
+    const impData = {
+      activeYearCor: Y, activeYearPar: Y,
+      yearsCor: [Yp, Y], yearsPar: [Yp, Y],
+      activeTab: 'correntes', selicAnual: 14.75,
+      rubricas: [
+        { id:'das',    nome:'DAS (Simples Nacional)', color:'#FCA5A5', builtin:true },
+        { id:'irpj',   nome:'IRPJ',                   color:'#FDBA74', builtin:true },
+        { id:'csll',   nome:'CSLL',                   color:'#FCD34D', builtin:true },
+        { id:'pis',    nome:'PIS',                    color:'#86EFAC', builtin:true },
+        { id:'cofins', nome:'COFINS',                 color:'#6EE7B7', builtin:true },
+        { id:'icms',   nome:'ICMS',                   color:'#7DD3FC', builtin:true },
+        { id:'iss',    nome:'ISS',                    color:'#93C5FD', builtin:true },
+        { id:'inss',   nome:'INSS RB',                color:'#A5B4FC', builtin:true }
+      ],
+      correntes: [
+        { rubricaId:'das',    valores:{ ...impMes(Yp,[5800,5900,6000,6200,6400,6500,6700,6800,7000,7200,7400,7600]),
+                                          ...impMes(Y, [7800,7900,8100,8300]) } },
+        { rubricaId:'irpj',   valores:{ ...impMes(Yp,[null,null,4200,null,null,4500,null,null,4800,null,null,5100]),
+                                          ...impMes(Y, [null,null,5400,null]) } },
+        { rubricaId:'csll',   valores:{ ...impMes(Yp,[null,null,1700,null,null,1800,null,null,1900,null,null,2000]),
+                                          ...impMes(Y, [null,null,2100,null]) } },
+        { rubricaId:'pis',    valores:{ ...impMes(Yp,[420,420,420,440,440,440,460,460,460,480,480,480]),
+                                          ...impMes(Y, [500,500,500,520]) } },
+        { rubricaId:'cofins', valores:{ ...impMes(Yp,[1950,1950,1950,2000,2000,2000,2050,2050,2050,2100,2100,2100]),
+                                          ...impMes(Y, [2200,2200,2200,2280]) } },
+        { rubricaId:'iss',    valores:{ ...impMes(Yp,[1200,1250,1280,1300,1340,1380,1420,1450,1480,1500,1540,1580]),
+                                          ...impMes(Y, [1620,1650,1680,1720]) } }
+      ],
+      parcelamentos: [
+        { id:1, nome:'Parcelamento DAS 2022', saldoInicial: 18000, parcelaMensal: 850,
+          mesInicio: Yp + '-01', ativo: true }
+      ],
+      nextParcId: 2
+    };
+    localStorage.setItem(IMP_KEY_LOCAL, JSON.stringify(impData));
+  }
+
+  // ─── CatMap (mapeamento de categorias) ───
+  const CATMAP_KEY_LOCAL = 'forekash:catmap:v1';
+  const cmExisting = readJSON(CATMAP_KEY_LOCAL);
+  isEmpty.catmap = FORCE || !(cmExisting && Array.isArray(cmExisting.categorias) && cmExisting.categorias.length > 0);
+  if(isEmpty.catmap){
+    // Cria mapeamentos básicos: aluguel → estrutura, salários → folha, etc.
+    const cmData = {
+      categorias: [
+        { id:1, nome:'Aluguel',          moduloId:'estrutura', linhaId:'fix' },
+        { id:2, nome:'Salários',         moduloId:'pessoas',   linhaId:null },
+        { id:3, nome:'Marketing',        moduloId:'estrutura', linhaId:'var' },
+        { id:4, nome:'Infra AWS',        moduloId:'estrutura', linhaId:'var' },
+        { id:5, nome:'Contabilidade',    moduloId:'estrutura', linhaId:'fix' },
+        { id:6, nome:'DAS',              moduloId:'impostos',  linhaId:null },
+        { id:7, nome:'Cliente · Construtora Horizonte', moduloId:'receita', linhaId:null },
+        { id:8, nome:'Cliente · Edtech Foco',           moduloId:'receita', linhaId:null },
+        { id:9, nome:'Comissão',         moduloId:'comissoes', linhaId:null },
+        { id:10, nome:'Outros recebimentos', moduloId:'outrasRec', linhaId:null }
+      ],
+      nextId: 11
+    };
+    localStorage.setItem(CATMAP_KEY_LOCAL, JSON.stringify(cmData));
+  }
+
+  // ─── Notas (post-its extras) ───
+  const NOTAS_KEY_LOCAL = 'forekash:notas:v1';
+  const notExisting = readJSON(NOTAS_KEY_LOCAL);
+  const notHasMany = notExisting && Array.isArray(notExisting.list) && notExisting.list.length >= 4;
+  isEmpty.notas = FORCE || !notHasMany;
+  if(isEmpty.notas){
+    const nowMs = Date.now();
+    const day = 86400000;
+    const baseList = (notExisting && Array.isArray(notExisting.list)) ? notExisting.list.slice() : [];
+    const startId = Math.max(0, ...baseList.map(n => n.id || 0)) + 1;
+    const extras = [
+      { id: startId,   title:'Reunião 14h · Construtora', body:'Levar proposta v2 atualizada + cronograma de entregas Q2.', color:'yellow',  tags:['cliente','urgente'], createdAt: nowMs - day*1, updatedAt: nowMs - day*1, pinned:true,  converted:[] },
+      { id: startId+1, title:'Ideia: comissão escalonada', body:'Faixa 0-10k: 3% · 10-25k: 5% · 25k+: 7% — testar com Diego.', color:'blue',    tags:['ideia','estratégia'], createdAt: nowMs - day*2, updatedAt: nowMs - day*2, pinned:false, converted:[] },
+      { id: startId+2, title:'Compra · cadeira ergonômica', body:'Orçar Herman Miller Aeron · até R$ 8.500. CC: Administrativo.', color:'pink',    tags:['compra','admin'], createdAt: nowMs - day*3, updatedAt: nowMs - day*3, pinned:false, converted:[] },
+      { id: startId+3, title:'Lembrete · DAS 20/maio', body:'Programar pagamento DAS antes do vencimento — R$ 8.300.', color:'orange',  tags:['imposto','urgente'], createdAt: nowMs - day*4, updatedAt: nowMs - day*4, pinned:true,  converted:[] },
+      { id: startId+4, title:'Prospect · Agronegócio SA', body:'Avaliar interesse em consultoria estratégica · agendar call.', color:'green',   tags:['lead','comercial'], createdAt: nowMs - day*5, updatedAt: nowMs - day*5, pinned:false, converted:[] },
+      { id: startId+5, title:'Estudo · novo template slide', body:'Testar deck Cartografia Estratégica pra apresentação trimestral.', color:'purple', tags:['interno','estudo'], createdAt: nowMs - day*6, updatedAt: nowMs - day*6, pinned:false, converted:[] }
+    ];
+    const merged = baseList.concat(extras);
+    const nextId = startId + extras.length;
+    localStorage.setItem(NOTAS_KEY_LOCAL, JSON.stringify({ list: merged, nextId }));
+  }
+
+  // ─── Orçamento (DRC previsto) ───
+  const ORC_KEY_LOCAL = 'taller_orcamento_v1';
+  const orcExisting = readJSON(ORC_KEY_LOCAL);
+  const orcHasValues = (() => {
+    if(!orcExisting || !orcExisting.years || typeof orcExisting.years !== 'object') return false;
+    for(const y of Object.keys(orcExisting.years)){
+      const versions = orcExisting.years[y] && orcExisting.years[y].versions;
+      if(versions && Array.isArray(versions) && versions.length > 0) return true;
+    }
+    return false;
+  })();
+  isEmpty.orcamento = FORCE || !orcHasValues;
+  if(isEmpty.orcamento){
+    // Orçamento previsto pro ano corrente + ano anterior (1 versão cada)
+    function orcMes(vals){
+      const o = {};
+      for(let i = 0; i < 12; i++){ if(vals[i] != null) o[String(i+1).padStart(2,'0')] = vals[i]; }
+      return o;
+    }
+    const versaoY = {
+      id: 1, nome:'v1 — Plano anual', createdAt: new Date().toISOString(),
+      previsto: {
+        receita:     orcMes([110000,112000,115000,118000,120000,122000,125000,128000,130000,132000,135000,140000]),
+        folha:       orcMes([56000,56000,57000,57000,58000,58000,58500,59000,59500,60000,60500,61000]),
+        despesas:    orcMes([16500,16500,17000,17000,17500,17500,18000,18000,18500,18500,19000,19000]),
+        emprestimos: orcMes([6550,6550,6550,6550,6550,6550,6550,6550,6550,6550,6550,6550]),
+        impostos:    orcMes([13500,13500,14000,14000,14500,14500,15000,15000,15500,15500,16000,16000])
+      }
+    };
+    const versaoYp = {
+      id: 1, nome:'v1 — Plano anual', createdAt: new Date(Yp + '-01-01').toISOString(),
+      previsto: {
+        receita:     orcMes([90000,92000,95000,98000,100000,102000,105000,108000,110000,112000,115000,118000]),
+        folha:       orcMes([48000,48000,49000,49000,50000,50000,50500,51000,51500,52000,52500,53000]),
+        despesas:    orcMes([14000,14000,14500,14500,15000,15000,15500,15500,16000,16000,16500,16500]),
+        emprestimos: orcMes([6550,6550,6550,6550,6550,6550,6550,6550,6550,6550,6550,6550]),
+        impostos:    orcMes([11500,11500,12000,12000,12500,12500,13000,13000,13500,13500,14000,14000])
+      }
+    };
+    const orcData = {
+      activeYear: Y,
+      years: {
+        [Yp]: { activeVerId: 1, versions: [versaoYp], nextVerId: 2 },
+        [Y]:  { activeVerId: 1, versions: [versaoY],  nextVerId: 2 }
+      }
+    };
+    localStorage.setItem(ORC_KEY_LOCAL, JSON.stringify(orcData));
+  }
+
   try{
     const filled = Object.keys(isEmpty).filter(k => isEmpty[k]);
     const kept   = Object.keys(isEmpty).filter(k => !isEmpty[k]);
