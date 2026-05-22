@@ -49731,10 +49731,12 @@ function notasOpenEditor(id){
     +     '<label>Cor</label>'
     +     '<div class="notas-editor-colors" id="notas-edit-colors-grid">'
     +       NOTAS_COLORS.map(c => ''
-    +         + '<label class="notas-clr-lbl" title="Cor ' + c + '">'
+    +         + '<label class="notas-clr-lbl" data-color="' + c + '" title="Cor ' + c + '"'
+    +         +   ' onclick="notasSetColor(\'' + c + '\')">'
     +         +   '<input type="radio" name="notas-color-' + n.id + '" value="' + c + '"'
     +         +     (n.color === c ? ' checked' : '')
-    +         +     ' oninput="notasSetColor(this.value)">'
+    +         +     ' onchange="notasSetColor(\'' + c + '\')"'
+    +         +     ' oninput="notasSetColor(\'' + c + '\')">'
     +         +   '<span class="notas-clr-sw c-' + c + '"></span>'
     +         + '</label>').join('')
     +     '</div>'
@@ -49806,14 +49808,24 @@ function notasSetColor(color){
   n.updatedAt = Date.now();
   try { notasSave(); } catch(e){ console.warn('[NOTAS] save fail:', e); }
   console.log('[NOTAS] cor salva:', color, 'em nota id:', n.id);
-  // Atualiza UI · usa data-color em vez de index (mais robusto)
+  // Atualiza UI · marca radio + atualiza .active legado + repinta header
   try {
+    // 1) Radio nativo: força .checked = true no que combina, false nos outros
+    const radios = document.querySelectorAll('#notas-editor input[type="radio"][name^="notas-color-"]');
+    radios.forEach(r => { r.checked = (r.value === color); });
+    // 2) Classes .active no swatch (caso CSS legado dependa disso)
+    const labels = document.querySelectorAll('#notas-editor .notas-clr-lbl');
+    labels.forEach(lbl => {
+      const c = lbl.getAttribute('data-color');
+      lbl.classList.toggle('active', c === color);
+    });
+    // 3) Legado: swatches antigos com classe .notas-editor-color
     const colorBtns = document.querySelectorAll('.notas-editor-color');
-    console.log('[NOTAS] encontrou', colorBtns.length, 'swatches');
     colorBtns.forEach(btn => {
       const c = btn.getAttribute('data-color');
       btn.classList.toggle('active', c === color);
     });
+    // 4) Repinta header com gradiente da cor escolhida
     const hd = document.querySelector('.notas-editor-hd');
     if(hd && NOTAS_COLOR_HEX[color]){
       hd.style.background = 'linear-gradient(135deg,' + NOTAS_COLOR_HEX[color] + ' 0%,' + NOTAS_COLOR_HEX[color] + 'DD 100%)';
@@ -49835,15 +49847,15 @@ try { window.notasSetColor = notasSetColor; } catch(e){}
     try {
       const t = ev.target;
       if(!t || !t.closest) return;
-      const sw = t.closest('.notas-editor-color');
+      // Procura tanto a label nova (.notas-clr-lbl) quanto qualquer elemento legado
+      const sw = t.closest('.notas-clr-lbl, .notas-editor-color, [data-notas-color]');
       if(!sw) return;
       // Só dentro do editor de notas (não confundir com filtros da toolbar)
       if(!sw.closest('#notas-editor, .notas-editor-overlay')) return;
-      const c = sw.getAttribute('data-color');
+      const c = sw.getAttribute('data-color') || sw.getAttribute('data-notas-color');
       if(!c) return;
-      ev.preventDefault();
-      ev.stopPropagation();
       if(typeof notasSetColor === 'function') notasSetColor(c);
+      // Não dá preventDefault — radio precisa rolar pro estado :checked nativo
     } catch(e){ console.warn('notas color doc listener:', e); }
   }, true); // CAPTURE phase · roda ANTES de qualquer outro handler
   document._notasColorDocListener = true;
