@@ -2037,22 +2037,23 @@
     .notas-editor-field textarea:focus{outline:none;border-color:#F59E0B;background:#fff;box-shadow:0 0 0 3px rgba(245,158,11,.15)}
     .notas-editor-field textarea{min-height:120px;font-family:'Plus Jakarta Sans',system-ui,sans-serif;line-height:1.5}
     .notas-editor-colors{display:flex;gap:8px;flex-wrap:wrap}
-    .notas-editor-color{display:inline-block;width:32px;height:32px;border-radius:50%;cursor:pointer!important;
-                         border:2px solid #E5E7EB;transition:all .12s;background:#fff;padding:0;
-                         font:inherit;-webkit-appearance:none;appearance:none;outline:none;
-                         text-decoration:none!important;color:transparent!important;
-                         user-select:none;-webkit-user-select:none;
-                         pointer-events:auto!important;position:relative;z-index:1}
-    .notas-editor-color:focus-visible{box-shadow:0 0 0 3px rgba(124,58,237,.35)}
-    .notas-editor-color:active{transform:scale(.95)}
-    .notas-editor-color:hover{transform:scale(1.12)}
-    .notas-editor-color.active{border-color:#1F2937;box-shadow:0 0 0 3px rgba(31,41,55,.25)}
-    .notas-editor-color.c-yellow{background:#FDE68A!important}
-    .notas-editor-color.c-pink  {background:#FBCFE8!important}
-    .notas-editor-color.c-blue  {background:#BFDBFE!important}
-    .notas-editor-color.c-green {background:#A7F3D0!important}
-    .notas-editor-color.c-orange{background:#FDBA74!important}
-    .notas-editor-color.c-purple{background:#D8B4FE!important}
+    /* Radio nativos invisíveis + spans coloridos via :checked (HTML puro) */
+    .notas-clr-lbl{position:relative;cursor:pointer;display:inline-block;line-height:0}
+    .notas-clr-lbl input[type="radio"]{position:absolute;opacity:0;width:32px;height:32px;
+                                         margin:0;cursor:pointer;top:0;left:0;z-index:2}
+    .notas-clr-sw{display:inline-block;width:32px;height:32px;border-radius:50%;
+                   border:2px solid #E5E7EB;transition:all .12s;background:#fff;
+                   pointer-events:none;vertical-align:middle}
+    .notas-clr-lbl:hover .notas-clr-sw{transform:scale(1.12)}
+    .notas-clr-lbl input[type="radio"]:checked + .notas-clr-sw{
+      border-color:#1F2937;box-shadow:0 0 0 3px rgba(31,41,55,.25)
+    }
+    .notas-clr-sw.c-yellow{background:#FDE68A!important}
+    .notas-clr-sw.c-pink  {background:#FBCFE8!important}
+    .notas-clr-sw.c-blue  {background:#BFDBFE!important}
+    .notas-clr-sw.c-green {background:#A7F3D0!important}
+    .notas-clr-sw.c-orange{background:#FDBA74!important}
+    .notas-clr-sw.c-purple{background:#D8B4FE!important}
     .notas-filter-color.c-yellow{background:#FDE68A!important}
     .notas-filter-color.c-pink  {background:#FBCFE8!important}
     .notas-filter-color.c-blue  {background:#BFDBFE!important}
@@ -49729,8 +49730,13 @@ function notasOpenEditor(id){
     +   '<div class="notas-editor-field">'
     +     '<label>Cor</label>'
     +     '<div class="notas-editor-colors" id="notas-edit-colors-grid">'
-    +       NOTAS_COLORS.map(c => '<a href="#" class="notas-editor-color c-' + c + (n.color === c ? ' active' : '') + '"'
-    +         + ' data-color="' + c + '" title="Cor ' + c + '" role="button"></a>').join('')
+    +       NOTAS_COLORS.map(c => ''
+    +         + '<label class="notas-clr-lbl" title="Cor ' + c + '">'
+    +         +   '<input type="radio" name="notas-color-' + n.id + '" value="' + c + '"'
+    +         +     (n.color === c ? ' checked' : '')
+    +         +     ' oninput="notasSetColor(this.value)">'
+    +         +   '<span class="notas-clr-sw c-' + c + '"></span>'
+    +         + '</label>').join('')
     +     '</div>'
     +   '</div>'
     +   '<div class="notas-editor-field">'
@@ -49756,18 +49762,8 @@ function notasOpenEditor(id){
     + '</div>';
   ov.style.display = 'flex';
   setTimeout(() => { const t = document.getElementById('notas-edit-title'); if(t) t.focus(); }, 50);
-  // ── COR: bind via .onclick property (sobrescreve qualquer handler anterior) ──
-  NOTAS_COLORS.forEach(color => {
-    const sw = ed.querySelector('.notas-editor-color[data-color="' + color + '"]');
-    if(!sw) return;
-    sw.onclick = function(ev){
-      ev.preventDefault();
-      ev.stopPropagation();
-      console.log('[NOTAS] swatch onclick property fired:', color);
-      notasSetColor(color);
-      return false;
-    };
-  });
+  // Cor: radio buttons nativos + oninput chamam notasSetColor direto · CSS :checked
+  // mostra o active state · não precisa de JS pra UI
 }
 function notasCloseEditor(){
   notasSaveCurrent();
