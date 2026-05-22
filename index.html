@@ -79408,56 +79408,107 @@ function seedDemoData(opts){
   // ─── Viagens (prestações de conta) ───
   const VIAGENS_KEY_LOCAL = 'forekash_viagens_v1';
   const viagExisting = readJSON(VIAGENS_KEY_LOCAL);
-  isEmpty.viagens = FORCE || !(viagExisting && Array.isArray(viagExisting.itens) && viagExisting.itens.length > 0);
+  isEmpty.viagens = FORCE || !(viagExisting && Array.isArray(viagExisting.itens) && viagExisting.itens.length >= 2);
   if(isEmpty.viagens){
     const t = new Date();
     const ago = (d) => { const x = new Date(t); x.setDate(x.getDate()-d); return x.toISOString().slice(0,10); };
+    const agoISO = (d) => { const x = new Date(t); x.setDate(x.getDate()-d); return x.toISOString(); };
+    // 6 viagens — uma por status (rascunho, enviado, aprovado, reembolsado, rejeitado) + 1 rascunho extra
     const viagensData = {
       itens: [
+        // 1 · REEMBOLSADO (mais antigo · finalizado)
         { id:1, titulo:'Visita técnica · Construtora Horizonte', destino:'São Paulo · SP',
-          colaborador:'Diego Santos', proposito:'Kickoff projeto módulo financeiro v2',
-          dataInicio: ago(35), dataFim: ago(33), adiantamento: 2500,
-          status:'finalizada', criadoEm: ago(40) + 'T10:00:00Z',
+          colaborador:'Diego Santos', colaboradorPesId: 4,
+          proposito:'Kickoff projeto módulo financeiro v2 — alinhamento de escopo, cronograma e papéis',
+          dataInicio: ago(45), dataFim: ago(43), adiantamento: 2500,
+          status:'reembolsado',
+          criadoEm:    agoISO(50),
+          enviadoEm:   agoISO(42),
+          aprovadoEm:  agoISO(40),
+          fechadoEm:   agoISO(38),
           despesas:[
-            { id:1, data: ago(35), categoria:'transporte',  descricao:'Passagem aérea GRU-CGH ida/volta', valor: 1280, pagamento:'empresa' },
-            { id:2, data: ago(35), categoria:'hospedagem', descricao:'Hotel Ibis 2 diárias',             valor:  920, pagamento:'colaborador' },
-            { id:3, data: ago(34), categoria:'refeicao',    descricao:'Almoço cliente · Restaurante Fasano',  valor: 285, pagamento:'colaborador' },
-            { id:4, data: ago(33), categoria:'transporte',  descricao:'Uber 4 corridas',                 valor:  165, pagamento:'colaborador' }
+            { id:1, data: ago(45), categoria:'voo',        descricao:'Passagem aérea GRU-CGH ida/volta · LATAM', valor: 1280, pagamento:'empresa' },
+            { id:2, data: ago(45), categoria:'hospedagem', descricao:'Hotel Ibis Paulista · 2 diárias',          valor:  920, pagamento:'funcionario' },
+            { id:3, data: ago(44), categoria:'alimentacao',descricao:'Almoço executivo · Restaurante Fasano',    valor:  285, pagamento:'funcionario' },
+            { id:4, data: ago(44), categoria:'transporte', descricao:'Uber · 4 corridas (hotel/cliente/aeroporto)', valor: 165, pagamento:'funcionario' },
+            { id:5, data: ago(43), categoria:'alimentacao',descricao:'Jantar de fechamento com sócios',          valor:  340, pagamento:'funcionario' }
           ]
         },
-        { id:2, titulo:'Conferência Edtech · São Paulo', destino:'São Paulo · SP',
-          colaborador:'Ana Silva', proposito:'Networking e prospecção clientes EAD',
-          dataInicio: ago(20), dataFim: ago(18), adiantamento: 1800,
-          status:'aprovacao', criadoEm: ago(22) + 'T10:00:00Z',
+        // 2 · APROVADO (aguardando reembolso)
+        { id:2, titulo:'Conferência Edtech Brasil', destino:'São Paulo · SP',
+          colaborador:'Ana Silva', colaboradorPesId: 1,
+          proposito:'Networking e prospecção de clientes do segmento EAD · agenda de 3 dias',
+          dataInicio: ago(25), dataFim: ago(22), adiantamento: 1800,
+          status:'aprovado',
+          criadoEm:   agoISO(28),
+          enviadoEm:  agoISO(20),
+          aprovadoEm: agoISO(18),
           despesas:[
-            { id:5, data: ago(20), categoria:'transporte',  descricao:'Passagem aérea',                  valor: 980, pagamento:'empresa' },
-            { id:6, data: ago(20), categoria:'hospedagem', descricao:'Hotel Pullman 2 diárias',          valor: 1450, pagamento:'colaborador' },
-            { id:7, data: ago(19), categoria:'refeicao',    descricao:'Jantar networking',                valor: 320, pagamento:'colaborador' },
-            { id:8, data: ago(18), categoria:'outros',      descricao:'Material e insumos do evento',     valor: 180, pagamento:'colaborador' }
+            { id:6, data: ago(25), categoria:'voo',         descricao:'Passagem aérea POA-GRU ida/volta',    valor:  980, pagamento:'empresa' },
+            { id:7, data: ago(25), categoria:'hospedagem',  descricao:'Hotel Pullman · 3 diárias',           valor: 1950, pagamento:'funcionario' },
+            { id:8, data: ago(24), categoria:'ingressos',   descricao:'Credencial Edtech Conf 2026',         valor:  850, pagamento:'empresa' },
+            { id:9, data: ago(24), categoria:'alimentacao', descricao:'Jantar de networking',                valor:  320, pagamento:'funcionario' },
+            { id:10,data: ago(23), categoria:'transporte',  descricao:'Uber · deslocamento no evento',       valor:  140, pagamento:'funcionario' },
+            { id:11,data: ago(22), categoria:'material',    descricao:'Insumos e brindes pra prospects',     valor:  180, pagamento:'funcionario' }
           ]
         },
-        { id:3, titulo:'Reunião comercial · Belo Horizonte', destino:'Belo Horizonte · MG',
-          colaborador:'Bruno Costa', proposito:'Apresentação proposta Varejo Plus Q2',
-          dataInicio: ago(7), dataFim: ago(5), adiantamento: 1500,
-          status:'lancada', criadoEm: ago(10) + 'T10:00:00Z',
+        // 3 · ENVIADO (aguardando aprovação)
+        { id:3, titulo:'Reunião comercial · Varejo Plus', destino:'Belo Horizonte · MG',
+          colaborador:'Bruno Costa', colaboradorPesId: 2,
+          proposito:'Apresentação de proposta Q2 + visita à operação de logística',
+          dataInicio: ago(10), dataFim: ago(8), adiantamento: 1500,
+          status:'enviado',
+          criadoEm:  agoISO(12),
+          enviadoEm: agoISO(6),
           despesas:[
-            { id:9, data: ago(7),  categoria:'transporte',  descricao:'Passagem GRU-CNF',                valor: 720, pagamento:'empresa' },
-            { id:10, data: ago(7),  categoria:'hospedagem', descricao:'Hotel BH Plaza 2 diárias',         valor: 680, pagamento:'colaborador' },
-            { id:11, data: ago(6),  categoria:'refeicao',    descricao:'Reunião + almoço Varejo Plus',    valor: 240, pagamento:'colaborador' },
-            { id:12, data: ago(5),  categoria:'transporte',  descricao:'Uber + estacionamento',           valor:  95, pagamento:'colaborador' }
+            { id:12,data: ago(10), categoria:'voo',         descricao:'Passagem GRU-CNF · ida/volta',    valor: 720, pagamento:'empresa' },
+            { id:13,data: ago(10), categoria:'hospedagem',  descricao:'Hotel BH Plaza · 2 diárias',      valor: 680, pagamento:'funcionario' },
+            { id:14,data: ago(9),  categoria:'alimentacao', descricao:'Almoço cliente · Restaurante Xapuri', valor: 240, pagamento:'funcionario' },
+            { id:15,data: ago(9),  categoria:'transporte',  descricao:'Uber + estacionamento aeroporto', valor:  95, pagamento:'funcionario' },
+            { id:16,data: ago(8),  categoria:'combustivel', descricao:'Combustível · trecho até a fábrica do cliente', valor: 130, pagamento:'funcionario' }
           ]
         },
-        { id:4, titulo:'Visita Startup Nova · Florianópolis', destino:'Florianópolis · SC',
-          colaborador:'Carla Mendes', proposito:'Discovery MVP conversacional',
-          dataInicio: ago(2), dataFim: ago(0), adiantamento: 0,
-          status:'rascunho', criadoEm: ago(3) + 'T10:00:00Z',
+        // 4 · REJEITADO (precisa correção)
+        { id:4, titulo:'Workshop interno · Curitiba', destino:'Curitiba · PR',
+          colaborador:'Carla Mendes', colaboradorPesId: 3,
+          proposito:'Treinamento de discovery e jornada de cliente',
+          dataInicio: ago(15), dataFim: ago(13), adiantamento: 0,
+          status:'rejeitado',
+          criadoEm:    agoISO(18),
+          enviadoEm:   agoISO(12),
+          rejeitadoEm: agoISO(11),
+          motivoRejeicao: 'Falta nota fiscal do hotel — anexar e reenviar',
           despesas:[
-            { id:13, data: ago(2), categoria:'transporte',  descricao:'Passagem aérea',                  valor: 1140, pagamento:'colaborador' },
-            { id:14, data: ago(2), categoria:'hospedagem', descricao:'Airbnb 2 diárias',                  valor:  580, pagamento:'colaborador' }
+            { id:17,data: ago(15), categoria:'voo',         descricao:'Passagem POA-CWB',           valor: 540, pagamento:'funcionario' },
+            { id:18,data: ago(15), categoria:'hospedagem',  descricao:'Hotel Bourbon · 2 diárias (recibo manuscrito)', valor: 780, pagamento:'funcionario' },
+            { id:19,data: ago(14), categoria:'alimentacao', descricao:'Refeições no evento',        valor: 195, pagamento:'funcionario' }
+          ]
+        },
+        // 5 · RASCUNHO (sendo preenchido)
+        { id:5, titulo:'Discovery Startup Nova', destino:'Florianópolis · SC',
+          colaborador:'Diego Santos', colaboradorPesId: 4,
+          proposito:'Sessão de discovery do MVP conversacional · arquitetura e roadmap',
+          dataInicio: ago(3), dataFim: ago(1), adiantamento: 0,
+          status:'rascunho',
+          criadoEm: agoISO(4),
+          despesas:[
+            { id:20,data: ago(3), categoria:'voo',         descricao:'Passagem POA-FLN',         valor: 1140, pagamento:'funcionario' },
+            { id:21,data: ago(3), categoria:'hospedagem',  descricao:'Airbnb · 2 diárias',       valor:  580, pagamento:'funcionario' }
+          ]
+        },
+        // 6 · RASCUNHO (recém-criado, quase vazio)
+        { id:6, titulo:'Feira de tecnologia · Web Summit Rio', destino:'Rio de Janeiro · RJ',
+          colaborador:'Ana Silva', colaboradorPesId: 1,
+          proposito:'Visitar Web Summit Rio · captar tendências e fazer networking',
+          dataInicio: ago(0), dataFim: ago(0), adiantamento: 0,
+          status:'rascunho',
+          criadoEm: agoISO(0),
+          despesas:[
+            { id:22,data: ago(0), categoria:'voo', descricao:'Passagem aérea POA-GIG (pendente reserva)', valor: 0, pagamento:'empresa' }
           ]
         }
       ],
-      nextId: 5, nextDespId: 15
+      nextId: 7, nextDespId: 23
     };
     localStorage.setItem(VIAGENS_KEY_LOCAL, JSON.stringify(viagensData));
   }
