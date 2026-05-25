@@ -55263,6 +55263,8 @@ function extOpenModal(tipo, editId){
       +     '<option value="pago"' + (l.status === 'pago' ? ' selected' : '') + '>Concluída</option>'
       +     '<option value="pendente"' + (l.status === 'pendente' ? ' selected' : '') + '>Pendente</option>'
       +   '</select></div>'
+      +   '<div class="field"><label>Nº do documento <span style="color:#94A3B8;font-weight:500;text-transform:none;letter-spacing:0">— NF, boleto, comprovante</span></label><input type="text" id="ext-fld-doc" value="' + _extEsc(l.documento || '') + '" placeholder="Ex: TED-87654321" maxlength="60"></div>'
+      +   '<div class="field"><label>Referência interna <span style="color:#94A3B8;font-weight:500;text-transform:none;letter-spacing:0">— opcional</span></label><input type="text" id="ext-fld-ref" value="' + _extEsc(l.refInterna || '') + '" placeholder="Ex: PED-2026/0042" maxlength="60"></div>'
       +   '<div class="field full"><label>Notas</label><textarea id="ext-fld-notas" placeholder="Observações...">' + _extEsc(l.notas || '') + '</textarea></div>'
       + '</div>'
       + '<div class="ext-modal-ft">'
@@ -55316,6 +55318,14 @@ function extOpenModal(tipo, editId){
       +       '<input type="hidden" id="ext-fld-counter">'
       +       '<input type="hidden" id="ext-fld-status" value="' + (l.status || 'pendente') + '">'
       +       '<div class="field full">' + _extRepeatHtml(l.repete || 'once', l.repFreq || 'mensal', l.repCount || 6) + '</div>'
+      +       '<div class="dkb-modal-grid" style="grid-column:1/-1;grid-template-columns:1fr 1fr;gap:14px">'
+      +         '<div class="field"><label>Nº do documento <span class="hint">— NF, boleto, fatura</span></label>'
+      +           '<input type="text" id="ext-fld-doc" value="' + _extEsc(l.documento || '') + '" placeholder="Ex: 12345 · NF-001234 · BOL-87654321" maxlength="60">'
+      +         '</div>'
+      +         '<div class="field"><label>Referência interna <span class="hint">— opcional</span></label>'
+      +           '<input type="text" id="ext-fld-ref" value="' + _extEsc(l.refInterna || '') + '" placeholder="Ex: PED-2026/0042" maxlength="60">'
+      +         '</div>'
+      +       '</div>'
       +       '<div class="field full"><label>Notas</label><textarea id="ext-fld-notas" placeholder="Observações sobre este lançamento...">' + _extEsc(l.notas || '') + '</textarea></div>'
       +       '<div class="field full"><label>Anexo do documento <span class="hint">— NF, boleto, contrato</span></label>'
       +         '<div id="dkb-anexo-wrap">' + (typeof _dkbRenderAnexoUI === 'function' ? _dkbRenderAnexoUI(l.anexo || null, 'doc') : '') + '</div>'
@@ -55654,6 +55664,8 @@ function extSaveModal(tipo){
   const anexoDoc = (typeof _dkbAnexoData !== 'undefined' && Array.isArray(_dkbAnexoData) && _dkbAnexoData.length > 0) ? _dkbAnexoData.slice() : null;
   const anexoComp = (typeof _dkbCompData !== 'undefined' && Array.isArray(_dkbCompData) && _dkbCompData.length > 0) ? _dkbCompData.slice() : null;
   const notas   = (document.getElementById('ext-fld-notas')?.value || '').trim();
+  const documento = (document.getElementById('ext-fld-doc')?.value || '').trim();
+  const refInterna = (document.getElementById('ext-fld-ref')?.value || '').trim();
   // Edição de grupo (multi-itens): apaga registros antigos do grupo na origem
   // e zera _extEditingId pra cair no fluxo de criação (auto-propagate gera novo grupoId)
   if(_extEditingId && typeof _extEditingId === 'string' && _extEditingId.startsWith('grp:')){
@@ -55769,6 +55781,8 @@ function extSaveModal(tipo){
             conta,
             status: (di === data ? status : 'pendente'),
             notas,
+            documento,
+            refInterna,
             tipo,
             centroCustoId,
             grupoId: grupoId,
@@ -55794,6 +55808,8 @@ function extSaveModal(tipo){
           notas, tipo, centroCustoId,
           dataPagamento: (di === data ? dataPag : ''),
           grupoId: grupoId,
+          documento,
+          refInterna,
           anexo: anexoDoc,
           comprovante: anexoComp
         });
@@ -55828,14 +55844,14 @@ function extSaveModal(tipo){
     const realId = parseInt(_extEditingId.replace(/^m:/, ''), 10);
     const l = extratoData.lancamentos.find(x => x.id === realId);
     if(l){
-      Object.assign(l, { data, valor, descricao:desc, categoria:catFinal, contraparte:counter, conta, status, notas, tipo, centroCustoId });
+      Object.assign(l, { data, valor, descricao:desc, categoria:catFinal, contraparte:counter, conta, status, notas, documento, refInterna, tipo, centroCustoId });
       if(status === 'pago' && !l.dataPagamento) l.dataPagamento = data;
       if(status !== 'pago') l.dataPagamento = '';
     }
   } else {
     const id = extratoData.nextId++;
     const _newLanc = {
-      id, data, valor, descricao:desc, categoria:catFinal, contraparte:counter, conta, status, notas, tipo, centroCustoId,
+      id, data, valor, descricao:desc, categoria:catFinal, contraparte:counter, conta, status, notas, documento, refInterna, tipo, centroCustoId,
       grupoId: (typeof grupoId !== 'undefined' && grupoId) ? grupoId : null,
       dataPagamento: dataPag,
       criadoEm: new Date().toISOString()
