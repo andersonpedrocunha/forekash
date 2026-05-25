@@ -58951,17 +58951,19 @@ function extCapturaSubmit(){
     if(!extratoData || !Array.isArray(extratoData.lancamentos)){
       if(typeof _extLoad === 'function') _extLoad();
     }
+    // Importante: valor SEMPRE positivo · tipo dita o sinal no render (ganho|gasto)
     const lan = {
       id: extratoData.nextId || ((Math.max(0, ...extratoData.lancamentos.map(l => l.id||0))) + 1),
       data, descricao,
-      valor: ECAP_STATE.tipo === 'gasto' ? -Math.abs(valor) : Math.abs(valor),
-      tipo: ECAP_STATE.tipo === 'gasto' ? 'debito' : 'credito',
+      valor: Math.abs(valor),
+      tipo: ECAP_STATE.tipo,  // 'gasto' ou 'ganho' · enum do extrato
       categoria: catTxt || '',
       contraparte: fornNome,
-      contaId: '',
+      conta: '',
       documento: numero,
-      ccId: ccId ? parseInt(ccId) || ccId : null,
-      conciliado: false,
+      centroCustoId: ccId ? (parseInt(ccId) || null) : null,
+      status: 'pendente',  // user dá baixa depois (botão Pagar) · vai pra KPI Pendentes
+      manual: true,
       origem: 'captura-ia',
       criadoEm: new Date().toISOString()
     };
@@ -80083,40 +80085,41 @@ function seedDemoData(opts){
     const lans = [];
     let nx = 1;
     const today = new Date();
+    // [diasAtras, descricao, valor (SEMPRE positivo), tipo (ganho|gasto), categoria, contraparte, ccNome]
+    // Renderer adiciona o sinal · NUNCA passe valor negativo aqui
     const movs = [
-      // [diasAtras, descricao, valor, tipo, categoria, contraparte, ccNome]
-      [0,   'Recebimento NF Construtora Horizonte', 26000, 'credito', 'Receita', 'Construtora Horizonte', 'Comercial'],
-      [1,   'Pagamento Aluguel escritório',         -4500, 'debito',  'Estrutura', 'Imobiliária Centro',   'Administrativo'],
-      [2,   'Recebimento Edtech Foco',              34000, 'credito', 'Receita', 'Edtech Foco',           'Comercial'],
-      [3,   'AWS — Infra mensal',                   -1500, 'debito',  'Infra',     'Amazon Web Services',  'Tecnologia'],
-      [4,   'Salário · Ana Silva',                  -8500, 'debito',  'Folha',     'Ana Silva',            'Operação'],
-      [5,   'Salário · Bruno Costa',                -9200, 'debito',  'Folha',     'Bruno Costa',          'Operação'],
-      [6,   'Salário · Carla Mendes',              -10500, 'debito',  'Folha',     'Carla Mendes',         'Operação'],
-      [7,   'Salário · Diego Santos',              -12000, 'debito',  'Folha',     'Diego Santos',         'Administrativo'],
-      [8,   'Recebimento Varejo Plus',              20000, 'credito', 'Receita', 'Varejo Plus',           'Comercial'],
-      [10,  'DAS Simples Nacional',                 -8500, 'debito',  'Impostos',  'Receita Federal',      'Administrativo'],
-      [12,  'Pagamento fatura Itaú Empresarial',    -2850, 'debito',  'Cartão',    'Cartão Itaú',          'Operação'],
-      [14,  'Ads Google',                           -1200, 'debito',  'Marketing', 'Google',               'Marketing'],
-      [15,  'Contabilidade mensal',                 -1800, 'debito',  'Financeiro','Contabilidade Alpha',  'Administrativo'],
-      [18,  'Pagamento empréstimo Itaú',            -4200, 'debito',  'Empréstimo','Banco Itaú',           'Administrativo'],
-      [20,  'Recebimento Startup Nova',             12000, 'credito', 'Receita', 'Startup Nova',          'Comercial'],
-      [22,  'Internet Vivo Empresas',                -450, 'debito',  'Infra',     'Vivo Empresas',        'Tecnologia'],
-      [25,  'Plano de saúde Sulamerica',            -3200, 'debito',  'Saúde',     'Sulamerica',           'Administrativo'],
-      [28,  'Recebimento NF Construtora Horizonte', 28000, 'credito', 'Receita', 'Construtora Horizonte', 'Comercial'],
-      [32,  'Salário · Eduarda Lima',              -11000, 'debito',  'Folha',     'Eduarda Lima',         'Administrativo'],
-      [35,  'Caixa Econômica · Pronampe',           -2350, 'debito',  'Empréstimo','Caixa Econômica',      'Administrativo'],
-      [40,  'Recebimento Edtech Foco',              32000, 'credito', 'Receita', 'Edtech Foco',           'Comercial'],
-      [45,  'Pagamento fatura C6 Carbon',           -2200, 'debito',  'Cartão',    'Cartão C6',            'Tecnologia'],
-      [50,  'Recebimento Varejo Plus',              18000, 'credito', 'Receita', 'Varejo Plus',           'Comercial'],
-      [55,  'AWS — Infra mensal',                   -1450, 'debito',  'Infra',     'Amazon Web Services',  'Tecnologia'],
-      [60,  'FGTS · 13º provisão',                  -4600, 'debito',  'Folha',     'Caixa FGTS',           'Administrativo'],
-      [65,  'IRPJ trimestral',                      -6800, 'debito',  'Impostos',  'Receita Federal',      'Administrativo'],
-      [70,  'Recebimento Construtora Horizonte',    26000, 'credito', 'Receita', 'Construtora Horizonte', 'Comercial'],
-      [75,  'Pagamento Aluguel escritório',         -4500, 'debito',  'Estrutura', 'Imobiliária Centro',   'Administrativo'],
-      [80,  'Marketing · Meta Ads',                 -2800, 'debito',  'Marketing', 'Meta Platforms',       'Marketing'],
-      [85,  'Recebimento Edtech Foco',              30000, 'credito', 'Receita', 'Edtech Foco',           'Comercial'],
-      [90,  'Pagamento Notion + Slack',              -200, 'debito',  'Tecnologia','Notion',               'Tecnologia'],
-      [95,  'Pagamento Figma',                        -90, 'debito',  'Tecnologia','Figma',                'Tecnologia']
+      [0,   'Recebimento NF Construtora Horizonte', 26000, 'ganho', 'Receita',    'Construtora Horizonte', 'Comercial'],
+      [1,   'Pagamento Aluguel escritório',          4500, 'gasto', 'Estrutura',  'Imobiliária Centro',    'Administrativo'],
+      [2,   'Recebimento Edtech Foco',              34000, 'ganho', 'Receita',    'Edtech Foco',           'Comercial'],
+      [3,   'AWS — Infra mensal',                    1500, 'gasto', 'Infra',      'Amazon Web Services',   'Tecnologia'],
+      [4,   'Salário · Ana Silva',                   8500, 'gasto', 'Folha',      'Ana Silva',             'Operação'],
+      [5,   'Salário · Bruno Costa',                 9200, 'gasto', 'Folha',      'Bruno Costa',           'Operação'],
+      [6,   'Salário · Carla Mendes',               10500, 'gasto', 'Folha',      'Carla Mendes',          'Operação'],
+      [7,   'Salário · Diego Santos',               12000, 'gasto', 'Folha',      'Diego Santos',          'Administrativo'],
+      [8,   'Recebimento Varejo Plus',              20000, 'ganho', 'Receita',    'Varejo Plus',           'Comercial'],
+      [10,  'DAS Simples Nacional',                  8500, 'gasto', 'Impostos',   'Receita Federal',       'Administrativo'],
+      [12,  'Pagamento fatura Itaú Empresarial',     2850, 'gasto', 'Cartão',     'Cartão Itaú',           'Operação'],
+      [14,  'Ads Google',                            1200, 'gasto', 'Marketing',  'Google',                'Marketing'],
+      [15,  'Contabilidade mensal',                  1800, 'gasto', 'Financeiro', 'Contabilidade Alpha',   'Administrativo'],
+      [18,  'Pagamento empréstimo Itaú',             4200, 'gasto', 'Empréstimo', 'Banco Itaú',            'Administrativo'],
+      [20,  'Recebimento Startup Nova',             12000, 'ganho', 'Receita',    'Startup Nova',          'Comercial'],
+      [22,  'Internet Vivo Empresas',                 450, 'gasto', 'Infra',      'Vivo Empresas',         'Tecnologia'],
+      [25,  'Plano de saúde Sulamerica',             3200, 'gasto', 'Saúde',      'Sulamerica',            'Administrativo'],
+      [28,  'Recebimento NF Construtora Horizonte', 28000, 'ganho', 'Receita',    'Construtora Horizonte', 'Comercial'],
+      [32,  'Salário · Eduarda Lima',               11000, 'gasto', 'Folha',      'Eduarda Lima',          'Administrativo'],
+      [35,  'Caixa Econômica · Pronampe',            2350, 'gasto', 'Empréstimo', 'Caixa Econômica',       'Administrativo'],
+      [40,  'Recebimento Edtech Foco',              32000, 'ganho', 'Receita',    'Edtech Foco',           'Comercial'],
+      [45,  'Pagamento fatura C6 Carbon',             2200, 'gasto', 'Cartão',    'Cartão C6',             'Tecnologia'],
+      [50,  'Recebimento Varejo Plus',              18000, 'ganho', 'Receita',    'Varejo Plus',           'Comercial'],
+      [55,  'AWS — Infra mensal',                    1450, 'gasto', 'Infra',      'Amazon Web Services',   'Tecnologia'],
+      [60,  'FGTS · 13º provisão',                   4600, 'gasto', 'Folha',      'Caixa FGTS',            'Administrativo'],
+      [65,  'IRPJ trimestral',                       6800, 'gasto', 'Impostos',   'Receita Federal',       'Administrativo'],
+      [70,  'Recebimento Construtora Horizonte',    26000, 'ganho', 'Receita',    'Construtora Horizonte', 'Comercial'],
+      [75,  'Pagamento Aluguel escritório',          4500, 'gasto', 'Estrutura',  'Imobiliária Centro',    'Administrativo'],
+      [80,  'Marketing · Meta Ads',                  2800, 'gasto', 'Marketing',  'Meta Platforms',        'Marketing'],
+      [85,  'Recebimento Edtech Foco',              30000, 'ganho', 'Receita',    'Edtech Foco',           'Comercial'],
+      [90,  'Pagamento Notion + Slack',               200, 'gasto', 'Tecnologia', 'Notion',                'Tecnologia'],
+      [95,  'Pagamento Figma',                         90, 'gasto', 'Tecnologia', 'Figma',                 'Tecnologia']
     ];
     const ccByName2 = { 'Comercial':1, 'Operação':2, 'Tecnologia':3, 'Administrativo':4, 'Marketing':5 };
     const contas = ['b-itau:t-cc:1', 'b-unilos:t-cc:3', 'b-c6:t-cc:4'];
@@ -80124,14 +80127,19 @@ function seedDemoData(opts){
       const [days, desc, val, tipo, cat, ctp, ccNm] = movs[i];
       const d = new Date(today);
       d.setDate(d.getDate() - days);
+      const dStr = d.toISOString().slice(0,10);
+      // Status: pago se já passou da data, senão pendente
+      const isPast = days > 0;
       lans.push({
-        id: nx++, data: d.toISOString().slice(0,10),
-        descricao: desc, valor: val, tipo,
+        id: nx++, data: dStr,
+        descricao: desc, valor: Math.abs(val), tipo,  // valor SEMPRE positivo
         categoria: cat, contraparte: ctp,
-        contaId: contas[i % contas.length],
-        documento: 'NF-' + (1000 + i),
-        ccId: ccByName2[ccNm] || null,
-        conciliado: days > 5,
+        conta: contas[i % contas.length],
+        documento: (tipo === 'ganho' ? 'NF-' : (cat === 'Cartão' ? 'FAT-' : 'BOL-')) + (1000 + i),
+        centroCustoId: ccByName2[ccNm] || null,
+        status: isPast ? 'pago' : 'pendente',
+        dataPagamento: isPast ? dStr : '',
+        manual: true,
         criadoEm: d.toISOString()
       });
     }
