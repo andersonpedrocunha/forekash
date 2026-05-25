@@ -58575,13 +58575,53 @@ async function _ecapExtractPDFText(file){
   }
 }
 
-// Parser principal · regex Brasil-aware
+// Parser principal · regex Brasil-aware com contexto SUPPLIER vs SELF
 function _ecapParseText(text, file){
   const norm = (text || '').replace(/\s+/g, ' ').trim();
   const lower = norm.toLowerCase();
 
+  // --- SELF (empresa do usuário) ---
+  // Lê do settings pra EXCLUIR o próprio CNPJ/nome dos campos extraídos.
+  let selfCnpjDigits = '', selfName = '';
+  try {
+    if(typeof settings !== 'undefined' && settings){
+      selfCnpjDigits = (settings.cnpj || '').replace(/\D/g, '');
+      selfName = (settings.companyName || '').trim();
+    }
+  } catch(e){}
+
+  // --- CONTEXTO BR: posições de marcadores SUPPLIER vs SELF no texto ---
+  // SUPPLIER (boleto: BENEFICIÁRIO/CEDENTE · NF: EMITENTE/PRESTADOR)
+  // SELF    (boleto: PAGADOR/SACADO · NF: DESTINATÁRIO/TOMADOR)
+  const SUPP_KWS = ['benefici[áa]rio','cedente','emitente','prestador\\s*de\\s*servi[çc]o','prestador'];
+  const SELF_KWS = ['pagador','sacado','destinat[áa]rio','tomador\\s*de\\s*servi[çc]o','tomador'];
+  function findPositions(kwList){
+    const out = [];
+    for(const kw of kwList){
+      const re = new RegExp(kw, 'gi');
+      let m;
+      while((m = re.exec(norm)) !== null) out.push(m.index);
+    }
+    return out.sort((a,b)=>a-b);
+  }
+  const suppPos = findPositions(SUPP_KWS);
+  const selfPos = findPositions(SELF_KWS);
+  function nearestDist(pos, list){
+    if(!list.length) return Infinity;
+    let best = Infinity;
+    for(const p of list){ const d = Math.abs(pos - p); if(d < best) best = d; }
+    return best;
+  }
+  // Classifica posição: 'supp' se mais perto de marcador supplier, 'self' caso contrário
+  function classify(pos){
+    const dSup = nearestDist(pos, suppPos);
+    const dSlf = nearestDist(pos, selfPos);
+    if(dSup === Infinity && dSlf === Infinity) return 'unknown';
+    if(dSup <= dSlf) return 'supp';
+    return 'self';
+  }
+
   // --- VALOR ---
-  // Tenta achar "R$ X,XX" ou "VALOR ... X,XX" ou "TOTAL ... X,XX"
   let valor = null, valorConf = 'no';
   const vAlvos = [
     /(?:valor\s*(?:total|do\s*documento|a\s*pagar|cobrado|recebido)?|total(?:\s*geral)?|montante|pago)\s*[:R$\-]*\s*(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/i,
@@ -58593,14 +58633,29 @@ function _ecapParseText(text, file){
     if(m){ valor = _ecapBRLNum(m[1]); valorConf = (i===0?'hi':(i===1?'md':'lo')); break; }
   }
 
-  // --- CNPJ ---
-  let cnpj = null;
-  const cnpjMatch = norm.match(/(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2})/);
-  if(cnpjMatch) cnpj = cnpjMatch[1].replace(/\D/g,'').replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+  // --- CNPJs (TODOS no documento, com posição) ---
+  const cnpjRe = /(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2})/g;
+  const cnpjs = [];
+  let cm;
+  while((cm = cnpjRe.exec(norm)) !== null){
+    const raw = cm[1];
+    const digits = raw.replace(/\D/g,'');
+    if(digits.length !== 14) continue;
+    const fmt = digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+    const isSelf = selfCnpjDigits && digits === selfCnpjDigits;
+    cnpjs.push({ digits, fmt, pos: cm.index, kind: classify(cm.index), isSelf });
+  }
+  // Escolhe o CNPJ do fornecedor: prefere supp + não-self
+  let cnpj = null, cnpjCtx = null;
+  // Tier 1: classificado 'supp' e não é self
+  for(const c of cnpjs){ if(c.kind === 'supp' && !c.isSelf){ cnpj = c.fmt; cnpjCtx = c; break; } }
+  // Tier 2: não é self (qualquer contexto)
+  if(!cnpj){ for(const c of cnpjs){ if(!c.isSelf){ cnpj = c.fmt; cnpjCtx = c; break; } } }
+  // Tier 3: pega o primeiro (mesmo se self) — fallback final
+  if(!cnpj && cnpjs.length > 0){ cnpj = cnpjs[0].fmt; cnpjCtx = cnpjs[0]; }
 
   // --- DATA (vencimento OU emissão) ---
   let data = null, dataConf = 'no';
-  // 1. Procura "vencimento" primeiro
   const dVenc = norm.match(/(?:vencimento|venc\.?|data\s*(?:vencimento|de\s*pagamento))\s*[:\-]?\s*(\d{2}\/\d{2}\/\d{4}|\d{2}\/\d{2}\/\d{2})/i);
   if(dVenc){ data = _ecapDataBR(dVenc[1]); dataConf = 'hi'; }
   else {
@@ -58613,27 +58668,27 @@ function _ecapParseText(text, file){
   }
   if(!data) data = new Date().toISOString().slice(0,10);
 
-  // --- NÚMERO DO DOCUMENTO (NF, boleto, fatura) ---
+  // --- NÚMERO DO DOCUMENTO ---
   let numero = null;
   const nNF = norm.match(/(?:N[º°.]?\s*(?:NF|nota\s*fiscal|fatura|boleto|documento)|nota\s*fiscal\s*n[º°.]?|n[º°.]\s*do\s*documento)\s*[:\-]?\s*0*(\d{4,12})/i);
   if(nNF) numero = nNF[1];
   else {
-    // Código de barras (47 dígitos) → usa últimos 8
     const cb = norm.replace(/\s/g,'').match(/\d{47,48}/);
     if(cb) numero = 'BOL-' + cb[0].slice(-8);
   }
 
   // --- FORNECEDOR ---
   let fornecedor = null, fornConf = 'no', fornKnown = null;
-  // 1. Por CNPJ conhecido
+  // Tier 1: CNPJ do fornecedor (já filtrado pra excluir self) bate com lista de conhecidos
   if(cnpj){
+    const digits = cnpj.replace(/\D/g,'');
     for(const f of ECAP_FORN_HINTS){
-      if(f.cnpj && f.cnpj.replace(/\D/g,'') === cnpj.replace(/\D/g,'')){
+      if(f.cnpj && f.cnpj.replace(/\D/g,'') === digits){
         fornecedor = f.name; fornConf = 'hi'; fornKnown = f; break;
       }
     }
   }
-  // 2. Por keyword
+  // Tier 2: keyword em qualquer parte do texto
   if(!fornecedor){
     for(const f of ECAP_FORN_HINTS){
       for(const kw of f.kw){
@@ -58642,10 +58697,31 @@ function _ecapParseText(text, file){
       if(fornecedor) break;
     }
   }
-  // 3. Heurística: pega palavras maiúsculas no começo do documento
+  // Tier 3: extrai razão social PRÓXIMA do marcador SUPPLIER (até 80 chars depois)
+  if(!fornecedor && suppPos.length > 0){
+    for(const sp of suppPos){
+      // Pega trecho depois do marcador, ignora ":" / espaços
+      const slice = norm.slice(sp, Math.min(sp + 220, norm.length));
+      // Nome é o que aparece depois do marcador, até CNPJ/end. Tipicamente em CAIXA ALTA.
+      const m = slice.match(/(?:benefici[áa]rio|cedente|emitente|prestador[^:]*)\s*[:\-]?\s*([A-ZÀÂÃÁÉÊÍÓÔÕÚÇ0-9][A-ZÀÂÃÁÉÊÍÓÔÕÚÇ\s\.&\-\/0-9]{6,60})/i);
+      if(m){
+        const cand = m[1].trim().replace(/\s+/g,' ').slice(0,60);
+        // Verifica que não é igual ao nome da empresa (self)
+        if(!selfName || cand.toLowerCase().indexOf(selfName.toLowerCase()) < 0){
+          fornecedor = cand; fornConf = 'md'; break;
+        }
+      }
+    }
+  }
+  // Tier 4: pega texto em caixa alta no começo, MAS exclui se for o nome da empresa
   if(!fornecedor){
-    const upm = norm.match(/(?:^|\s)([A-ZÀÂÃÁÉÊÍÓÔÕÚÇ][A-ZÀÂÃÁÉÊÍÓÔÕÚÇ\s]{8,40})/);
-    if(upm){ fornecedor = upm[1].trim().slice(0,60); fornConf = 'lo'; }
+    const upm = norm.match(/(?:^|\s)([A-ZÀÂÃÁÉÊÍÓÔÕÚÇ][A-ZÀÂÃÁÉÊÍÓÔÕÚÇ\s\.\-&\/]{8,60})/);
+    if(upm){
+      const cand = upm[1].trim().slice(0,60);
+      if(!selfName || cand.toLowerCase().indexOf(selfName.toLowerCase()) < 0){
+        fornecedor = cand; fornConf = 'lo';
+      }
+    }
   }
 
   // --- CATEGORIA ---
@@ -58656,7 +58732,6 @@ function _ecapParseText(text, file){
     }
     if(categoria) break;
   }
-  // Boost de confiança: se também bate com fornecedor conhecido
   if(categoria && fornConf === 'hi') catConf = 'hi';
 
   // --- DESCRIÇÃO ---
@@ -58670,18 +58745,25 @@ function _ecapParseText(text, file){
   }
 
   // --- TIPO (gasto/ganho) ---
-  // Default: gasto. Ganho só se palavra-chave explícita ("recebimento", "crédito")
   let tipo = 'gasto';
   if(/recebimento|cr[ée]dito\s*em\s*conta|entrada\s*de\s*recursos|pix\s*recebido/i.test(norm)) tipo = 'ganho';
+
+  // --- AVISO se o melhor CNPJ encontrado é o próprio (self) ---
+  // Caso só tenha self no doc, deixa preencher manual mas marca confiança baixa
+  let cnpjConf = 'hi';
+  if(cnpjCtx && cnpjCtx.isSelf){ cnpj = null; cnpjConf = 'no'; } // some com ele pra forçar preenchimento manual
+  else if(cnpjCtx && cnpjCtx.kind === 'self') cnpjConf = 'lo';
+  else if(cnpjCtx && cnpjCtx.kind === 'unknown') cnpjConf = 'md';
 
   return {
     tipo, valor, valorConf,
     data, dataConf,
-    fornecedor, fornConf, fornKnown, cnpj,
+    fornecedor, fornConf, fornKnown, cnpj, cnpjConf,
     numero,
     categoria, catConf,
     descricao,
     cc: categoria ? ECAP_CC_BY_CAT[categoria] || null : null,
+    selfDetected: cnpjs.some(c => c.isSelf),
     textPreview: norm.slice(0, 220)
   };
 }
@@ -58750,6 +58832,7 @@ function _ecapRenderReview(file, data){
     +   '<span class="ecap-rev-file-size">' + fSize + '</span>'
     +   '<button class="ecap-rev-file-act" onclick="extCapturaOpen()">Trocar</button>'
     + '</div>'
+    + (data.selfDetected && !data.cnpj ? '<div class="ecap-rev-forn-new" style="background:#EFF6FF;border-color:#93C5FD;color:#1E40AF;margin-bottom:14px"><span>ℹ</span><div>Detectei o CNPJ da <b>sua empresa</b> no documento — descartei pra você preencher o do fornecedor. Sem isso, o MR KASH confundiria você com o cliente/fornecedor.</div></div>' : '')
     + '<div class="ecap-rev-tipo" id="ecap-tipo">'
     +   '<button type="button" class="' + (ECAP_STATE.tipo==='gasto'?'active gasto':'') + '" onclick="extCapturaSetTipo(\'gasto\')">💸 Lançar como gasto</button>'
     +   '<button type="button" class="' + (ECAP_STATE.tipo==='ganho'?'active ganho':'') + '" onclick="extCapturaSetTipo(\'ganho\')">💰 Lançar como recebimento</button>'
@@ -58761,7 +58844,7 @@ function _ecapRenderReview(file, data){
     +     (isNewForn ? '<div class="ecap-rev-forn-new" id="ecap-newforn"><span>🆕</span><div>Esse fornecedor ainda não está cadastrado. <b>Vai ser pré-cadastrado automaticamente</b> quando você confirmar.</div></div>' : '')
     +   '</div>'
     +   '<div class="ecap-rev-field">'
-    +     '<label>CNPJ ' + (data.cnpj ? _ecapConfBadge('hi') : _ecapConfBadge('no')) + '</label>'
+    +     '<label>CNPJ ' + _ecapConfBadge(data.cnpjConf || (data.cnpj?'hi':'no')) + '</label>'
     +     '<input type="text" id="ecap-f-cnpj" value="' + _ecapEsc(data.cnpj||'') + '" placeholder="00.000.000/0000-00" class="' + (data.cnpj?'auto-filled':'') + '">'
     +   '</div>'
     +   '<div class="ecap-rev-field">'
