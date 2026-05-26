@@ -90223,7 +90223,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779832076';
+      const CACHE = 'forekash-v1779832505';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -92424,10 +92424,10 @@ function empRenderHeader(){
   if(ico){
     const hLetter = (cur.nome || '?').slice(0,1).toUpperCase();
     const hColor = cur.cor || '#10B981';
-    const hHasLogo = cur.logoDataUrl && typeof cur.logoDataUrl === 'string' && cur.logoDataUrl.startsWith('data:image/');
-    if(hHasLogo){
-      ico.innerHTML = '<img src="' + cur.logoDataUrl.replace(/"/g,'&quot;') + '" alt="" style="width:100%;height:100%;object-fit:contain;border-radius:inherit;padding:3px" onerror="this.parentNode.textContent=\'' + hLetter + '\';this.parentNode.style.background=\'' + hColor + '\'">';
-      ico.style.background = '#fff';
+    const hHasIcone = cur.iconeDataUrl && typeof cur.iconeDataUrl === 'string' && cur.iconeDataUrl.startsWith('data:image/');
+    if(hHasIcone){
+      ico.innerHTML = '<img src="' + cur.iconeDataUrl.replace(/"/g,'&quot;') + '" alt="" style="width:100%;height:100%;object-fit:contain;border-radius:inherit;padding:3px" onerror="this.parentNode.textContent=\'' + hLetter + '\';this.parentNode.style.background=\'' + hColor + '\'">';
+      ico.style.background = '#0F172A';
     } else {
       ico.textContent = hLetter;
       ico.style.background = hColor;
@@ -92451,9 +92451,9 @@ function empRenderHeader(){
       item.onclick = () => empSwitchTo(e.id);
       const itLetter = (e.nome || '?').slice(0,1).toUpperCase();
       const itColor = e.cor || '#10B981';
-      const itHasLogo = e.logoDataUrl && typeof e.logoDataUrl === 'string' && e.logoDataUrl.startsWith('data:image/');
-      const itemIco = itHasLogo
-        ? '<div class="emp-menu-item-ico has-logo"><img src="' + e.logoDataUrl.replace(/"/g,'&quot;') + '" alt="" onerror="var p=this.parentNode;p.classList.remove(\'has-logo\');p.innerHTML=\'' + itLetter + '\';p.style.background=\'' + itColor + '\';p.style.color=\'#fff\';"></div>'
+      const itHasIcone = e.iconeDataUrl && typeof e.iconeDataUrl === 'string' && e.iconeDataUrl.startsWith('data:image/');
+      const itemIco = itHasIcone
+        ? '<div class="emp-menu-item-ico has-logo"><img src="' + e.iconeDataUrl.replace(/"/g,'&quot;') + '" alt="" onerror="var p=this.parentNode;p.classList.remove(\'has-logo\');p.innerHTML=\'' + itLetter + '\';p.style.background=\'' + itColor + '\';p.style.color=\'#fff\';"></div>'
         : '<div class="emp-menu-item-ico" style="background:' + itColor + '">' + itLetter + '</div>';
       item.innerHTML = itemIco +
         '<div class="emp-menu-item-info">' +
@@ -92505,6 +92505,8 @@ function empSyncToSettings(){
     if(typeof impostos !== 'undefined' && impostos){
       impostos.regimeTributario = cur.regime || impostos.regimeTributario;
       if(typeof saveImp === 'function') saveImp();
+      // Re-renderiza módulo Impostos se estiver visível
+      try{ if(typeof renderImpostos === 'function') renderImpostos(); }catch(_){}
     }
   }catch(_){}
   // Atualiza o logo do header pra refletir empresa atual
@@ -92582,9 +92584,10 @@ function empRenderConfigList(){
     card.className = 'emp-card' + (isCurrent ? ' active' : '');
     const letter = (e.nome || '?').slice(0,1).toUpperCase();
     const color = e.cor || '#10B981';
-    const hasValidLogo = e.logoDataUrl && typeof e.logoDataUrl === 'string' && e.logoDataUrl.startsWith('data:image/');
-    const icoHtml = hasValidLogo
-      ? '<div class="emp-card-ico has-logo"><img src="' + e.logoDataUrl.replace(/"/g,'&quot;') + '" alt="" onerror="var p=this.parentNode;p.classList.remove(\'has-logo\');p.innerHTML=\'' + letter + '\';p.style.background=\'' + color + '\';p.style.color=\'#fff\';p.style.fontWeight=\'800\';p.style.fontSize=\'1.1rem\';"></div>'
+    // Usa iconeDataUrl (opcional, no modal). Sem ícone = letra colorida.
+    const hasIcone = e.iconeDataUrl && typeof e.iconeDataUrl === 'string' && e.iconeDataUrl.startsWith('data:image/');
+    const icoHtml = hasIcone
+      ? '<div class="emp-card-ico has-logo"><img src="' + e.iconeDataUrl.replace(/"/g,'&quot;') + '" alt="" onerror="var p=this.parentNode;p.classList.remove(\'has-logo\');p.innerHTML=\'' + letter + '\';p.style.background=\'' + color + '\';p.style.color=\'#fff\';p.style.fontWeight=\'800\';p.style.fontSize=\'1.1rem\';"></div>'
       : '<div class="emp-card-ico" style="background:' + color + '">' + letter + '</div>';
     card.innerHTML = icoHtml +
       '<div class="emp-card-info">' +
@@ -92624,23 +92627,23 @@ function empCloseModal(){
 }
 function empRenderModalForm(){
   const d = EMP_MODAL_DRAFT || {};
-  const logoHtml = d.logoDataUrl
-    ? '<img src="' + d.logoDataUrl.replace(/"/g,'&quot;') + '" alt="Logo">'
+  const iconeHtml = d.iconeDataUrl
+    ? '<img src="' + d.iconeDataUrl.replace(/"/g,'&quot;') + '" alt="Ícone">'
     : '<span class="emp-logo-letter" style="background:' + (d.cor || '#10B981') + '">' + (d.nome || '?').slice(0,1).toUpperCase() + '</span>';
   let html =
     '<div class="emp-logo-upload-row">' +
-      '<div class="emp-logo-thumb" id="emp-logo-thumb" onclick="document.getElementById(\'emp-f-logo-input\').click()" title="Trocar logo">' +
-        logoHtml +
+      '<div class="emp-logo-thumb" id="emp-icone-thumb" onclick="document.getElementById(\'emp-f-icone-input\').click()" title="Trocar ícone (opcional)">' +
+        iconeHtml +
         '<div class="emp-logo-overlay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></div>' +
       '</div>' +
       '<div class="emp-logo-info">' +
-        '<p><b>Logo da empresa</b></p>' +
-        '<p>Aparece no header e nos relatórios PDF. PNG, JPG, SVG ou WebP até 5 MB. Idealmente fundo transparente, altura 50px+.</p>' +
+        '<p><b>Ícone da empresa <span style="font-weight:500;color:#94A3B8;font-size:.78rem">(opcional)</span></b></p>' +
+        '<p>Avatar pequeno usado nos cards e listas. Se vazio, usa a <b>letra inicial</b> em cima da cor de identificação. <br><span style="color:#0EA5E9">A logo grande do header é configurada na seção "Empresas do grupo" (fora deste modal).</span></p>' +
         '<div class="emp-logo-actions">' +
-          '<button type="button" onclick="document.getElementById(\'emp-f-logo-input\').click()">📷 Escolher imagem</button>' +
-          (d.logoDataUrl ? '<button type="button" class="danger" onclick="empRemoveLogo()">🗑 Remover</button>' : '') +
+          '<button type="button" onclick="document.getElementById(\'emp-f-icone-input\').click()">📷 Escolher ícone</button>' +
+          (d.iconeDataUrl ? '<button type="button" class="danger" onclick="empRemoveIcone()">🗑 Remover</button>' : '') +
         '</div>' +
-        '<input type="file" id="emp-f-logo-input" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif" style="display:none" onchange="empOnLogoUpload(event)">' +
+        '<input type="file" id="emp-f-icone-input" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif" style="display:none" onchange="empOnIconeUpload(event)">' +
       '</div>' +
     '</div>' +
 
@@ -92665,8 +92668,13 @@ function empRenderModalForm(){
           '<option value="' + r + '"' + (d.regime === r ? ' selected' : '') + '>' +
           ({simples:'Simples Nacional',presumido:'Lucro Presumido',real:'Lucro Real',mei:'MEI'})[r] +
           '</option>').join('') +
-      '</select></div>' +
-    '<div class="emp-field"><label>Cor de identificação (fallback do logo)</label>' +
+      '</select>' +
+      '<small style="font-size:.7rem;color:#64748B;margin-top:5px;line-height:1.4;display:block">' +
+        '🧮 <b>Define o padrão</b> usado no módulo <code style="background:#F1F5F9;padding:1px 5px;border-radius:4px;color:#0F172A;font-weight:600">Impostos &rsaquo; Impostos Correntes</code>. ' +
+        'Trocar aqui atualiza a alíquota base, as guias geradas e os relatórios fiscais ao trocar de empresa.' +
+      '</small>' +
+    '</div>' +
+    '<div class="emp-field"><label>Cor de identificação (fallback do ícone)</label>' +
       '<div class="emp-color-row">' +
         EMP_COLORS.map(c => '<div class="emp-color-chip' + (d.cor === c ? ' selected' : '') +
                             '" style="background:' + c + '" onclick="empPickColor(\'' + c + '\')"></div>').join('') +
@@ -92718,10 +92726,10 @@ async function empActiveLogoReset(){
   if(typeof showToast === 'function') showToast('✓ Logo removida', 'ok');
 }
 
-async function empOnLogoUpload(ev){
+async function empOnIconeUpload(ev){
   const file = ev.target.files && ev.target.files[0];
-  if(!file){ return; }
   ev.target.value = '';
+  if(!file) return;
   if(!/^image\//.test(file.type)){
     if(typeof showToast === 'function') showToast('Selecione um arquivo de imagem', 'err');
     return;
@@ -92730,20 +92738,22 @@ async function empOnLogoUpload(ev){
     if(typeof showToast === 'function') showToast('Imagem muito grande (limite: 5 MB)', 'err');
     return;
   }
-  // Captura valores atuais ANTES de re-render
   empFlushModalDraft();
   const reader = new FileReader();
   reader.onload = () => {
-    EMP_MODAL_DRAFT.logoDataUrl = String(reader.result || '');
+    EMP_MODAL_DRAFT.iconeDataUrl = String(reader.result || '');
     empRenderModalForm();
   };
   reader.readAsDataURL(file);
 }
-function empRemoveLogo(){
+function empRemoveIcone(){
   empFlushModalDraft();
-  EMP_MODAL_DRAFT.logoDataUrl = '';
+  EMP_MODAL_DRAFT.iconeDataUrl = '';
   empRenderModalForm();
 }
+// Aliases legados (mantém código antigo funcionando)
+async function empOnLogoUpload(ev){ return empOnIconeUpload(ev); }
+function empRemoveLogo(){ return empRemoveIcone(); }
 function empFlushModalDraft(){
   if(!EMP_MODAL_DRAFT) return;
   const _g = (id) => { const e = document.getElementById(id); return e ? e.value : null; };
