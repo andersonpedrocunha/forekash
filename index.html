@@ -18900,7 +18900,7 @@
           <button class="rep-tab active" data-rep="dre"      onclick="repSetType('dre',this)">📊 DRE</button>
           <button class="rep-tab"        data-rep="drc"      onclick="repSetType('drc',this)">📋 DRC · Por Centro de Custo</button>
           <button class="rep-tab"        data-rep="balanco"  onclick="repSetType('balanco',this)">⚖ Balancete</button>
-          <button class="rep-tab"        data-rep="fluxo"    onclick="repSetType('fluxo',this)">📊 Fluxo de Caixa</button>
+          <button class="rep-tab"        data-rep="fluxo"    onclick="repSetType('fluxo',this)">💸 Fluxo de Caixa</button>
           <button class="rep-tab"        data-rep="executivo" onclick="repSetType('executivo',this)">⚡ Executivo</button>
         </div>
 
@@ -90234,7 +90234,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779832849';
+      const CACHE = 'forekash-v1779833143';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -90446,9 +90446,13 @@ function repGatherData(period){
   const gastoByCat = {};
   const gastoByCC = {};
   let totalReceita = 0; let totalGasto = 0;
+  let nLanc = 0;
+
+  // ─── Fonte 1: Extrato (extData) ───
   ctx.extrato.forEach(t => {
     const ym = (t.data || '').slice(0,7);
     if(!inRange(ym)) return;
+    nLanc++;
     const v = Math.abs(Number(t.valor) || 0);
     if(t.tipo === 'ganho' || (t.valor > 0 && !t.tipo)){
       const c = t.categoria || 'Outras receitas';
@@ -90462,12 +90466,126 @@ function repGatherData(period){
       totalGasto += v;
     }
   });
+
+  // ─── Fonte 2: Receita (receitaData) · clientes + projetos ───
+  try{
+    if(typeof receitaData !== 'undefined' && Array.isArray(receitaData)){
+      const monthNames = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+      receitaData.forEach(row => {
+        if(!row || row.tipo === 'lead') return; // ignora leads (simulação)
+        const ano = row.ano || row.year || new Date().getFullYear();
+        monthNames.forEach((mn, mi) => {
+          const cell = row[mn];
+          if(!cell || !cell.valor) return;
+          const valor = Number(cell.valor) || 0;
+          if(valor <= 0) return;
+          // Só conta se foi recebido (status === 'pago' ou similar)
+          if(cell.status && cell.status !== 'pago' && cell.status !== 'recebido') return;
+          const ym = ano + '-' + String(mi+1).padStart(2,'0');
+          if(!inRange(ym)) return;
+          const cat = 'Receita · ' + (row.tipo || row.descricao || row.cliente || 'Serviços');
+          receitaByCat[cat] = (receitaByCat[cat] || 0) + valor;
+          totalReceita += valor;
+          nLanc++;
+        });
+      });
+    }
+  }catch(_){}
+
+  // ─── Fonte 3: Pessoas / Folha (pessoasData) ───
+  try{
+    if(typeof pessoasData !== 'undefined' && Array.isArray(pessoasData)){
+      pessoasData.forEach(p => {
+        if(!p || !p.salario) return;
+        const valor = Number(p.salario) || 0;
+        if(valor <= 0) return;
+        // Aplica em cada mês do período
+        const [y1, m1] = period.de.split('-').map(Number);
+        const [y2, m2] = period.ate.split('-').map(Number);
+        let curY = y1, curM = m1;
+        while((curY < y2) || (curY === y2 && curM <= m2)){
+          const ym = curY + '-' + String(curM).padStart(2,'0');
+          // só conta se a pessoa estava ativa naquele mês
+          if(!p.dataAdmissao || p.dataAdmissao.slice(0,7) <= ym){
+            if(!p.dataDemissao || p.dataDemissao.slice(0,7) >= ym){
+              gastoByCat['Pessoas · Salários'] = (gastoByCat['Pessoas · Salários'] || 0) + valor;
+              gastoByCC['Pessoas'] = (gastoByCC['Pessoas'] || 0) + valor;
+              totalGasto += valor;
+              nLanc++;
+            }
+          }
+          curM++;
+          if(curM > 12){ curM = 1; curY++; }
+        }
+      });
+    }
+  }catch(_){}
+
+  // ─── Fonte 4: Impostos (impData) ───
+  try{
+    if(typeof impData !== 'undefined' && Array.isArray(impData)){
+      impData.forEach(i => {
+        if(!i) return;
+        const ym = (i.competencia || i.vencimento || '').slice(0,7);
+        if(!inRange(ym)) return;
+        const valor = Number(i.valor) || 0;
+        if(valor <= 0) return;
+        gastoByCat['Impostos · ' + (i.tipo || 'Geral')] = (gastoByCat['Impostos · ' + (i.tipo || 'Geral')] || 0) + valor;
+        gastoByCC['Impostos'] = (gastoByCC['Impostos'] || 0) + valor;
+        totalGasto += valor;
+        nLanc++;
+      });
+    }
+  }catch(_){}
+
+  // ─── Fonte 5: Estrutura de Custos (estData) ───
+  try{
+    if(typeof estData !== 'undefined' && Array.isArray(estData)){
+      const monthNames = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+      estData.forEach(row => {
+        if(!row) return;
+        const ano = row.ano || row.year || new Date().getFullYear();
+        monthNames.forEach((mn, mi) => {
+          const valor = Number(row[mn]) || 0;
+          if(valor <= 0) return;
+          const ym = ano + '-' + String(mi+1).padStart(2,'0');
+          if(!inRange(ym)) return;
+          const cat = 'Estrutura · ' + (row.categoria || row.descricao || 'Custos fixos');
+          gastoByCat[cat] = (gastoByCat[cat] || 0) + valor;
+          gastoByCC[row.cc || row.centroCusto || 'Estrutura'] = (gastoByCC[row.cc || row.centroCusto || 'Estrutura'] || 0) + valor;
+          totalGasto += valor;
+          nLanc++;
+        });
+      });
+    }
+  }catch(_){}
+
+  // ─── Fonte 6: Empréstimos (parcelas pagas) ───
+  try{
+    if(typeof DATA !== 'undefined' && Array.isArray(DATA)){
+      DATA.forEach(emp => {
+        if(!emp || !Array.isArray(emp.parcelas)) return;
+        emp.parcelas.forEach(p => {
+          if(p.status !== 'pago' && p.status !== 'baixado') return;
+          const ym = (p.vencimento || p.data || '').slice(0,7);
+          if(!inRange(ym)) return;
+          const valor = Number(p.valor) || 0;
+          if(valor <= 0) return;
+          gastoByCat['Empréstimos · Parcelas'] = (gastoByCat['Empréstimos · Parcelas'] || 0) + valor;
+          gastoByCC['Empréstimos'] = (gastoByCC['Empréstimos'] || 0) + valor;
+          totalGasto += valor;
+          nLanc++;
+        });
+      });
+    }
+  }catch(_){}
+
   // Caixa atual
   let caixa = 0;
   (ctx.dispo.contas || []).forEach(c => caixa += Number(c.saldoAtual || c.saldo || 0));
   return {
     period, ctx, receitaByCat, gastoByCat, gastoByCC,
-    totalReceita, totalGasto, lucro:totalReceita - totalGasto, caixa,
+    totalReceita, totalGasto, lucro:totalReceita - totalGasto, caixa, nLanc,
     margem: totalReceita > 0 ? (totalReceita - totalGasto) / totalReceita * 100 : 0
   };
 }
@@ -90484,10 +90602,15 @@ function repHeaderHtml(period){
   const empNome = emp ? emp.nome : (window.SETTINGS && SETTINGS.empresa) || 'Sua empresa';
   const cnpj = emp ? emp.cnpj : (window.SETTINGS && SETTINGS.cnpj) || '—';
   const today = new Date().toLocaleDateString('pt-BR');
-  // Logo da empresa (em vez de FOREKASH text)
-  const hasLogo = emp && emp.logoDataUrl && typeof emp.logoDataUrl === 'string' && emp.logoDataUrl.startsWith('data:image/');
-  const logoBlock = hasLogo
-    ? '<img class="rep-hd-emp-logo" src="' + emp.logoDataUrl.replace(/"/g,'&quot;') + '" alt="' + empNome.replace(/"/g,'&quot;') + '">'
+  // Logo da empresa: prioridade empresa.logoDataUrl → settings.logoDataUrl global → nome em texto
+  let logoUrl = '';
+  if(emp && emp.logoDataUrl && typeof emp.logoDataUrl === 'string' && emp.logoDataUrl.startsWith('data:image/')){
+    logoUrl = emp.logoDataUrl;
+  } else if(typeof settings !== 'undefined' && settings && settings.logoDataUrl && settings.logoDataUrl.startsWith('data:image/')){
+    logoUrl = settings.logoDataUrl;
+  }
+  const logoBlock = logoUrl
+    ? '<img class="rep-hd-emp-logo" src="' + logoUrl.replace(/"/g,'&quot;') + '" alt="' + empNome.replace(/"/g,'&quot;') + '">'
     : '<div class="rep-hd-emp-name">' + empNome + '</div>';
   return '<div class="rep-hd">' +
     '<div class="rep-hd-left">' +
@@ -90537,6 +90660,10 @@ function repRenderPreview(){
 function repRenderDRE(d){
   let html = '<h1 class="rep-title">Demonstração do Resultado do Exercício (DRE)</h1>' +
              '<p class="rep-subtitle">Período: ' + d.period.label + ' · em Reais (R$)</p>';
+  if(d.nLanc === 0){
+    html += '<div class="rep-narrative" style="background:#FEF3C7;border-color:#F59E0B;color:#92400E"><b>⚠ Nenhum lançamento no período selecionado.</b> Adicione lançamentos em <b>Extrato</b>, <b>Receita</b>, <b>Impostos</b> ou <b>Estrutura</b> — depois volta aqui que o DRE preenche automaticamente.</div>';
+    return html;
+  }
 
   html += '<div class="rep-kpi-grid">' +
     '<div class="rep-kpi pos"><div class="rep-kpi-lbl">Receita Bruta</div><div class="rep-kpi-val">' + _repFmt(d.totalReceita) + '</div><div class="rep-kpi-sub">' + Object.keys(d.receitaByCat).length + ' categorias</div></div>' +
