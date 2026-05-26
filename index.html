@@ -14168,10 +14168,10 @@
     .emp-cnpj-search-btn svg{flex-shrink:0}
 
     /* Card .emp-card-ico com logo (img) */
-    .emp-card-ico.has-logo{background:#fff!important;border:1.5px solid #E2E8F0;padding:4px;overflow:hidden}
-    .emp-card-ico.has-logo img{width:100%;height:100%;object-fit:contain;display:block}
-    .emp-menu-item-ico.has-logo{background:#fff!important;border:1px solid #E2E8F0;padding:3px;overflow:hidden}
-    .emp-menu-item-ico.has-logo img{width:100%;height:100%;object-fit:contain;display:block}
+    .emp-card-ico.has-logo{padding:3px;overflow:hidden;border:1.5px solid rgba(0,0,0,.08)}
+    .emp-card-ico.has-logo img{width:100%;height:100%;object-fit:contain;display:block;background:rgba(255,255,255,.92);border-radius:6px}
+    .emp-menu-item-ico.has-logo{padding:2px;overflow:hidden;border:1px solid rgba(0,0,0,.06)}
+    .emp-menu-item-ico.has-logo img{width:100%;height:100%;object-fit:contain;display:block;background:rgba(255,255,255,.92);border-radius:5px}
 
     /* ── Bloco da logo da empresa ATIVA (no topo de "Empresas do grupo") ── */
     .emp-active-logo-box{display:grid;grid-template-columns:1fr auto auto;gap:24px;align-items:center;
@@ -19591,6 +19591,24 @@
           </div>
         </div>
 
+        <!-- ── EMPRESAS (multi-PJ) ─────────────────────────── -->
+        <div class="cfg-section empresas" id="cfg-empresas-section">
+          <div class="cfg-section-hd">
+            <div class="cfg-section-ico">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V10l7-4 7 4v11M9 21v-6h6v6"/><path d="M9 10h.01M13 10h.01M9 14h.01M13 14h.01"/></svg>
+            </div>
+            <h3>Empresas do grupo</h3>
+          </div>
+          <p class="cfg-section-sub">Gerencie múltiplas PJs num único login — útil pra holdings, grupos econômicos e contadores. Cada empresa tem seus próprios módulos, dados e equipe.</p>
+          <div class="cfg-section-body">
+            <div class="emp-list" id="emp-list"></div>
+            <div style="margin-top:14px;display:flex;gap:8px">
+              <button class="btn btn-p" onclick="empOpenNewModal()">+ Nova empresa</button>
+              <button class="btn btn-g" onclick="empOpenManageModal()">⚙ Gerenciar atual</button>
+            </div>
+          </div>
+        </div>
+
 
 
         <!-- ── SEGURANÇA (login & senha) ─────────────── -->
@@ -19934,24 +19952,6 @@
                   <div class="cfg-action-desc">Remove todos os módulos e configurações. O sistema volta ao estado inicial (em branco).</div>
                 </div>
               </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- ── EMPRESAS (multi-PJ) ─────────────────────────── -->
-        <div class="cfg-section empresas" id="cfg-empresas-section">
-          <div class="cfg-section-hd">
-            <div class="cfg-section-ico">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V10l7-4 7 4v11M9 21v-6h6v6"/><path d="M9 10h.01M13 10h.01M9 14h.01M13 14h.01"/></svg>
-            </div>
-            <h3>Empresas do grupo</h3>
-          </div>
-          <p class="cfg-section-sub">Gerencie múltiplas PJs num único login — útil pra holdings, grupos econômicos e contadores. Cada empresa tem seus próprios módulos, dados e equipe.</p>
-          <div class="cfg-section-body">
-            <div class="emp-list" id="emp-list"></div>
-            <div style="margin-top:14px;display:flex;gap:8px">
-              <button class="btn btn-p" onclick="empOpenNewModal()">+ Nova empresa</button>
-              <button class="btn btn-g" onclick="empOpenManageModal()">⚙ Gerenciar atual</button>
             </div>
           </div>
         </div>
@@ -90222,7 +90222,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779831069';
+      const CACHE = 'forekash-v1779831849';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -92421,12 +92421,15 @@ function empRenderHeader(){
   const name = document.getElementById('hdr-company-name');
   const role = document.getElementById('hdr-company-role');
   if(ico){
-    if(cur.logoDataUrl){
-      ico.innerHTML = '<img src="' + cur.logoDataUrl.replace(/"/g,'&quot;') + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">';
-      ico.style.background = 'transparent';
+    const hLetter = (cur.nome || '?').slice(0,1).toUpperCase();
+    const hColor = cur.cor || '#10B981';
+    const hHasLogo = cur.logoDataUrl && typeof cur.logoDataUrl === 'string' && cur.logoDataUrl.startsWith('data:image/');
+    if(hHasLogo){
+      ico.innerHTML = '<img src="' + cur.logoDataUrl.replace(/"/g,'&quot;') + '" alt="" style="width:100%;height:100%;object-fit:contain;border-radius:inherit;padding:3px" onerror="this.parentNode.textContent=\'' + hLetter + '\';this.parentNode.style.background=\'' + hColor + '\'">';
+      ico.style.background = '#fff';
     } else {
-      ico.textContent = (cur.nome || '?').slice(0,1).toUpperCase();
-      ico.style.background = cur.cor || '#10B981';
+      ico.textContent = hLetter;
+      ico.style.background = hColor;
     }
   }
   if(name) name.textContent = cur.nome || '—';
@@ -92445,9 +92448,12 @@ function empRenderHeader(){
       const item = document.createElement('div');
       item.className = 'emp-menu-item' + (e.id === EMPRESAS.currentId ? ' active' : '');
       item.onclick = () => empSwitchTo(e.id);
-      const itemIco = e.logoDataUrl
-        ? '<div class="emp-menu-item-ico has-logo"><img src="' + e.logoDataUrl.replace(/"/g,'&quot;') + '" alt=""></div>'
-        : '<div class="emp-menu-item-ico" style="background:' + (e.cor || '#10B981') + '">' + (e.nome || '?').slice(0,1).toUpperCase() + '</div>';
+      const itLetter = (e.nome || '?').slice(0,1).toUpperCase();
+      const itColor = e.cor || '#10B981';
+      const itHasLogo = e.logoDataUrl && typeof e.logoDataUrl === 'string' && e.logoDataUrl.startsWith('data:image/');
+      const itemIco = itHasLogo
+        ? '<div class="emp-menu-item-ico has-logo" style="background:' + itColor + '"><img src="' + e.logoDataUrl.replace(/"/g,'&quot;') + '" alt="" onerror="this.parentNode.classList.remove(\'has-logo\');this.parentNode.innerHTML=\'' + itLetter + '\';this.parentNode.style.color=\'#fff\';"></div>'
+        : '<div class="emp-menu-item-ico" style="background:' + itColor + '">' + itLetter + '</div>';
       item.innerHTML = itemIco +
         '<div class="emp-menu-item-info">' +
           '<b>' + (e.nome || '—') + '</b>' +
@@ -92573,9 +92579,12 @@ function empRenderConfigList(){
     const isCurrent = e.id === EMPRESAS.currentId;
     const card = document.createElement('div');
     card.className = 'emp-card' + (isCurrent ? ' active' : '');
-    const icoHtml = e.logoDataUrl
-      ? '<div class="emp-card-ico has-logo"><img src="' + e.logoDataUrl.replace(/"/g,'&quot;') + '" alt=""></div>'
-      : '<div class="emp-card-ico" style="background:' + (e.cor || '#10B981') + '">' + (e.nome || '?').slice(0,1).toUpperCase() + '</div>';
+    const letter = (e.nome || '?').slice(0,1).toUpperCase();
+    const color = e.cor || '#10B981';
+    const hasValidLogo = e.logoDataUrl && typeof e.logoDataUrl === 'string' && e.logoDataUrl.startsWith('data:image/');
+    const icoHtml = hasValidLogo
+      ? '<div class="emp-card-ico has-logo" style="background:' + color + '"><img src="' + e.logoDataUrl.replace(/"/g,'&quot;') + '" alt="" onerror="this.parentNode.classList.remove(\'has-logo\');this.parentNode.innerHTML=\'' + letter + '\';this.parentNode.style.color=\'#fff\';this.parentNode.style.fontWeight=\'800\';this.parentNode.style.fontSize=\'1.1rem\';"></div>'
+      : '<div class="emp-card-ico" style="background:' + color + '">' + letter + '</div>';
     card.innerHTML = icoHtml +
       '<div class="emp-card-info">' +
         '<b>' + (e.nome || '—') + (isCurrent ? ' <span style="font-size:.66rem;color:#10B981;background:#D1FAE5;padding:2px 7px;border-radius:8px;margin-left:5px;letter-spacing:.04em;text-transform:uppercase">ativa</span>' : '') + '</b>' +
