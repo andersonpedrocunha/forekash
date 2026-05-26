@@ -31629,9 +31629,44 @@ function flxOutrasDespMes(year, mIdx){
   try { if(typeof _flxOutrasOpMes === 'function') base += _flxOutrasOpMes('outrasDesp', year, mIdx); } catch(_){}
   return base;
 }
+// Agrega saldo inicial calculado de todas as contas de Disponibilidades pro início do ano.
+// Pra cada conta com saldoInicial setado, calcula o saldo dela em jan/year (ou mês inicial se for depois)
+function flxSaldoInicialDeDispo(year){
+  if(typeof dispo === 'undefined' || !dispo || !Array.isArray(dispo.contas)) return null;
+  const yStr = String(year);
+  const refYm = yStr + '-01';  // início do ano
+  let total = 0, contas = 0;
+  for(const c of dispo.contas){
+    if(c.ativo === false) continue;
+    if(!c.saldoInicialMes || c.saldoInicial == null) continue;
+    // Conta nasceu antes ou em jan do ano? Calcula saldo em jan/year
+    if(c.saldoInicialMes > refYm){
+      // Conta nasceu depois · usa o saldo inicial direto (vai entrar quando o mês chegar)
+      // Por enquanto, não inclui no saldo inicial do ano
+      continue;
+    }
+    // Pega o saldo do mês ANTERIOR a jan/year (= dez do year-1)
+    // Mas se a conta começa em jan/year, usa o próprio saldoInicial
+    if(c.saldoInicialMes === refYm){
+      total += parseFloat(c.saldoInicial) || 0;
+      contas++;
+    } else {
+      // Calcula esperado pra dezembro do ano anterior
+      const ymPrev = (year - 1) + '-12';
+      const s = dispoCalcSaldoEsperado(c, ymPrev);
+      if(s != null){ total += s; contas++; }
+    }
+  }
+  return contas > 0 ? total : null;
+}
+
 function flxSaldoInicialVal(year){
   const v = fluxo.saldoInicial[year];
-  return (v !== undefined && v !== '') ? (parseFloat(v)||0) : 0;
+  // Se o usuário setou manualmente, respeita.
+  if(v !== undefined && v !== '') return parseFloat(v) || 0;
+  // Senão, tenta puxar de Disponibilidades automaticamente
+  const auto = flxSaldoInicialDeDispo(year);
+  return auto != null ? auto : 0;
 }
 // Mês em que o saldo inicial está "ancorado" (0..11). Default: jan (0).
 function flxSaldoInicialMesVal(year){
@@ -70737,6 +70772,11 @@ function dispoLoad(){
       if(typeof c.dados.gerenteTel   !== 'string') c.dados.gerenteTel   = '';
       if(typeof c.dados.obs          !== 'string') c.dados.obs          = '';
     }
+    // Saldo inicial · ancora do cálculo do fluxo (Opção 3)
+    if(typeof c.saldoInicial !== 'number') c.saldoInicial = 0;
+    if(typeof c.saldoInicialMes !== 'string') c.saldoInicialMes = '';
+    if(!Array.isArray(c.snapshots)) c.snapshots = [];
+    if(!c.nextSnapId) c.nextSnapId = (c.snapshots.reduce((m,s) => Math.max(m, s.id||0), 0) + 1);
   }
   if(!['all','ativos','inativos'].includes(dispo.statusFilter)){
     dispo.statusFilter = 'all';
@@ -70749,6 +70789,361 @@ function dispoSave(){
   try{ localStorage.setItem(DISPO_KEY, JSON.stringify({ activeYear:dispoActiveYear, state:dispo })); }catch(e){}
   if (window.FK_MODE === 'cloud') cloudBlobSync('dispo', () => ({ activeYear: dispoActiveYear, state: dispo }));
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// SALDO INICIAL + SNAPSHOTS · sistema de âncoras e divergência
+// ═══════════════════════════════════════════════════════════════════
+
+// Helper · compara duas chaves YM (formato 'YYYY-MM')
+function _dispoYmCmp(a, b){
+  if(!a || !b) return 0;
+  return a.localeCompare(b);
+}
+function _dispoNextYm(ym){
+  const m = /^(\d{4})-(\d{2})$/.exec(ym || '');
+  if(!m) return '';
+  let y = parseInt(m[1]), mo = parseInt(m[2]) + 1;
+  if(mo > 12){ mo = 1; y++; }
+  return y + '-' + String(mo).padStart(2,'0');
+}
+
+// Soma movimentações do Extrato pra uma conta entre dois meses (inclusive)
+function dispoMovimentacoes(contaNome, ymDe, ymAte){
+  if(typeof extratoData === 'undefined' || !extratoData || !Array.isArray(extratoData.lancamentos)) return 0;
+  let total = 0;
+  for(const l of extratoData.lancamentos){
+    if((l.conta || '') !== contaNome) continue;
+    if(!l.data) continue;
+    const lYm = l.data.slice(0,7);
+    if(lYm < ymDe || lYm > ymAte) continue;
+    if(l.status !== 'pago') continue;
+    const v = parseFloat(l.valor) || 0;
+    total += (l.tipo === 'ganho' ? v : -v);
+  }
+  return total;
+}
+
+// Resolve o nome do banco/conta pra cruzar com Extrato (lan.conta usa nome amigável)
+function _dispoNomeConta(c){
+  if(!c) return '';
+  if(typeof c.apelido === 'string' && c.apelido) return c.apelido;
+  // Tenta resolver pelo bancoId
+  if(typeof dispo !== 'undefined' && dispo && Array.isArray(dispo.bancos) && c.bancoId){
+    const b = dispo.bancos.find(x => x.id === c.bancoId);
+    if(b && b.nome) return b.nome;
+  }
+  return '';
+}
+
+// Calcula saldo ESPERADO de uma conta num determinado mês.
+// Usa o snapshot mais recente <= ym como âncora · soma movimentações até o mês alvo.
+function dispoCalcSaldoEsperado(conta, ym){
+  if(!conta || !ym) return null;
+  if(!conta.saldoInicialMes){
+    // Sem ponto de partida definido · não dá pra calcular
+    return null;
+  }
+  if(_dispoYmCmp(ym, conta.saldoInicialMes) < 0){
+    return 0; // antes do saldo inicial
+  }
+  // Pega o snapshot mais recente com ym <= alvo (incluindo o próprio mês inicial)
+  let ancora = { ym: conta.saldoInicialMes, valor: parseFloat(conta.saldoInicial) || 0 };
+  const snaps = Array.isArray(conta.snapshots) ? conta.snapshots : [];
+  for(const s of snaps){
+    if(s && s.ym && _dispoYmCmp(s.ym, ym) <= 0 && _dispoYmCmp(s.ym, ancora.ym) > 0){
+      ancora = { ym: s.ym, valor: parseFloat(s.valor) || 0 };
+    }
+  }
+  // Soma movimentações de (ancora.ym + 1 mês) até ym
+  const nomeConta = _dispoNomeConta(conta);
+  if(!nomeConta) return ancora.valor; // sem nome resolvível, retorna só a âncora
+  const proxMes = _dispoNextYm(ancora.ym);
+  if(_dispoYmCmp(proxMes, ym) > 0){
+    return ancora.valor; // âncora é exatamente o mês alvo
+  }
+  const movs = dispoMovimentacoes(nomeConta, proxMes, ym);
+  return ancora.valor + movs;
+}
+
+// Saldo REAL lançado (saldos[ym]) vs Saldo ESPERADO calculado
+// Retorna { real, esperado, divergencia, hasDivergencia }
+function dispoCalcDivergencia(conta, ym){
+  if(!conta || !ym) return { real:0, esperado:null, divergencia:0, hasDivergencia:false };
+  const real = parseFloat((conta.saldos||{})[ym]) || 0;
+  const esperado = dispoCalcSaldoEsperado(conta, ym);
+  if(esperado == null) return { real, esperado:null, divergencia:0, hasDivergencia:false };
+  const diff = real - esperado;
+  return { real, esperado, divergencia: diff, hasDivergencia: Math.abs(diff) > 0.50 };
+}
+
+// Cria um snapshot de saldo · âncora histórica
+function dispoCreateSnapshot(contaId, ym, valor, observacao){
+  if(!dispo || !Array.isArray(dispo.contas)) return null;
+  const c = dispo.contas.find(x => x.id === contaId);
+  if(!c) return null;
+  if(!Array.isArray(c.snapshots)) c.snapshots = [];
+  // Captura saldo esperado pra registrar divergência se houver
+  const esperado = dispoCalcSaldoEsperado(c, ym);
+  const valNum = parseFloat(valor) || 0;
+  const snap = {
+    id: c.nextSnapId || (c.snapshots.reduce((m,s) => Math.max(m, s.id||0), 0) + 1),
+    ym, valor: valNum,
+    criadoEm: new Date().toISOString(),
+    observacao: (observacao || '').slice(0,200),
+    saldoEsperadoNaHora: esperado,
+    divergencia: esperado != null ? valNum - esperado : 0,
+    usuario: (typeof settings !== 'undefined' && settings ? settings.userName : '') || 'usuário'
+  };
+  c.snapshots.push(snap);
+  c.nextSnapId = snap.id + 1;
+  // Mantém ordenado por ym
+  c.snapshots.sort((a,b) => (a.ym||'').localeCompare(b.ym||''));
+  dispoSave();
+  if(typeof toast === 'function') toast('📸 Snapshot salvo · âncora: ' + ym);
+  return snap;
+}
+
+// Remove snapshot
+function dispoRemoveSnapshot(contaId, snapId){
+  if(!dispo || !Array.isArray(dispo.contas)) return;
+  const c = dispo.contas.find(x => x.id === contaId);
+  if(!c || !Array.isArray(c.snapshots)) return;
+  c.snapshots = c.snapshots.filter(s => s.id !== snapId);
+  dispoSave();
+}
+
+// Define saldo inicial da conta · âncora primária
+function dispoSetSaldoInicial(contaId, valor, ym){
+  if(!dispo || !Array.isArray(dispo.contas)) return;
+  const c = dispo.contas.find(x => x.id === contaId);
+  if(!c) return;
+  c.saldoInicial = parseFloat(valor) || 0;
+  c.saldoInicialMes = ym || '';
+  dispoSave();
+}
+
+try {
+  window.dispoCalcSaldoEsperado = dispoCalcSaldoEsperado;
+  window.dispoCalcDivergencia = dispoCalcDivergencia;
+  window.dispoCreateSnapshot = dispoCreateSnapshot;
+  window.dispoRemoveSnapshot = dispoRemoveSnapshot;
+  window.dispoSetSaldoInicial = dispoSetSaldoInicial;
+} catch(e){}
+
+// ═══════════════════════════════════════════════════════════════════
+// Modal de saldo inicial + snapshots
+// ═══════════════════════════════════════════════════════════════════
+function dispoOpenSaldoInicial(contaId){
+  const c = dispo.contas.find(x => x.id === contaId);
+  if(!c) return;
+  // Cria overlay se não existir
+  let ov = document.getElementById('dispo-si-ov');
+  if(!ov){
+    ov = document.createElement('div');
+    ov.id = 'dispo-si-ov';
+    ov.className = 'dispo-si-ov';
+    ov.onclick = (e) => { if(e.target.id === 'dispo-si-ov') dispoCloseSaldoInicial(); };
+    document.body.appendChild(ov);
+    if(!document.getElementById('dispo-si-style')){
+      const st = document.createElement('style');
+      st.id = 'dispo-si-style';
+      st.textContent = ''
+        + '.dispo-si-ov{position:fixed;inset:0;background:rgba(15,23,42,.75);z-index:99998;display:none;'
+        + 'align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}'
+        + '.dispo-si-ov.show{display:flex}'
+        + '.dispo-si-card{background:#fff;border-radius:12px;width:min(720px,96vw);max-height:88vh;'
+        + 'overflow:hidden;display:flex;flex-direction:column;box-shadow:0 30px 90px rgba(0,0,0,.4)}'
+        + '.dispo-si-hd{padding:16px 22px;background:linear-gradient(135deg,#7C3AED 0%,#5B21B6 100%);'
+        + 'color:#fff;display:flex;align-items:center;gap:12px}'
+        + '.dispo-si-hd h3{margin:0;font-size:1.05rem;font-weight:800}'
+        + '.dispo-si-hd .sub{font-size:.74rem;opacity:.85;margin-top:2px}'
+        + '.dispo-si-x{margin-left:auto;background:transparent;border:1px solid rgba(255,255,255,.3);'
+        + 'color:#fff;width:28px;height:28px;border-radius:6px;cursor:pointer;font-family:inherit}'
+        + '.dispo-si-x:hover{background:rgba(255,255,255,.15)}'
+        + '.dispo-si-bd{flex:1;overflow-y:auto;padding:20px 22px}'
+        + '.dispo-si-sect{margin-bottom:20px}'
+        + '.dispo-si-sect h4{margin:0 0 10px;font-size:.78rem;font-weight:800;color:#475569;'
+        + 'text-transform:uppercase;letter-spacing:.05em}'
+        + '.dispo-si-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px}'
+        + '.dispo-si-fld label{display:block;font-size:.7rem;font-weight:700;color:#64748B;'
+        + 'text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}'
+        + '.dispo-si-fld input{width:100%;padding:9px 12px;border:1px solid #CBD5E1;border-radius:7px;'
+        + 'font-family:inherit;font-size:.88rem;color:#0F172A;box-sizing:border-box}'
+        + '.dispo-si-fld input:focus{outline:none;border-color:#7C3AED;box-shadow:0 0 0 3px rgba(124,58,237,.15)}'
+        + '.dispo-si-info{padding:11px 14px;background:#F5F3FF;border:1px solid #DDD6FE;border-radius:8px;'
+        + 'font-size:.78rem;color:#5B21B6;line-height:1.5}'
+        + '.dispo-si-snap{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;'
+        + 'padding:10px 12px;margin-bottom:6px;display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center}'
+        + '.dispo-si-snap.diverg{background:#FEF2F2;border-color:#FECACA}'
+        + '.dispo-si-snap .ym{font-weight:800;font-size:.78rem;color:#0F172A;font-variant-numeric:tabular-nums}'
+        + '.dispo-si-snap .val{font-weight:700;font-size:.84rem;color:#15803D;font-variant-numeric:tabular-nums;text-align:right}'
+        + '.dispo-si-snap .diff{font-size:.7rem;color:#DC2626;font-weight:700}'
+        + '.dispo-si-snap .obs{font-size:.7rem;color:#64748B}'
+        + '.dispo-si-snap .rm{background:transparent;border:none;color:#94A3B8;cursor:pointer;font-size:.85rem}'
+        + '.dispo-si-snap .rm:hover{color:#DC2626}'
+        + '.dispo-si-add{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-top:8px;'
+        + 'padding:12px;background:#F1F5F9;border-radius:8px;border:1px dashed #94A3B8}'
+        + '.dispo-si-add input{padding:7px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.82rem;font-family:inherit}'
+        + '.dispo-si-add button{padding:7px 14px;background:#7C3AED;color:#fff;border:none;border-radius:6px;'
+        + 'cursor:pointer;font-weight:700;font-family:inherit;font-size:.78rem}'
+        + '.dispo-si-add button:hover{background:#6D28D9}'
+        + '.dispo-si-empty{padding:24px;text-align:center;color:#94A3B8;font-size:.84rem;'
+        + 'background:#F8FAFC;border-radius:8px;border:1px dashed #CBD5E1}'
+        + '.dispo-si-ft{padding:14px 22px;border-top:1px solid #E5E7EB;background:#F8FAFC;'
+        + 'display:flex;justify-content:flex-end;gap:8px}'
+        + '.dispo-si-ft button{padding:8px 18px;border-radius:6px;font-weight:700;font-family:inherit;'
+        + 'font-size:.82rem;cursor:pointer;border:1px solid}'
+        + '.dispo-si-ft .cancel{background:#fff;border-color:#CBD5E1;color:#475569}'
+        + '.dispo-si-ft .save{background:#7C3AED;border-color:#5B21B6;color:#fff}';
+      document.head.appendChild(st);
+    }
+  }
+  ov.classList.add('show');
+  dispoRenderSaldoInicial(contaId);
+}
+function dispoCloseSaldoInicial(){
+  const ov = document.getElementById('dispo-si-ov');
+  if(ov) ov.classList.remove('show');
+}
+try { window.dispoOpenSaldoInicial = dispoOpenSaldoInicial; window.dispoCloseSaldoInicial = dispoCloseSaldoInicial; } catch(e){}
+
+function dispoRenderSaldoInicial(contaId){
+  const ov = document.getElementById('dispo-si-ov');
+  if(!ov) return;
+  const c = dispo.contas.find(x => x.id === contaId);
+  if(!c) return;
+  const banco = dispoBanco(c.bancoId);
+  const tipo = dispoTipo(c.tipoId);
+  const nomeConta = (banco ? banco.nome : 'Conta') + (tipo ? ' · ' + tipo.abrev : '');
+  // Lista de snapshots ordenada
+  const snaps = (Array.isArray(c.snapshots) ? c.snapshots : []).slice().sort((a,b) => (a.ym||'').localeCompare(b.ym||''));
+  // Detecta meses divergentes nos saldos preenchidos
+  const ymsLancados = Object.keys(c.saldos || {}).sort();
+  const divergencias = [];
+  for(const ym of ymsLancados){
+    const d = dispoCalcDivergencia(c, ym);
+    if(d.hasDivergencia){
+      divergencias.push({ ym, real:d.real, esperado:d.esperado, diff:d.divergencia });
+    }
+  }
+
+  let html = '<div class="dispo-si-card">'
+    + '<div class="dispo-si-hd">'
+    +   '<div><h3>⚓ Saldo Inicial · ' + esc(nomeConta) + '</h3>'
+    +   '<div class="sub">Define o ponto de partida do cálculo · alimenta o Fluxo de Caixa</div></div>'
+    +   '<button class="dispo-si-x" onclick="dispoCloseSaldoInicial()">✕</button>'
+    + '</div>'
+    + '<div class="dispo-si-bd">'
+
+    // SEÇÃO 1: Saldo inicial
+    + '<div class="dispo-si-sect">'
+    +   '<h4>📍 Ponto de partida</h4>'
+    +   '<div class="dispo-si-row">'
+    +     '<div class="dispo-si-fld"><label>Saldo inicial (R$)</label>'
+    +       '<input type="text" id="dispo-si-valor" value="' + (c.saldoInicial > 0 ? c.saldoInicial.toLocaleString('pt-BR',{minimumFractionDigits:2}) : '') + '" placeholder="0,00">'
+    +     '</div>'
+    +     '<div class="dispo-si-fld"><label>A partir de (mês)</label>'
+    +       '<input type="month" id="dispo-si-mes" value="' + (c.saldoInicialMes || '') + '">'
+    +     '</div>'
+    +   '</div>'
+    +   '<div class="dispo-si-info">💡 Esse é o ponto zero do cálculo · cada movimentação posterior soma sobre ele · Fluxo de Caixa puxa automático.</div>'
+    + '</div>'
+
+    // SEÇÃO 2: Snapshots
+    + '<div class="dispo-si-sect">'
+    +   '<h4>📸 Snapshots históricos ' + (snaps.length > 0 ? '(' + snaps.length + ')' : '') + '</h4>';
+  if(snaps.length === 0){
+    html += '<div class="dispo-si-empty">Nenhum snapshot ainda · use abaixo pra registrar âncoras de saldo confirmado em períodos específicos.</div>';
+  } else {
+    for(const s of snaps){
+      const ymFmt = s.ym ? s.ym.slice(5,7) + '/' + s.ym.slice(0,4) : '—';
+      const dt = s.criadoEm ? s.criadoEm.slice(0,10).split('-').reverse().join('/') : '';
+      const hasDiv = s.divergencia && Math.abs(s.divergencia) > 0.50;
+      html += '<div class="dispo-si-snap' + (hasDiv ? ' diverg' : '') + '">'
+        +   '<span class="ym">' + ymFmt + '</span>'
+        +   '<div><b style="font-size:.78rem;color:#0F172A">R$ ' + (parseFloat(s.valor)||0).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</b>'
+        +     (hasDiv ? '<br><span class="diff">⚠ ' + (s.divergencia > 0 ? '+' : '') + 'R$ ' + s.divergencia.toLocaleString('pt-BR',{minimumFractionDigits:2}) + ' vs esperado</span>' : '')
+        +     (s.observacao ? '<br><span class="obs">' + esc(s.observacao) + '</span>' : '')
+        +   '</div>'
+        +   '<span class="obs">' + dt + (s.usuario ? ' · ' + esc(s.usuario) : '') + '</span>'
+        +   '<button class="rm" onclick="dispoSnapRemove(' + contaId + ',' + s.id + ')" title="Remover">✕</button>'
+        + '</div>';
+    }
+  }
+  html += '<div class="dispo-si-add">'
+    +   '<input type="month" id="dispo-si-new-ym" placeholder="Mês">'
+    +   '<input type="text" id="dispo-si-new-val" placeholder="Valor (R$)">'
+    +   '<button onclick="dispoSnapAddFromInputs(' + contaId + ')">📸 Capturar</button>'
+    + '</div>';
+  html += '</div>';
+
+  // SEÇÃO 3: Divergências detectadas
+  if(divergencias.length > 0){
+    html += '<div class="dispo-si-sect">'
+      +   '<h4>⚠ Divergências detectadas (' + divergencias.length + ')</h4>';
+    for(const d of divergencias.slice(0, 6)){
+      const ymFmt = d.ym.slice(5,7) + '/' + d.ym.slice(0,4);
+      html += '<div class="dispo-si-snap diverg">'
+        +   '<span class="ym">' + ymFmt + '</span>'
+        +   '<div><b style="font-size:.78rem">Lançado: R$ ' + d.real.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</b>'
+        +   '<br><span class="diff">Esperado: R$ ' + d.esperado.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span></div>'
+        +   '<span class="diff">' + (d.diff > 0 ? '+' : '') + 'R$ ' + d.diff.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span>'
+        +   '<span></span>'
+        + '</div>';
+    }
+    if(divergencias.length > 6){
+      html += '<div style="font-size:.74rem;color:#94A3B8;text-align:center;margin-top:6px">+ ' + (divergencias.length - 6) + ' outras divergências</div>';
+    }
+    html += '</div>';
+  }
+
+  html += '</div>'  // /dispo-si-bd
+    + '<div class="dispo-si-ft">'
+    +   '<button class="cancel" onclick="dispoCloseSaldoInicial()">Cancelar</button>'
+    +   '<button class="save" onclick="dispoSaveSaldoInicialFromInputs(' + contaId + ')">Salvar saldo inicial</button>'
+    + '</div>'
+    + '</div>';
+  ov.innerHTML = html;
+}
+
+function dispoSaveSaldoInicialFromInputs(contaId){
+  const v = (document.getElementById('dispo-si-valor')?.value || '').replace(/\./g,'').replace(',','.');
+  const ym = document.getElementById('dispo-si-mes')?.value || '';
+  const vNum = parseFloat(v) || 0;
+  if(!ym){ if(typeof toast === 'function') toast('⚠ Escolha o mês de partida'); return; }
+  dispoSetSaldoInicial(contaId, vNum, ym);
+  if(typeof toast === 'function') toast('✓ Saldo inicial salvo · ponto de partida: ' + ym);
+  if(typeof renderDispo === 'function') try{ renderDispo(); }catch(e){}
+  dispoCloseSaldoInicial();
+}
+function dispoSnapAddFromInputs(contaId){
+  const ym = document.getElementById('dispo-si-new-ym')?.value || '';
+  const v = (document.getElementById('dispo-si-new-val')?.value || '').replace(/\./g,'').replace(',','.');
+  const vNum = parseFloat(v);
+  if(!ym || !isFinite(vNum)){ if(typeof toast === 'function') toast('⚠ Preencha mês e valor'); return; }
+  dispoCreateSnapshot(contaId, ym, vNum, '');
+  dispoRenderSaldoInicial(contaId);
+}
+function dispoSnapRemove(contaId, snapId){
+  if(typeof anaConfirm !== 'function'){
+    dispoRemoveSnapshot(contaId, snapId);
+    dispoRenderSaldoInicial(contaId);
+    return;
+  }
+  anaConfirm({
+    eyebrow: '📸 Remover snapshot',
+    title: 'Remover este snapshot?',
+    message: 'O snapshot vai ser apagado. O cálculo do saldo passa a usar a próxima âncora anterior (ou o saldo inicial).'
+  }, () => {
+    dispoRemoveSnapshot(contaId, snapId);
+    dispoRenderSaldoInicial(contaId);
+  });
+}
+try {
+  window.dispoSaveSaldoInicialFromInputs = dispoSaveSaldoInicialFromInputs;
+  window.dispoSnapAddFromInputs = dispoSnapAddFromInputs;
+  window.dispoSnapRemove = dispoSnapRemove;
+} catch(e){}
 async function cloudDispoFetch(){
   const d = await cloudBlobFetch('dispo');
   if (d == null) {
@@ -80147,7 +80542,10 @@ function renderDispoRow(c, year){
       </div>
     </td>
     ${valCells}
-    <td class="del" style="text-align:center">
+    <td class="del" style="text-align:center;white-space:nowrap">
+      <button class="pes-row-btn" onclick="dispoOpenSaldoInicial(${c.id})" title="Saldo inicial + snapshots" style="color:#7C3AED">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2"/><path d="M12 7v10"/><path d="M6 17h12"/><path d="M5 21l-2-4h18l-2 4"/></svg>
+      </button>
       <button class="pes-row-btn delete" onclick="delDispoConta(${c.id})" title="Excluir conta">
         <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m2 0v14a2 2 0 01-2 2H8a2 2 0 01-2-2V6"/></svg>
       </button>
@@ -80361,6 +80759,7 @@ function updateDispoKpis(){
 function addDispoConta(){
   const nextId = dispo.contas.reduce((m,c)=>Math.max(m,c.id),0) + 1;
   dispo.contas.push({ id:nextId, bancoId:'', tipoId:'', ativo:true, saldos:{},
+                      saldoInicial:0, saldoInicialMes:'', snapshots:[], nextSnapId:1,
                       dados:{ agencia:'', conta:'', digito:'', titular:'', documento:'',
                               pix:'', pixTipo:'', gerente:'', gerenteEmail:'', gerenteTel:'', obs:'' } });
   dispoSave();
