@@ -19480,28 +19480,9 @@
                 <input type="email" id="cfg-email" placeholder="voce@empresa.com" oninput="settingsOnInput()" />
               </div>
             </div>
-            <div class="cfg-row">
-              <div class="cfg-field">
-                <label for="cfg-empresa">Empresa</label>
-                <input type="text" id="cfg-empresa" placeholder="Nome da empresa" oninput="settingsOnInput()" />
-              </div>
-              <div class="cfg-field">
-                <label for="cfg-cnpj">CNPJ</label>
-                <input type="text" id="cfg-cnpj" placeholder="00.000.000/0000-00" oninput="settingsOnInput()" />
-              </div>
-            </div>
-            <div class="cfg-row">
-              <div class="cfg-field">
-                <label for="cfg-regime">Regime Tributário</label>
-                <select id="cfg-regime" onchange="settingsOnInput()">
-                  <option value="" disabled hidden>Selecione o regime…</option>
-                  <option value="simples">Simples Nacional</option>
-                  <option value="presumido">Lucro Presumido</option>
-                  <option value="real">Lucro Real</option>
-                  <option value="mei">MEI</option>
-                </select>
-                <small class="cfg-field-hint">Usado como padrão em Impostos &rsaquo; Impostos Correntes</small>
-              </div>
+            <!-- Empresa, CNPJ e Regime movidos pra seção "Empresas do grupo" abaixo · single source of truth -->
+            <div class="cfg-field-hint" style="background:#F0F9FF;border:1px solid #BAE6FD;color:#0369A1;padding:10px 14px;border-radius:8px;font-size:.78rem;line-height:1.5;margin:6px 0">
+              <b>💡 Dados da empresa</b> (nome, CNPJ, regime tributário) agora ficam na seção <b>"Empresas do grupo"</b> mais abaixo — onde você gerencia uma ou várias PJs num só login.
             </div>
             <div class="cfg-save-row">
               <span class="cfg-saved-flag" id="cfg-saved-flag">
@@ -92286,6 +92267,8 @@ function empLoad(){
     }catch(_){}
   }
   if(!EMPRESAS.currentId && EMPRESAS.list[0]) EMPRESAS.currentId = EMPRESAS.list[0].id;
+  // Garante que settings.empresa/cnpj/regime estão em sync com a empresa ativa
+  try{ empSyncToSettings(); }catch(_){}
 
   try{
     const raw2 = localStorage.getItem(TEAM_KEY);
@@ -92383,12 +92366,31 @@ document.addEventListener('click', (e) => {
 function empSwitchTo(id){
   EMPRESAS.currentId = id;
   empSave();
+  empSyncToSettings(); // ← sincroniza com SETTINGS legacy (Impostos, etc)
   empRenderHeader();
   if(typeof showToast === 'function'){
     const c = empCurrent();
     showToast('✓ Empresa ativa: ' + (c ? c.nome : '—'), 'ok');
   }
-  // No futuro: recarregar todos os módulos com prefix da empresa nova
+}
+
+// Sincroniza a empresa atual com o objeto SETTINGS legacy
+// (módulo Impostos lê settings.cnpj e settings.regimeTributario)
+function empSyncToSettings(){
+  const cur = empCurrent();
+  if(!cur) return;
+  try{
+    if(typeof settings === 'undefined') return;
+    settings.empresa = cur.nome || '';
+    settings.cnpj = cur.cnpj || '';
+    settings.regimeTributario = cur.regime || '';
+    if(typeof saveSettings === 'function') saveSettings();
+    // Atualiza o cfg-regime hidden se existir + impostos
+    if(typeof impostos !== 'undefined' && impostos){
+      impostos.regimeTributario = cur.regime || impostos.regimeTributario;
+      if(typeof saveImp === 'function') saveImp();
+    }
+  }catch(_){}
 }
 
 // ── Pular pra Configurações > Empresas (do dropdown do header) ────
@@ -92518,6 +92520,7 @@ function empSaveCurrent(){
     if(!EMPRESAS.currentId) EMPRESAS.currentId = nova.id;
   }
   empSave();
+  empSyncToSettings(); // sincroniza com settings legacy
   empRenderHeader();
   empRenderConfigList();
   empCloseModal();
