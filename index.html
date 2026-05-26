@@ -59250,6 +59250,27 @@ function _concRenderWorkbench(){
       orfao: matches.filter(m => m.bucket === 'orfao' && !CONC_STATE.resolved.has(m._idx)).length
     };
 
+    // Banner de overlap (se houver período já conciliado em jogo)
+    const overlap = CONC_STATE.overlap;
+    if(overlap && overlap.tipo !== 'none'){
+      const dupCount = matches.filter(m => m.tipo === 'duplicata').length;
+      const periodoBloq = matches.filter(m => m.tipo === 'periodo-conciliado').length;
+      const concAteFmt = overlap.conciliadoAte.slice(8,10) + '/' + overlap.conciliadoAte.slice(5,7) + '/' + overlap.conciliadoAte.slice(0,4);
+      const bannerBg = overlap.tipo === 'completa' ? '#FEF3C7' : (overlap.tipo === 'parcial' ? '#EFF6FF' : '#F0FDF4');
+      const bannerBd = overlap.tipo === 'completa' ? '#FBBF24' : (overlap.tipo === 'parcial' ? '#93C5FD' : '#86EFAC');
+      const bannerIco = overlap.tipo === 'completa' ? '⚠' : (overlap.tipo === 'parcial' ? '🔁' : '✓');
+      const bannerColor = overlap.tipo === 'completa' ? '#92400E' : (overlap.tipo === 'parcial' ? '#1E40AF' : '#15803D');
+      html += '<div style="background:' + bannerBg + ';border:1px solid ' + bannerBd + ';color:' + bannerColor
+        + ';padding:11px 14px;border-radius:9px;font-size:.82rem;line-height:1.5;margin-bottom:10px;display:flex;gap:10px;align-items:flex-start">'
+        +   '<span style="font-size:1.1rem;flex-shrink:0">' + bannerIco + '</span>'
+        +   '<div><b>Período já conciliado até ' + concAteFmt + '</b>'
+        +     (overlap.tipo === 'completa' ? ' · OFX inteiro dentro desse período.' : '')
+        +     (overlap.tipo === 'parcial' ? ' · OFX cobre ' + overlap.dentroConciliado + ' transações nesse período + ' + overlap.depoisConciliado + ' novas.' : '')
+        +     (dupCount + periodoBloq > 0 ? '<br>🔒 <b>' + (dupCount + periodoBloq) + '</b> transação(ões) de período fechado foram <b>auto-ignoradas</b> no bucket Órfão (FITID match: ' + dupCount + ' · período bloqueado: ' + periodoBloq + ').' : '')
+        +   '</div>'
+        + '</div>';
+    }
+
     html += '<div class="conc-buckets">'
       +   '<button class="conc-bucket-tab match ' + (CONC_STATE.bucket === 'match' ? 'is-active' : '') + '" onclick="concSetBucket(\'match\')">'
       +     '<span class="lbl">✓ Match exato</span><span class="num">' + counts.match + '</span></button>'
@@ -59323,30 +59344,169 @@ function _concWireDropZone(){
   inp.addEventListener('change', e => { if(e.target.files && e.target.files[0]) _concHandleFile(e.target.files[0]); });
 }
 
+// Analisa sobreposição entre OFX e período já conciliado
+function _concAnalyzeOverlap(parsed, conta){
+  const acc = (conciliacaoData.porConta && conciliacaoData.porConta[conta]) || { historico:[] };
+  const conciliadoAte = acc.conciliadoAte || '';
+  const datas = parsed.items.map(o => o.data).filter(Boolean).sort();
+  const ofxIni = datas[0] || '';
+  const ofxFim = datas[datas.length - 1] || '';
+  const ofxTotal = parsed.items.length;
+
+  // 1. Detecta re-import do MESMO arquivo (nome + qtd + período igual a uma conciliação anterior ativa)
+  const ativas = (acc.historico || []).filter(h => !h.revertido);
+  const mesmoArquivo = ativas.find(h =>
+    h.arquivo === (parsed.arquivo || CONC_STATE.ofxArquivo) &&
+    h.totalOFX === ofxTotal &&
+    h.periodoIni === ofxIni &&
+    h.periodoFim === ofxFim
+  );
+
+  // 2. Conta transações por status
+  let dentroConciliado = 0, depoisConciliado = 0;
+  for(const o of parsed.items){
+    if(conciliadoAte && o.data && o.data <= conciliadoAte) dentroConciliado++;
+    else depoisConciliado++;
+  }
+
+  // 3. Detecta sobreposição parcial
+  let tipo = 'none';
+  if(!conciliadoAte) tipo = 'none';
+  else if(ofxFim <= conciliadoAte) tipo = 'completa';      // OFX inteiro dentro do já conciliado
+  else if(ofxIni > conciliadoAte) tipo = 'none';           // OFX inteiro depois (sem overlap)
+  else tipo = 'parcial';                                    // Começa antes, vai além
+
+  return {
+    tipo,
+    conciliadoAte,
+    ofxIni, ofxFim, ofxTotal,
+    dentroConciliado, depoisConciliado,
+    mesmoArquivo: mesmoArquivo ? mesmoArquivo.id : null,
+    mesmoArquivoHist: mesmoArquivo || null
+  };
+}
+
 async function _concHandleFile(file){
   CONC_STATE.ofxFile = file;
   CONC_STATE.ofxArquivo = file.name;
+  let parsed;
   try {
-    const parsed = await _concParseFile(file);
-    CONC_STATE.ofxItems = parsed.items;
-    CONC_STATE.saldoOFX = parsed.saldoFinal;
-    CONC_STATE.formato = parsed.formato;
-    // Roda matcher
-    if(!extratoData || !Array.isArray(extratoData.lancamentos)){
-      if(typeof _extLoad === 'function') _extLoad();
-    }
-    const sistema = (extratoData.lancamentos || []).filter(l => (l.conta || '') === CONC_STATE.contaAtiva);
-    const matches = _concRunMatcher(CONC_STATE.ofxItems, sistema, conciliacaoData.patterns || []);
-    // Atribui _idx pra rastrear resolved
-    matches.forEach((m, i) => m._idx = i);
-    CONC_STATE.matches = matches;
-    CONC_STATE.resolved = new Set();
-    CONC_STATE.bucket = matches.some(m => m.bucket === 'match') ? 'match' : (matches.some(m => m.bucket === 'fuzzy') ? 'fuzzy' : 'novo');
-    if(typeof toast === 'function') toast('📊 ' + matches.length + ' transações analisadas · ' + parsed.formato);
+    parsed = await _concParseFile(file);
   } catch(e){
     console.warn('[CONC] parse fail:', e);
     if(typeof anaAlert === 'function') anaAlert({ eyebrow:'⚠ Erro', title:'Não consegui ler o arquivo', message: e.message || 'Erro desconhecido' });
     return;
+  }
+  // Análise de sobreposição com período já conciliado
+  const overlap = _concAnalyzeOverlap(parsed, CONC_STATE.contaAtiva);
+  CONC_STATE.overlap = overlap;
+
+  // CASO 1: mesmo arquivo já importado antes (re-upload exato)
+  if(overlap.mesmoArquivo){
+    const h = overlap.mesmoArquivoHist;
+    const dataFmt = h.criadoEm ? h.criadoEm.slice(0,10).split('-').reverse().join('/') : '';
+    if(typeof anaConfirm === 'function'){
+      anaConfirm({
+        eyebrow: '⚠ Arquivo já conciliado',
+        title: 'Esse OFX parece ser o mesmo do dia ' + dataFmt,
+        message: 'Nome do arquivo, total de transações (' + h.totalOFX + ') e período (' + h.periodoIni.slice(8,10) + '/' + h.periodoIni.slice(5,7) + ' → ' + h.periodoFim.slice(8,10) + '/' + h.periodoFim.slice(5,7) + ') idênticos à conciliação <b>#' + h.id + '</b>.<br><br>'
+          + '<b>Você quer reimportar mesmo assim?</b><br>'
+          + '· A duplicação por FITID vai impedir lançamentos duplicados<br>'
+          + '· Transações já conciliadas vão aparecer como "Duplicata" no bucket Órfão<br>'
+          + '· Útil se você precisa adicionar transações que faltaram',
+        okText: 'Importar mesmo assim',
+        cancelText: 'Cancelar'
+      }, () => _concProceedImport(parsed));
+    } else _concProceedImport(parsed);
+    return;
+  }
+
+  // CASO 2: OFX inteiro dentro do período já conciliado
+  if(overlap.tipo === 'completa'){
+    if(typeof anaConfirm === 'function'){
+      anaConfirm({
+        eyebrow: '⚠ Período já conciliado',
+        title: 'OFX está totalmente dentro de período já conciliado',
+        message: 'Você já conciliou esta conta até <b>' + overlap.conciliadoAte.slice(8,10) + '/' + overlap.conciliadoAte.slice(5,7) + '/' + overlap.conciliadoAte.slice(0,4) + '</b>, e este OFX cobre apenas <b>' + overlap.ofxIni.slice(8,10) + '/' + overlap.ofxIni.slice(5,7) + ' → ' + overlap.ofxFim.slice(8,10) + '/' + overlap.ofxFim.slice(5,7) + '</b>.<br><br>'
+          + '<b>Continuar?</b><br>'
+          + '· Transações que já estão no sistema (FITID match) ficam como "Duplicata"<br>'
+          + '· Transações realmente novas (que faltaram da conciliação anterior) podem ser criadas<br>'
+          + '· Cancele se quiser usar um OFX mais recente em vez',
+        okText: 'Continuar análise',
+        cancelText: 'Cancelar'
+      }, () => _concProceedImport(parsed));
+    } else _concProceedImport(parsed);
+    return;
+  }
+
+  // CASO 3: sobreposição parcial (começa antes do conciliadoAte mas vai além)
+  if(overlap.tipo === 'parcial'){
+    if(typeof anaConfirm === 'function'){
+      anaConfirm({
+        eyebrow: '🔁 Sobreposição parcial',
+        title: 'OFX cobre período parcialmente conciliado',
+        message: 'Você já conciliou até <b>' + overlap.conciliadoAte.slice(8,10) + '/' + overlap.conciliadoAte.slice(5,7) + '</b>. Este OFX traz <b>' + overlap.dentroConciliado + ' transações</b> nesse período já fechado e <b>' + overlap.depoisConciliado + '</b> de período novo.<br><br>'
+          + '<b>Recomendação:</b><br>'
+          + '· As ' + overlap.dentroConciliado + ' do período fechado serão detectadas como duplicatas por FITID e ficarão no bucket "Órfão"<br>'
+          + '· As ' + overlap.depoisConciliado + ' novas vão pros buckets de Match/Fuzzy/Novo normalmente<br><br>'
+          + 'Continuar?',
+        okText: 'Continuar análise',
+        cancelText: 'Cancelar'
+      }, () => _concProceedImport(parsed));
+    } else _concProceedImport(parsed);
+    return;
+  }
+
+  // CASO 4: sem overlap, proceder direto
+  _concProceedImport(parsed);
+}
+
+function _concProceedImport(parsed){
+  CONC_STATE.ofxItems = parsed.items;
+  CONC_STATE.saldoOFX = parsed.saldoFinal;
+  CONC_STATE.formato = parsed.formato;
+  // Roda matcher
+  if(!extratoData || !Array.isArray(extratoData.lancamentos)){
+    if(typeof _extLoad === 'function') _extLoad();
+  }
+  const sistema = (extratoData.lancamentos || []).filter(l => (l.conta || '') === CONC_STATE.contaAtiva);
+  const matches = _concRunMatcher(CONC_STATE.ofxItems, sistema, conciliacaoData.patterns || []);
+  // Marca transações de período já conciliado como tipo especial (auto-resolved)
+  const overlap = CONC_STATE.overlap;
+  if(overlap && overlap.conciliadoAte){
+    for(const m of matches){
+      if(m.ofx && m.ofx.data && m.ofx.data <= overlap.conciliadoAte){
+        // Se já foi marcada como duplicata por FITID, mantém · senão marca como periodo-bloqueado
+        if(m.tipo !== 'duplicata'){
+          m.tipo = 'periodo-conciliado';
+          m.bucket = 'orfao';
+          m._action = 'reject';
+        }
+      }
+    }
+  }
+  matches.forEach((m, i) => {
+    m._idx = i;
+    // Auto-resolve duplicatas e periodo-conciliado pra não atrapalhar
+    if(m.tipo === 'duplicata' || m.tipo === 'periodo-conciliado'){
+      CONC_STATE.resolved = CONC_STATE.resolved || new Set();
+    }
+  });
+  // Inicializa Set de resolved com todos os auto-resolvidos
+  const autoResolved = new Set();
+  for(const m of matches){
+    if(m.tipo === 'duplicata' || m.tipo === 'periodo-conciliado'){
+      autoResolved.add(m._idx);
+    }
+  }
+  CONC_STATE.matches = matches;
+  CONC_STATE.resolved = autoResolved;
+  CONC_STATE.bucket = matches.some(m => m.bucket === 'match' && !autoResolved.has(m._idx)) ? 'match'
+    : (matches.some(m => m.bucket === 'fuzzy' && !autoResolved.has(m._idx)) ? 'fuzzy'
+       : (matches.some(m => m.bucket === 'novo' && !autoResolved.has(m._idx)) ? 'novo' : 'orfao'));
+  if(typeof toast === 'function'){
+    const nDup = matches.filter(m => m.tipo === 'duplicata' || m.tipo === 'periodo-conciliado').length;
+    toast('📊 ' + matches.length + ' transações · ' + parsed.formato + (nDup > 0 ? ' · ' + nDup + ' duplicata(s) auto-puladas' : ''));
   }
   _concRender();
 }
@@ -59354,8 +59514,8 @@ async function _concHandleFile(file){
 function _concRenderRow(m){
   const idx = m._idx;
   const isResolved = CONC_STATE.resolved.has(idx);
-  const confLbl = m.tipo === 'exato' ? 'EXATO' : (m.tipo === 'exato-multi' ? 'EXATO+' : (m.tipo === 'doc' ? 'NF/DOC' : (m.tipo === 'fuzzy' ? 'FUZZY ' + Math.round((m.sim||0)*100) + '%' : (m.tipo === 'duplicata' ? 'DUPLICATA' : (m.tipo === 'novo-pattern' ? 'PADRÃO' : (m.tipo === 'orfao' ? 'SEM OFX' : 'NOVO'))))));
-  const confCls = m.tipo === 'fuzzy' ? 'fuzzy' : (m.tipo === 'doc' ? 'doc' : (m.tipo === 'novo' || m.tipo === 'novo-pattern' ? 'novo' : (m.tipo === 'orfao' || m.tipo === 'duplicata' ? 'orfao' : (m.bucket === 'match' ? 'exato' : 'pattern'))));
+  const confLbl = m.tipo === 'exato' ? 'EXATO' : (m.tipo === 'exato-multi' ? 'EXATO+' : (m.tipo === 'doc' ? 'NF/DOC' : (m.tipo === 'fuzzy' ? 'FUZZY ' + Math.round((m.sim||0)*100) + '%' : (m.tipo === 'duplicata' ? 'DUPLICATA' : (m.tipo === 'periodo-conciliado' ? 'PERÍODO 🔒' : (m.tipo === 'novo-pattern' ? 'PADRÃO' : (m.tipo === 'orfao' ? 'SEM OFX' : 'NOVO')))))));
+  const confCls = m.tipo === 'fuzzy' ? 'fuzzy' : (m.tipo === 'doc' ? 'doc' : (m.tipo === 'novo' || m.tipo === 'novo-pattern' ? 'novo' : (m.tipo === 'orfao' || m.tipo === 'duplicata' || m.tipo === 'periodo-conciliado' ? 'orfao' : (m.bucket === 'match' ? 'exato' : 'pattern'))));
 
   let leftHtml = '<div class="conc-row-side"><div class="lbl">' + (m.ofx ? '🏦 Banco (OFX)' : '— sem OFX —') + '</div>';
   if(m.ofx){
