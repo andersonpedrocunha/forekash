@@ -270,13 +270,16 @@
     .rep-table td.neg{color:#991B1B;font-weight:700}
     .rep-table td.indent{padding-left:32px;color:#475569}
 
-    .rep-kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0 24px}
-    .rep-kpi{background:#F8FAFC;border:1px solid #E5E7EB;border-radius:8px;padding:14px 16px}
-    .rep-kpi-lbl{font-size:8pt;color:#64748B;text-transform:uppercase;letter-spacing:.06em;font-weight:700}
-    .rep-kpi-val{font-size:18pt;font-weight:900;color:#0F172A;margin-top:6px;letter-spacing:-.02em;line-height:1}
-    .rep-kpi-sub{font-size:9pt;color:#94A3B8;margin-top:5px}
+    .rep-kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0 24px}
+    .rep-kpi{background:#F8FAFC;border:1px solid #E5E7EB;border-radius:8px;padding:12px 14px;min-width:0}
+    .rep-kpi-lbl{font-size:8pt;color:#64748B;text-transform:uppercase;letter-spacing:.06em;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .rep-kpi-val{font-size:15pt;font-weight:900;color:#0F172A;margin-top:6px;letter-spacing:-.02em;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+    .rep-kpi-val .rep-kpi-cur{font-size:10pt;font-weight:700;color:#64748B;margin-right:3px;letter-spacing:0;vertical-align:1px}
+    .rep-kpi-sub{font-size:8.5pt;color:#94A3B8;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .rep-kpi.pos .rep-kpi-val{color:#065F46}
     .rep-kpi.neg .rep-kpi-val{color:#991B1B}
+    .rep-kpi.pos .rep-kpi-val .rep-kpi-cur{color:#34D399}
+    .rep-kpi.neg .rep-kpi-val .rep-kpi-cur{color:#FCA5A5}
 
     .rep-foot{margin-top:48px;padding-top:18px;border-top:1px solid #E5E7EB;
               display:flex;justify-content:space-between;font-size:8pt;color:#94A3B8}
@@ -18902,7 +18905,7 @@
           <button class="rep-tab active" data-rep="dre"      onclick="repSetType('dre',this)">📊 DRE</button>
           <button class="rep-tab"        data-rep="drc"      onclick="repSetType('drc',this)">📋 DRC · Por Centro de Custo</button>
           <button class="rep-tab"        data-rep="balanco"  onclick="repSetType('balanco',this)">⚖ Balancete</button>
-          <button class="rep-tab"        data-rep="fluxo"    onclick="repSetType('fluxo',this)">💸 Fluxo de Caixa</button>
+          <button class="rep-tab"        data-rep="fluxo"    onclick="repSetType('fluxo',this)">🌊 Fluxo de Caixa</button>
           <button class="rep-tab"        data-rep="executivo" onclick="repSetType('executivo',this)">⚡ Executivo</button>
         </div>
 
@@ -90237,7 +90240,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779834693';
+      const CACHE = 'forekash-v1779834974';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -90578,6 +90581,13 @@ function _repFmt(v){
   v = Math.abs(Number(v) || 0);
   return sign + 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 });
 }
+// Versão pra KPIs grandes: separa R$ pra estilizar menor (mantém valor compacto)
+function _repFmtKpi(v){
+  const sign = v < 0 ? '-' : '';
+  v = Math.abs(Number(v) || 0);
+  const num = v.toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 });
+  return sign + '<span class="rep-kpi-cur">R$</span>' + num;
+}
 
 function repHeaderHtml(period){
   const emp = (typeof EMPRESAS !== 'undefined' && EMPRESAS && EMPRESAS.currentId) ?
@@ -90585,30 +90595,40 @@ function repHeaderHtml(period){
   const empNome = emp ? emp.nome : (window.SETTINGS && SETTINGS.empresa) || 'Sua empresa';
   const cnpj = emp ? emp.cnpj : (window.SETTINGS && SETTINGS.cnpj) || '—';
   const today = new Date().toLocaleDateString('pt-BR');
-  // Logo: empresa.logoDataUrl → settings.logoDataUrl → DEFAULT_LOGO_SVG (Taller) em dark box
-  let logoBlockHtml = '';
+
+  // SVG Taller inline · 100% garantido (não depende de variável externa)
+  const TALLER_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="32" viewBox="0 0 210 69" fill="#F9FAFB">' +
+    '<path d="M 32.20 9.10 c -0.40 1.40 -6.00 8.10 -12.60 14.80 -6.70 7.00 -12.20 13.50 -12.60 15.00 -1.00 4.10 0.20 11.60 2.10 13.50 1.60 1.50 2.50 0.70 14.70 -11.90 7.10 -7.40 13.60 -14.80 14.50 -16.40 1.90 -3.70 1.20 -10.90 -1.40 -14.40 -2.70 -3.60 -3.90 -3.70 -4.70 -0.60 z"/>' +
+    '<path d="M 125.40 24.20 c -1.60 0.40 -1.80 2.10 -1.80 17.80 0.00 16.20 0.10 17.50 1.90 18.50 1.10 0.50 3.10 1.00 4.50 1.00 l 2.60 0.00 0.00 -18.50 c 0.00 -15.30 -0.20 -18.50 -1.40 -18.50 -0.80 0.00 -2.00 -0.20 -2.80 -0.40 -0.70 -0.20 -2.10 -0.20 -3.00 0.10 z"/>' +
+    '<path d="M 140.40 24.20 c -1.60 0.40 -1.80 2.10 -1.80 17.80 0.00 16.20 0.10 17.50 1.90 18.50 1.10 0.50 3.10 1.00 4.50 1.00 l 2.60 0.00 0.00 -18.50 c 0.00 -15.30 -0.20 -18.50 -1.40 -18.50 -0.80 0.00 -2.00 -0.20 -2.80 -0.40 -0.70 -0.20 -2.10 -0.20 -3.00 0.10 z"/>' +
+    '<path d="M 72.30 27.20 c -0.40 0.30 -0.70 1.90 -0.70 3.50 0.00 2.10 -0.60 3.10 -2.60 3.80 -3.40 1.30 -3.10 6.30 0.40 6.80 2.00 0.30 2.20 0.80 2.20 7.20 0.00 3.80 0.30 7.60 0.60 8.50 1.40 3.50 8.40 5.40 14.20 3.90 1.90 -0.50 2.30 -1.20 2.00 -3.80 -0.30 -2.70 -0.70 -3.20 -3.80 -3.60 -3.50 -0.50 -3.50 -0.50 -3.80 -6.20 l -0.30 -5.70 3.30 -0.30 c 2.90 -0.30 3.30 -0.70 3.60 -3.60 0.30 -3.10 0.20 -3.20 -3.20 -3.20 -3.30 0.00 -3.60 -0.20 -3.60 -3.00 0.00 -1.90 -0.70 -3.30 -1.90 -4.00 -2.20 -1.10 -5.40 -1.30 -6.40 -0.30 z"/>' +
+    '<path d="M 30.60 43.00 l -11.50 11.50 10.20 0.00 10.10 0.00 3.10 -3.50 c 2.60 -3.00 3.10 -4.40 3.10 -8.60 0.00 -4.00 -2.10 -10.90 -3.30 -10.90 -0.10 0.00 -5.40 5.20 -11.70 11.50 z"/>' +
+    '<path d="M 98.90 32.10 c -3.00 0.70 -4.30 2.60 -3.70 5.20 0.60 2.00 1.10 2.10 7.00 1.50 4.20 -0.40 6.40 -0.20 6.40 0.50 0.00 0.60 0.30 1.70 0.60 2.60 0.50 1.40 -0.30 1.60 -5.50 1.60 -5.20 0.00 -6.60 0.40 -8.60 2.50 -3.50 3.40 -3.50 9.60 0.00 12.30 4.90 3.90 16.10 4.00 20.70 0.20 1.90 -1.50 2.30 -3.00 2.60 -9.70 0.40 -8.80 -0.60 -12.50 -4.20 -14.80 -2.50 -1.70 -11.30 -2.70 -15.30 -1.90 z m 9.50 19.10 c -0.30 3.10 -3.80 4.30 -6.40 2.30 -2.00 -1.70 -1.80 -2.90 0.90 -4.00 4.30 -1.70 5.90 -1.20 5.50 1.70 z"/>' +
+    '<path d="M 160.70 33.30 c -4.60 2.50 -7.10 7.40 -7.10 13.90 0.00 4.40 0.50 5.80 3.00 8.60 3.60 4.10 10.00 6.20 15.80 5.20 5.10 -0.80 6.80 -2.60 5.20 -5.50 -1.00 -1.80 -1.70 -2.00 -5.60 -1.40 -3.30 0.50 -5.00 0.20 -6.90 -1.00 -4.10 -2.70 -2.90 -3.60 4.90 -3.60 8.80 0.00 10.10 -1.00 9.30 -7.10 -0.60 -4.70 -2.90 -7.60 -7.40 -9.50 -4.30 -1.90 -7.20 -1.80 -11.20 0.40 z m 11.00 7.90 c 0.80 2.20 0.60 2.30 -4.10 2.30 -3.70 0.00 -5.00 -0.40 -5.00 -1.50 0.00 -3.80 7.70 -4.50 9.10 -0.80 z"/>' +
+    '<path d="M 190.60 32.80 c -4.90 1.70 -6.00 4.60 -6.00 16.20 0.00 11.20 0.60 12.50 5.70 12.50 l 3.30 0.00 0.00 -9.90 c 0.00 -10.90 0.40 -11.70 6.00 -12.30 3.30 -0.30 3.50 -0.50 3.50 -3.80 0.00 -3.40 -0.10 -3.50 -4.50 -3.70 -2.50 -0.10 -6.10 0.30 -8.00 1.00 z"/>' +
+    '</svg>';
+  const tallerBox = '<div class="rep-hd-default-logo">' + TALLER_SVG + '</div>';
+
+  // Logo: empresa → settings → Taller default. ONERROR cai pro Taller.
   let logoUrl = '';
   if(emp && emp.logoDataUrl && typeof emp.logoDataUrl === 'string' && emp.logoDataUrl.startsWith('data:image/')){
     logoUrl = emp.logoDataUrl;
   } else if(typeof settings !== 'undefined' && settings && settings.logoDataUrl && typeof settings.logoDataUrl === 'string' && settings.logoDataUrl.startsWith('data:image/')){
     logoUrl = settings.logoDataUrl;
   }
+
+  let logoBlockHtml;
   if(logoUrl){
-    logoBlockHtml = '<img class="rep-hd-emp-logo" src="' + logoUrl.replace(/"/g,'&quot;') + '" alt="' + empNome.replace(/"/g,'&quot;') + '">';
+    // Renderiza imagem com fallback automático pro Taller via onerror
+    const escapedTaller = tallerBox.replace(/"/g, '&quot;');
+    logoBlockHtml = '<img class="rep-hd-emp-logo" src="' + logoUrl.replace(/"/g,'&quot;') + '" alt="' + empNome.replace(/"/g,'&quot;') + '" onerror="this.outerHTML=\'' + escapedTaller.replace(/'/g,"\\'") + '\'">';
   } else {
-    // Fallback inline: Taller SVG (garantido, não depende do escopo de DEFAULT_LOGO_SVG)
-    const TALLER_INLINE = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="32" viewBox="0 0 210 69" fill="#F9FAFB" aria-label="Taller">' +
-      '<path d="M 32.20 9.10 c -0.40 1.40 -6.00 8.10 -12.60 14.80 -6.70 7.00 -12.20 13.50 -12.60 15.00 -1.00 4.10 0.20 11.60 2.10 13.50 1.60 1.50 2.50 0.70 14.70 -11.90 7.10 -7.40 13.60 -14.80 14.50 -16.40 1.90 -3.70 1.20 -10.90 -1.40 -14.40 -2.70 -3.60 -3.90 -3.70 -4.70 -0.60 z"/>' +
-      '<path d="M 125.40 24.20 c -1.60 0.40 -1.80 2.10 -1.80 17.80 0.00 16.20 0.10 17.50 1.90 18.50 1.10 0.50 3.10 1.00 4.50 1.00 l 2.60 0.00 0.00 -18.50 c 0.00 -15.30 -0.20 -18.50 -1.40 -18.50 -0.80 0.00 -2.00 -0.20 -2.80 -0.40 -0.70 -0.20 -2.10 -0.20 -3.00 0.10 z"/>' +
-      '<path d="M 140.40 24.20 c -1.60 0.40 -1.80 2.10 -1.80 17.80 0.00 16.20 0.10 17.50 1.90 18.50 1.10 0.50 3.10 1.00 4.50 1.00 l 2.60 0.00 0.00 -18.50 c 0.00 -15.30 -0.20 -18.50 -1.40 -18.50 -0.80 0.00 -2.00 -0.20 -2.80 -0.40 -0.70 -0.20 -2.10 -0.20 -3.00 0.10 z"/>' +
-      '<path d="M 72.30 27.20 c -0.40 0.30 -0.70 1.90 -0.70 3.50 0.00 2.10 -0.60 3.10 -2.60 3.80 -3.40 1.30 -3.10 6.30 0.40 6.80 2.00 0.30 2.20 0.80 2.20 7.20 0.00 3.80 0.30 7.60 0.60 8.50 1.40 3.50 8.40 5.40 14.20 3.90 1.90 -0.50 2.30 -1.20 2.00 -3.80 -0.30 -2.70 -0.70 -3.20 -3.80 -3.60 -3.50 -0.50 -3.50 -0.50 -3.80 -6.20 l -0.30 -5.70 3.30 -0.30 c 2.90 -0.30 3.30 -0.70 3.60 -3.60 0.30 -3.10 0.20 -3.20 -3.20 -3.20 -3.30 0.00 -3.60 -0.20 -3.60 -3.00 0.00 -1.90 -0.70 -3.30 -1.90 -4.00 -2.20 -1.10 -5.40 -1.30 -6.40 -0.30 z"/>' +
-      '<path d="M 30.60 43.00 l -11.50 11.50 10.20 0.00 10.10 0.00 3.10 -3.50 c 2.60 -3.00 3.10 -4.40 3.10 -8.60 0.00 -4.00 -2.10 -10.90 -3.30 -10.90 -0.10 0.00 -5.40 5.20 -11.70 11.50 z"/>' +
-      '<path d="M 98.90 32.10 c -3.00 0.70 -4.30 2.60 -3.70 5.20 0.60 2.00 1.10 2.10 7.00 1.50 4.20 -0.40 6.40 -0.20 6.40 0.50 0.00 0.60 0.30 1.70 0.60 2.60 0.50 1.40 -0.30 1.60 -5.50 1.60 -5.20 0.00 -6.60 0.40 -8.60 2.50 -3.50 3.40 -3.50 9.60 0.00 12.30 4.90 3.90 16.10 4.00 20.70 0.20 1.90 -1.50 2.30 -3.00 2.60 -9.70 0.40 -8.80 -0.60 -12.50 -4.20 -14.80 -2.50 -1.70 -11.30 -2.70 -15.30 -1.90 z m 9.50 19.10 c -0.30 3.10 -3.80 4.30 -6.40 2.30 -2.00 -1.70 -1.80 -2.90 0.90 -4.00 4.30 -1.70 5.90 -1.20 5.50 1.70 z"/>' +
-      '<path d="M 160.70 33.30 c -4.60 2.50 -7.10 7.40 -7.10 13.90 0.00 4.40 0.50 5.80 3.00 8.60 3.60 4.10 10.00 6.20 15.80 5.20 5.10 -0.80 6.80 -2.60 5.20 -5.50 -1.00 -1.80 -1.70 -2.00 -5.60 -1.40 -3.30 0.50 -5.00 0.20 -6.90 -1.00 -4.10 -2.70 -2.90 -3.60 4.90 -3.60 8.80 0.00 10.10 -1.00 9.30 -7.10 -0.60 -4.70 -2.90 -7.60 -7.40 -9.50 -4.30 -1.90 -7.20 -1.80 -11.20 0.40 z m 11.00 7.90 c 0.80 2.20 0.60 2.30 -4.10 2.30 -3.70 0.00 -5.00 -0.40 -5.00 -1.50 0.00 -3.80 7.70 -4.50 9.10 -0.80 z"/>' +
-      '<path d="M 190.60 32.80 c -4.90 1.70 -6.00 4.60 -6.00 16.20 0.00 11.20 0.60 12.50 5.70 12.50 l 3.30 0.00 0.00 -9.90 c 0.00 -10.90 0.40 -11.70 6.00 -12.30 3.30 -0.30 3.50 -0.50 3.50 -3.80 0.00 -3.40 -0.10 -3.50 -4.50 -3.70 -2.50 -0.10 -6.10 0.30 -8.00 1.00 z"/>' +
-      '</svg>';
-    logoBlockHtml = '<div class="rep-hd-default-logo">' + TALLER_INLINE + '</div>';
+    logoBlockHtml = tallerBox;
   }
+
+  // DEBUG: log no console pra diagnóstico (pode remover depois)
+  try{ console.log('[Forekash relatório] logo source:', logoUrl ? logoUrl.slice(0,60) + '...' : '(taller fallback)'); }catch(_){}
+
   return '<div class="rep-hd">' +
     '<div class="rep-hd-left">' +
       logoBlockHtml +
@@ -90674,10 +90694,10 @@ function repRenderDRE(d){
   }
 
   html += '<div class="rep-kpi-grid">' +
-    '<div class="rep-kpi pos"><div class="rep-kpi-lbl">Receita Bruta</div><div class="rep-kpi-val">' + _repFmt(d.totalReceita) + '</div><div class="rep-kpi-sub">' + Object.keys(d.receitaByCat).length + ' categorias</div></div>' +
-    '<div class="rep-kpi neg"><div class="rep-kpi-lbl">Despesas Totais</div><div class="rep-kpi-val">' + _repFmt(d.totalGasto) + '</div><div class="rep-kpi-sub">' + Object.keys(d.gastoByCat).length + ' categorias</div></div>' +
-    '<div class="rep-kpi ' + (d.lucro >= 0 ? 'pos' : 'neg') + '"><div class="rep-kpi-lbl">Resultado Líquido</div><div class="rep-kpi-val">' + _repFmt(d.lucro) + '</div><div class="rep-kpi-sub">' + d.margem.toFixed(1) + '% margem</div></div>' +
-    '<div class="rep-kpi"><div class="rep-kpi-lbl">Caixa Atual</div><div class="rep-kpi-val">' + _repFmt(d.caixa) + '</div><div class="rep-kpi-sub">disponibilidades</div></div>' +
+    '<div class="rep-kpi pos"><div class="rep-kpi-lbl">Receita Bruta</div><div class="rep-kpi-val">' + _repFmtKpi(d.totalReceita) + '</div><div class="rep-kpi-sub">' + Object.keys(d.receitaByCat).length + ' categorias</div></div>' +
+    '<div class="rep-kpi neg"><div class="rep-kpi-lbl">Despesas Totais</div><div class="rep-kpi-val">' + _repFmtKpi(d.totalGasto) + '</div><div class="rep-kpi-sub">' + Object.keys(d.gastoByCat).length + ' categorias</div></div>' +
+    '<div class="rep-kpi ' + (d.lucro >= 0 ? 'pos' : 'neg') + '"><div class="rep-kpi-lbl">Resultado Líquido</div><div class="rep-kpi-val">' + _repFmtKpi(d.lucro) + '</div><div class="rep-kpi-sub">' + d.margem.toFixed(1) + '% margem</div></div>' +
+    '<div class="rep-kpi"><div class="rep-kpi-lbl">Caixa Atual</div><div class="rep-kpi-val">' + _repFmtKpi(d.caixa) + '</div><div class="rep-kpi-sub">disponibilidades</div></div>' +
   '</div>';
 
   html += '<h2 class="rep-section-title">RECEITA OPERACIONAL BRUTA</h2><table class="rep-table"><tbody>';
@@ -90731,7 +90751,7 @@ function repRenderDRC(d){
             '<div class="rep-kpi"><div class="rep-kpi-lbl">Centros de Custo</div><div class="rep-kpi-val">' + entries.length + '</div></div>' +
             '<div class="rep-kpi"><div class="rep-kpi-lbl">Maior CC</div><div class="rep-kpi-val" style="font-size:10pt">' + (entries[0] ? entries[0][0] : '—') + '</div><div class="rep-kpi-sub">' + (entries[0] ? _repFmt(entries[0][1]) : '—') + '</div></div>' +
             '<div class="rep-kpi"><div class="rep-kpi-lbl">Distribuição</div><div class="rep-kpi-val" style="font-size:10pt">' + (entries.length > 0 && d.totalGasto > 0 ? (entries[0][1] / d.totalGasto * 100).toFixed(0) + '% no top' : '—') + '</div></div>' +
-            '<div class="rep-kpi"><div class="rep-kpi-lbl">Total Gasto</div><div class="rep-kpi-val">' + _repFmt(d.totalGasto) + '</div></div>' +
+            '<div class="rep-kpi"><div class="rep-kpi-lbl">Total Gasto</div><div class="rep-kpi-val">' + _repFmtKpi(d.totalGasto) + '</div></div>' +
           '</div>';
   return html;
 }
@@ -90840,9 +90860,9 @@ function repRenderExecutivo(d){
 
   html += '<div class="rep-kpi-grid">' +
     '<div class="rep-kpi"><div class="rep-kpi-lbl">KASH SCORE</div><div class="rep-kpi-val">' + ksScore + '/100</div><div class="rep-kpi-sub">saúde financeira</div></div>' +
-    '<div class="rep-kpi pos"><div class="rep-kpi-lbl">Receita</div><div class="rep-kpi-val">' + _repFmt(d.totalReceita) + '</div><div class="rep-kpi-sub">' + d.period.label + '</div></div>' +
-    '<div class="rep-kpi neg"><div class="rep-kpi-lbl">Despesas</div><div class="rep-kpi-val">' + _repFmt(d.totalGasto) + '</div><div class="rep-kpi-sub">' + d.period.label + '</div></div>' +
-    '<div class="rep-kpi ' + (d.lucro >= 0 ? 'pos' : 'neg') + '"><div class="rep-kpi-lbl">Lucro Líquido</div><div class="rep-kpi-val">' + _repFmt(d.lucro) + '</div><div class="rep-kpi-sub">' + d.margem.toFixed(1) + '% margem</div></div>' +
+    '<div class="rep-kpi pos"><div class="rep-kpi-lbl">Receita</div><div class="rep-kpi-val">' + _repFmtKpi(d.totalReceita) + '</div><div class="rep-kpi-sub">' + d.period.label + '</div></div>' +
+    '<div class="rep-kpi neg"><div class="rep-kpi-lbl">Despesas</div><div class="rep-kpi-val">' + _repFmtKpi(d.totalGasto) + '</div><div class="rep-kpi-sub">' + d.period.label + '</div></div>' +
+    '<div class="rep-kpi ' + (d.lucro >= 0 ? 'pos' : 'neg') + '"><div class="rep-kpi-lbl">Lucro Líquido</div><div class="rep-kpi-val">' + _repFmtKpi(d.lucro) + '</div><div class="rep-kpi-sub">' + d.margem.toFixed(1) + '% margem</div></div>' +
   '</div>';
 
   html += '<h2 class="rep-section-title">Highlights do período</h2>' +
