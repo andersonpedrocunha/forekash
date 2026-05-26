@@ -90236,7 +90236,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779833479';
+      const CACHE = 'forekash-v1779834128';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -90442,163 +90442,125 @@ function repGetPeriod(){
 
 function repGatherData(period){
   const ctx = mrkGatherContext();
-  // Helper: extrai YYYY-MM de qualquer formato de data
+  // Helper: extrai YYYY-MM de qualquer formato
   function extractYM(s){
     if(!s) return '';
     s = String(s).trim();
-    // YYYY-MM-DD ou YYYY-MM-DDTHH...
     let m = s.match(/^(\d{4})-(\d{1,2})/);
     if(m) return m[1] + '-' + m[2].padStart(2, '0');
-    // DD/MM/YYYY
     m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
     if(m) return m[3] + '-' + m[2].padStart(2, '0');
-    // YYYY/MM/DD
     m = s.match(/^(\d{4})\/(\d{1,2})/);
     if(m) return m[1] + '-' + m[2].padStart(2, '0');
-    return s.slice(0,7); // fallback
+    return s.slice(0,7);
   }
   const inRange = (ym) => !!ym && ym >= period.de && ym <= period.ate;
-  // Agrega
+
   const receitaByCat = {};
   const gastoByCat = {};
   const gastoByCC = {};
-  let totalReceita = 0; let totalGasto = 0;
+  let totalReceita = 0;
+  let totalGasto = 0;
   let nLanc = 0;
-  const dataYears = {}; // pra diagnóstico
+  const dataYears = {};
 
-  // ─── Fonte 1: Extrato (extData) ───
+  // ═══════════════════════════════════════════════════════════════
+  // FONTE PRIMÁRIA: funções canônicas do Demonstrativo (flx*Mes)
+  // Mesma fonte que o Demonstrativo Financeiro usa — garante consistência
+  // ═══════════════════════════════════════════════════════════════
+  const [y1, m1] = (period.de || '2026-01').split('-').map(Number);
+  const [y2, m2] = (period.ate || '2026-12').split('-').map(Number);
+  for(let yr = y1; yr <= y2; yr++){
+    const mStart = (yr === y1) ? m1 : 1;
+    const mEnd   = (yr === y2) ? m2 : 12;
+    for(let mo = mStart; mo <= mEnd; mo++){
+      const mIdx = mo - 1; // flx funcs usam 0-based
+      const ym = yr + '-' + String(mo).padStart(2,'0');
+      dataYears[String(yr)] = (dataYears[String(yr)] || 0);
+
+      // Receita (clientes + projetos com status pago/recebido)
+      let rec = 0;
+      try{ if(typeof flxReceitaMes === 'function') rec = Number(flxReceitaMes(yr, mIdx)) || 0; }catch(_){}
+      if(rec > 0){
+        receitaByCat['Receita · Vendas e serviços'] = (receitaByCat['Receita · Vendas e serviços'] || 0) + rec;
+        totalReceita += rec;
+        nLanc++;
+        dataYears[String(yr)]++;
+      }
+
+      // Folha de pagamento
+      let folha = 0;
+      try{ if(typeof flxFolhaMes === 'function') folha = Number(flxFolhaMes(yr, mIdx)) || 0; }catch(_){}
+      if(folha > 0){
+        gastoByCat['Pessoas · Salários e folha'] = (gastoByCat['Pessoas · Salários e folha'] || 0) + folha;
+        gastoByCC['Pessoas'] = (gastoByCC['Pessoas'] || 0) + folha;
+        totalGasto += folha;
+        nLanc++;
+        dataYears[String(yr)]++;
+      }
+
+      // Despesas operacionais (Estrutura)
+      let desp = 0;
+      try{ if(typeof flxDespesasMes === 'function') desp = Number(flxDespesasMes(yr, mIdx)) || 0; }catch(_){}
+      if(desp > 0){
+        gastoByCat['Estrutura · Despesas recorrentes'] = (gastoByCat['Estrutura · Despesas recorrentes'] || 0) + desp;
+        gastoByCC['Estrutura'] = (gastoByCC['Estrutura'] || 0) + desp;
+        totalGasto += desp;
+        nLanc++;
+        dataYears[String(yr)]++;
+      }
+
+      // Empréstimos (juros + amortização)
+      let emp = 0;
+      try{ if(typeof flxEmprestimosMes === 'function') emp = Number(flxEmprestimosMes(yr, mIdx)) || 0; }catch(_){}
+      if(emp > 0){
+        gastoByCat['Empréstimos · Juros e amortização'] = (gastoByCat['Empréstimos · Juros e amortização'] || 0) + emp;
+        gastoByCC['Empréstimos'] = (gastoByCC['Empréstimos'] || 0) + emp;
+        totalGasto += emp;
+        nLanc++;
+        dataYears[String(yr)]++;
+      }
+
+      // Impostos
+      let imp = 0;
+      try{ if(typeof flxImpostoMes === 'function') imp = Number(flxImpostoMes(yr, mIdx)) || 0; }catch(_){}
+      if(imp > 0){
+        gastoByCat['Impostos · Tributos correntes'] = (gastoByCat['Impostos · Tributos correntes'] || 0) + imp;
+        gastoByCC['Impostos'] = (gastoByCC['Impostos'] || 0) + imp;
+        totalGasto += imp;
+        nLanc++;
+        dataYears[String(yr)]++;
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // FONTE SECUNDÁRIA: Extrato bancário (caso tenha lançamentos não
+  // capturados pelo Demonstrativo, ex: PIX avulso, taxas, etc.)
+  // ═══════════════════════════════════════════════════════════════
   ctx.extrato.forEach(t => {
     const ym = extractYM(t.data);
     const y = ym.slice(0,4);
-    if(y) dataYears[y] = (dataYears[y] || 0) + 1;
+    if(y) dataYears[y] = (dataYears[y] || 0);
     if(!inRange(ym)) return;
-    nLanc++;
     const v = Math.abs(Number(t.valor) || 0);
+    if(v <= 0) return;
     if(t.tipo === 'ganho' || (t.valor > 0 && !t.tipo)){
-      const c = t.categoria || 'Outras receitas';
-      receitaByCat[c] = (receitaByCat[c] || 0) + v;
+      const cat = t.categoria || 'Outras receitas';
+      receitaByCat[cat] = (receitaByCat[cat] || 0) + v;
       totalReceita += v;
-    } else {
-      const c = t.categoria || 'Outros gastos';
-      gastoByCat[c] = (gastoByCat[c] || 0) + v;
-      const cc = t.centroCusto || t.cc || 'Sem CC';
+      nLanc++;
+      if(y) dataYears[y]++;
+    } else if(t.tipo === 'gasto' || t.valor < 0){
+      const cat = t.categoria || 'Outros gastos';
+      gastoByCat[cat] = (gastoByCat[cat] || 0) + v;
+      const cc = t.centroCusto || t.cc || 'Outros';
       gastoByCC[cc] = (gastoByCC[cc] || 0) + v;
       totalGasto += v;
+      nLanc++;
+      if(y) dataYears[y]++;
     }
   });
-
-  // ─── Fonte 2: Receita (receitaData) · clientes + projetos ───
-  try{
-    if(typeof receitaData !== 'undefined' && Array.isArray(receitaData)){
-      const monthNames = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
-      receitaData.forEach(row => {
-        if(!row || row.tipo === 'lead') return; // ignora leads (simulação)
-        const ano = row.ano || row.year || new Date().getFullYear();
-        monthNames.forEach((mn, mi) => {
-          const cell = row[mn];
-          if(!cell || !cell.valor) return;
-          const valor = Number(cell.valor) || 0;
-          if(valor <= 0) return;
-          // Só conta se foi recebido (status === 'pago' ou similar)
-          if(cell.status && cell.status !== 'pago' && cell.status !== 'recebido') return;
-          const ym = ano + '-' + String(mi+1).padStart(2,'0');
-          if(!inRange(ym)) return;
-          const cat = 'Receita · ' + (row.tipo || row.descricao || row.cliente || 'Serviços');
-          receitaByCat[cat] = (receitaByCat[cat] || 0) + valor;
-          totalReceita += valor;
-          nLanc++;
-        });
-      });
-    }
-  }catch(_){}
-
-  // ─── Fonte 3: Pessoas / Folha (pessoasData) ───
-  try{
-    if(typeof pessoasData !== 'undefined' && Array.isArray(pessoasData)){
-      pessoasData.forEach(p => {
-        if(!p || !p.salario) return;
-        const valor = Number(p.salario) || 0;
-        if(valor <= 0) return;
-        // Aplica em cada mês do período
-        const [y1, m1] = period.de.split('-').map(Number);
-        const [y2, m2] = period.ate.split('-').map(Number);
-        let curY = y1, curM = m1;
-        while((curY < y2) || (curY === y2 && curM <= m2)){
-          const ym = curY + '-' + String(curM).padStart(2,'0');
-          // só conta se a pessoa estava ativa naquele mês
-          if(!p.dataAdmissao || p.dataAdmissao.slice(0,7) <= ym){
-            if(!p.dataDemissao || p.dataDemissao.slice(0,7) >= ym){
-              gastoByCat['Pessoas · Salários'] = (gastoByCat['Pessoas · Salários'] || 0) + valor;
-              gastoByCC['Pessoas'] = (gastoByCC['Pessoas'] || 0) + valor;
-              totalGasto += valor;
-              nLanc++;
-            }
-          }
-          curM++;
-          if(curM > 12){ curM = 1; curY++; }
-        }
-      });
-    }
-  }catch(_){}
-
-  // ─── Fonte 4: Impostos (impData) ───
-  try{
-    if(typeof impData !== 'undefined' && Array.isArray(impData)){
-      impData.forEach(i => {
-        if(!i) return;
-        const ym = extractYM(i.competencia || i.vencimento || '');
-        if(!inRange(ym)) return;
-        const valor = Number(i.valor) || 0;
-        if(valor <= 0) return;
-        gastoByCat['Impostos · ' + (i.tipo || 'Geral')] = (gastoByCat['Impostos · ' + (i.tipo || 'Geral')] || 0) + valor;
-        gastoByCC['Impostos'] = (gastoByCC['Impostos'] || 0) + valor;
-        totalGasto += valor;
-        nLanc++;
-      });
-    }
-  }catch(_){}
-
-  // ─── Fonte 5: Estrutura de Custos (estData) ───
-  try{
-    if(typeof estData !== 'undefined' && Array.isArray(estData)){
-      const monthNames = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
-      estData.forEach(row => {
-        if(!row) return;
-        const ano = row.ano || row.year || new Date().getFullYear();
-        monthNames.forEach((mn, mi) => {
-          const valor = Number(row[mn]) || 0;
-          if(valor <= 0) return;
-          const ym = ano + '-' + String(mi+1).padStart(2,'0');
-          if(!inRange(ym)) return;
-          const cat = 'Estrutura · ' + (row.categoria || row.descricao || 'Custos fixos');
-          gastoByCat[cat] = (gastoByCat[cat] || 0) + valor;
-          gastoByCC[row.cc || row.centroCusto || 'Estrutura'] = (gastoByCC[row.cc || row.centroCusto || 'Estrutura'] || 0) + valor;
-          totalGasto += valor;
-          nLanc++;
-        });
-      });
-    }
-  }catch(_){}
-
-  // ─── Fonte 6: Empréstimos (parcelas pagas) ───
-  try{
-    if(typeof DATA !== 'undefined' && Array.isArray(DATA)){
-      DATA.forEach(emp => {
-        if(!emp || !Array.isArray(emp.parcelas)) return;
-        emp.parcelas.forEach(p => {
-          if(p.status !== 'pago' && p.status !== 'baixado') return;
-          const ym = extractYM(p.vencimento || p.data || '');
-          if(!inRange(ym)) return;
-          const valor = Number(p.valor) || 0;
-          if(valor <= 0) return;
-          gastoByCat['Empréstimos · Parcelas'] = (gastoByCat['Empréstimos · Parcelas'] || 0) + valor;
-          gastoByCC['Empréstimos'] = (gastoByCC['Empréstimos'] || 0) + valor;
-          totalGasto += valor;
-          nLanc++;
-        });
-      });
-    }
-  }catch(_){}
 
   // Caixa atual
   let caixa = 0;
@@ -90632,9 +90594,19 @@ function repHeaderHtml(period){
   }
   if(logoUrl){
     logoBlockHtml = '<img class="rep-hd-emp-logo" src="' + logoUrl.replace(/"/g,'&quot;') + '" alt="' + empNome.replace(/"/g,'&quot;') + '">';
-  } else if(typeof DEFAULT_LOGO_SVG === 'string' && DEFAULT_LOGO_SVG){
-    // Logo Taller padrão · dentro de container dark pra logo branca aparecer
-    logoBlockHtml = '<div class="rep-hd-default-logo">' + DEFAULT_LOGO_SVG + '</div>';
+  } else {
+    // Fallback inline: Taller SVG (garantido, não depende do escopo de DEFAULT_LOGO_SVG)
+    const TALLER_INLINE = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="32" viewBox="0 0 210 69" fill="#F9FAFB" aria-label="Taller">' +
+      '<path d="M 32.20 9.10 c -0.40 1.40 -6.00 8.10 -12.60 14.80 -6.70 7.00 -12.20 13.50 -12.60 15.00 -1.00 4.10 0.20 11.60 2.10 13.50 1.60 1.50 2.50 0.70 14.70 -11.90 7.10 -7.40 13.60 -14.80 14.50 -16.40 1.90 -3.70 1.20 -10.90 -1.40 -14.40 -2.70 -3.60 -3.90 -3.70 -4.70 -0.60 z"/>' +
+      '<path d="M 125.40 24.20 c -1.60 0.40 -1.80 2.10 -1.80 17.80 0.00 16.20 0.10 17.50 1.90 18.50 1.10 0.50 3.10 1.00 4.50 1.00 l 2.60 0.00 0.00 -18.50 c 0.00 -15.30 -0.20 -18.50 -1.40 -18.50 -0.80 0.00 -2.00 -0.20 -2.80 -0.40 -0.70 -0.20 -2.10 -0.20 -3.00 0.10 z"/>' +
+      '<path d="M 140.40 24.20 c -1.60 0.40 -1.80 2.10 -1.80 17.80 0.00 16.20 0.10 17.50 1.90 18.50 1.10 0.50 3.10 1.00 4.50 1.00 l 2.60 0.00 0.00 -18.50 c 0.00 -15.30 -0.20 -18.50 -1.40 -18.50 -0.80 0.00 -2.00 -0.20 -2.80 -0.40 -0.70 -0.20 -2.10 -0.20 -3.00 0.10 z"/>' +
+      '<path d="M 72.30 27.20 c -0.40 0.30 -0.70 1.90 -0.70 3.50 0.00 2.10 -0.60 3.10 -2.60 3.80 -3.40 1.30 -3.10 6.30 0.40 6.80 2.00 0.30 2.20 0.80 2.20 7.20 0.00 3.80 0.30 7.60 0.60 8.50 1.40 3.50 8.40 5.40 14.20 3.90 1.90 -0.50 2.30 -1.20 2.00 -3.80 -0.30 -2.70 -0.70 -3.20 -3.80 -3.60 -3.50 -0.50 -3.50 -0.50 -3.80 -6.20 l -0.30 -5.70 3.30 -0.30 c 2.90 -0.30 3.30 -0.70 3.60 -3.60 0.30 -3.10 0.20 -3.20 -3.20 -3.20 -3.30 0.00 -3.60 -0.20 -3.60 -3.00 0.00 -1.90 -0.70 -3.30 -1.90 -4.00 -2.20 -1.10 -5.40 -1.30 -6.40 -0.30 z"/>' +
+      '<path d="M 30.60 43.00 l -11.50 11.50 10.20 0.00 10.10 0.00 3.10 -3.50 c 2.60 -3.00 3.10 -4.40 3.10 -8.60 0.00 -4.00 -2.10 -10.90 -3.30 -10.90 -0.10 0.00 -5.40 5.20 -11.70 11.50 z"/>' +
+      '<path d="M 98.90 32.10 c -3.00 0.70 -4.30 2.60 -3.70 5.20 0.60 2.00 1.10 2.10 7.00 1.50 4.20 -0.40 6.40 -0.20 6.40 0.50 0.00 0.60 0.30 1.70 0.60 2.60 0.50 1.40 -0.30 1.60 -5.50 1.60 -5.20 0.00 -6.60 0.40 -8.60 2.50 -3.50 3.40 -3.50 9.60 0.00 12.30 4.90 3.90 16.10 4.00 20.70 0.20 1.90 -1.50 2.30 -3.00 2.60 -9.70 0.40 -8.80 -0.60 -12.50 -4.20 -14.80 -2.50 -1.70 -11.30 -2.70 -15.30 -1.90 z m 9.50 19.10 c -0.30 3.10 -3.80 4.30 -6.40 2.30 -2.00 -1.70 -1.80 -2.90 0.90 -4.00 4.30 -1.70 5.90 -1.20 5.50 1.70 z"/>' +
+      '<path d="M 160.70 33.30 c -4.60 2.50 -7.10 7.40 -7.10 13.90 0.00 4.40 0.50 5.80 3.00 8.60 3.60 4.10 10.00 6.20 15.80 5.20 5.10 -0.80 6.80 -2.60 5.20 -5.50 -1.00 -1.80 -1.70 -2.00 -5.60 -1.40 -3.30 0.50 -5.00 0.20 -6.90 -1.00 -4.10 -2.70 -2.90 -3.60 4.90 -3.60 8.80 0.00 10.10 -1.00 9.30 -7.10 -0.60 -4.70 -2.90 -7.60 -7.40 -9.50 -4.30 -1.90 -7.20 -1.80 -11.20 0.40 z m 11.00 7.90 c 0.80 2.20 0.60 2.30 -4.10 2.30 -3.70 0.00 -5.00 -0.40 -5.00 -1.50 0.00 -3.80 7.70 -4.50 9.10 -0.80 z"/>' +
+      '<path d="M 190.60 32.80 c -4.90 1.70 -6.00 4.60 -6.00 16.20 0.00 11.20 0.60 12.50 5.70 12.50 l 3.30 0.00 0.00 -9.90 c 0.00 -10.90 0.40 -11.70 6.00 -12.30 3.30 -0.30 3.50 -0.50 3.50 -3.80 0.00 -3.40 -0.10 -3.50 -4.50 -3.70 -2.50 -0.10 -6.10 0.30 -8.00 1.00 z"/>' +
+      '</svg>';
+    logoBlockHtml = '<div class="rep-hd-default-logo">' + TALLER_INLINE + '</div>';
   }
   return '<div class="rep-hd">' +
     '<div class="rep-hd-left">' +
