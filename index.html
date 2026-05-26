@@ -59124,31 +59124,28 @@ function _ksDaysBetween(d1, d2){
   } catch(e){ return 0; }
 }
 
-// ── Vetor 1: DISCIPLINA (200pts) ──
-// Quanto você é consistente nos lançamentos
-function _ksCalcDisciplina(){
+// ── Vetor 1: HIGIENE (180pts) ──
+// Qualidade dos dados · universal · não pune por "não lançar todo dia"
+// Não considera fim de semana / feriado · só olha o que JÁ existe
+function _ksCalcHigiene(){
   const ext = (typeof extratoData !== 'undefined' && extratoData && Array.isArray(extratoData.lancamentos)) ? extratoData.lancamentos : [];
   if(ext.length === 0) return 0;
-  const hoje = new Date();
-  const hojeStr = hoje.toISOString().slice(0,10);
-  // 100pts · % de dias com lançamento nos últimos 30 dias
-  const ult30 = new Set();
-  for(const l of ext){
-    if(!l.data) continue;
-    const d = _ksDaysBetween(l.data, hojeStr);
-    if(d >= 0 && d <= 30) ult30.add(l.data);
+  const N = ext.length;
+  let pts = 0;
+  // 60pts · % com categoria preenchida
+  const comCat = ext.filter(l => (l.categoria || '').trim()).length;
+  pts += (comCat / N) * 60;
+  // 60pts · % com contraparte (cliente/fornecedor)
+  const comCtp = ext.filter(l => (l.contraparte || '').trim()).length;
+  pts += (comCtp / N) * 60;
+  // 60pts · anexo em lançamentos relevantes (>R$1.000) · NF/boleto/contrato
+  const relevantes = ext.filter(l => Math.abs(parseFloat(l.valor) || 0) >= 1000);
+  if(relevantes.length === 0){
+    pts += 60; // sem lançamentos relevantes = sem como sujar, max
+  } else {
+    const comAnexo = relevantes.filter(l => l.anexo || l.anexoRef || (l.documento || '').trim()).length;
+    pts += (comAnexo / relevantes.length) * 60;
   }
-  const pctDias = Math.min(1, ult30.size / 25); // 25/30 dias = max
-  let pts = pctDias * 100;
-  // 100pts · lançamentos atrasados / pendentes — quanto menos, melhor
-  const pendentes = ext.filter(l => l.status === 'pendente').length;
-  const atrasados = ext.filter(l => {
-    if(l.status !== 'pendente' || !l.data) return false;
-    return _ksDaysBetween(l.data, hojeStr) > 0;
-  }).length;
-  const totalAtivos = ext.filter(l => l.status === 'pendente' || l.status === 'pago').length || 1;
-  const pctAtrasados = atrasados / totalAtivos;
-  pts += (1 - Math.min(1, pctAtrasados * 5)) * 100; // 20% atrasado = 0pts
   return Math.round(pts);
 }
 
@@ -59187,29 +59184,89 @@ function _ksCalcConciliacao(){
   return Math.round(pts);
 }
 
-// ── Vetor 3: SAÚDE (200pts) ──
-// Métricas financeiras reais
+// ── Vetor 3: SAÚDE FINANCEIRA (280pts) ──
+// 4 métricas universais · toda empresa B2B tem essas
 function _ksCalcSaude(){
   let pts = 0;
-  // 70pts · saldo do mês positivo (receita - despesa últimos 30d)
+  const hojeStr = new Date().toISOString().slice(0,10);
+  // 70pts · MARGEM (receita - gasto últimos 90d) / receita
   try {
     const ext = (typeof extratoData !== 'undefined' && extratoData && Array.isArray(extratoData.lancamentos)) ? extratoData.lancamentos : [];
-    const hojeStr = new Date().toISOString().slice(0,10);
-    let receita30 = 0, gasto30 = 0;
+    let receita90 = 0, gasto90 = 0;
     for(const l of ext){
       if(!l.data) continue;
       const d = _ksDaysBetween(l.data, hojeStr);
-      if(d < 0 || d > 30) continue;
+      if(d < 0 || d > 90) continue;
       const v = parseFloat(l.valor) || 0;
-      if(l.tipo === 'ganho') receita30 += v;
-      else if(l.tipo === 'gasto') gasto30 += v;
+      if(l.tipo === 'ganho') receita90 += v;
+      else if(l.tipo === 'gasto') gasto90 += v;
     }
-    if(receita30 + gasto30 > 0){
-      const margem = (receita30 - gasto30) / Math.max(receita30, gasto30);
-      pts += Math.max(0, Math.min(70, margem * 200)); // margem ≥35% = 70pts
+    if(receita90 > 0){
+      const margem = (receita90 - gasto90) / receita90;
+      // Margem ≥ 30% = 70pts · margem 0% = 0pts · margem negativa = 0pts
+      pts += Math.max(0, Math.min(70, (margem / 0.3) * 70));
     }
   } catch(e){}
-  // 70pts · gordura = estrutura/receita ratio (menor melhor; <40% = max)
+  // 70pts · LIQUIDEZ = saldo total / gasto mensal médio (≥3 meses = max)
+  try {
+    if(typeof dispo !== 'undefined' && dispo && Array.isArray(dispo.contas)){
+      const Y = String(new Date().getFullYear());
+      let saldoTotal = 0;
+      for(const c of dispo.contas){
+        const saldos = c.saldos || {};
+        const chaves = Object.keys(saldos).filter(k => k.startsWith(Y)).sort();
+        if(chaves.length > 0) saldoTotal += parseFloat(saldos[chaves[chaves.length - 1]]) || 0;
+      }
+      const ext = (typeof extratoData !== 'undefined' && extratoData && Array.isArray(extratoData.lancamentos)) ? extratoData.lancamentos : [];
+      let gasto90 = 0;
+      for(const l of ext){
+        if(!l.data || l.tipo !== 'gasto') continue;
+        const d = _ksDaysBetween(l.data, hojeStr);
+        if(d < 0 || d > 90) continue;
+        gasto90 += parseFloat(l.valor) || 0;
+      }
+      const gastoMensal = gasto90 / 3;
+      if(gastoMensal > 0){
+        const meses = saldoTotal / gastoMensal;
+        if(meses >= 3) pts += 70;
+        else if(meses > 0) pts += (meses / 3) * 70;
+      }
+    }
+  } catch(e){}
+  // 70pts · ENDIVIDAMENTO = (parcelas anuais) / receita anual · < 25% = max
+  try {
+    if(typeof loans !== 'undefined' && loans && Array.isArray(loans.loans) && loans.loans.length > 0
+       && typeof receita !== 'undefined' && receita && receita.years){
+      const Y = String(new Date().getFullYear());
+      // Receita anual
+      const yData = receita.years[Y];
+      let recAno = 0;
+      if(yData && Array.isArray(yData.clients)){
+        for(const c of yData.clients){
+          for(const k of Object.keys(c.meses || {})){
+            const m = c.meses[k];
+            if(m && m.valor) recAno += parseFloat(m.valor) || 0;
+          }
+        }
+      }
+      // Parcelas anuais dos empréstimos ativos
+      let parcAno = 0;
+      for(const ln of loans.loans){
+        const p = parseFloat(ln.parcelaVal) || 0;
+        const restantes = (parseInt(ln.parcelas) || 0) - (parseInt(ln.parcelasPagas) || 0);
+        if(restantes > 0 && p > 0) parcAno += p * Math.min(12, restantes);
+      }
+      if(recAno > 0){
+        const pct = parcAno / recAno;
+        if(pct <= 0.10) pts += 70;
+        else if(pct < 0.25) pts += 70 * (1 - (pct - 0.10) / 0.15);
+        // > 25% = 0pts (zona de risco)
+      }
+    } else if(typeof loans !== 'undefined' && loans && (!loans.loans || loans.loans.length === 0)){
+      pts += 70; // sem empréstimos = sem endividamento
+    }
+  } catch(e){}
+  // 70pts · GORDURA · estrutura/receita · < 50% = max
   try {
     if(typeof receita !== 'undefined' && receita && receita.years
        && typeof estrutura !== 'undefined' && estrutura && Array.isArray(estrutura.itens)){
@@ -59236,107 +59293,91 @@ function _ksCalcSaude(){
       }
     }
   } catch(e){}
-  // 60pts · liquidez = saldo total / despesa mensal média (≥3 meses = max)
-  try {
-    if(typeof dispo !== 'undefined' && dispo && Array.isArray(dispo.contas)){
-      const Y = String(new Date().getFullYear());
-      let saldoTotal = 0;
-      for(const c of dispo.contas){
-        const saldos = c.saldos || {};
-        const chaves = Object.keys(saldos).filter(k => k.startsWith(Y)).sort();
-        if(chaves.length > 0) saldoTotal += parseFloat(saldos[chaves[chaves.length - 1]]) || 0;
-      }
-      const ext = (typeof extratoData !== 'undefined' && extratoData && Array.isArray(extratoData.lancamentos)) ? extratoData.lancamentos : [];
-      const hojeStr = new Date().toISOString().slice(0,10);
-      let gasto90 = 0;
-      for(const l of ext){
-        if(!l.data || l.tipo !== 'gasto') continue;
-        const d = _ksDaysBetween(l.data, hojeStr);
-        if(d < 0 || d > 90) continue;
-        gasto90 += parseFloat(l.valor) || 0;
-      }
-      const gastoMensal = gasto90 / 3;
-      if(gastoMensal > 0){
-        const meses = saldoTotal / gastoMensal;
-        if(meses >= 3) pts += 60;
-        else pts += (meses / 3) * 60;
-      }
-    }
-  } catch(e){}
   return Math.round(pts);
 }
 
-// ── Vetor 4: COBERTURA (150pts) ──
-// % de módulos com dados reais
+// ── Vetor 4: COBERTURA CORE (100pts) ──
+// SÓ os módulos essenciais que TODA empresa B2B tem — sem extras
+// (sem board · sem viagens · sem notas · sem slides · sem CC custom)
 function _ksCalcCobertura(){
   const checks = [
-    () => typeof loans !== 'undefined' && loans && Array.isArray(loans.loans) && loans.loans.length > 0,
-    () => typeof cartoes !== 'undefined' && cartoes && Array.isArray(cartoes.list) && cartoes.list.length > 0,
-    () => typeof extratoData !== 'undefined' && extratoData && Array.isArray(extratoData.lancamentos) && extratoData.lancamentos.length > 0,
-    () => typeof board !== 'undefined' && board && Array.isArray(board.cards) && board.cards.length > 0,
-    () => typeof viagens !== 'undefined' && viagens && Array.isArray(viagens.itens) && viagens.itens.length > 0,
-    () => typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.people) && pessoas.people.length > 0,
-    () => typeof receita !== 'undefined' && receita && receita.years && Object.keys(receita.years).length > 0,
+    // Receita: tem clientes com faturamento
+    () => typeof receita !== 'undefined' && receita && receita.years && Object.keys(receita.years).some(y => {
+      const yd = receita.years[y]; return yd && Array.isArray(yd.clients) && yd.clients.length > 0;
+    }),
+    // Estrutura: tem itens de custo
     () => typeof estrutura !== 'undefined' && estrutura && Array.isArray(estrutura.itens) && estrutura.itens.length > 0,
+    // Disponibilidades: tem contas bancárias
     () => typeof dispo !== 'undefined' && dispo && Array.isArray(dispo.contas) && dispo.contas.length > 0,
+    // Impostos: tem valores lançados em alguma rubrica
     () => typeof impostos !== 'undefined' && impostos && Array.isArray(impostos.correntes) && impostos.correntes.some(c => c.valores && Object.keys(c.valores).length > 0),
-    () => typeof centrosCusto !== 'undefined' && Array.isArray(centrosCusto) && centrosCusto.length > 0,
-    () => typeof catmapData !== 'undefined' && catmapData && Array.isArray(catmapData.categorias) && catmapData.categorias.length > 0,
-    () => typeof vendedores !== 'undefined' && vendedores && Array.isArray(vendedores.lista) && vendedores.lista.length > 0,
-    () => typeof orcamento !== 'undefined' && orcamento && orcamento.years && Object.keys(orcamento.years).length > 0,
-    () => typeof notas !== 'undefined' && notas && Array.isArray(notas.list) && notas.list.length > 0
+    // Pessoas (folha): tem colaboradores
+    () => typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.people) && pessoas.people.length > 0
   ];
   let count = 0;
   for(const fn of checks){ try { if(fn()) count++; } catch(e){} }
-  return Math.round((count / checks.length) * 150);
+  return Math.round((count / checks.length) * 100);
 }
 
-// ── Vetor 5: VELOCITY (150pts) ──
-function _ksCalcVelocity(){
+// ── Vetor 5: PONTUALIDADE FISCAL (140pts) ──
+// Toda PJ paga imposto · é universal · não é afetado por estratégia de caixa
+function _ksCalcPontualidadeFiscal(){
   let pts = 0;
-  // 75pts · cards do Board fechando (% done)
   try {
-    if(typeof board !== 'undefined' && board && Array.isArray(board.cards) && board.cards.length > 0){
-      const done = board.cards.filter(c => c.col === 'done').length;
-      pts += (done / board.cards.length) * 75;
+    if(typeof impostos === 'undefined' || !impostos || !Array.isArray(impostos.correntes)) return 0;
+    const Y = String(new Date().getFullYear());
+    const Ypp = String(parseInt(Y) - 1);
+    // Conta meses com lançamento de imposto nos últimos 12 meses fiscais
+    const hoje = new Date();
+    const mesAtual = hoje.getMonth(); // 0-11
+    let mesesEsperados = 0, mesesPreenchidos = 0;
+    // Olha 12 meses pra trás
+    for(let i = 0; i < 12; i++){
+      const dt = new Date(hoje.getFullYear(), mesAtual - i, 1);
+      const ym = dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0');
+      // Só conta meses que JÁ PASSARAM (não conta o mês atual e seguintes)
+      if(dt > hoje) continue;
+      mesesEsperados++;
+      // Pelo menos uma rubrica obrigatória deve estar preenchida
+      // (DAS pra Simples, ou DARF/IRPJ/CSLL pra Lucro Presumido/Real)
+      const hasObrigatorio = impostos.correntes.some(c => {
+        const obrigatorias = ['das','irpj','csll','pis','cofins'];
+        if(!obrigatorias.includes(c.rubricaId)) return false;
+        return c.valores && (c.valores[ym] != null) && parseFloat(c.valores[ym]) > 0;
+      });
+      if(hasObrigatorio) mesesPreenchidos++;
     }
-  } catch(e){}
-  // 75pts · prestações finalizadas / criadas
-  try {
-    if(typeof viagens !== 'undefined' && viagens && Array.isArray(viagens.itens) && viagens.itens.length > 0){
-      const fechadas = viagens.itens.filter(v => v.status === 'reembolsado' || v.status === 'aprovado').length;
-      pts += (fechadas / viagens.itens.length) * 75;
+    if(mesesEsperados > 0){
+      pts += (mesesPreenchidos / mesesEsperados) * 140;
     }
   } catch(e){}
   return Math.round(pts);
 }
 
 // ── Vetor 6: MATURIDADE (100pts) ──
+// Tempo de uso + features avançadas financeiras (não inclui board/viagens)
 function _ksCalcMaturidade(){
   let pts = 0;
   // 50pts · tempo de uso (max em 180 dias)
   const hojeStr = new Date().toISOString().slice(0,10);
   const dias = _ksDaysBetween(kashScoreData.installedAt, hojeStr);
   pts += Math.min(50, (dias / 180) * 50);
-  // 50pts · features avançadas usadas (5 features, 10pts cada)
+  // 50pts · features avançadas financeiras (10pts cada · 5 features)
   const features = [
-    // Notas tem pelo menos 1
-    () => typeof notas !== 'undefined' && notas && Array.isArray(notas.list) && notas.list.length > 0,
-    // Conciliação · pelo menos 1 hist
+    // Conciliação bancária · pelo menos 1 hist ativa
     () => typeof conciliacaoData !== 'undefined' && conciliacaoData && conciliacaoData.porConta
-          && Object.values(conciliacaoData.porConta).some(c => (c.historico || []).length > 0),
-    // KASHboard configurado (existe a key)
+          && Object.values(conciliacaoData.porConta).some(c => (c.historico || []).some(h => !h.revertido)),
+    // KASHboard analítico configurado
     () => { try { return !!localStorage.getItem('taller_analise_v1'); } catch(e){ return false; } },
-    // Slides/apresentação com mais de 1 slide
-    () => { try {
-      const ana = JSON.parse(localStorage.getItem('taller_apresentacao_v1') || '{}');
-      return ana && Array.isArray(ana.slides) && ana.slides.length > 1;
-    } catch(e){ return false; } },
-    // Capturas IA · qualquer lan com origem captura-ia
+    // Orçamento previsto configurado
+    () => typeof orcamento !== 'undefined' && orcamento && orcamento.years && Object.keys(orcamento.years).length > 0,
+    // Captura IA · qualquer lan com origem captura-ia ou ofx-conc
     () => { try {
       const ext = (extratoData && extratoData.lancamentos) || [];
       return ext.some(l => l.origem === 'captura-ia' || l.origem === 'ofx-conc');
-    } catch(e){ return false; } }
+    } catch(e){ return false; } },
+    // CatMap configurado (categorias mapeadas pra módulos)
+    () => typeof catmapData !== 'undefined' && catmapData && Array.isArray(catmapData.categorias) && catmapData.categorias.length >= 3
   ];
   let used = 0;
   for(const fn of features){ try { if(fn()) used++; } catch(e){} }
@@ -59344,19 +59385,21 @@ function _ksCalcMaturidade(){
   return Math.round(pts);
 }
 
-// ── Score consolidado ──
+// ── Score consolidado · v2 ──
+// Pesos: Higiene 180 · Conciliação 200 · Saúde 280 · Cobertura 100 · Fiscal 140 · Maturidade 100
+//        = 1000pts
 function _ksCalcScore(){
   const vetores = {
-    disciplina: _ksCalcDisciplina(),
-    conciliacao: _ksCalcConciliacao(),
-    saude: _ksCalcSaude(),
-    cobertura: _ksCalcCobertura(),
-    velocity: _ksCalcVelocity(),
-    maturidade: _ksCalcMaturidade()
+    higiene:        _ksCalcHigiene(),
+    conciliacao:    _ksCalcConciliacao(),
+    saude:          _ksCalcSaude(),
+    cobertura:      _ksCalcCobertura(),
+    pontualidade:   _ksCalcPontualidadeFiscal(),
+    maturidade:     _ksCalcMaturidade()
   };
   const total = Math.min(1000, Math.max(0,
-    vetores.disciplina + vetores.conciliacao + vetores.saude +
-    vetores.cobertura + vetores.velocity + vetores.maturidade
+    vetores.higiene + vetores.conciliacao + vetores.saude +
+    vetores.cobertura + vetores.pontualidade + vetores.maturidade
   ));
   return { total, vetores };
 }
@@ -59403,8 +59446,8 @@ try { window.ksDailySnapshot = ksDailySnapshot; } catch(e){}
 function _ksGenerateWhisper(score, prevScore, vetores, prevVet){
   const delta = score - prevScore;
   const sign = delta >= 0 ? '+' : '';
-  // Acha o vetor que mais mudou
-  const vetNames = ['disciplina','conciliacao','saude','cobertura','velocity','maturidade'];
+  // Acha o vetor que mais mudou (v2 · novos nomes)
+  const vetNames = ['higiene','conciliacao','saude','cobertura','pontualidade','maturidade'];
   let maxDelta = 0, vencedor = '';
   for(const v of vetNames){
     const d = (vetores[v] || 0) - (prevVet[v] || 0);
@@ -59412,12 +59455,12 @@ function _ksGenerateWhisper(score, prevScore, vetores, prevVet){
   }
   const isUp = delta > 0;
   const VET_FRASES = {
-    disciplina: { up:'disciplina subiu. ritmo limpo.', dn:'lançamentos pendentes acumulando. olhe pendências.' },
-    conciliacao:{ up:'conciliação fechou bem. saldos batem.', dn:'extrato dessincronizou do banco. abrir cooler.' },
-    saude:      { up:'margem melhorou. ar circulando.', dn:'saúde caiu. gordura ou caixa apertou.' },
-    cobertura:  { up:'mais módulos ativos. sistema completo.', dn:'algum módulo zerou. perdeu dado em algum lugar?' },
-    velocity:   { up:'tarefas fechando. velocidade real.', dn:'velocity caiu. coisas estão se acumulando.' },
-    maturidade: { up:'você está virando veterano. eu noto.', dn:'' }
+    higiene:     { up:'dados limpos. menos lançamentos órfãos.', dn:'lançamentos sem categoria ou contraparte aumentaram.' },
+    conciliacao: { up:'conciliação fechou bem. saldos batem.', dn:'extrato dessincronizou do banco. revisar.' },
+    saude:       { up:'saúde melhorou. ar circulando no caixa.', dn:'saúde caiu. liquidez, margem ou endividamento.' },
+    cobertura:   { up:'mais módulos essenciais ativos.', dn:'algum módulo core esvaziou. perdeu dado?' },
+    pontualidade:{ up:'impostos em dia. fisco gosta de você.', dn:'mês fiscal sem rubrica obrigatória. atenção.' },
+    maturidade:  { up:'você está virando veterano. eu noto.', dn:'' }
   };
   const f = VET_FRASES[vencedor] || { up:'', dn:'' };
   const frase = isUp ? f.up : f.dn;
@@ -59592,15 +59635,15 @@ function _ksRenderPanel(){
     +   '</div>'
     + '</div>';
 
-  // Breakdown · vetores
+  // Breakdown · vetores (v2 · universais)
   html += '<div class="ks-vetores">';
   const vetCfg = [
-    { id:'disciplina',  nome:'Disciplina',  max:200, hint:'Dias com lançamento · pendências em dia' },
-    { id:'conciliacao', nome:'Conciliação', max:200, hint:'Bancos conciliados · saldo bate' },
-    { id:'saude',       nome:'Saúde',       max:200, hint:'Margem · gordura · liquidez' },
-    { id:'cobertura',   nome:'Cobertura',   max:150, hint:'% dos módulos com dados reais' },
-    { id:'velocity',    nome:'Velocity',    max:150, hint:'Tasks/prestações fechando' },
-    { id:'maturidade',  nome:'Maturidade',  max:100, hint:'Tempo de uso + features avançadas' }
+    { id:'higiene',      nome:'Higiene',         max:180, hint:'Categoria, contraparte e anexo nos lançamentos' },
+    { id:'conciliacao',  nome:'Conciliação',     max:200, hint:'Bancos conciliados · saldo OFX bate com sistema' },
+    { id:'saude',        nome:'Saúde Financeira',max:280, hint:'Margem · liquidez · endividamento · gordura' },
+    { id:'cobertura',    nome:'Cobertura Core',  max:100, hint:'5 módulos essenciais (Receita · Estrutura · Disponibilidades · Impostos · Folha)' },
+    { id:'pontualidade', nome:'Pontualidade Fiscal', max:140, hint:'Impostos lançados em dia (DAS, IRPJ, CSLL, PIS, COFINS)' },
+    { id:'maturidade',   nome:'Maturidade',      max:100, hint:'Tempo de uso + 5 features avançadas financeiras' }
   ];
   for(const v of vetCfg){
     const pts = (ult.vetores && ult.vetores[v.id]) || 0;
@@ -59759,18 +59802,18 @@ function ksShowHelp(){
     +   '<div class="tip">Pense nele como o <b>CPF do seu negócio</b>: quanto maior, mais saudável você é. '
     +   'E como sua relação com o sistema cresce, o número cresce junto.</div>'
 
-    +   '<h4>COMO É CALCULADO · 6 VETORES</h4>'
-    +   '<p>Todo dia o sistema lê 6 dimensões do seu uso e soma. Tudo vem de dados reais — '
-    +   '<b>não tem como "farmar" sem usar de verdade</b>.</p>'
+    +   '<h4>COMO É CALCULADO · 6 VETORES UNIVERSAIS</h4>'
+    +   '<p>Todo dia o sistema lê 6 dimensões reais do seu negócio e soma. <b>Nenhum vetor pune você por ser estratégico</b> — feriado, fim de semana, atraso intencional ou módulos opcionais não entram no cálculo.</p>'
     +   '<div class="vet-table">'
     +     '<div class="vh">Vetor</div><div class="vh">Max</div><div class="vh">O que mede</div>'
-    +     '<div class="vc">Disciplina</div><div class="vc pts">200</div><div class="vc">% de dias com lançamento nos últimos 30d + lançamentos atrasados em dia</div>'
-    +     '<div class="vc">Conciliação</div><div class="vc pts">200</div><div class="vc">% contas conciliadas há menos de 14d + saldo OFX bate com sistema</div>'
-    +     '<div class="vc">Saúde</div><div class="vc pts">200</div><div class="vc">Margem positiva (30d) + gordura controlada + liquidez (≥ 3 meses de caixa)</div>'
-    +     '<div class="vc">Cobertura</div><div class="vc pts">150</div><div class="vc">% dos 15 módulos do app com dados reais (loans, cartões, extrato, board, viagens, pessoas, receita, etc.)</div>'
-    +     '<div class="vc">Velocity</div><div class="vc pts">150</div><div class="vc">% cards do Board fechando + prestações de viagem finalizadas</div>'
-    +     '<div class="vc">Maturidade</div><div class="vc pts">100</div><div class="vc">Tempo de uso do app (max 180d) + features avançadas usadas (Notas, Conciliação, Captura IA, KASHboard, slides)</div>'
+    +     '<div class="vc">Higiene</div><div class="vc pts">180</div><div class="vc">Qualidade dos dados: lançamentos com <b>categoria</b>, <b>contraparte</b> (cliente/fornecedor) e <b>anexo</b> (NF/boleto) em valores ≥ R$1.000</div>'
+    +     '<div class="vc">Conciliação</div><div class="vc pts">200</div><div class="vc">% contas conciliadas há &lt; 14 dias + saldo OFX bate com sistema</div>'
+    +     '<div class="vc">Saúde Financeira</div><div class="vc pts">280</div><div class="vc"><b>Margem</b> (≥30% = max) + <b>Liquidez</b> (3 meses caixa = max) + <b>Endividamento</b> (parcelas/receita &lt;10% = max) + <b>Gordura</b> (estrutura/receita &lt;40% = max)</div>'
+    +     '<div class="vc">Cobertura Core</div><div class="vc pts">100</div><div class="vc">5 módulos essenciais: <b>Receita</b>, <b>Estrutura</b>, <b>Disponibilidades</b>, <b>Impostos</b>, <b>Folha</b>. <b>Não inclui</b> board, viagens, notas, slides (são extras)</div>'
+    +     '<div class="vc">Pontualidade Fiscal</div><div class="vc pts">140</div><div class="vc">% dos últimos 12 meses com <b>imposto obrigatório lançado</b> (DAS, IRPJ, CSLL, PIS, COFINS)</div>'
+    +     '<div class="vc">Maturidade</div><div class="vc pts">100</div><div class="vc">Tempo de uso (max 180d) + features financeiras avançadas (Conciliação, KASHboard, Orçamento, Captura IA, CatMap)</div>'
     +   '</div>'
+    +   '<div class="tip"><b>O que NÃO conta contra você:</b><br>• Não lançar nada num dia (fim de semana, feriado, dia sem operação)<br>• Atraso de pagamento (pode ser estratégia de caixa · você decide)<br>• Não usar Board, Viagens, Notas ou Slides (são opcionais)<br>• Cadastros incompletos em módulos extras</div>'
 
     +   '<h4>OS 5 TIERS</h4>'
     +   '<p>Conforme o score sobe, você passa por 5 níveis de acesso (vibe Mr. Robot/hacker). '
@@ -59795,12 +59838,12 @@ function ksShowHelp(){
 
     +   '<h4>PRA AUMENTAR SEU SCORE</h4>'
     +   '<p>Em ordem de impacto típico (do mais barato pro mais caro de mover):</p>'
-    +   '<p>1. <b>Cobertura</b> — popule mais módulos. Cada um vale ~10pts.</p>'
-    +   '<p>2. <b>Disciplina</b> — lance algo todo dia. Mesmo que pequeno.</p>'
-    +   '<p>3. <b>Conciliação</b> — importe OFX dos seus bancos e concilie. Pesa muito.</p>'
-    +   '<p>4. <b>Velocity</b> — feche tarefas do board e prestações.</p>'
-    +   '<p>5. <b>Maturidade</b> — sobe com tempo. Não tem atalho.</p>'
-    +   '<p>6. <b>Saúde</b> — é resultado, não esforço. Vem dos outros 5.</p>'
+    +   '<p>1. <b>Higiene</b> — preencha categoria e fornecedor em todos os lançamentos. Anexe NF/boleto nos &gt; R$1.000. Esforço mínimo, ganho rápido.</p>'
+    +   '<p>2. <b>Cobertura Core</b> — preencha os 5 módulos essenciais (Receita, Estrutura, Disponibilidades, Impostos, Folha). 20pts cada.</p>'
+    +   '<p>3. <b>Pontualidade Fiscal</b> — lance os impostos do mês quando vencer. DAS/IRPJ/etc.</p>'
+    +   '<p>4. <b>Conciliação</b> — importe OFX dos seus bancos e concilie. 200pts disponíveis.</p>'
+    +   '<p>5. <b>Maturidade</b> — sobe com tempo + uso de features avançadas. Sem atalho.</p>'
+    +   '<p>6. <b>Saúde Financeira</b> — é resultado, não esforço. Vem da gestão (margem, caixa, endividamento, gordura).</p>'
 
     +   '<h4>POR QUE NÃO TEM RESET</h4>'
     +   '<p>Streak diário típico (Duolingo, etc.) <b>te pune</b> por errar 1 dia. Aqui não.</p>'
