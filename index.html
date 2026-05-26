@@ -18720,6 +18720,26 @@
                 <span class="cfg-switch-track"><span class="cfg-switch-thumb"></span></span>
               </span>
             </label>
+
+            <label class="cfg-tool-row" id="cfg-tool-kashscore-row" for="cfg-tool-kashscore">
+              <span class="cfg-tool-ico" aria-hidden="true" style="background:#0A0E14;border:1px solid #1F2937;display:inline-flex;align-items:center;justify-content:center">
+                <svg viewBox="0 0 40 40" width="28" height="28" fill="none" stroke="#10B981" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 4 L30 12 V28 L20 36 L10 28 V12 Z"/>
+                  <path d="M14 18 L18 22 L26 14"/>
+                </svg>
+              </span>
+              <span class="cfg-tool-body">
+                <span class="cfg-tool-ttl">
+                  KASH SCORE
+                  <span class="cfg-tool-badge" id="cfg-tool-kashscore-badge">Ativo</span>
+                </span>
+                <span class="cfg-tool-desc">Diagnóstico clínico do seu negócio: nota 0-1000 baseada em 5 sinais vitais financeiros (Runway, Margem, Endividamento, Crescimento, Eficiência). Chip no header mostra o score atual e sparkline · clique pra abrir o painel completo com histórico, breakdown e ações recomendadas.</span>
+              </span>
+              <span class="cfg-switch" aria-hidden="true">
+                <input type="checkbox" id="cfg-tool-kashscore" onchange="settingsOnKashScoreToggle(this.checked)" />
+                <span class="cfg-switch-track"><span class="cfg-switch-thumb"></span></span>
+              </span>
+            </label>
           </div>
         </div>
 
@@ -59740,6 +59760,12 @@ function _ksCalcScore(){
 
 // ── Snapshot diário · roda no boot se ainda não rodou hoje ──
 function ksDailySnapshot(opts){
+  // Bloqueia se desabilitado · evita whispers e tier-ups indesejados
+  try {
+    if(typeof settings !== 'undefined' && settings && settings.kashScoreEnabled === false){
+      return;
+    }
+  } catch(e){}
   _ksLoad();
   const hojeStr = new Date().toISOString().slice(0,10);
   if(!opts || !opts.force){
@@ -59865,6 +59891,13 @@ function ksRenderChip(){
   _ksLoad();
   const chip = document.getElementById('ks-chip');
   if(!chip) return;
+  // Respeita toggle do settings · default ativo
+  try {
+    if(typeof settings !== 'undefined' && settings && settings.kashScoreEnabled === false){
+      chip.style.display = 'none';
+      return;
+    }
+  } catch(e){}
   if(kashScoreData.history.length === 0){
     // Sem snapshot ainda · força um agora pra ter algo
     try { ksDailySnapshot({ force:true }); } catch(e){}
@@ -59909,6 +59942,13 @@ try { window.ksRenderChip = ksRenderChip; } catch(e){}
 // ── Painel modal ──
 let _ksChartRange = '30';  // '7' | '30' | '90' | 'all'
 function ksOpenPanel(){
+  // Bloqueia se desativado nas configs
+  try {
+    if(typeof settings !== 'undefined' && settings && settings.kashScoreEnabled === false){
+      if(typeof toast === 'function') toast('⚡ KASH SCORE está desativado · ative em Configurações');
+      return;
+    }
+  } catch(e){}
   ksDailySnapshot(); // garante snapshot fresh
   const ov = document.getElementById('ks-ov');
   if(!ov) return;
@@ -84186,6 +84226,7 @@ function settingsLoad(){
   if(!Array.isArray(settings.featuredModules)) settings.featuredModules = ['fluxo'];
   if(typeof settings.hp12cEnabled !== 'boolean') settings.hp12cEnabled = true;
   if(typeof settings.pomodoroEnabled !== 'boolean') settings.pomodoroEnabled = true;
+  if(typeof settings.kashScoreEnabled !== 'boolean') settings.kashScoreEnabled = true;
   if(typeof settings.rateConvEnabled !== 'boolean') settings.rateConvEnabled = false;
   if(typeof settings.rateConvBase !== 'number' || (settings.rateConvBase !== 30 && settings.rateConvBase !== 21)) settings.rateConvBase = 30;
   // Regime tributário (global — default para o módulo Impostos)
@@ -84430,6 +84471,23 @@ function renderCalcToolRow(){
     }
   }
 
+  // KASH SCORE · gamificação
+  const cb5 = document.getElementById('cfg-tool-kashscore');
+  const row5 = document.getElementById('cfg-tool-kashscore-row');
+  const badge5 = document.getElementById('cfg-tool-kashscore-badge');
+  const enabledKS = settings.kashScoreEnabled !== false; // default true
+  if(cb5) cb5.checked = enabledKS;
+  if(row5) row5.classList.toggle('off', !enabledKS);
+  if(badge5){
+    if(enabledKS){
+      badge5.textContent = 'Ativo';
+      badge5.classList.remove('off'); badge5.classList.add('on');
+    } else {
+      badge5.textContent = 'Desativado';
+      badge5.classList.remove('on'); badge5.classList.add('off');
+    }
+  }
+
   // Pomodoro · Modo Daemon (MR KASH)
   const cb4 = document.getElementById('cfg-tool-pomo-daemon');
   const row4 = document.getElementById('cfg-tool-pomo-daemon-row');
@@ -84487,6 +84545,43 @@ function settingsOnNotasFabToggle(checked){
   if(!checked) try { notasFabCloseWin(); } catch(e){}
 }
 try { window.settingsOnNotasFabToggle = settingsOnNotasFabToggle; } catch(e){}
+
+// Toggle do KASH SCORE (gamificação · diagnóstico clínico)
+function settingsOnKashScoreToggle(checked){
+  if(!settings) settingsLoad();
+  settings.kashScoreEnabled = !!checked;
+  settingsSave();
+  renderCalcToolRow();
+  try {
+    // Aplica imediatamente
+    const chip = document.getElementById('ks-chip');
+    if(chip){
+      if(checked){
+        // Reativa · força render
+        if(typeof ksRenderChip === 'function') ksRenderChip();
+      } else {
+        // Esconde chip + fecha painel se aberto
+        chip.style.display = 'none';
+        const ov = document.getElementById('ks-ov');
+        if(ov) ov.classList.remove('show');
+        const tu = document.getElementById('ks-tu-ov');
+        if(tu) tu.classList.remove('show');
+        const wel = document.getElementById('ks-welcome-ov');
+        if(wel) wel.classList.remove('show');
+        // Dispensa whisper se tiver aparecendo
+        const wh = document.getElementById('ks-whisper');
+        if(wh) wh.remove();
+      }
+    }
+  } catch(e){}
+  // Toast
+  try {
+    if(typeof toast === 'function'){
+      toast(checked ? '⚡ KASH SCORE ativado' : '⚡ KASH SCORE desativado');
+    }
+  } catch(e){}
+}
+try { window.settingsOnKashScoreToggle = settingsOnKashScoreToggle; } catch(e){}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONVERSOR DE TAXAS — FAB + janela flutuante com conversão em todos os períodos
