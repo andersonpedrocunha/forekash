@@ -90748,7 +90748,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779838616';
+      const CACHE = 'forekash-v1779838932';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -91150,6 +91150,17 @@ const FKLAB_ACTS = {
       { key:'prazoMeses', label:'Prazo novo (meses)', type:'number', default:48 }
     ]
   },
+  'empr-quitar': {
+    cat:'empr', label:'Quitar empréstimo', ico:'💯',
+    desc:'Pagar TODO o saldo devedor à vista (com desconto de juros)',
+    fields:[
+      { key:'saldoDevedor', label:'Saldo devedor total (R$)', type:'number', default:300000 },
+      { key:'parcelasRestantes', label:'Parcelas restantes (meses)', type:'number', default:24 },
+      { key:'taxa', label:'Taxa do contrato (% a.m.)', type:'number', default:1.8, step:0.1 },
+      { key:'desconto', label:'Desconto na quitação (%)', type:'number', default:15, step:1 },
+      { key:'banco', label:'Banco / contrato', type:'text', default:'Itaú · contrato #' }
+    ]
+  },
   // ── RECEITA ────────────────────────────────────────────────────
   'rec-preco': {
     cat:'rec', label:'Mudança de preço', ico:'💲',
@@ -91337,6 +91348,28 @@ function fklabComputeImpact(acts){
       delta.emprAnual -= economia;
       delta.despesaAnual -= economia;
       detail.push({ act:act, label:'Refinanciamento', deltaDesp:-economia });
+    }
+    else if(t === 'empr-quitar'){
+      const saldo = Number(p.saldoDevedor) || 0;
+      const parcelas = Math.max(1, Number(p.parcelasRestantes) || 1);
+      const taxa = (Number(p.taxa) || 0) / 100;
+      const desconto = (Number(p.desconto) || 0) / 100;
+      // Pagamento à vista = saldo × (1 - desconto)
+      const pagamentoAVista = saldo * (1 - desconto);
+      // Juros totais que seriam pagos (linear): saldo × taxa × parcelas
+      const jurosFuturos = saldo * taxa * parcelas;
+      // Total que seria pago sem quitar = saldo + jurosFuturos
+      const totalSemQuitar = saldo + jurosFuturos;
+      const economiaTotal = totalSemQuitar - pagamentoAVista;
+      // Anual: economia de parcelas no ano (parcelas que cairiam no próximo ano)
+      const parcelasNoAno = Math.min(parcelas, 12);
+      const valorParcelaMedia = (saldo + jurosFuturos) / parcelas;
+      const economiaAnual = parcelasNoAno * valorParcelaMedia;
+      delta.emprAnual -= economiaAnual;
+      delta.despesaAnual -= economiaAnual;
+      delta.caixa -= pagamentoAVista; // desembolso imediato
+      detail.push({ act:act, label:'Quitação ' + (p.banco || 'empréstimo'),
+                    deltaDesp:-economiaAnual, deltaCaixa:-pagamentoAVista });
     }
     else if(t === 'rec-preco'){
       const pct = (Number(p.pct) || 0) / 100;
@@ -91612,6 +91645,7 @@ function _fklActSummary(act){
   if(act.type === 'empr-novo') return 'R$ ' + _fklFmt(p.principal) + ' · ' + p.prazo + 'm · ' + (p.taxa || 0) + '% a.m. · ' + (p.banco || '');
   if(act.type === 'empr-antecipar') return p.parcelas + ' parcelas · ' + p.desconto + '% desconto';
   if(act.type === 'empr-refin') return 'R$ ' + _fklFmt(p.saldoAtual) + ' · ' + p.taxaAtual + '% → ' + p.taxaNova + '%';
+  if(act.type === 'empr-quitar') return 'R$ ' + _fklFmt(p.saldoDevedor) + ' à vista · ' + p.desconto + '% desconto · ' + (p.banco || '');
   if(act.type === 'rec-preco') return (p.pct >= 0 ? '+' : '') + p.pct + '% preço · ' + p.churn + '% churn';
   if(act.type === 'rec-novo-cliente') return p.nome + ' · R$ ' + _fklFmt(p.ticket) + '/mês';
   if(act.type === 'rec-perder-top') return 'R$ ' + _fklFmt(p.mensal) + '/mês perdido';
