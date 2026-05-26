@@ -54231,6 +54231,24 @@ function renderExtrato(){
       const isOpen = _extExpandedFat.has(it.id);
       descPrefix = '<button type="button" class="ext-fat-toggle' + (isOpen ? ' is-open' : '') + '" onclick="event.stopPropagation();_extToggleFat(\'' + it.id + '\')" title="' + (isOpen ? 'Recolher' : 'Expandir') + ' (' + it.children.length + ' lançamentos)">' + (isOpen ? '▾' : '▸') + '</button>';
     }
+    // Indicador de lançamento conciliado (bolinha verde · só pra raw manuais)
+    if(it.manual && it.raw && it.raw.lancamentoId){
+      const rawLan = (extratoData && Array.isArray(extratoData.lancamentos))
+        ? extratoData.lancamentos.find(x => x.id === it.raw.lancamentoId) : null;
+      if(rawLan && rawLan.conciliacao){
+        const conf = rawLan.conciliacao.confianca || '';
+        const histId = rawLan.conciliacao.histId || '';
+        descPrefix = '<span class="ext-row-conc" title="Conciliado em ' + (rawLan.conciliacao.conciliadoEm||'').slice(0,10) + ' · ' + conf + (histId ? ' · #' + histId : '') + '"></span>' + descPrefix;
+      }
+    } else if(!it.manual && it.raw && it.id && typeof it.id === 'string' && it.id.startsWith('manual:')){
+      // Manual identificado por prefix manual: no id
+      const lanId = parseInt(it.id.replace('manual:', ''), 10);
+      const rawLan = (extratoData && Array.isArray(extratoData.lancamentos))
+        ? extratoData.lancamentos.find(x => x.id === lanId) : null;
+      if(rawLan && rawLan.conciliacao){
+        descPrefix = '<span class="ext-row-conc" title="Conciliado em ' + (rawLan.conciliacao.conciliadoEm||'').slice(0,10) + '"></span>' + descPrefix;
+      }
+    }
     html += '<tr class="' + (isDerived ? 'is-derived' : '') + (isSel ? ' is-selected' : '') + '" data-ext-id="' + it.id + '"'
       + ' ondblclick="extDblClick(\''+ it.id + '\')" title="Duplo-click pra abrir o lançamento">'
       + '<td class="col-sel"><input type="checkbox" data-ext-sel="' + it.id + '" onchange="extToggleSel(\''+ it.id + '\',this.checked)"' + (isSel ? ' checked' : '') + '></td>'
@@ -58910,16 +58928,56 @@ async function _concParseFile(file){
 // ═══════════════════════════════════════════════════════════════════
 function _concRunMatcher(ofxItems, sistemaItems, patterns){
   const matches = [];
-  // 1. Para cada OFX, tenta achar match no sistema (cascade)
-  const usedSysIds = new Set();  // pra não dar match duplo
+  const usedSysIds = new Set();
+  // Separa lançamentos JÁ CONCILIADOS dos abertos · todos os checks de dup
+  // (Tier 0) consultam só os conciliados; só os abertos vão pro matching normal.
+  const conciliados = sistemaItems.filter(s => s.conciliacao);
   for(const ofx of ofxItems){
-    // 1. FITID (já conciliado antes com mesmo ID → duplicata)
-    const dup = sistemaItems.find(s => s.conciliacao && s.conciliacao.fitid === ofx.fitid);
+    // ═══ TIER 0 · DETECÇÃO DE DUPLICATA (4 níveis) ═══
+    // O.0a · FITID match num lançamento conciliado · duplicata absoluta
+    let dup = conciliados.find(s => s.conciliacao && s.conciliacao.fitid === ofx.fitid);
     if(dup){
-      matches.push({ tipo:'duplicata', conf:1.0, ofx, sistema:dup, bucket:'orfao', resolved:true });
+      matches.push({ tipo:'dup-fitid', conf:1.0, ofx, sistema:dup, bucket:'orfao', resolved:true, dupReason:'Mesmo FITID já conciliado' });
       continue;
     }
-    // 2. Exato (data + valor + tipo) e não-conciliado
+    // 0.b · CHECKNUM / documento bate em lançamento conciliado · NF/boleto duplicado
+    if(ofx.checknum){
+      dup = conciliados.find(s =>
+        ((s.documento || '') === ofx.checknum || (s.numeroDocumento || '') === ofx.checknum)
+      );
+      if(dup){
+        matches.push({ tipo:'dup-doc', conf:0.95, ofx, sistema:dup, bucket:'orfao', resolved:true, dupReason:'Mesmo Nº doc já conciliado: ' + ofx.checknum });
+        continue;
+      }
+    }
+    // 0.c · Mesma data + valor + tipo num conciliado (FITID pode ter mudado entre exports)
+    dup = conciliados.find(s =>
+      s.data === ofx.data &&
+      Math.abs((parseFloat(s.valor)||0) - ofx.valor) < 0.01 &&
+      s.tipo === ofx.tipo
+    );
+    if(dup){
+      // Confere descrição pra ter certeza · se similar ≥ 0.5, considera dup
+      const sim = _concSim(dup.descricao || '', ofx.descricao || '');
+      if(sim >= 0.5 || !ofx.descricao || !dup.descricao){
+        matches.push({ tipo:'dup-dados', conf:0.9, ofx, sistema:dup, bucket:'orfao', resolved:true, dupReason:'Mesmos data+valor+tipo (descr ' + Math.round(sim*100) + '% similar)' });
+        continue;
+      }
+    }
+    // 0.d · Data ± 1 + valor exato em conciliado (desconto/tarifa que esperou 1 dia útil)
+    dup = conciliados.find(s =>
+      _concDaysBetween(s.data, ofx.data) <= 1 &&
+      Math.abs((parseFloat(s.valor)||0) - ofx.valor) < 0.01 &&
+      s.tipo === ofx.tipo &&
+      _concSim(s.descricao || '', ofx.descricao || '') >= 0.6
+    );
+    if(dup){
+      matches.push({ tipo:'dup-similar', conf:0.85, ofx, sistema:dup, bucket:'orfao', resolved:true, dupReason:'Match aproximado em lançamento conciliado (data ±1)' });
+      continue;
+    }
+
+    // ═══ TIER 1 · MATCHING NORMAL (lançamentos abertos) ═══
+    // 1. Exato (data + valor + tipo) e não-conciliado
     const exatos = sistemaItems.filter(s =>
       !usedSysIds.has(s.id) &&
       !s.conciliacao &&
@@ -59250,23 +59308,40 @@ function _concRenderWorkbench(){
       orfao: matches.filter(m => m.bucket === 'orfao' && !CONC_STATE.resolved.has(m._idx)).length
     };
 
-    // Banner de overlap (se houver período já conciliado em jogo)
+    // Banner de duplicatas (sempre que houver alguma dup detectada · não só por overlap)
+    const dupBreakdown = {
+      fitid: matches.filter(m => m.tipo === 'dup-fitid').length,
+      doc:   matches.filter(m => m.tipo === 'dup-doc').length,
+      dados: matches.filter(m => m.tipo === 'dup-dados').length,
+      sim:   matches.filter(m => m.tipo === 'dup-similar').length,
+      legacy:matches.filter(m => m.tipo === 'duplicata').length,
+      periodo: matches.filter(m => m.tipo === 'periodo-conciliado').length
+    };
+    const totalDup = dupBreakdown.fitid + dupBreakdown.doc + dupBreakdown.dados + dupBreakdown.sim + dupBreakdown.legacy + dupBreakdown.periodo;
     const overlap = CONC_STATE.overlap;
-    if(overlap && overlap.tipo !== 'none'){
-      const dupCount = matches.filter(m => m.tipo === 'duplicata').length;
-      const periodoBloq = matches.filter(m => m.tipo === 'periodo-conciliado').length;
-      const concAteFmt = overlap.conciliadoAte.slice(8,10) + '/' + overlap.conciliadoAte.slice(5,7) + '/' + overlap.conciliadoAte.slice(0,4);
-      const bannerBg = overlap.tipo === 'completa' ? '#FEF3C7' : (overlap.tipo === 'parcial' ? '#EFF6FF' : '#F0FDF4');
-      const bannerBd = overlap.tipo === 'completa' ? '#FBBF24' : (overlap.tipo === 'parcial' ? '#93C5FD' : '#86EFAC');
-      const bannerIco = overlap.tipo === 'completa' ? '⚠' : (overlap.tipo === 'parcial' ? '🔁' : '✓');
-      const bannerColor = overlap.tipo === 'completa' ? '#92400E' : (overlap.tipo === 'parcial' ? '#1E40AF' : '#15803D');
+    if(totalDup > 0 || (overlap && overlap.tipo !== 'none')){
+      const concAteFmt = overlap && overlap.conciliadoAte
+        ? overlap.conciliadoAte.slice(8,10) + '/' + overlap.conciliadoAte.slice(5,7) + '/' + overlap.conciliadoAte.slice(0,4)
+        : '—';
+      const sev = totalDup > matches.length * 0.5 ? 'high' : (totalDup > 0 ? 'mid' : 'low');
+      const bannerBg = sev === 'high' ? '#FEF3C7' : (sev === 'mid' ? '#EFF6FF' : '#F0FDF4');
+      const bannerBd = sev === 'high' ? '#FBBF24' : (sev === 'mid' ? '#93C5FD' : '#86EFAC');
+      const bannerIco = sev === 'high' ? '⚠' : (sev === 'mid' ? '🔁' : '✓');
+      const bannerColor = sev === 'high' ? '#92400E' : (sev === 'mid' ? '#1E40AF' : '#15803D');
+      let parts = [];
+      if(dupBreakdown.fitid > 0) parts.push('<b>' + dupBreakdown.fitid + '</b> por FITID');
+      if(dupBreakdown.doc > 0)   parts.push('<b>' + dupBreakdown.doc + '</b> por Nº doc');
+      if(dupBreakdown.dados > 0) parts.push('<b>' + dupBreakdown.dados + '</b> por dados (data+valor)');
+      if(dupBreakdown.sim > 0)   parts.push('<b>' + dupBreakdown.sim + '</b> por similaridade');
+      if(dupBreakdown.periodo > 0) parts.push('<b>' + dupBreakdown.periodo + '</b> em período bloqueado');
       html += '<div style="background:' + bannerBg + ';border:1px solid ' + bannerBd + ';color:' + bannerColor
         + ';padding:11px 14px;border-radius:9px;font-size:.82rem;line-height:1.5;margin-bottom:10px;display:flex;gap:10px;align-items:flex-start">'
         +   '<span style="font-size:1.1rem;flex-shrink:0">' + bannerIco + '</span>'
-        +   '<div><b>Período já conciliado até ' + concAteFmt + '</b>'
-        +     (overlap.tipo === 'completa' ? ' · OFX inteiro dentro desse período.' : '')
-        +     (overlap.tipo === 'parcial' ? ' · OFX cobre ' + overlap.dentroConciliado + ' transações nesse período + ' + overlap.depoisConciliado + ' novas.' : '')
-        +     (dupCount + periodoBloq > 0 ? '<br>🔒 <b>' + (dupCount + periodoBloq) + '</b> transação(ões) de período fechado foram <b>auto-ignoradas</b> no bucket Órfão (FITID match: ' + dupCount + ' · período bloqueado: ' + periodoBloq + ').' : '')
+        +   '<div>'
+        +     (overlap && overlap.conciliadoAte ? '<b>Conciliado até ' + concAteFmt + '</b> · ' : '')
+        +     (totalDup > 0
+            ? '🔒 <b>' + totalDup + '</b> transação(ões) detectadas como <b>já conciliadas</b> e auto-puladas: ' + parts.join(' · ')
+            : 'Nenhuma duplicata detectada · OFX 100% novo.')
         +   '</div>'
         + '</div>';
     }
@@ -59485,18 +59560,19 @@ function _concProceedImport(parsed){
       }
     }
   }
-  matches.forEach((m, i) => {
-    m._idx = i;
-    // Auto-resolve duplicatas e periodo-conciliado pra não atrapalhar
-    if(m.tipo === 'duplicata' || m.tipo === 'periodo-conciliado'){
-      CONC_STATE.resolved = CONC_STATE.resolved || new Set();
-    }
-  });
-  // Inicializa Set de resolved com todos os auto-resolvidos
+  matches.forEach((m, i) => { m._idx = i; });
+  // Auto-resolve TODAS as duplicatas (qualquer tipo iniciando com 'dup-') +
+  // duplicata legada + período-conciliado
   const autoResolved = new Set();
+  const isAutoSkip = (m) => {
+    if(!m || !m.tipo) return false;
+    if(m.tipo.startsWith('dup-')) return true;
+    return m.tipo === 'duplicata' || m.tipo === 'periodo-conciliado';
+  };
   for(const m of matches){
-    if(m.tipo === 'duplicata' || m.tipo === 'periodo-conciliado'){
+    if(isAutoSkip(m)){
       autoResolved.add(m._idx);
+      m._action = 'reject';
     }
   }
   CONC_STATE.matches = matches;
@@ -59505,7 +59581,7 @@ function _concProceedImport(parsed){
     : (matches.some(m => m.bucket === 'fuzzy' && !autoResolved.has(m._idx)) ? 'fuzzy'
        : (matches.some(m => m.bucket === 'novo' && !autoResolved.has(m._idx)) ? 'novo' : 'orfao'));
   if(typeof toast === 'function'){
-    const nDup = matches.filter(m => m.tipo === 'duplicata' || m.tipo === 'periodo-conciliado').length;
+    const nDup = matches.filter(isAutoSkip).length;
     toast('📊 ' + matches.length + ' transações · ' + parsed.formato + (nDup > 0 ? ' · ' + nDup + ' duplicata(s) auto-puladas' : ''));
   }
   _concRender();
@@ -59514,8 +59590,12 @@ function _concProceedImport(parsed){
 function _concRenderRow(m){
   const idx = m._idx;
   const isResolved = CONC_STATE.resolved.has(idx);
-  const confLbl = m.tipo === 'exato' ? 'EXATO' : (m.tipo === 'exato-multi' ? 'EXATO+' : (m.tipo === 'doc' ? 'NF/DOC' : (m.tipo === 'fuzzy' ? 'FUZZY ' + Math.round((m.sim||0)*100) + '%' : (m.tipo === 'duplicata' ? 'DUPLICATA' : (m.tipo === 'periodo-conciliado' ? 'PERÍODO 🔒' : (m.tipo === 'novo-pattern' ? 'PADRÃO' : (m.tipo === 'orfao' ? 'SEM OFX' : 'NOVO')))))));
-  const confCls = m.tipo === 'fuzzy' ? 'fuzzy' : (m.tipo === 'doc' ? 'doc' : (m.tipo === 'novo' || m.tipo === 'novo-pattern' ? 'novo' : (m.tipo === 'orfao' || m.tipo === 'duplicata' || m.tipo === 'periodo-conciliado' ? 'orfao' : (m.bucket === 'match' ? 'exato' : 'pattern'))));
+  const isDup = (m.tipo || '').startsWith('dup-');
+  const confLbl = isDup
+    ? (m.tipo === 'dup-fitid' ? '🔁 DUP FITID' : (m.tipo === 'dup-doc' ? '🔁 DUP NF' : (m.tipo === 'dup-dados' ? '🔁 DUP DADOS' : '🔁 DUP SIMILAR')))
+    : (m.tipo === 'exato' ? 'EXATO' : (m.tipo === 'exato-multi' ? 'EXATO+' : (m.tipo === 'doc' ? 'NF/DOC' : (m.tipo === 'fuzzy' ? 'FUZZY ' + Math.round((m.sim||0)*100) + '%' : (m.tipo === 'duplicata' ? 'DUPLICATA' : (m.tipo === 'periodo-conciliado' ? 'PERÍODO 🔒' : (m.tipo === 'novo-pattern' ? 'PADRÃO' : (m.tipo === 'orfao' ? 'SEM OFX' : 'NOVO'))))))));
+  const confCls = isDup ? 'orfao'
+    : (m.tipo === 'fuzzy' ? 'fuzzy' : (m.tipo === 'doc' ? 'doc' : (m.tipo === 'novo' || m.tipo === 'novo-pattern' ? 'novo' : (m.tipo === 'orfao' || m.tipo === 'duplicata' || m.tipo === 'periodo-conciliado' ? 'orfao' : (m.bucket === 'match' ? 'exato' : 'pattern')))));
 
   let leftHtml = '<div class="conc-row-side"><div class="lbl">' + (m.ofx ? '🏦 Banco (OFX)' : '— sem OFX —') + '</div>';
   if(m.ofx){
