@@ -239,6 +239,17 @@
     .rep-hd-meta{text-align:right;font-size:9pt;color:#64748B;line-height:1.6}
     .rep-hd-meta b{color:#0F172A;font-size:11pt}
 
+    /* Header relatório: logo da empresa (substitui o FOREKASH text) */
+    .rep-hd-left{display:flex;flex-direction:column;gap:6px;max-width:50%}
+    .rep-hd-emp-logo{max-height:48px;max-width:240px;width:auto;height:auto;object-fit:contain;display:block}
+    .rep-hd-emp-name{font-family:'Plus Jakarta Sans',sans-serif;font-weight:900;font-size:22pt;color:#0F172A;
+                     letter-spacing:-.02em;line-height:1.1;max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .rep-hd-empinfo{font-size:9pt;color:#64748B;line-height:1.4}
+
+    /* Footer relatório: brand Forekash com logo mini */
+    .rep-foot-brand{display:inline-flex;align-items:center;gap:6px}
+    .rep-foot-logo{flex-shrink:0;border-radius:3px;display:inline-block;vertical-align:middle}
+
     .rep-title{font-size:18pt;font-weight:900;color:#0F172A;letter-spacing:-.02em;margin:0 0 6px}
     .rep-subtitle{font-size:10pt;color:#64748B;margin:0 0 28px;font-weight:500}
     .rep-section-title{font-size:13pt;font-weight:800;color:#0F172A;letter-spacing:-.01em;
@@ -18889,7 +18900,7 @@
           <button class="rep-tab active" data-rep="dre"      onclick="repSetType('dre',this)">📊 DRE</button>
           <button class="rep-tab"        data-rep="drc"      onclick="repSetType('drc',this)">📋 DRC · Por Centro de Custo</button>
           <button class="rep-tab"        data-rep="balanco"  onclick="repSetType('balanco',this)">⚖ Balancete</button>
-          <button class="rep-tab"        data-rep="fluxo"    onclick="repSetType('fluxo',this)">💧 Fluxo de Caixa</button>
+          <button class="rep-tab"        data-rep="fluxo"    onclick="repSetType('fluxo',this)">📊 Fluxo de Caixa</button>
           <button class="rep-tab"        data-rep="executivo" onclick="repSetType('executivo',this)">⚡ Executivo</button>
         </div>
 
@@ -90223,7 +90234,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779832505';
+      const CACHE = 'forekash-v1779832849';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -90470,25 +90481,38 @@ function _repFmt(v){
 function repHeaderHtml(period){
   const emp = (typeof EMPRESAS !== 'undefined' && EMPRESAS && EMPRESAS.currentId) ?
               (EMPRESAS.list || []).find(e => e.id === EMPRESAS.currentId) : null;
-  const empNome = emp ? emp.nome : (window.SETTINGS && SETTINGS.empresa) || 'Forekash';
+  const empNome = emp ? emp.nome : (window.SETTINGS && SETTINGS.empresa) || 'Sua empresa';
   const cnpj = emp ? emp.cnpj : (window.SETTINGS && SETTINGS.cnpj) || '—';
   const today = new Date().toLocaleDateString('pt-BR');
+  // Logo da empresa (em vez de FOREKASH text)
+  const hasLogo = emp && emp.logoDataUrl && typeof emp.logoDataUrl === 'string' && emp.logoDataUrl.startsWith('data:image/');
+  const logoBlock = hasLogo
+    ? '<img class="rep-hd-emp-logo" src="' + emp.logoDataUrl.replace(/"/g,'&quot;') + '" alt="' + empNome.replace(/"/g,'&quot;') + '">'
+    : '<div class="rep-hd-emp-name">' + empNome + '</div>';
   return '<div class="rep-hd">' +
-    '<div>' +
-      '<div class="rep-hd-logo">FORE<em>KASH</em></div>' +
-      '<div style="font-size:9pt;color:#64748B;margin-top:4px">' + empNome + ' · CNPJ ' + cnpj + '</div>' +
+    '<div class="rep-hd-left">' +
+      logoBlock +
+      '<div class="rep-hd-empinfo">' + empNome + ' · CNPJ ' + cnpj + '</div>' +
     '</div>' +
     '<div class="rep-hd-meta">' +
       '<b>' + period.label + '</b><br>' +
-      'Gerado em ' + today + '<br>' +
-      '<small style="color:#94A3B8">Forekash Financial Hub</small>' +
+      'Gerado em ' + today +
     '</div>' +
   '</div>';
 }
 
 function repFootHtml(){
+  // Chevron Forekash logo SVG inline (>> pattern · cinza + verde fósforo)
+  const forekashLogo = '<svg class="rep-foot-logo" width="14" height="14" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+    '<rect width="40" height="40" rx="9" fill="#0F172A"/>' +
+    '<path d="M11 13 L21 20 L11 27" stroke="#F8FAFC" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>' +
+    '<path d="M20 13 L30 20 L20 27" stroke="#10B981" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>' +
+  '</svg>';
   return '<div class="rep-foot">' +
-    '<span>Documento gerado por Forekash · forekash.com</span>' +
+    '<span class="rep-foot-brand">' +
+      forekashLogo +
+      'Documento gerado por <b>Fore<em style="color:#10B981;font-style:normal">kash</em></b> · forekash.com' +
+    '</span>' +
     '<span id="rep-pagenum">1</span>' +
   '</div>';
 }
