@@ -15025,10 +15025,9 @@
                 <button type="button" data-g="ano"    onclick="extSetGrain('ano')">Ano</button>
                 <button type="button" class="quick" onclick="extPeriodHoje()" title="Voltar pra hoje">Hoje</button>
               </div>
-              <div class="ext-multi" id="ext-desc-filter" data-kind="desc"></div>
+              <div class="ext-multi" id="ext-doc-filter" data-kind="doc"></div>
               <div class="ext-multi" id="ext-cli-filter" data-kind="cli"></div>
               <div class="ext-multi" id="ext-conta-filter" data-kind="conta"></div>
-              <input type="text" class="ext-search" id="ext-documento" placeholder="🧾 Nº do documento..." style="max-width:160px" oninput="extFilterChange()" title="Filtrar por número do documento (NF, boleto, etc)">
               <div class="ext-cc-filter" id="ext-cc-filter" data-cc-id=""></div>
             </div>
 
@@ -52377,15 +52376,14 @@ let _extState = {
   mode: 'caixa',     // 'caixa' | 'competencia'
   grain: 'mes',      // 'dia' | 'semana' | 'mes' | 'ano'
   period: null,      // {y,m,d} dependendo do grain
-  descricoes: [],    // descrições selecionadas (multi)
+  documentos: [],    // números de documento selecionados (multi)
   clientes: [],      // contrapartes selecionadas (multi)
   contas: [],
   conta: '', /* legacy — mantido como compat */
-  documento: '',     // texto livre
   centroCustoId: ''  // string vazia ou id numérico stringificado
 };
 // estado das buscas internas dos dropdowns multi
-let _extMultiSearch = { desc: '', cli: '', conta: '' };
+let _extMultiSearch = { doc: '', cli: '', conta: '' };
 let _extSelected = new Set(); // ids selecionados pra ações em lote
 let _extExpandedFat = new Set(); // ids de faturas expandidas (cartao-fat:N)
 function _extLoad(){
@@ -53187,10 +53185,9 @@ function _extDateOf(it){
 function _extFilter(items){
   const r = _extPeriodRange();
   const conta = _extState.conta || '';
-  const docFilter = (_extState.documento || '').toLowerCase().trim();
   const ccFilter = _extState.centroCustoId || '';
-  const descSet = new Set((_extState.descricoes || []).map(s => (s||'').trim()).filter(Boolean));
-  const cliSet  = new Set((_extState.clientes   || []).map(s => (s||'').trim()).filter(Boolean));
+  const docSet = new Set((_extState.documentos || []).map(s => (s||'').trim()).filter(Boolean));
+  const cliSet = new Set((_extState.clientes   || []).map(s => (s||'').trim()).filter(Boolean));
   return items.filter(it => {
     const dEff = _extDateOf(it);
     if(r && dEff){
@@ -53226,18 +53223,15 @@ function _extFilter(items){
       }
       if(!match) return false;
     }
-    if(docFilter){
-      const docVal = (it.numeroDocumento || '').toLowerCase();
-      if(!docVal.includes(docFilter)) return false;
-    }
     if(ccFilter){
       // ccFilter é string; centroCustoId no item é number
       const itCC = it.centroCustoId != null ? String(it.centroCustoId) : '';
       if(itCC !== ccFilter) return false;
     }
-    if(descSet.size > 0){
-      const d = (it.descricao || '').trim();
-      if(!descSet.has(d)) return false;
+    if(docSet.size > 0){
+      // Filtra por número do documento (cobre it.documento E it.numeroDocumento)
+      const d = ((it.documento || it.numeroDocumento || '') + '').trim();
+      if(!docSet.has(d)) return false;
     }
     if(cliSet.size > 0){
       const c = (it.contraparte || '').trim();
@@ -53365,16 +53359,17 @@ function _extUniqueValues(items, getter){
   return out;
 }
 function _extMultiKindCfg(kind){
-  if(kind === 'desc'){
+  if(kind === 'doc'){
     return {
-      label: 'Descrição',
-      icon: '📝',
-      placeholder: 'Todas as descrições',
-      stateKey: 'descricoes',
-      getter: (it) => it.descricao,
-      wrapId: 'ext-desc-filter',
-      listId: 'ext-desc-filter-list',
-      searchId: 'ext-desc-filter-search'
+      label: 'Nº do documento',
+      icon: '🧾',
+      placeholder: 'Todos os documentos',
+      stateKey: 'documentos',
+      // Cobre tanto lançamentos manuais (it.documento) quanto cartões (it.numeroDocumento)
+      getter: (it) => (it.documento || it.numeroDocumento || ''),
+      wrapId: 'ext-doc-filter',
+      listId: 'ext-doc-filter-list',
+      searchId: 'ext-doc-filter-search'
     };
   }
   return {
@@ -53886,7 +53881,7 @@ function renderExtrato(){
   _extLoad();
   _extPopulateContas();
   _extPopulateCCs();
-  _extPopulateMulti('desc');
+  _extPopulateMulti('doc');
   _extPopulateMulti('cli');
   // Atualiza botões de mode/grain
   const bM = document.getElementById('ext-mode-caixa');
@@ -54066,9 +54061,7 @@ function extPeriodHoje(){
   renderExtrato();
 }
 function extFilterChange(){
-  const d = document.getElementById('ext-documento');
-  if(d) _extState.documento = d.value;
-  // Descrição/Cliente/Conta/CC têm seus próprios handlers (custom dropdowns)
+  // Documento/Cliente/Conta/CC têm seus próprios handlers (custom dropdowns)
   renderExtrato();
 }
 try {
