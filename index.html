@@ -5,6 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Forekash — Seu hub financeiro</title>
   <meta name="description" content="Forekash — receita, folha, impostos, estoque e fluxo numa só planilha viva. MR KASH lê seus números e aponta gordura, alavanca e tempestade vindo."/>
+  <!-- ╔══════════════════════════════════════════════════════════════════╗
+       ║                                                                  ║
+       ║   HELLO, FRIEND.                                                 ║
+       ║                                                                  ║
+       ║   if you're reading this, you've earned your seat.               ║
+       ║   try the URL: ?eyes-on                                          ║
+       ║   or type "hello, friend" in any input.                          ║
+       ║                                                                  ║
+       ║   ↑↑↓↓←→←→BA                                                     ║
+       ║                                                                  ║
+       ║   mr_kash@forekash:~$  _                                         ║
+       ║                                                                  ║
+       ╚══════════════════════════════════════════════════════════════════╝
+  -->
   <meta name="theme-color" content="#0F172A"/>
   <!-- Favicon: chevron Forekash (>>) em SVG inline pra não exigir asset externo -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%230F172A'/%3E%3Cpath d='M11 13 L21 20 L11 27' stroke='%23F8FAFC' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Cpath d='M20 13 L30 20 L20 27' stroke='%2310B981' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E"/>
@@ -59554,6 +59568,172 @@ function _ksWireChartHover(){
 // Roda 2x: imediato (rápido) + após 8s (depois dos módulos carregarem)
 setTimeout(() => { try { ksDailySnapshot(); ksRenderChip(); } catch(e){} }, 1500);
 setTimeout(() => { try { ksDailySnapshot({ force:true }); ksRenderChip(); } catch(e){} }, 8000);
+
+// ═══════════════════════════════════════════════════════════════════
+// EASTER EGGS · Mr. Robot vibes escondidos pela app
+// "It's not just chaos, friend. It's a pattern."
+// ═══════════════════════════════════════════════════════════════════
+
+// 1. KONAMI CODE · ↑↑↓↓←→←→BA → toggle daemon mode + whisper especial
+(function(){
+  const KONAMI = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
+  let buffer = [];
+  document.addEventListener('keydown', (e) => {
+    // Ignora se tá num input (não quer disparar enquanto digita)
+    const tag = (e.target && e.target.tagName) || '';
+    if(tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)) return;
+    const key = (e.key || '').toLowerCase() === 'b' || (e.key || '').toLowerCase() === 'a' ? e.key.toLowerCase() : e.key;
+    buffer.push(key);
+    if(buffer.length > KONAMI.length) buffer = buffer.slice(-KONAMI.length);
+    if(buffer.length === KONAMI.length && buffer.every((k, i) => k === KONAMI[i])){
+      buffer = [];
+      // Trigger · toggle daemon mode se a função existir
+      try {
+        if(typeof pomoToggleDaemon === 'function') pomoToggleDaemon();
+        else if(typeof window.pomoApplyDaemonSkin === 'function'){
+          const cur = localStorage.getItem('forekash:pomo:daemon') === '1' ? '0' : '1';
+          localStorage.setItem('forekash:pomo:daemon', cur);
+          window.pomoApplyDaemonSkin(cur === '1');
+        }
+      } catch(err){}
+      // Glitch visual breve no documento inteiro
+      document.body.style.transition = 'filter .15s';
+      document.body.style.filter = 'hue-rotate(120deg) contrast(1.2)';
+      setTimeout(() => { document.body.style.filter = ''; }, 250);
+      // Whisper especial
+      if(typeof ksShowWhisper === 'function'){
+        ksShowWhisper('konami code accepted. you\'re one of us now.');
+      }
+      try { console.log('%c[KONAMI] welcome to fsociety.', 'background:#10B981;color:#0A0E14;padding:4px 10px;font-weight:bold;font-family:monospace'); } catch(_){}
+    }
+  });
+})();
+
+// 2. INPUT-LEVEL EASTER EGGS · digite "sudo su", "rm -rf", "fsociety", "hello friend"
+const EE_PHRASES = [
+  { rx: /^sudo\s+su\s*$/i,                 msg: 'permission denied. eu já sou root.', glitch: false },
+  { rx: /^sudo\s*$/i,                       msg: 'sudo what? sou eu o root aqui.', glitch: false },
+  { rx: /^rm\s+-rf/i,                       msg: 'boa tentativa. eu sou o sistema · não me deleto.', glitch: true },
+  { rx: /^chmod\s+777/i,                    msg: '777? não tenho mais o que abrir pra você. você já tem tudo.', glitch: false },
+  { rx: /^fsociety/i,                       msg: '... nós somos fsociety. somos finalmente livres.', glitch: true },
+  { rx: /^hello[,\s]+friend/i,              msg: 'hello, friend.', glitch: false },
+  { rx: /^hello\s+friend\s*\?/i,            msg: 'that\'s lame.', glitch: false },
+  { rx: /^mr[.\s]*robot/i,                  msg: 'mr robot está offline. só MR KASH agora.', glitch: false },
+  { rx: /^elliot/i,                         msg: 'we never meet again, friend.', glitch: false },
+  { rx: /^the\s+revolution\s+is\s+now/i,    msg: 'the revolution started months ago. you didn\'t notice.', glitch: true }
+];
+(function(){
+  let buffer = '';
+  let bufferTimer = null;
+  document.addEventListener('input', (e) => {
+    const tag = (e.target && e.target.tagName) || '';
+    if(tag !== 'INPUT' && tag !== 'TEXTAREA') return;
+    const val = (e.target.value || '').trim();
+    if(!val) return;
+    for(const p of EE_PHRASES){
+      if(p.rx.test(val)){
+        // Limpa o campo · não envia o easter egg como conteúdo real
+        try { e.target.value = ''; } catch(_){}
+        if(typeof ksShowWhisper === 'function') ksShowWhisper(p.msg);
+        if(p.glitch){
+          document.body.style.transition = 'filter .2s';
+          document.body.style.filter = 'invert(0.05) hue-rotate(90deg)';
+          setTimeout(() => { document.body.style.filter = ''; }, 300);
+        }
+        break;
+      }
+    }
+  });
+})();
+
+// 3. TRIPLE-CLICK no avatar do MR KASH (em qualquer lugar) · glitch reveal
+(function(){
+  let clicks = 0;
+  let timer = null;
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+    if(!t) return;
+    const isAvatar = (t.classList && (t.classList.contains('mrkash-inline') || t.classList.contains('mrkash-avatar')))
+      || (t.alt && /mr\s*kash/i.test(t.alt));
+    if(!isAvatar) return;
+    clicks++;
+    if(timer) clearTimeout(timer);
+    timer = setTimeout(() => { clicks = 0; }, 600);
+    if(clicks >= 3){
+      clicks = 0;
+      // Glitch verde matrix por 2s
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent 0,transparent 2px,rgba(16,185,129,.04) 3px,rgba(16,185,129,.04) 3px);pointer-events:none;z-index:99996;animation:fkScanlines 2s linear;mix-blend-mode:screen';
+      document.body.appendChild(overlay);
+      setTimeout(() => { try { overlay.remove(); }catch(_){} }, 2200);
+      if(typeof ksShowWhisper === 'function'){
+        const msgs = [
+          'você está vendo coisas. ou eu sou as coisas.',
+          'eu te vejo. você me vê?',
+          'continue clicando · não vai mudar nada · só eu vou continuar te vendo.',
+          'fascinante. continua.'
+        ];
+        ksShowWhisper(msgs[Math.floor(Math.random() * msgs.length)]);
+      }
+    }
+  });
+  // CSS scanlines animation
+  if(!document.getElementById('ee-scanlines-style')){
+    const s = document.createElement('style');
+    s.id = 'ee-scanlines-style';
+    s.textContent = '@keyframes fkScanlines{0%{opacity:0}10%{opacity:1}90%{opacity:1}100%{opacity:0}}';
+    document.head.appendChild(s);
+  }
+})();
+
+// 4. URL PARAMS · ?daemon=1 força daemon mode · ?eyes-on revela log oculto
+(function(){
+  try {
+    const u = new URL(window.location.href);
+    if(u.searchParams.get('daemon') === '1'){
+      setTimeout(() => {
+        try {
+          if(typeof window.pomoApplyDaemonSkin === 'function'){
+            localStorage.setItem('forekash:pomo:daemon', '1');
+            window.pomoApplyDaemonSkin(true);
+            if(typeof ksShowWhisper === 'function') ksShowWhisper('daemon mode forçado via URL. ok.');
+          }
+        } catch(_){}
+      }, 2500);
+    }
+    if(u.searchParams.has('eyes-on')){
+      setTimeout(() => {
+        if(typeof ksShowWhisper === 'function'){
+          ksShowWhisper('eyes on. você descobriu o flag. respeito.');
+        }
+        // No futuro: revela MR KASH LOG completo
+      }, 2500);
+    }
+  } catch(_){}
+})();
+
+// 5. CONSOLE BANNER · ASCII art Mr. Robot ao abrir DevTools
+try {
+  console.log(
+    '%c\n' +
+    '  ┌─────────────────────────────────────────┐\n' +
+    '  │                                         │\n' +
+    '  │   F O R E K A S H    K E R N E L        │\n' +
+    '  │                                         │\n' +
+    '  │   > hello, friend.                      │\n' +
+    '  │                                         │\n' +
+    '  │   you\'ve hooked DevTools. nice.         │\n' +
+    '  │   try:                                  │\n' +
+    '  │     forekashSeedToCloud()               │\n' +
+    '  │     ksDailySnapshot({force:true})       │\n' +
+    '  │     ksOpenPanel()                       │\n' +
+    '  │                                         │\n' +
+    '  │   mr_kash@forekash:~$  _                │\n' +
+    '  │                                         │\n' +
+    '  └─────────────────────────────────────────┘\n',
+    'color:#10B981;font-family:JetBrains Mono,monospace;font-weight:600;line-height:1.4'
+  );
+} catch(_){}
 
 const CONCILIACAO_KEY = 'forekash:conciliacao:v1';
 let conciliacaoData = null;
