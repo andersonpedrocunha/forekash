@@ -70990,7 +70990,7 @@ function dispoOpenSaldoInicial(contaId){
         + '.dispo-si-snap .obs{font-size:.7rem;color:#64748B}'
         + '.dispo-si-snap .rm{background:transparent;border:none;color:#94A3B8;cursor:pointer;font-size:.85rem}'
         + '.dispo-si-snap .rm:hover{color:#DC2626}'
-        + '.dispo-si-add{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-top:8px;'
+        + '.dispo-si-add{display:grid;grid-template-columns:140px 140px 1fr auto;gap:8px;margin-top:8px;'
         + 'padding:12px;background:#F1F5F9;border-radius:8px;border:1px dashed #94A3B8}'
         + '.dispo-si-add input{padding:7px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.82rem;font-family:inherit}'
         + '.dispo-si-add button{padding:7px 14px;background:#7C3AED;color:#fff;border:none;border-radius:6px;'
@@ -71060,7 +71060,9 @@ function dispoRenderSaldoInicial(contaId){
 
     // SEÇÃO 2: Snapshots
     + '<div class="dispo-si-sect">'
-    +   '<h4>📸 Snapshots históricos ' + (snaps.length > 0 ? '(' + snaps.length + ')' : '') + '</h4>';
+    +   '<h4 style="display:flex;align-items:center;gap:8px">📸 Snapshots históricos ' + (snaps.length > 0 ? '(' + snaps.length + ')' : '')
+    +     '<button class="dispo-si-help" onclick="dispoSnapHelpShow()" title="O que é um snapshot?" style="background:#F1F5F9;border:1px solid #CBD5E1;color:#64748B;width:20px;height:20px;border-radius:50%;font-weight:800;font-size:.74rem;cursor:pointer;font-family:inherit;padding:0;line-height:1">?</button>'
+    +   '</h4>';
   if(snaps.length === 0){
     html += '<div class="dispo-si-empty">Nenhum snapshot ainda · use abaixo pra registrar âncoras de saldo confirmado em períodos específicos.</div>';
   } else {
@@ -71082,6 +71084,7 @@ function dispoRenderSaldoInicial(contaId){
   html += '<div class="dispo-si-add">'
     +   '<input type="month" id="dispo-si-new-ym" placeholder="Mês">'
     +   '<input type="text" id="dispo-si-new-val" placeholder="Valor (R$)">'
+    +   '<input type="text" id="dispo-si-new-obs" placeholder="Observação (opcional · ex: fechado com extrato)" maxlength="80">'
     +   '<button onclick="dispoSnapAddFromInputs(' + contaId + ')">📸 Capturar</button>'
     + '</div>';
   html += '</div>';
@@ -71128,11 +71131,49 @@ function dispoSaveSaldoInicialFromInputs(contaId){
 function dispoSnapAddFromInputs(contaId){
   const ym = document.getElementById('dispo-si-new-ym')?.value || '';
   const v = (document.getElementById('dispo-si-new-val')?.value || '').replace(/\./g,'').replace(',','.');
+  const obs = (document.getElementById('dispo-si-new-obs')?.value || '').trim();
   const vNum = parseFloat(v);
   if(!ym || !isFinite(vNum)){ if(typeof toast === 'function') toast('⚠ Preencha mês e valor'); return; }
-  dispoCreateSnapshot(contaId, ym, vNum, '');
+  dispoCreateSnapshot(contaId, ym, vNum, obs);
   dispoRenderSaldoInicial(contaId);
 }
+
+// Help modal · explica pra que serve um snapshot na prática
+function dispoSnapHelpShow(){
+  if(typeof anaAlert !== 'function') return;
+  const body =
+      '<p style="margin:0 0 12px;font-size:.88rem;color:#374151;line-height:1.55">'
+    +   'Snapshot é um <b>carimbo de confirmação</b>: registra o saldo real da conta naquele '
+    +   'momento, validado contra o extrato do banco. Tudo o que vier depois usa esse valor como '
+    +   '<b>novo ponto de partida</b> · em vez de recalcular desde o início.'
+    + '</p>'
+    + '<h4 style="margin:14px 0 6px;font-size:.84rem;color:#0F172A;font-weight:800">📅 Quando criar</h4>'
+    + '<ul style="margin:0 0 12px;padding-left:18px;font-size:.82rem;color:#374151;line-height:1.55">'
+    +   '<li><b>Fim de mês:</b> depois de conciliar o extrato bancário</li>'
+    +   '<li><b>Fim de ano:</b> fechamento contábil oficial</li>'
+    +   '<li><b>Antes de auditoria:</b> deixar "ponto seguro" pra revisão</li>'
+    +   '<li><b>Depois de bagunça:</b> esqueceu de lançar 3 meses? Tira snapshot do real e segue</li>'
+    +   '<li><b>Mudança de regime:</b> Simples → Lucro Presumido, etc</li>'
+    + '</ul>'
+    + '<h4 style="margin:14px 0 6px;font-size:.84rem;color:#0F172A;font-weight:800">🎯 Pra que serve</h4>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:.78rem;margin-bottom:10px">'
+    +   '<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:6px;padding:8px 10px"><b style="color:#991B1B">Sem snapshot</b><br><span style="color:#7F1D1D">Erros acumulam pra sempre · audita 12 meses pra entender 1 divergência</span></div>'
+    +   '<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:6px;padding:8px 10px"><b style="color:#15803D">Com snapshot</b><br><span style="color:#14532D">Zera o contador · audita só desde o último carimbo</span></div>'
+    + '</div>'
+    + '<p style="margin:12px 0 0;font-size:.78rem;color:#64748B;line-height:1.5;padding:9px 12px;background:#F8FAFC;border-left:3px solid #7C3AED;border-radius:0 6px 6px 0">'
+    +   '<b>Quem usa:</b> gestor financeiro e time financeiro da empresa. '
+    +   'Use a <b>observação curta</b> pra contextualizar (ex: "fechado com extrato", '
+    +   '"saldo após TED recebida", "antes da auditoria Q3").'
+    + '</p>';
+
+  anaAlert({
+    eyebrow: '📸 Snapshots',
+    title: 'Pra que serve um snapshot?',
+    message: body,
+    okText: 'Entendi'
+  });
+}
+try { window.dispoSnapHelpShow = dispoSnapHelpShow; } catch(e){}
 function dispoSnapRemove(contaId, snapId){
   if(typeof anaConfirm !== 'function'){
     dispoRemoveSnapshot(contaId, snapId);
