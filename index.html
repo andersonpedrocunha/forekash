@@ -9750,16 +9750,22 @@
        54px de largura (valores do pes-sheet). Para evitar isso, aqui repeto
        thead th / tbody td / tfoot td com a mesma especificidade das regras de
        pes-sheet, garantindo que dispo-sheet ganhe a cascata. */
+    .dispo-sheet thead th.stk-0,
+    .dispo-sheet tbody td.stk-0,
+    .dispo-sheet tfoot td.stk-0{width:32px;min-width:32px;max-width:32px;left:0;
+                                 text-align:center;padding:0;background:var(--bg)}
+    .dispo-sheet tbody td.stk-0{background:#fff}
+    .dispo-sheet tbody tr:hover td.stk-0{background:#F8FAFF}
     .dispo-sheet thead th.stk-1,
     .dispo-sheet tbody td.stk-1,
-    .dispo-sheet tfoot td.stk-1{width:260px;min-width:260px;max-width:260px;left:0}
+    .dispo-sheet tfoot td.stk-1{width:260px;min-width:260px;max-width:260px;left:32px}
     .dispo-sheet thead th.stk-2,
     .dispo-sheet tbody td.stk-2,
-    .dispo-sheet tfoot td.stk-2{width:140px;min-width:140px;max-width:140px;left:260px;
+    .dispo-sheet tfoot td.stk-2{width:140px;min-width:140px;max-width:140px;left:292px;
                                  text-align:center;padding:0 6px}
     .dispo-sheet thead th.stk-3,
     .dispo-sheet tbody td.stk-3,
-    .dispo-sheet tfoot td.stk-3{width:60px;min-width:60px;max-width:60px;left:400px;
+    .dispo-sheet tfoot td.stk-3{width:60px;min-width:60px;max-width:60px;left:432px;
                                  text-align:center}
     .dispo-sheet .stk-4{display:none}
     .dispo-sheet thead th.mes{width:110px;min-width:110px;text-align:right;padding:10px 12px}
@@ -80402,6 +80408,7 @@ function renderDispoSheet(){
     `<th class="mes" title="${DISPO_MESES[m]}/${year}">${dispoMesLabel(year,m)}</th>`
   ).join('');
   thead.innerHTML = `<tr>
+    <th class="stk stk-0" title="Saldo inicial"></th>
     <th class="stk stk-1">Banco</th>
     <th class="stk stk-2">Tipo</th>
     <th class="stk stk-3" title="Ativo / Inativo">Ativo</th>
@@ -80453,9 +80460,9 @@ function renderDispoSheet(){
 
   // Montar tbody com seções
   let html = '';
-  html += `<tr class="dispo-sec-hd"><td class="stk stk-1" colspan="3">Saldos em conta corrente e investimentos temporários</td>
+  html += `<tr class="dispo-sec-hd"><td class="stk stk-0" colspan="4">Saldos em conta corrente e investimentos temporários</td>
            <td colspan="12"></td><td></td></tr>`;
-  html += `<tr class="dispo-sub-hd"><td class="stk stk-1" colspan="3">Liquidez alta</td>
+  html += `<tr class="dispo-sub-hd"><td class="stk stk-0" colspan="4">Liquidez alta</td>
            <td colspan="12"></td><td></td></tr>`;
   html += contasCaixa.map(c => renderDispoRow(c, year)).join('');
   // SALDO EM CAIXA
@@ -80463,9 +80470,9 @@ function renderDispoSheet(){
 
   // Só mostra o bloco de reserva se tiver contas de liquidez baixa
   if(contasReservas.length){
-    html += `<tr class="dispo-sec-hd"><td class="stk stk-1" colspan="3">Reserva e investimentos de longo prazo</td>
+    html += `<tr class="dispo-sec-hd"><td class="stk stk-0" colspan="4">Reserva e investimentos de longo prazo</td>
              <td colspan="12"></td><td></td></tr>`;
-    html += `<tr class="dispo-sub-hd"><td class="stk stk-1" colspan="3">Liquidez baixa</td>
+    html += `<tr class="dispo-sub-hd"><td class="stk stk-0" colspan="4">Liquidez baixa</td>
              <td colspan="12"></td><td></td></tr>`;
     html += contasReservas.map(c => renderDispoRow(c, year)).join('');
     html += renderDispoAggRow('saldo-reserva', 'Saldo das reservas', contasReservas, year);
@@ -80525,7 +80532,19 @@ function renderDispoRow(c, year){
 
   const liqGrp = tipo ? (tipo.liquidez === 'reserva' ? 'reserva' : 'caixa') : 'caixa';
   const dispoReorderAttrs = rowDragAttrs('dispo', c.id, isAtivo, liqGrp);
+  // Indicador de saldo inicial: roxo se setado, cinza se vazio
+  const hasSaldoIni = c.saldoInicial > 0 && c.saldoInicialMes;
+  const siColor = hasSaldoIni ? '#7C3AED' : '#94A3B8';
+  const siTitle = hasSaldoIni
+    ? 'Saldo inicial: R$ ' + (c.saldoInicial||0).toLocaleString('pt-BR',{minimumFractionDigits:2}) + ' · ' + c.saldoInicialMes
+    : 'Definir saldo inicial · ponto de partida do cálculo';
+
   return `<tr class="${rowCls}" ${rowStyle} data-dispo-row="${c.id}" ${dispoReorderAttrs}>
+    <td class="stk stk-0" style="width:32px;min-width:32px;padding:0;text-align:center;background:var(--bg)">
+      <button class="pes-row-btn" onclick="dispoOpenSaldoInicial(${c.id})" title="${siTitle}" style="color:${siColor};margin:0;padding:4px;width:26px;height:26px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="21"/><line x1="3" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="21" y2="12"/></svg>
+      </button>
+    </td>
     <td class="stk stk-1">
       <div class="dispo-banco-cell${banco?'':' empty'}" onclick="openDispoBancoPicker(event, ${c.id})">
         ${rowHandleHtml()}
@@ -80545,10 +80564,7 @@ function renderDispoRow(c, year){
       </div>
     </td>
     ${valCells}
-    <td class="del" style="text-align:center;white-space:nowrap">
-      <button class="pes-row-btn" onclick="dispoOpenSaldoInicial(${c.id})" title="Saldo inicial · snapshots · auditoria" style="color:#7C3AED">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="21"/><line x1="3" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="21" y2="12"/></svg>
-      </button>
+    <td class="del" style="text-align:center">
       <button class="pes-row-btn delete" onclick="delDispoConta(${c.id})" title="Excluir conta">
         <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m2 0v14a2 2 0 01-2 2H8a2 2 0 01-2-2V6"/></svg>
       </button>
@@ -80586,6 +80602,7 @@ function renderDispoAggRow(kind, label, contas, year, isFooter){
     return `<td class="mes">${any ? fmtBRL(sum) : '<span style="color:#D1D5DB">—</span>'}</td>`;
   }).join('');
   return `<tr class="dispo-agg ${kind}">
+    <td class="stk stk-0"></td>
     <td class="stk stk-1">${esc(label)}</td>
     <td class="stk stk-2"></td>
     <td class="stk stk-3"></td>
@@ -80620,6 +80637,7 @@ function renderDispoVarRow(contas, year){
     return `<td class="mes ${cls}">${(pct>0?'+':'') + fmtBR(pct,2) + '%'}</td>`;
   }).join('');
   return `<tr class="dispo-var">
+    <td class="stk stk-0"></td>
     <td class="stk stk-1">% variação</td>
     <td class="stk stk-2"></td>
     <td class="stk stk-3"></td>
