@@ -51173,7 +51173,17 @@ function _cartRenderDetail(){
         }
       }
       for(const l of lans){
-        const parcLbl = l.parcela ? '<span class="parcela-badge">' + l.parcela.atual + '/' + l.parcela.total + '</span>' : '';
+        // Badge de parcela aceita 2 shapes:
+        // - objeto local: { atual, total, parentId }  (criado pelas funções de UI)
+        // - flat após cloud round-trip: l.parcela=number + l.parcelas=number
+        // Esconde quando for 1/1 (compra única · não é parcelado)
+        let parcLbl = '';
+        if(l.parcela && typeof l.parcela === 'object' && l.parcela.atual && l.parcela.total && l.parcela.total > 1){
+          parcLbl = '<span class="parcela-badge">' + l.parcela.atual + '/' + l.parcela.total + '</span>';
+        } else if(typeof l.parcela === 'number' && l.parcela > 0){
+          const total = (typeof l.parcelas === 'number' ? l.parcelas : 1);
+          if(total > 1) parcLbl = '<span class="parcela-badge">' + l.parcela + '/' + total + '</span>';
+        }
         let moedaInd = '';
         if(l.moedaOrigem && l.moedaOrigem !== 'BRL' && l.valorOrigem){
           const taxa = l.valor && l.valorOrigem ? (l.valor / l.valorOrigem) : 0;
