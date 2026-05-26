@@ -2696,9 +2696,59 @@
     /* Tiers explicação */
     .ks-tiers-row{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:18px}
     .ks-tier-box{background:#10141B;border:1px solid #1F2937;border-radius:7px;padding:9px 11px;
-                   text-align:center;transition:all .15s}
+                   text-align:center;transition:all .15s;cursor:pointer;position:relative}
+    .ks-tier-box:hover{border-color:#10B981;background:#161B25;transform:translateY(-2px);
+                          box-shadow:0 4px 14px rgba(16,185,129,.18)}
+    .ks-tier-box::after{content:'›';position:absolute;top:6px;right:8px;color:#475569;font-size:.8rem;
+                          opacity:0;transition:opacity .15s}
+    .ks-tier-box:hover::after{opacity:1;color:#10B981}
     .ks-tier-box.is-current{border-color:#10B981;box-shadow:0 0 10px rgba(16,185,129,.18)}
     .ks-tier-box.is-past{opacity:.6}
+
+    /* Modal de detalhe do tier (dentro do painel KS) */
+    .ks-tier-detail{position:absolute;inset:0;background:#0A0E14;display:none;flex-direction:column;
+                      animation:ksTierIn .25s ease-out}
+    .ks-tier-detail.show{display:flex}
+    @keyframes ksTierIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    .ks-td-hd{padding:14px 22px;border-bottom:1px solid #1F2937;display:flex;align-items:center;gap:14px;
+                background:#10141B}
+    .ks-td-back{background:transparent;border:1px solid #1F2937;color:#94A3B8;
+                  padding:6px 12px;border-radius:5px;cursor:pointer;font-family:inherit;font-size:.74rem;
+                  letter-spacing:.04em}
+    .ks-td-back:hover{background:#1F2937;color:#10B981;border-color:#10B981}
+    .ks-td-hd .title{font-family:'JetBrains Mono','Fira Code',monospace;color:#10B981;
+                       font-size:.82rem;letter-spacing:.04em;flex:1}
+    .ks-td-bd{flex:1;overflow-y:auto;padding:28px 30px;display:flex;flex-direction:column;gap:18px}
+    .ks-td-hero{text-align:center;padding:30px 20px;background:#10141B;border:1px solid #1F2937;
+                  border-radius:10px}
+    .ks-td-hero-ico{font-size:3rem;margin-bottom:8px;display:block;line-height:1}
+    .ks-td-hero-name{font-size:2rem;font-weight:900;color:#10B981;letter-spacing:.06em;
+                       font-family:'JetBrains Mono','Fira Code',monospace;text-shadow:0 0 14px rgba(16,185,129,.4)}
+    .ks-td-hero-range{font-size:.86rem;color:#64748B;margin-top:6px;font-variant-numeric:tabular-nums;
+                        letter-spacing:.04em}
+    .ks-td-hero-status{margin-top:14px;padding:7px 14px;display:inline-block;border-radius:5px;
+                         font-size:.78rem;font-weight:700;letter-spacing:.04em}
+    .ks-td-hero-status.current{background:rgba(16,185,129,.15);color:#10B981;border:1px solid #10B981}
+    .ks-td-hero-status.past{background:rgba(100,116,139,.15);color:#94A3B8;border:1px solid #1F2937}
+    .ks-td-hero-status.future{background:rgba(168,85,247,.12);color:#C084FC;border:1px solid rgba(168,85,247,.3)}
+    .ks-td-sect{background:#10141B;border:1px solid #1F2937;border-radius:9px;padding:18px 22px}
+    .ks-td-sect h4{margin:0 0 12px;font-size:.78rem;font-weight:800;color:#10B981;letter-spacing:.06em;
+                     text-transform:uppercase}
+    .ks-td-sect p{margin:0 0 8px;font-size:.86rem;color:#CBD5E1;line-height:1.6}
+    .ks-td-sect ul{margin:0;padding-left:0;list-style:none}
+    .ks-td-sect li{font-size:.84rem;color:#CBD5E1;padding:7px 0;border-bottom:1px solid #1F2937;
+                     display:flex;gap:10px;align-items:flex-start}
+    .ks-td-sect li:last-child{border-bottom:none}
+    .ks-td-sect li .ico{flex-shrink:0;font-size:1rem;line-height:1.4;color:#10B981}
+    .ks-td-quote{font-style:italic;color:#94A3B8;font-size:.92rem;line-height:1.6;
+                   padding:18px 24px;background:#10141B;border-left:3px solid #10B981;border-radius:0 8px 8px 0}
+    .ks-td-quote::before{content:'> ';color:#10B981;font-weight:700}
+    .ks-td-progress-stat{background:#10141B;border:1px solid #1F2937;border-radius:9px;
+                            padding:14px 18px;font-size:.84rem;color:#CBD5E1;line-height:1.6}
+    .ks-td-progress-stat b{color:#10B981;font-weight:800;font-variant-numeric:tabular-nums}
+    .ks-td-progress-bar{margin-top:10px;height:8px;background:#1F2937;border-radius:4px;overflow:hidden}
+    .ks-td-progress-bar-fill{height:100%;background:linear-gradient(90deg,#10B981 0%,#34D399 100%);
+                                  transition:width .4s}
     .ks-tier-ico{font-size:1rem;margin-bottom:2px}
     .ks-tier-name{font-size:.7rem;font-weight:700;color:#E5E7EB;letter-spacing:.04em}
     .ks-tier-range{font-size:.62rem;color:#64748B;margin-top:2px;font-variant-numeric:tabular-nums}
@@ -59433,11 +59483,11 @@ function _ksRenderPanel(){
   }
   html += '</div>';
 
-  // Tiers row
+  // Tiers row · cada um clicável pra abrir detalhe
   html += '<div class="ks-tiers-row">';
   for(const t of KS_TIERS){
     const cls = t.name === tier.name ? 'is-current' : (t.min < tier.min ? 'is-past' : '');
-    html += '<div class="ks-tier-box ' + cls + '">'
+    html += '<div class="ks-tier-box ' + cls + '" onclick="ksShowTierDetail(\'' + t.name + '\')" title="Ver detalhes do tier ' + t.name + '">'
       +   '<div class="ks-tier-ico">' + t.ico + '</div>'
       +   '<div class="ks-tier-name">' + t.name + '</div>'
       +   '<div class="ks-tier-range">' + t.min + '–' + t.max + '</div>'
@@ -59450,6 +59500,186 @@ function _ksRenderPanel(){
 }
 
 function ksSetRange(r){ _ksChartRange = r; _ksRenderPanel(); }
+
+// ── Conteúdo por tier · narrativa MR KASH ──
+const KS_TIER_INFO = {
+  LOCKED: {
+    desc: 'Você está fora do sistema. Sem credenciais, sem acesso. ' +
+          'Cada lançamento que faz é uma tentativa de invasão.',
+    unlocks: [
+      'Visualização básica dos módulos',
+      'Sem analytics avançados',
+      'MR KASH ainda não te conhece'
+    ],
+    asksForExit: [
+      'Cadastre 1 conta bancária em Disponibilidades',
+      'Faça seu primeiro lançamento no Extrato',
+      'Complete dados de pelo menos 3 módulos'
+    ],
+    quote: '"você ainda não autenticou. cada login conta."'
+  },
+  SHELL: {
+    desc: 'Você acabou de logar no terminal. Pode operar, mas o sistema observa. ' +
+          'Cada comando deixa rastro. Cada decisão constrói histórico.',
+    unlocks: [
+      'Lançamentos manuais e automáticos',
+      'KASHtrack básico (previsão de 7 dias)',
+      'Captura IA (boleto/NF → lançamento)',
+      'MR KASH começa a comentar suas decisões'
+    ],
+    asksForExit: [
+      'Concilie pelo menos 1 banco com OFX',
+      'Mantenha 30 dias de lançamentos consistentes',
+      'Preencha 8+ módulos com dados reais',
+      'Margem do mês positiva'
+    ],
+    quote: '"primeiro acesso. agora o sistema é meu reino · e você é hóspede."'
+  },
+  USER: {
+    desc: 'Usuário comum. Você entendeu como o sistema respira. ' +
+          'Tem permissão pra mexer no que importa, mas ainda não invoca privilégios.',
+    unlocks: [
+      'Conciliação Bancária Robusta completa',
+      'Pattern learning · MR KASH aprende suas regras',
+      'KASHboard com widgets customizáveis',
+      'Notas com 6 tipos de conversão',
+      'Apresentação · 9 deck templates'
+    ],
+    asksForExit: [
+      'Conciliar 3+ bancos em dia',
+      'Score Saúde ≥ 140/200 (margem + liquidez sólidas)',
+      'Cobertura ≥ 120/150 (12+ módulos populados)',
+      'Velocity ≥ 100/150 (tarefas/prestações fechando)'
+    ],
+    quote: '"você entendeu como o sistema respira. agora aprende a falar com ele."'
+  },
+  SUDO: {
+    desc: 'Acesso elevado. Você invoca comandos privilegiados. ' +
+          'MR KASH para de te explicar — assume que você sabe o que tá fazendo.',
+    unlocks: [
+      'Modo Daemon permanente (Pomodoro fsociety)',
+      'Multi-empresa (futuro)',
+      'Forecast avançado · Tracker timeline',
+      'Pattern learning agressivo (cross-account)',
+      'Exportação relatórios contábeis',
+      'Reverse de conciliações em batch'
+    ],
+    asksForExit: [
+      'Uptime de 90+ dias',
+      'Todas as contas conciliadas em <14 dias',
+      'Score Disciplina ≥ 180/200 (lançamento diário)',
+      'Maturidade máxima (5 features avançadas usadas)'
+    ],
+    quote: '"você não precisa mais perguntar pra mim. eu sigo no plantão de qualquer jeito."'
+  },
+  ROOT: {
+    desc: 'Root access. O sistema é seu. Sem firewall, sem limitações. ' +
+          'Você é tão parte do sistema quanto o sistema é parte de você.',
+    unlocks: [
+      'Acesso total a todos os módulos',
+      'KASH SCORE máximo · você é referência',
+      'Whispers MR KASH mais raros (você já sabe tudo)',
+      'Avatar especial no header (futuro)',
+      'Anonymous mode · sessões sem analytics',
+      'Tudo. Sem teto.'
+    ],
+    asksForExit: [
+      'Manter score ≥ 800',
+      'Nenhum erro fica escondido · você vê tudo'
+    ],
+    quote: '"bem-vindo ao topo. ninguém te bloqueia mais. eu sou seu parceiro de crime agora."'
+  }
+};
+
+function ksShowTierDetail(tierName){
+  const tierInfo = KS_TIER_INFO[tierName];
+  const tierMeta = KS_TIERS.find(t => t.name === tierName);
+  if(!tierInfo || !tierMeta) return;
+  const bd = document.getElementById('ks-body');
+  if(!bd) return;
+  // Pega score atual pra comparar
+  _ksLoad();
+  const ult = kashScoreData.history.length > 0 ? kashScoreData.history[kashScoreData.history.length - 1] : null;
+  const curScore = ult ? ult.score : 0;
+  const curTier = _ksTierOf(curScore);
+  let status = 'future';
+  if(curTier.name === tierName) status = 'current';
+  else if(tierMeta.min < curTier.min) status = 'past';
+  const statusLbl = status === 'current' ? '✓ você está aqui'
+                  : status === 'past'    ? '✓ já passou'
+                  :                        '🎯 próximo objetivo';
+  // Cresceu de progresso (só pra futuro)
+  let progressHtml = '';
+  if(status === 'future' && curScore < tierMeta.min){
+    const totalNeeded = tierMeta.min - curScore;
+    const fromZero = tierMeta.min;
+    const progPct = Math.round((curScore / tierMeta.min) * 100);
+    progressHtml = '<div class="ks-td-progress-stat">'
+      + 'Você está a <b>' + totalNeeded + ' pontos</b> de atingir <b>' + tierName + '</b>. '
+      + 'Score atual: <b>' + curScore + '</b>/' + tierMeta.min + ' (' + progPct + '%).'
+      + '<div class="ks-td-progress-bar"><div class="ks-td-progress-bar-fill" style="width:' + progPct + '%"></div></div>'
+      + '</div>';
+  } else if(status === 'past'){
+    // Acha quando passou
+    const crossing = (kashScoreData.tierCrossings || []).find(c => c.to === tierName);
+    if(crossing){
+      const dataFmt = crossing.data.slice(8,10) + '/' + crossing.data.slice(5,7) + '/' + crossing.data.slice(0,4);
+      progressHtml = '<div class="ks-td-progress-stat">'
+        + 'Você atingiu este tier em <b>' + dataFmt + '</b> com score <b>' + crossing.score + '</b>.'
+        + '</div>';
+    }
+  } else if(status === 'current'){
+    const nextTier = KS_TIERS.find(t => t.min > tierMeta.min);
+    if(nextTier){
+      const ate = tierMeta.max - curScore;
+      const aindaProx = nextTier.min - curScore;
+      progressHtml = '<div class="ks-td-progress-stat">'
+        + 'Você está em <b>' + tierName + '</b> com <b>' + curScore + '</b>/' + tierMeta.max + ' pontos. '
+        + 'Faltam <b>' + aindaProx + '</b> pontos pra subir pra <b>' + nextTier.name + '</b>.'
+        + '<div class="ks-td-progress-bar"><div class="ks-td-progress-bar-fill" style="width:' + Math.round(((curScore - tierMeta.min) / (nextTier.min - tierMeta.min)) * 100) + '%"></div></div>'
+        + '</div>';
+    } else {
+      progressHtml = '<div class="ks-td-progress-stat">'
+        + 'Você está no <b>tier máximo</b>. Score atual: <b>' + curScore + '</b>/1000. '
+        + 'Mantenha-se aqui 🎉'
+        + '</div>';
+    }
+  }
+  // Conteúdo
+  bd.innerHTML = '<div class="ks-tier-detail show">'
+    + '<div class="ks-td-hd">'
+    +   '<button class="ks-td-back" onclick="_ksRenderPanel()">← Voltar</button>'
+    +   '<span class="title">tier_info ' + tierName.toLowerCase() + ' --verbose</span>'
+    + '</div>'
+    + '<div class="ks-td-bd">'
+    +   '<div class="ks-td-hero">'
+    +     '<span class="ks-td-hero-ico">' + tierMeta.ico + '</span>'
+    +     '<div class="ks-td-hero-name">' + tierName + '</div>'
+    +     '<div class="ks-td-hero-range">range: ' + tierMeta.min + '–' + tierMeta.max + ' pts</div>'
+    +     '<div class="ks-td-hero-status ' + status + '">' + statusLbl + '</div>'
+    +   '</div>'
+    +   progressHtml
+    +   '<div class="ks-td-sect">'
+    +     '<h4>📖 sobre este tier</h4>'
+    +     '<p>' + tierInfo.desc + '</p>'
+    +   '</div>'
+    +   '<div class="ks-td-sect">'
+    +     '<h4>🔓 o que destrava aqui</h4>'
+    +     '<ul>' + tierInfo.unlocks.map(u => '<li><span class="ico">✓</span><span>' + u + '</span></li>').join('') + '</ul>'
+    +   '</div>'
+    +   (status !== 'past' && status !== 'current' ? '<div class="ks-td-sect">'
+    +     '<h4>🎯 o que falta pra chegar</h4>'
+    +     '<ul>' + tierInfo.asksForExit.map(r => '<li><span class="ico">→</span><span>' + r + '</span></li>').join('') + '</ul>'
+    +   '</div>' : '')
+    +   (status === 'current' ? '<div class="ks-td-sect">'
+    +     '<h4>🎯 pra subir pro próximo</h4>'
+    +     '<ul>' + tierInfo.asksForExit.map(r => '<li><span class="ico">→</span><span>' + r + '</span></li>').join('') + '</ul>'
+    +   '</div>' : '')
+    +   '<div class="ks-td-quote">' + tierInfo.quote + '</div>'
+    + '</div>'
+    + '</div>';
+}
+try { window.ksShowTierDetail = ksShowTierDetail; } catch(e){}
 try { window.ksSetRange = ksSetRange; } catch(e){}
 
 function _ksRenderChartSVG(){
