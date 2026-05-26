@@ -14128,6 +14128,51 @@
     .emp-card .emp-card-actions button.primary{background:#1D4ED8;color:#fff;border-color:#1D4ED8}
     .emp-card .emp-card-actions button.primary:hover{background:#1E40AF}
 
+    /* Upload de logo da empresa (no modal) */
+    .emp-logo-upload-row{display:flex;gap:14px;align-items:center;margin-bottom:18px;
+                          padding-bottom:18px;border-bottom:1px solid #F1F5F9}
+    .emp-logo-thumb{width:84px;height:84px;border-radius:14px;flex-shrink:0;position:relative;
+                    cursor:pointer;overflow:hidden;border:1.5px solid #E2E8F0;background:#fff;
+                    display:flex;align-items:center;justify-content:center;transition:all .15s}
+    .emp-logo-thumb:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(15,23,42,.12);border-color:#3B82F6}
+    .emp-logo-thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;padding:8px}
+    .emp-logo-thumb .emp-logo-letter{width:100%;height:100%;display:flex;align-items:center;
+                                       justify-content:center;color:#fff;font-size:2rem;font-weight:800;
+                                       text-transform:uppercase;letter-spacing:-.03em}
+    .emp-logo-overlay{position:absolute;inset:0;background:rgba(15,23,42,.6);color:#fff;
+                       display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s}
+    .emp-logo-overlay svg{width:24px;height:24px}
+    .emp-logo-thumb:hover .emp-logo-overlay{opacity:1}
+    .emp-logo-info{flex:1;min-width:0}
+    .emp-logo-info p{margin:0;line-height:1.45;font-size:.78rem;color:#64748B}
+    .emp-logo-info p:first-child{color:#0F172A;font-weight:700;font-size:.86rem;margin-bottom:4px}
+    .emp-logo-info p:nth-child(2){margin-bottom:8px}
+    .emp-logo-actions{display:flex;gap:6px;flex-wrap:wrap}
+    .emp-logo-actions button{padding:6px 12px;border:1px solid #E2E8F0;border-radius:6px;background:#fff;
+                              cursor:pointer;font-family:inherit;font-size:.74rem;font-weight:600;
+                              color:#475569;transition:all .12s}
+    .emp-logo-actions button:hover{background:#F1F5F9;color:#0F172A;border-color:#CBD5E1}
+    .emp-logo-actions button.danger{color:#B91C1C;border-color:#FECACA}
+    .emp-logo-actions button.danger:hover{background:#FEE2E2;color:#7F1D1D}
+
+    /* Busca por CNPJ (linha CNPJ + botão Buscar) */
+    .emp-cnpj-lookup{display:flex;gap:10px;align-items:flex-end;margin-bottom:14px}
+    .emp-cnpj-search-btn{display:inline-flex;align-items:center;gap:6px;padding:9px 14px;
+                          background:linear-gradient(135deg,#3B82F6 0%,#1D4ED8 100%);color:#fff;
+                          border:none;border-radius:7px;cursor:pointer;font-family:inherit;
+                          font-size:.82rem;font-weight:700;transition:all .15s;flex-shrink:0;
+                          height:42px;letter-spacing:.01em;box-shadow:0 1px 3px rgba(59,130,246,.3)}
+    .emp-cnpj-search-btn:hover:not(:disabled){background:linear-gradient(135deg,#1D4ED8 0%,#1E40AF 100%);
+                                                transform:translateY(-1px);box-shadow:0 4px 12px rgba(59,130,246,.4)}
+    .emp-cnpj-search-btn:disabled{opacity:.5;cursor:not-allowed}
+    .emp-cnpj-search-btn svg{flex-shrink:0}
+
+    /* Card .emp-card-ico com logo (img) */
+    .emp-card-ico.has-logo{background:#fff!important;border:1.5px solid #E2E8F0;padding:4px;overflow:hidden}
+    .emp-card-ico.has-logo img{width:100%;height:100%;object-fit:contain;display:block}
+    .emp-menu-item-ico.has-logo{background:#fff!important;border:1px solid #E2E8F0;padding:3px;overflow:hidden}
+    .emp-menu-item-ico.has-logo img{width:100%;height:100%;object-fit:contain;display:block}
+
     /* Modal novo/editar empresa */
     .emp-modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.5);backdrop-filter:blur(3px);
                        z-index:9000;display:none;align-items:center;justify-content:center}
@@ -19524,7 +19569,7 @@
             </div>
             <h3>Logo do cabeçalho</h3>
           </div>
-          <p class="cfg-section-sub">Substitua a logo "Taller" por uma imagem da sua empresa. Aceita PNG, JPG ou SVG de até 500 KB.</p>
+          <p class="cfg-section-sub">Substitua a logo "Taller" por uma imagem da sua empresa. Aceita PNG, JPG, SVG ou WebP de até 5 MB. <br><b>💡 Dica:</b> agora você pode definir uma logo por empresa em <b>"Empresas do grupo"</b> abaixo — esta seção é o fallback global.</p>
           <div class="cfg-section-body">
             <div class="cfg-logo-wrap">
               <div class="cfg-logo-preview" id="cfg-logo-preview"></div>
@@ -86853,7 +86898,15 @@ const DEFAULT_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="152" he
 function applyLogo(){
   const host = document.getElementById('app-logo');
   if(!host) return;
-  const url = (settings && settings.logoDataUrl) || '';
+  // Prioridade: 1) logo da empresa ativa → 2) settings legacy → 3) default Taller
+  let url = '';
+  try{
+    if(typeof EMPRESAS !== 'undefined' && EMPRESAS && EMPRESAS.currentId){
+      const cur = (EMPRESAS.list || []).find(e => e.id === EMPRESAS.currentId);
+      if(cur && cur.logoDataUrl) url = cur.logoDataUrl;
+    }
+  }catch(_){}
+  if(!url) url = (settings && settings.logoDataUrl) || '';
   const logoHtml = url
     ? '<img class="logo-svg" src="' + url.replace(/"/g,'&quot;') + '" alt="Logo" />'
     : DEFAULT_LOGO_SVG.replace('<svg', '<svg class="logo-svg"');
@@ -86903,10 +86956,10 @@ async function settingsOnLogoUpload(ev){
     }
     return;
   }
-  // Valida tamanho
-  if(file.size > 500 * 1024){
+  // Valida tamanho (até 5 MB)
+  if(file.size > 5 * 1024 * 1024){
     if(typeof showInfo === 'function'){
-      showInfo({ title:'Imagem muito grande', message:'O limite é 500 KB. Tente comprimir a imagem ou usar um SVG.' });
+      showInfo({ title:'Imagem muito grande', message:'O limite é 5 MB. Tente comprimir a imagem ou usar um SVG.' });
     }
     return;
   }
@@ -92364,8 +92417,13 @@ function empRenderHeader(){
   const name = document.getElementById('hdr-company-name');
   const role = document.getElementById('hdr-company-role');
   if(ico){
-    ico.textContent = (cur.nome || '?').slice(0,1).toUpperCase();
-    ico.style.background = cur.cor || '#10B981';
+    if(cur.logoDataUrl){
+      ico.innerHTML = '<img src="' + cur.logoDataUrl.replace(/"/g,'&quot;') + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">';
+      ico.style.background = 'transparent';
+    } else {
+      ico.textContent = (cur.nome || '?').slice(0,1).toUpperCase();
+      ico.style.background = cur.cor || '#10B981';
+    }
   }
   if(name) name.textContent = cur.nome || '—';
   if(role){
@@ -92383,8 +92441,10 @@ function empRenderHeader(){
       const item = document.createElement('div');
       item.className = 'emp-menu-item' + (e.id === EMPRESAS.currentId ? ' active' : '');
       item.onclick = () => empSwitchTo(e.id);
-      item.innerHTML =
-        '<div class="emp-menu-item-ico" style="background:' + (e.cor || '#10B981') + '">' + (e.nome || '?').slice(0,1).toUpperCase() + '</div>' +
+      const itemIco = e.logoDataUrl
+        ? '<div class="emp-menu-item-ico has-logo"><img src="' + e.logoDataUrl.replace(/"/g,'&quot;') + '" alt=""></div>'
+        : '<div class="emp-menu-item-ico" style="background:' + (e.cor || '#10B981') + '">' + (e.nome || '?').slice(0,1).toUpperCase() + '</div>';
+      item.innerHTML = itemIco +
         '<div class="emp-menu-item-info">' +
           '<b>' + (e.nome || '—') + '</b>' +
           '<small>' + (e.cnpj || 'sem CNPJ') + ' · ' + (e.regime || '—') + '</small>' +
@@ -92436,6 +92496,8 @@ function empSyncToSettings(){
       if(typeof saveImp === 'function') saveImp();
     }
   }catch(_){}
+  // Atualiza o logo do header pra refletir empresa atual
+  try{ if(typeof applyLogo === 'function') applyLogo(); }catch(_){}
 }
 
 // ── Pular pra Configurações > Empresas (do dropdown do header) ────
@@ -92475,8 +92537,10 @@ function empRenderConfigList(){
     const isCurrent = e.id === EMPRESAS.currentId;
     const card = document.createElement('div');
     card.className = 'emp-card' + (isCurrent ? ' active' : '');
-    card.innerHTML =
-      '<div class="emp-card-ico" style="background:' + (e.cor || '#10B981') + '">' + (e.nome || '?').slice(0,1).toUpperCase() + '</div>' +
+    const icoHtml = e.logoDataUrl
+      ? '<div class="emp-card-ico has-logo"><img src="' + e.logoDataUrl.replace(/"/g,'&quot;') + '" alt=""></div>'
+      : '<div class="emp-card-ico" style="background:' + (e.cor || '#10B981') + '">' + (e.nome || '?').slice(0,1).toUpperCase() + '</div>';
+    card.innerHTML = icoHtml +
       '<div class="emp-card-info">' +
         '<b>' + (e.nome || '—') + (isCurrent ? ' <span style="font-size:.66rem;color:#10B981;background:#D1FAE5;padding:2px 7px;border-radius:8px;margin-left:5px;letter-spacing:.04em;text-transform:uppercase">ativa</span>' : '') + '</b>' +
         '<small>' + (e.cnpj || 'sem CNPJ') + ' · regime ' + (e.regime || '—') + (e.segmento ? ' · ' + e.segmento : '') + '</small>' +
@@ -92514,17 +92578,41 @@ function empCloseModal(){
 }
 function empRenderModalForm(){
   const d = EMP_MODAL_DRAFT || {};
+  const logoHtml = d.logoDataUrl
+    ? '<img src="' + d.logoDataUrl.replace(/"/g,'&quot;') + '" alt="Logo">'
+    : '<span class="emp-logo-letter" style="background:' + (d.cor || '#10B981') + '">' + (d.nome || '?').slice(0,1).toUpperCase() + '</span>';
   let html =
+    '<div class="emp-logo-upload-row">' +
+      '<div class="emp-logo-thumb" id="emp-logo-thumb" onclick="document.getElementById(\'emp-f-logo-input\').click()" title="Trocar logo">' +
+        logoHtml +
+        '<div class="emp-logo-overlay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></div>' +
+      '</div>' +
+      '<div class="emp-logo-info">' +
+        '<p><b>Logo da empresa</b></p>' +
+        '<p>Aparece no header e nos relatórios PDF. PNG, JPG, SVG ou WebP até 5 MB. Idealmente fundo transparente, altura 50px+.</p>' +
+        '<div class="emp-logo-actions">' +
+          '<button type="button" onclick="document.getElementById(\'emp-f-logo-input\').click()">📷 Escolher imagem</button>' +
+          (d.logoDataUrl ? '<button type="button" class="danger" onclick="empRemoveLogo()">🗑 Remover</button>' : '') +
+        '</div>' +
+        '<input type="file" id="emp-f-logo-input" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif" style="display:none" onchange="empOnLogoUpload(event)">' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="emp-cnpj-lookup">' +
+      '<div class="emp-field" style="flex:1;margin-bottom:0"><label>CNPJ</label>' +
+        '<input type="text" id="emp-f-cnpj" value="' + (d.cnpj || '') + '" placeholder="00.000.000/0000-00" onblur="empMaskCNPJ(this)"></div>' +
+      '<button type="button" class="emp-cnpj-search-btn" onclick="empLookupCNPJ()" title="Buscar dados da empresa pelo CNPJ na Receita Federal">' +
+        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>' +
+        '<span>Buscar</span>' +
+      '</button>' +
+    '</div>' +
+
     '<div class="emp-field"><label>Nome fantasia</label>' +
       '<input type="text" id="emp-f-nome" value="' + (d.nome || '') + '" placeholder="Ex.: Forekash Tech"></div>' +
     '<div class="emp-field"><label>Razão social</label>' +
       '<input type="text" id="emp-f-razao" value="' + (d.razao || '') + '" placeholder="Ex.: Forekash Tecnologia Financeira S/A"></div>' +
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">' +
-      '<div class="emp-field"><label>CNPJ</label>' +
-        '<input type="text" id="emp-f-cnpj" value="' + (d.cnpj || '') + '" placeholder="00.000.000/0000-00"></div>' +
-      '<div class="emp-field"><label>Segmento</label>' +
-        '<input type="text" id="emp-f-segmento" value="' + (d.segmento || '') + '" placeholder="Ex.: SaaS, Comércio, Serviços"></div>' +
-    '</div>' +
+    '<div class="emp-field"><label>Segmento</label>' +
+      '<input type="text" id="emp-f-segmento" value="' + (d.segmento || '') + '" placeholder="Ex.: SaaS, Comércio, Serviços"></div>' +
     '<div class="emp-field"><label>Regime tributário</label>' +
       '<select id="emp-f-regime">' +
         ['simples','presumido','real','mei'].map(r =>
@@ -92532,12 +92620,95 @@ function empRenderModalForm(){
           ({simples:'Simples Nacional',presumido:'Lucro Presumido',real:'Lucro Real',mei:'MEI'})[r] +
           '</option>').join('') +
       '</select></div>' +
-    '<div class="emp-field"><label>Cor de identificação</label>' +
+    '<div class="emp-field"><label>Cor de identificação (fallback do logo)</label>' +
       '<div class="emp-color-row">' +
         EMP_COLORS.map(c => '<div class="emp-color-chip' + (d.cor === c ? ' selected' : '') +
                             '" style="background:' + c + '" onclick="empPickColor(\'' + c + '\')"></div>').join('') +
       '</div></div>';
   document.getElementById('emp-modal-body').innerHTML = html;
+}
+
+// ── Upload logo da empresa ───────────────────────────────────────
+async function empOnLogoUpload(ev){
+  const file = ev.target.files && ev.target.files[0];
+  if(!file){ return; }
+  ev.target.value = '';
+  if(!/^image\//.test(file.type)){
+    if(typeof showToast === 'function') showToast('Selecione um arquivo de imagem', 'err');
+    return;
+  }
+  if(file.size > 5 * 1024 * 1024){
+    if(typeof showToast === 'function') showToast('Imagem muito grande (limite: 5 MB)', 'err');
+    return;
+  }
+  // Captura valores atuais ANTES de re-render
+  empFlushModalDraft();
+  const reader = new FileReader();
+  reader.onload = () => {
+    EMP_MODAL_DRAFT.logoDataUrl = String(reader.result || '');
+    empRenderModalForm();
+  };
+  reader.readAsDataURL(file);
+}
+function empRemoveLogo(){
+  empFlushModalDraft();
+  EMP_MODAL_DRAFT.logoDataUrl = '';
+  empRenderModalForm();
+}
+function empFlushModalDraft(){
+  if(!EMP_MODAL_DRAFT) return;
+  const _g = (id) => { const e = document.getElementById(id); return e ? e.value : null; };
+  if(_g('emp-f-nome') !== null) EMP_MODAL_DRAFT.nome = _g('emp-f-nome').trim();
+  if(_g('emp-f-razao') !== null) EMP_MODAL_DRAFT.razao = _g('emp-f-razao').trim();
+  if(_g('emp-f-cnpj') !== null) EMP_MODAL_DRAFT.cnpj = _g('emp-f-cnpj').trim();
+  if(_g('emp-f-segmento') !== null) EMP_MODAL_DRAFT.segmento = _g('emp-f-segmento').trim();
+  if(_g('emp-f-regime') !== null) EMP_MODAL_DRAFT.regime = _g('emp-f-regime');
+}
+
+// ── Máscara CNPJ ───────────────────────────────────────────────
+function empMaskCNPJ(el){
+  if(!el) return;
+  let v = (el.value || '').replace(/\D/g, '').slice(0,14);
+  if(v.length === 14){
+    v = v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+  }
+  el.value = v;
+}
+
+// ── Busca dados pelo CNPJ (BrasilAPI · grátis · público) ────────
+async function empLookupCNPJ(){
+  const inp = document.getElementById('emp-f-cnpj');
+  if(!inp) return;
+  const digits = (inp.value || '').replace(/\D/g, '');
+  if(digits.length !== 14){
+    if(typeof showToast === 'function') showToast('CNPJ inválido · precisa de 14 dígitos', 'err');
+    return;
+  }
+  const btn = document.querySelector('.emp-cnpj-search-btn');
+  if(btn){ btn.disabled = true; btn.querySelector('span').textContent = 'Buscando...'; }
+  try{
+    const resp = await fetch('https://brasilapi.com.br/api/cnpj/v1/' + digits);
+    if(!resp.ok) throw new Error('CNPJ não encontrado ou inválido (HTTP ' + resp.status + ')');
+    const data = await resp.json();
+    empFlushModalDraft();
+    EMP_MODAL_DRAFT.cnpj = inp.value;
+    EMP_MODAL_DRAFT.razao = data.razao_social || EMP_MODAL_DRAFT.razao;
+    EMP_MODAL_DRAFT.nome = data.nome_fantasia || data.razao_social || EMP_MODAL_DRAFT.nome;
+    // Segmento: usa descrição do CNAE principal
+    if(data.cnae_fiscal_descricao){
+      EMP_MODAL_DRAFT.segmento = data.cnae_fiscal_descricao;
+    }
+    // Inferir regime se houver opção tributária
+    if(data.opcao_pelo_simples) EMP_MODAL_DRAFT.regime = 'simples';
+    else if(data.opcao_pelo_mei) EMP_MODAL_DRAFT.regime = 'mei';
+    empRenderModalForm();
+    if(typeof showToast === 'function') showToast('✓ Dados preenchidos pela Receita Federal', 'ok');
+  }catch(e){
+    if(typeof showToast === 'function') showToast('Erro ao buscar CNPJ: ' + e.message, 'err');
+  }finally{
+    const b2 = document.querySelector('.emp-cnpj-search-btn');
+    if(b2){ b2.disabled = false; b2.querySelector('span').textContent = 'Buscar'; }
+  }
 }
 function empPickColor(c){
   EMP_MODAL_DRAFT.cor = c;
@@ -92545,11 +92716,7 @@ function empPickColor(c){
 }
 function empSaveCurrent(){
   if(!EMP_MODAL_DRAFT) return;
-  EMP_MODAL_DRAFT.nome     = document.getElementById('emp-f-nome').value.trim();
-  EMP_MODAL_DRAFT.razao    = document.getElementById('emp-f-razao').value.trim();
-  EMP_MODAL_DRAFT.cnpj     = document.getElementById('emp-f-cnpj').value.trim();
-  EMP_MODAL_DRAFT.segmento = document.getElementById('emp-f-segmento').value.trim();
-  EMP_MODAL_DRAFT.regime   = document.getElementById('emp-f-regime').value;
+  empFlushModalDraft(); // captura valores atuais + preserva logoDataUrl
   if(!EMP_MODAL_DRAFT.nome){
     if(typeof showToast === 'function') showToast('Nome é obrigatório', 'err');
     return;
