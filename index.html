@@ -239,12 +239,14 @@
     .rep-hd-meta{text-align:right;font-size:9pt;color:#64748B;line-height:1.6}
     .rep-hd-meta b{color:#0F172A;font-size:11pt}
 
-    /* Header relatório: logo da empresa (substitui o FOREKASH text) */
-    .rep-hd-left{display:flex;flex-direction:column;gap:6px;max-width:50%}
-    .rep-hd-emp-logo{max-height:48px;max-width:240px;width:auto;height:auto;object-fit:contain;display:block}
-    .rep-hd-emp-name{font-family:'Plus Jakarta Sans',sans-serif;font-weight:900;font-size:22pt;color:#0F172A;
-                     letter-spacing:-.02em;line-height:1.1;max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .rep-hd-empinfo{font-size:9pt;color:#64748B;line-height:1.4}
+    /* Header relatório: logo da empresa */
+    .rep-hd-left{display:flex;flex-direction:column;gap:6px;max-width:55%}
+    .rep-hd-emp-logo{max-height:54px;max-width:280px;width:auto;height:auto;object-fit:contain;display:block;margin-bottom:4px}
+    .rep-hd-default-logo{background:#0F172A;padding:9px 14px;border-radius:8px;display:inline-block;margin-bottom:4px;align-self:flex-start}
+    .rep-hd-default-logo svg{height:28px;width:auto;display:block}
+    .rep-hd-emp-name{font-family:'Plus Jakarta Sans',sans-serif;font-weight:900;font-size:18pt;color:#0F172A;
+                     letter-spacing:-.02em;line-height:1.1;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .rep-hd-empinfo{font-size:9pt;color:#64748B;line-height:1.4;letter-spacing:.02em}
 
     /* Footer relatório: brand Forekash com logo mini */
     .rep-foot-brand{display:inline-flex;align-items:center;gap:6px}
@@ -18877,8 +18879,8 @@
             <select id="rep-periodo" onchange="repRenderPreview()">
               <option value="mes">Mês atual</option>
               <option value="trim">Trimestre</option>
-              <option value="ytd" selected>YTD · Year-to-date</option>
-              <option value="12m">Últimos 12 meses</option>
+              <option value="ytd">YTD · Year-to-date</option>
+              <option value="12m" selected>Últimos 12 meses</option>
               <option value="ano">Ano</option>
               <option value="custom">Personalizado</option>
             </select>
@@ -90234,7 +90236,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779833143';
+      const CACHE = 'forekash-v1779833479';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -90440,17 +90442,35 @@ function repGetPeriod(){
 
 function repGatherData(period){
   const ctx = mrkGatherContext();
-  const inRange = (ym) => ym >= period.de && ym <= period.ate;
+  // Helper: extrai YYYY-MM de qualquer formato de data
+  function extractYM(s){
+    if(!s) return '';
+    s = String(s).trim();
+    // YYYY-MM-DD ou YYYY-MM-DDTHH...
+    let m = s.match(/^(\d{4})-(\d{1,2})/);
+    if(m) return m[1] + '-' + m[2].padStart(2, '0');
+    // DD/MM/YYYY
+    m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if(m) return m[3] + '-' + m[2].padStart(2, '0');
+    // YYYY/MM/DD
+    m = s.match(/^(\d{4})\/(\d{1,2})/);
+    if(m) return m[1] + '-' + m[2].padStart(2, '0');
+    return s.slice(0,7); // fallback
+  }
+  const inRange = (ym) => !!ym && ym >= period.de && ym <= period.ate;
   // Agrega
   const receitaByCat = {};
   const gastoByCat = {};
   const gastoByCC = {};
   let totalReceita = 0; let totalGasto = 0;
   let nLanc = 0;
+  const dataYears = {}; // pra diagnóstico
 
   // ─── Fonte 1: Extrato (extData) ───
   ctx.extrato.forEach(t => {
-    const ym = (t.data || '').slice(0,7);
+    const ym = extractYM(t.data);
+    const y = ym.slice(0,4);
+    if(y) dataYears[y] = (dataYears[y] || 0) + 1;
     if(!inRange(ym)) return;
     nLanc++;
     const v = Math.abs(Number(t.valor) || 0);
@@ -90526,7 +90546,7 @@ function repGatherData(period){
     if(typeof impData !== 'undefined' && Array.isArray(impData)){
       impData.forEach(i => {
         if(!i) return;
-        const ym = (i.competencia || i.vencimento || '').slice(0,7);
+        const ym = extractYM(i.competencia || i.vencimento || '');
         if(!inRange(ym)) return;
         const valor = Number(i.valor) || 0;
         if(valor <= 0) return;
@@ -90567,7 +90587,7 @@ function repGatherData(period){
         if(!emp || !Array.isArray(emp.parcelas)) return;
         emp.parcelas.forEach(p => {
           if(p.status !== 'pago' && p.status !== 'baixado') return;
-          const ym = (p.vencimento || p.data || '').slice(0,7);
+          const ym = extractYM(p.vencimento || p.data || '');
           if(!inRange(ym)) return;
           const valor = Number(p.valor) || 0;
           if(valor <= 0) return;
@@ -90585,7 +90605,7 @@ function repGatherData(period){
   (ctx.dispo.contas || []).forEach(c => caixa += Number(c.saldoAtual || c.saldo || 0));
   return {
     period, ctx, receitaByCat, gastoByCat, gastoByCC,
-    totalReceita, totalGasto, lucro:totalReceita - totalGasto, caixa, nLanc,
+    totalReceita, totalGasto, lucro:totalReceita - totalGasto, caixa, nLanc, dataYears,
     margem: totalReceita > 0 ? (totalReceita - totalGasto) / totalReceita * 100 : 0
   };
 }
@@ -90602,20 +90622,25 @@ function repHeaderHtml(period){
   const empNome = emp ? emp.nome : (window.SETTINGS && SETTINGS.empresa) || 'Sua empresa';
   const cnpj = emp ? emp.cnpj : (window.SETTINGS && SETTINGS.cnpj) || '—';
   const today = new Date().toLocaleDateString('pt-BR');
-  // Logo da empresa: prioridade empresa.logoDataUrl → settings.logoDataUrl global → nome em texto
+  // Logo: empresa.logoDataUrl → settings.logoDataUrl → DEFAULT_LOGO_SVG (Taller) em dark box
+  let logoBlockHtml = '';
   let logoUrl = '';
   if(emp && emp.logoDataUrl && typeof emp.logoDataUrl === 'string' && emp.logoDataUrl.startsWith('data:image/')){
     logoUrl = emp.logoDataUrl;
-  } else if(typeof settings !== 'undefined' && settings && settings.logoDataUrl && settings.logoDataUrl.startsWith('data:image/')){
+  } else if(typeof settings !== 'undefined' && settings && settings.logoDataUrl && typeof settings.logoDataUrl === 'string' && settings.logoDataUrl.startsWith('data:image/')){
     logoUrl = settings.logoDataUrl;
   }
-  const logoBlock = logoUrl
-    ? '<img class="rep-hd-emp-logo" src="' + logoUrl.replace(/"/g,'&quot;') + '" alt="' + empNome.replace(/"/g,'&quot;') + '">'
-    : '<div class="rep-hd-emp-name">' + empNome + '</div>';
+  if(logoUrl){
+    logoBlockHtml = '<img class="rep-hd-emp-logo" src="' + logoUrl.replace(/"/g,'&quot;') + '" alt="' + empNome.replace(/"/g,'&quot;') + '">';
+  } else if(typeof DEFAULT_LOGO_SVG === 'string' && DEFAULT_LOGO_SVG){
+    // Logo Taller padrão · dentro de container dark pra logo branca aparecer
+    logoBlockHtml = '<div class="rep-hd-default-logo">' + DEFAULT_LOGO_SVG + '</div>';
+  }
   return '<div class="rep-hd">' +
     '<div class="rep-hd-left">' +
-      logoBlock +
-      '<div class="rep-hd-empinfo">' + empNome + ' · CNPJ ' + cnpj + '</div>' +
+      logoBlockHtml +
+      '<div class="rep-hd-emp-name">' + empNome + '</div>' +
+      '<div class="rep-hd-empinfo">CNPJ ' + cnpj + '</div>' +
     '</div>' +
     '<div class="rep-hd-meta">' +
       '<b>' + period.label + '</b><br>' +
@@ -90661,7 +90686,17 @@ function repRenderDRE(d){
   let html = '<h1 class="rep-title">Demonstração do Resultado do Exercício (DRE)</h1>' +
              '<p class="rep-subtitle">Período: ' + d.period.label + ' · em Reais (R$)</p>';
   if(d.nLanc === 0){
-    html += '<div class="rep-narrative" style="background:#FEF3C7;border-color:#F59E0B;color:#92400E"><b>⚠ Nenhum lançamento no período selecionado.</b> Adicione lançamentos em <b>Extrato</b>, <b>Receita</b>, <b>Impostos</b> ou <b>Estrutura</b> — depois volta aqui que o DRE preenche automaticamente.</div>';
+    const anos = Object.keys(d.dataYears || {}).sort();
+    let dica = '';
+    if(anos.length > 0){
+      dica = '<br><br>📅 <b>Seus dados existentes:</b> ' +
+             anos.map(y => '<code style="background:#FFFBEB;padding:2px 6px;border-radius:4px;color:#78350F;font-weight:600">' + y + ' (' + d.dataYears[y] + ' lanç.)</code>').join(' ') +
+             '<br>👉 <b>Troca o período no topo</b> pra um intervalo que cubra esses anos.';
+    } else {
+      dica = '<br><br>Adicione lançamentos em <b>Extrato</b>, <b>Receita</b>, <b>Impostos</b> ou <b>Estrutura</b> — depois volta aqui que o DRE preenche automaticamente.';
+    }
+    html += '<div class="rep-narrative" style="background:#FEF3C7;border-color:#F59E0B;color:#92400E">' +
+            '<b>⚠ Nenhum lançamento no período selecionado (' + d.period.label + ').</b>' + dica + '</div>';
     return html;
   }
 
