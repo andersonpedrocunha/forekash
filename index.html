@@ -80000,70 +80000,94 @@ function seedDemoData(opts){
                               && Array.isArray(cartExisting.lancamentos) && cartExisting.lancamentos.length > 0);
   if(isEmpty.cart){
     // 3 cartões com faturas dos últimos 4 meses + lançamentos realistas
+    // Campos obrigatórios: apelido (NÃO nome), diaVencimento · faturas: refY/refM/vencimento/status/pagamento
     const today = new Date();
     const cards = [
-      { id:1, nome:'Itaú Empresarial', bandeira:'Mastercard', limite:25000, diaFechamento:5, diaVencimento:15, cor:'#FED7AA', ativo:true, ult4:'1234' },
-      { id:2, nome:'C6 Carbon',        bandeira:'Visa',        limite:15000, diaFechamento:25, diaVencimento:5,  cor:'#E5E7EB', ativo:true, ult4:'5678' },
-      { id:3, nome:'Nubank PJ',        bandeira:'Mastercard', limite:8000,  diaFechamento:10, diaVencimento:20, cor:'#E9D5FF', ativo:true, ult4:'9012' }
+      { id:1, apelido:'Itaú Empresarial', bandeira:'Mastercard', limite:25000, diaFechamento:5,  diaVencimento:15, cor:'#FED7AA', ativo:true, ult4:'1234' },
+      { id:2, apelido:'C6 Carbon',        bandeira:'Visa',       limite:15000, diaFechamento:25, diaVencimento:5,  cor:'#E5E7EB', ativo:true, ult4:'5678' },
+      { id:3, apelido:'Nubank PJ',        bandeira:'Mastercard', limite:8000,  diaFechamento:10, diaVencimento:20, cor:'#E9D5FF', ativo:true, ult4:'9012' }
     ];
     const fats = [];
     const lancs = [];
     let nextFat = 1, nextLanc = 1;
-    // Gera 4 faturas por cartão (3 fechadas + 1 atual)
+    const contasPag = ['Itaú · 1234-5', 'C6 Bank · 5678-9', 'Unilos · 9012-3'];
+    // Gera 4 faturas por cartão (3 pagas + 1 aberta)
     for(const c of cards){
       for(let m = 3; m >= 0; m--){
-        const dt = new Date(today.getFullYear(), today.getMonth() - m, c.diaVencimento);
-        const ym = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0');
+        const refDate = new Date(today.getFullYear(), today.getMonth() - m, 1);
+        const refY = refDate.getFullYear();
+        const refM = refDate.getMonth() + 1;  // 1..12
+        const lastDayRef = new Date(refY, refM, 0).getDate();
+        const dayUse = Math.min(c.diaVencimento, lastDayRef);
+        const vencStr = refY + '-' + String(refM).padStart(2,'0') + '-' + String(dayUse).padStart(2,'0');
         const fatId = nextFat++;
         const isFatAberta = (m === 0);
-        fats.push({
-          id: fatId, cartaoId: c.id, mesRef: ym,
-          dataVencimento: dt.toISOString().slice(0,10),
+        const fat = {
+          id: fatId, cartaoId: c.id,
+          refY, refM,
+          vencimento: vencStr,
           status: isFatAberta ? 'aberta' : 'paga'
-        });
+        };
+        if(!isFatAberta){
+          // Pagamento da fatura · valorPago será atualizado depois (após ter lançamentos)
+          fat.pagamento = {
+            data: vencStr,
+            conta: contasPag[(c.id - 1) % contasPag.length],
+            valorPago: 0,  // placeholder · setado abaixo
+            juros: 0, multa: 0, desconto: 0
+          };
+        }
+        fats.push(fat);
       }
     }
-    // Lançamentos espalhados pelas faturas (cada cartão tem 5-7 por fatura)
+    // Lançamentos por fatura · valores que somam fatura realista
     const descsItau = [
-      ['Posto Shell', 'Combustível', 280, 'Operação'],
-      ['Uber Empresa', 'Transporte', 145, 'Operação'],
-      ['Restaurante Cliente', 'Reunião comercial', 220, 'Comercial'],
-      ['Hotel Ibis', 'Hospedagem viagem', 480, 'Comercial'],
-      ['Material escritório', 'Kalunga', 165, 'Administrativo']
+      ['Posto Shell',          'Combustível',           280, 'Operação'],
+      ['Uber Empresa',         'Transporte corporativo',145, 'Operação'],
+      ['Restaurante Cliente',  'Reunião comercial',     220, 'Comercial'],
+      ['Hotel Ibis',           'Hospedagem viagem',     480, 'Comercial'],
+      ['Material escritório',  'Kalunga',               165, 'Administrativo']
     ];
     const descsC6 = [
-      ['Google Workspace', 'SaaS mensal', 290, 'Tecnologia'],
-      ['AWS', 'Infra cloud', 1450, 'Tecnologia'],
-      ['Figma Pro', 'Design tool', 90, 'Tecnologia'],
-      ['Notion Team', 'Produtividade', 80, 'Tecnologia'],
-      ['Slack', 'Comunicação', 120, 'Tecnologia']
+      ['Google Workspace',     'SaaS mensal',           290, 'Tecnologia'],
+      ['AWS',                  'Infra cloud',          1450, 'Tecnologia'],
+      ['Figma Pro',            'Design tool',            90, 'Tecnologia'],
+      ['Notion Team',          'Produtividade',          80, 'Tecnologia'],
+      ['Slack',                'Comunicação',           120, 'Tecnologia']
     ];
     const descsNu = [
-      ['iFood Almoço', 'Time', 380, 'Operação'],
-      ['Padaria escritório', 'Coffee break', 95, 'Operação'],
-      ['Coworking', 'Sala reunião', 250, 'Operação'],
-      ['Curso Udemy', 'Capacitação', 165, 'Tecnologia']
+      ['iFood Almoço',         'Time',                  380, 'Operação'],
+      ['Padaria escritório',   'Coffee break',           95, 'Operação'],
+      ['Coworking',            'Sala reunião',          250, 'Operação'],
+      ['Curso Udemy',          'Capacitação',           165, 'Tecnologia']
     ];
     const ccByName = { 'Comercial':1, 'Operação':2, 'Tecnologia':3, 'Administrativo':4, 'Marketing':5 };
     function emitLancs(card, descs, fatList){
       for(const f of fatList){
-        const ano = parseInt(f.mesRef.slice(0,4));
-        const mes = parseInt(f.mesRef.slice(5,7)) - 1;
         const n = Math.min(descs.length, card.id === 1 ? 5 : 4);
+        let fatTotal = 0;
         for(let i = 0; i < n; i++){
           const [desc, cat, baseVal, ccNome] = descs[i % descs.length];
-          // Pequena variação no valor pra parecer real
-          const variacao = 0.85 + (Math.sin(card.id + i + mes) * 0.3 + 0.5) * 0.4;
+          // Variação pra parecer dado real
+          const variacao = 0.85 + (Math.sin(card.id + i + f.refM) * 0.3 + 0.5) * 0.4;
           const valor = Math.round(baseVal * variacao);
-          const dia = Math.min(28, ((card.diaFechamento + i*3) % 28) + 1);
+          fatTotal += valor;
+          const lastDayRef = new Date(f.refY, f.refM, 0).getDate();
+          const dia = Math.min(lastDayRef, ((card.diaFechamento + i*3) % 28) + 1);
           lancs.push({
             id: nextLanc++, cartaoId: card.id, faturaId: f.id,
-            data: ano + '-' + String(mes+1).padStart(2,'0') + '-' + String(dia).padStart(2,'0'),
-            descricao: desc, categoria: cat, valor,
-            ccId: ccByName[ccNome] || null,
-            parcela: null, totalParc: null
+            data: f.refY + '-' + String(f.refM).padStart(2,'0') + '-' + String(dia).padStart(2,'0'),
+            descricao: desc,
+            categoria: cat,
+            estabelecimento: desc,  // contraparte no extrato
+            valor,
+            centroCustoId: ccByName[ccNome] || null,
+            numeroDocumento: '',
+            parcela: null
           });
         }
+        // Atualiza valorPago da fatura (se paga)
+        if(f.pagamento) f.pagamento.valorPago = fatTotal;
       }
     }
     emitLancs(cards[0], descsItau, fats.filter(f => f.cartaoId === 1));
