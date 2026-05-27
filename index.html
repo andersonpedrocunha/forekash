@@ -839,11 +839,11 @@
     .rep-table td.neg{color:#991B1B;font-weight:700}
     .rep-table td.indent{padding-left:32px;color:#475569}
 
-    .rep-kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0 24px}
-    .rep-kpi{background:#F8FAFC;border:1px solid #E5E7EB;border-radius:8px;padding:12px 14px;min-width:0}
+    .rep-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:18px 0 24px}
+    .rep-kpi{background:#F8FAFC;border:1px solid #E5E7EB;border-radius:8px;padding:12px 14px;min-width:0;overflow:hidden}
     .rep-kpi-lbl{font-size:8pt;color:#64748B;text-transform:uppercase;letter-spacing:.06em;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .rep-kpi-val{font-size:15pt;font-weight:900;color:#0F172A;margin-top:6px;letter-spacing:-.02em;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
-    .rep-kpi-val .rep-kpi-cur{font-size:10pt;font-weight:700;color:#64748B;margin-right:3px;letter-spacing:0;vertical-align:1px}
+    .rep-kpi-val{font-size:13pt;font-weight:900;color:#0F172A;margin-top:6px;letter-spacing:-.5px;line-height:1.15;font-variant-numeric:tabular-nums;word-break:break-word;hyphens:none}
+    .rep-kpi-val .rep-kpi-cur{font-size:9pt;font-weight:700;color:#64748B;margin-right:3px;letter-spacing:0;vertical-align:1px}
     .rep-kpi-sub{font-size:8.5pt;color:#94A3B8;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .rep-kpi.pos .rep-kpi-val{color:#065F46}
     .rep-kpi.neg .rep-kpi-val{color:#991B1B}
@@ -92193,7 +92193,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779922853';
+      const CACHE = 'forekash-v1779923392';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -92534,12 +92534,28 @@ function _repFmt(v){
   v = Math.abs(Number(v) || 0);
   return sign + 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 });
 }
-// Versão pra KPIs grandes: separa R$ pra estilizar menor (mantém valor compacto)
+// Versão pra KPIs grandes: separa R$ pra estilizar menor + usa formato compacto
+// se valor for >= 1 milhão (evita "R$ 1.193.00..." cortado)
 function _repFmtKpi(v){
   const sign = v < 0 ? '-' : '';
   v = Math.abs(Number(v) || 0);
-  const num = v.toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 });
+  let num;
+  if(v >= 1000000){
+    // 1.193.000 → "1,19 M"
+    num = (v/1000000).toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 }) + ' M';
+  } else if(v >= 100000){
+    // 100.000+ usa sem casas decimais pra economizar largura
+    num = v.toLocaleString('pt-BR', { minimumFractionDigits:0, maximumFractionDigits:0 });
+  } else {
+    num = v.toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 });
+  }
   return sign + '<span class="rep-kpi-cur">R$</span>' + num;
+}
+// Tooltip-friendly: valor completo pra atributo title
+function _repFmtKpiFull(v){
+  const sign = v < 0 ? '-' : '';
+  v = Math.abs(Number(v) || 0);
+  return sign + 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 });
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -100604,10 +100620,10 @@ function repRenderOrcadoReal(d){
   const pctLucro = orcLucro !== 0 ? (dLucro / Math.abs(orcLucro) * 100) : 0;
 
   html += '<div class="rep-kpi-grid">' +
-    '<div class="rep-kpi pos"><div class="rep-kpi-lbl">Receita Real</div><div class="rep-kpi-val">' + _repFmt(realReceita) + '</div><div class="rep-kpi-sub">orçado: ' + _repFmt(orcReceita) + '</div></div>' +
-    '<div class="rep-kpi"><div class="rep-kpi-lbl">Δ Receita</div><div class="rep-kpi-val ' + (dRec >= 0 ? 'pos' : 'neg') + '">' + (dRec >= 0 ? '+' : '') + _repFmt(dRec) + '</div><div class="rep-kpi-sub">' + (pctRec >= 0 ? '+' : '') + pctRec.toFixed(1) + '% vs orçado</div></div>' +
-    '<div class="rep-kpi neg"><div class="rep-kpi-lbl">Despesa Real</div><div class="rep-kpi-val">' + _repFmt(realDespesa) + '</div><div class="rep-kpi-sub">orçado: ' + _repFmt(orcDespesa) + '</div></div>' +
-    '<div class="rep-kpi"><div class="rep-kpi-lbl">Δ Despesa</div><div class="rep-kpi-val ' + (dDesp <= 0 ? 'pos' : 'neg') + '">' + (dDesp >= 0 ? '+' : '') + _repFmt(dDesp) + '</div><div class="rep-kpi-sub">' + (pctDesp >= 0 ? '+' : '') + pctDesp.toFixed(1) + '% vs orçado</div></div>' +
+    '<div class="rep-kpi pos" title="' + _repFmtKpiFull(realReceita) + '"><div class="rep-kpi-lbl">Receita Real</div><div class="rep-kpi-val">' + _repFmtKpi(realReceita) + '</div><div class="rep-kpi-sub">orçado: ' + _repFmtKpi(orcReceita) + '</div></div>' +
+    '<div class="rep-kpi" title="' + _repFmtKpiFull(dRec) + '"><div class="rep-kpi-lbl">Δ Receita</div><div class="rep-kpi-val ' + (dRec >= 0 ? 'pos' : 'neg') + '">' + (dRec >= 0 ? '+' : '') + _repFmtKpi(dRec) + '</div><div class="rep-kpi-sub">' + (pctRec >= 0 ? '+' : '') + pctRec.toFixed(1) + '% vs orçado</div></div>' +
+    '<div class="rep-kpi neg" title="' + _repFmtKpiFull(realDespesa) + '"><div class="rep-kpi-lbl">Despesa Real</div><div class="rep-kpi-val">' + _repFmtKpi(realDespesa) + '</div><div class="rep-kpi-sub">orçado: ' + _repFmtKpi(orcDespesa) + '</div></div>' +
+    '<div class="rep-kpi" title="' + _repFmtKpiFull(dDesp) + '"><div class="rep-kpi-lbl">Δ Despesa</div><div class="rep-kpi-val ' + (dDesp <= 0 ? 'pos' : 'neg') + '">' + (dDesp >= 0 ? '+' : '') + _repFmtKpi(dDesp) + '</div><div class="rep-kpi-sub">' + (pctDesp >= 0 ? '+' : '') + pctDesp.toFixed(1) + '% vs orçado</div></div>' +
   '</div>';
 
   html += '<h2 class="rep-section-title">Comparativo Geral</h2>' +
@@ -100656,10 +100672,10 @@ function repRenderDRE(d){
   }
 
   html += '<div class="rep-kpi-grid">' +
-    '<div class="rep-kpi pos"><div class="rep-kpi-lbl">Receita Bruta</div><div class="rep-kpi-val">' + _repFmtKpi(d.totalReceita) + '</div><div class="rep-kpi-sub">' + Object.keys(d.receitaByCat).length + ' categorias</div></div>' +
-    '<div class="rep-kpi neg"><div class="rep-kpi-lbl">Despesas Totais</div><div class="rep-kpi-val">' + _repFmtKpi(d.totalGasto) + '</div><div class="rep-kpi-sub">' + Object.keys(d.gastoByCat).length + ' categorias</div></div>' +
-    '<div class="rep-kpi ' + (d.lucro >= 0 ? 'pos' : 'neg') + '"><div class="rep-kpi-lbl">Resultado Líquido</div><div class="rep-kpi-val">' + _repFmtKpi(d.lucro) + '</div><div class="rep-kpi-sub">' + d.margem.toFixed(1) + '% margem</div></div>' +
-    '<div class="rep-kpi"><div class="rep-kpi-lbl">Caixa Atual</div><div class="rep-kpi-val">' + _repFmtKpi(d.caixa) + '</div><div class="rep-kpi-sub">disponibilidades</div></div>' +
+    '<div class="rep-kpi pos" title="' + _repFmtKpiFull(d.totalReceita) + '"><div class="rep-kpi-lbl">Receita Bruta</div><div class="rep-kpi-val">' + _repFmtKpi(d.totalReceita) + '</div><div class="rep-kpi-sub">' + Object.keys(d.receitaByCat).length + ' categorias</div></div>' +
+    '<div class="rep-kpi neg" title="' + _repFmtKpiFull(d.totalGasto) + '"><div class="rep-kpi-lbl">Despesas Totais</div><div class="rep-kpi-val">' + _repFmtKpi(d.totalGasto) + '</div><div class="rep-kpi-sub">' + Object.keys(d.gastoByCat).length + ' categorias</div></div>' +
+    '<div class="rep-kpi ' + (d.lucro >= 0 ? 'pos' : 'neg') + '" title="' + _repFmtKpiFull(d.lucro) + '"><div class="rep-kpi-lbl">Resultado Líquido</div><div class="rep-kpi-val">' + _repFmtKpi(d.lucro) + '</div><div class="rep-kpi-sub">' + d.margem.toFixed(1) + '% margem</div></div>' +
+    '<div class="rep-kpi" title="' + _repFmtKpiFull(d.caixa) + '"><div class="rep-kpi-lbl">Caixa Atual</div><div class="rep-kpi-val">' + _repFmtKpi(d.caixa) + '</div><div class="rep-kpi-sub">disponibilidades</div></div>' +
   '</div>';
 
   html += '<h2 class="rep-section-title">' + tpl.receitaLabel + '</h2><table class="rep-table"><tbody>';
@@ -100716,9 +100732,9 @@ function repRenderDRC(d){
   html += '<h2 class="rep-section-title">Resumo</h2>' +
           '<div class="rep-kpi-grid">' +
             '<div class="rep-kpi"><div class="rep-kpi-lbl">Centros de Custo</div><div class="rep-kpi-val">' + entries.length + '</div></div>' +
-            '<div class="rep-kpi"><div class="rep-kpi-lbl">Maior CC</div><div class="rep-kpi-val" style="font-size:10pt">' + (entries[0] ? entries[0][0] : '—') + '</div><div class="rep-kpi-sub">' + (entries[0] ? _repFmt(entries[0][1]) : '—') + '</div></div>' +
+            '<div class="rep-kpi" title="' + (entries[0] ? _repFmtKpiFull(entries[0][1]) : '') + '"><div class="rep-kpi-lbl">Maior CC</div><div class="rep-kpi-val" style="font-size:10pt;word-break:break-word">' + (entries[0] ? entries[0][0] : '—') + '</div><div class="rep-kpi-sub">' + (entries[0] ? _repFmtKpi(entries[0][1]) : '—') + '</div></div>' +
             '<div class="rep-kpi"><div class="rep-kpi-lbl">Distribuição</div><div class="rep-kpi-val" style="font-size:10pt">' + (entries.length > 0 && d.totalGasto > 0 ? (entries[0][1] / d.totalGasto * 100).toFixed(0) + '% no top' : '—') + '</div></div>' +
-            '<div class="rep-kpi"><div class="rep-kpi-lbl">Total Gasto</div><div class="rep-kpi-val">' + _repFmtKpi(d.totalGasto) + '</div></div>' +
+            '<div class="rep-kpi" title="' + _repFmtKpiFull(d.totalGasto) + '"><div class="rep-kpi-lbl">Total Gasto</div><div class="rep-kpi-val">' + _repFmtKpi(d.totalGasto) + '</div></div>' +
           '</div>';
   return html;
 }
@@ -100883,9 +100899,9 @@ function repRenderExecutivo(d){
 
   html += '<div class="rep-kpi-grid">' +
     '<div class="rep-kpi"><div class="rep-kpi-lbl">KASH SCORE</div><div class="rep-kpi-val">' + ksScore + '/100</div><div class="rep-kpi-sub">saúde financeira</div></div>' +
-    '<div class="rep-kpi pos"><div class="rep-kpi-lbl">Receita</div><div class="rep-kpi-val">' + _repFmtKpi(d.totalReceita) + '</div><div class="rep-kpi-sub">' + d.period.label + '</div></div>' +
-    '<div class="rep-kpi neg"><div class="rep-kpi-lbl">Despesas</div><div class="rep-kpi-val">' + _repFmtKpi(d.totalGasto) + '</div><div class="rep-kpi-sub">' + d.period.label + '</div></div>' +
-    '<div class="rep-kpi ' + (d.lucro >= 0 ? 'pos' : 'neg') + '"><div class="rep-kpi-lbl">Lucro Líquido</div><div class="rep-kpi-val">' + _repFmtKpi(d.lucro) + '</div><div class="rep-kpi-sub">' + d.margem.toFixed(1) + '% margem</div></div>' +
+    '<div class="rep-kpi pos" title="' + _repFmtKpiFull(d.totalReceita) + '"><div class="rep-kpi-lbl">Receita</div><div class="rep-kpi-val">' + _repFmtKpi(d.totalReceita) + '</div><div class="rep-kpi-sub">' + d.period.label + '</div></div>' +
+    '<div class="rep-kpi neg" title="' + _repFmtKpiFull(d.totalGasto) + '"><div class="rep-kpi-lbl">Despesas</div><div class="rep-kpi-val">' + _repFmtKpi(d.totalGasto) + '</div><div class="rep-kpi-sub">' + d.period.label + '</div></div>' +
+    '<div class="rep-kpi ' + (d.lucro >= 0 ? 'pos' : 'neg') + '" title="' + _repFmtKpiFull(d.lucro) + '"><div class="rep-kpi-lbl">Lucro Líquido</div><div class="rep-kpi-val">' + _repFmtKpi(d.lucro) + '</div><div class="rep-kpi-sub">' + d.margem.toFixed(1) + '% margem</div></div>' +
   '</div>';
 
   html += '<h2 class="rep-section-title">Highlights do período</h2>' +
