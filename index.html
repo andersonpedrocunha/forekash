@@ -4373,6 +4373,14 @@
     .ext-table .ext-status.pendente{background:#FEF3C7;color:#92400E;border-color:#FCD34D}
     .ext-table .ext-status.atraso{background:#FEE2E2;color:#991B1B;border-color:#FCA5A5}
     .ext-table .ext-status:hover{filter:brightness(.98)}
+
+    /* Menu 3-pontos do Extrato (Editar/Cobrança/NF) */
+    .ext-pop-menu{position:fixed;z-index:10000;background:#fff;border:1px solid #E2E8F0;border-radius:9px;box-shadow:0 10px 30px rgba(15,23,42,.15);padding:5px;min-width:230px;animation:extPopIn .15s ease}
+    @keyframes extPopIn{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
+    .ext-pop-item{display:flex;align-items:center;gap:9px;width:100%;padding:9px 11px;background:transparent;border:none;cursor:pointer;font-family:inherit;font-size:.82rem;color:#0F172A;border-radius:6px;text-align:left;font-weight:500;transition:background .1s}
+    .ext-pop-item:hover{background:#F1F5F9}
+    .ext-pop-item svg{flex-shrink:0;stroke-linecap:round;stroke-linejoin:round}
+    .ext-row-act-menu{cursor:pointer}
     .ext-table tr.is-saldo-row td{background:#F8FAFC;font-style:italic;color:#64748B;font-size:.74rem}
     .ext-table .ext-row-act{background:transparent;border:none;cursor:pointer;color:#94A3B8;font-size:.95rem;padding:4px 6px;border-radius:4px;line-height:1}
     .ext-table .ext-row-act:hover{background:#F1F5F9;color:#1E293B}
@@ -57726,7 +57734,10 @@ function renderExtrato(){
     const saldoHtml = '<span class="' + (saldoAcc < 0 ? 'saldo-neg' : '') + '">' + _extFmtBRL(saldoAcc) + '</span>';
     const effSt = _extEffStatus(it);
     const statusCls = effSt === 'pago' ? 'pago' : (effSt === 'atrasado' ? 'atraso' : 'pendente');
-    const statusLbl = effSt === 'pago' ? 'Pago ✓' : (effSt === 'atrasado' ? 'Atrasado' : 'Pendente');
+    const isEntrada = (it.tipo === 'ganho' || it.tipo === 'Receita' || sign > 0);
+    const statusLbl = effSt === 'pago'
+      ? (isEntrada ? 'Recebido ✓' : 'Pago ✓')
+      : (effSt === 'atrasado' ? 'Atrasado' : 'Pendente');
     const catColor = _extCatColor(it);
     let catLbl = _extEsc((it.categoria || it.tipo).slice(0, 22));
     // Para lançamentos de Estrutura, substitui o label "Estrutura" pela tag do item.
@@ -57743,7 +57754,7 @@ function renderExtrato(){
     const isDerived = !it.manual;
     const actBtn = isDerived
       ? '<button class="ext-row-act" type="button" onclick="extOpenSource(\''+ it.id + '\')" title="Abrir no módulo de origem">↗</button>'
-      : '<button class="ext-row-act" type="button" onclick="extEditManual(\''+ it.id + '\')" title="Editar">⋯</button>';
+      : '<button class="ext-row-act ext-row-act-menu" type="button" onclick="event.stopPropagation();extRowMenu(event,\''+ it.id + '\')" title="Mais opções">⋯</button>';
     const isSel = _extSelected.has(it.id);
     // Toggle de expansão para faturas agrupadas (sourceKind=cartao-fatura)
     let descPrefix = '';
@@ -59683,6 +59694,86 @@ function extDeleteGroup(){
   if(typeof toast === 'function') toast('Grupo excluído (' + removed + ' itens)');
 }
 try { window.extDeleteGroup = extDeleteGroup; } catch(e){}
+// ── Menu 3-pontos do Extrato: Editar / Cobrança / NF ─────────────
+function extRowMenu(ev, id){
+  ev.preventDefault();
+  ev.stopPropagation();
+  // Fecha menu anterior se houver
+  _extCloseAllMenus();
+  // Cria menu floating
+  const btn = ev.currentTarget;
+  const rect = btn.getBoundingClientRect();
+  const menu = document.createElement('div');
+  menu.className = 'ext-pop-menu';
+  menu.id = 'ext-pop-menu-active';
+  menu.style.top = (rect.bottom + 4) + 'px';
+  menu.style.left = (rect.right - 200) + 'px';
+  // Lançamento info pra decidir opções
+  const it = (window.extData && Array.isArray(window.extData))
+    ? window.extData.find(x => String(x.id) === String(id)) : null;
+  const isReceita = it && (it.tipo === 'ganho' || it.tipo === 'Receita');
+  menu.innerHTML =
+    '<button class="ext-pop-item" onclick="_extCloseAllMenus();extEditManual(\'' + id + '\')">' +
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>' +
+      '<span>Editar lançamento</span>' +
+    '</button>' +
+    (isReceita ? '<button class="ext-pop-item" onclick="_extCloseAllMenus();extRowGenCobranca(\'' + id + '\')">' +
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>' +
+      '<span style="color:#0BB1E1">Emitir cobrança · PIX/Boleto</span>' +
+    '</button>' : '') +
+    (isReceita ? '<button class="ext-pop-item" onclick="_extCloseAllMenus();extRowGenNF(\'' + id + '\')">' +
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>' +
+      '<span style="color:#0EA5E9">Emitir nota fiscal · NFS-e</span>' +
+    '</button>' : '');
+  document.body.appendChild(menu);
+  setTimeout(() => document.addEventListener('click', _extCloseAllMenus, { once:true }), 0);
+}
+function _extCloseAllMenus(){
+  const m = document.getElementById('ext-pop-menu-active');
+  if(m) m.remove();
+}
+function extRowGenCobranca(id){
+  if(!window.extData) return;
+  const it = window.extData.find(x => String(x.id) === String(id));
+  if(!it) return;
+  if(typeof asaasOpenCreate !== 'function'){
+    if(typeof showToast === 'function') showToast('Asaas não carregado', 'err');
+    return;
+  }
+  asaasOpenCreate();
+  setTimeout(() => {
+    if(typeof ASAAS_DRAFT === 'undefined' || !ASAAS_DRAFT) return;
+    ASAAS_DRAFT.cliente = it.cliente || it.descricao || 'Cliente';
+    ASAAS_DRAFT.cnpj = it.cnpj || it.documento || '';
+    ASAAS_DRAFT.email = it.email || '';
+    ASAAS_DRAFT.valor = Math.abs(Number(it.valor) || 0);
+    ASAAS_DRAFT.descricao = it.descricao || (it.categoria + ' · ' + (it.data || ''));
+    ASAAS_DRAFT.vencimento = it.data || new Date().toISOString().slice(0,10);
+    // Vínculo direto com lançamento de extrato
+    ASAAS_DRAFT.extratoLancId = id;
+    if(typeof asaasRenderCreateForm === 'function') asaasRenderCreateForm();
+    if(typeof showToast === 'function') showToast('✓ Cobrança vinculada ao lançamento #' + id, 'ok');
+  }, 50);
+}
+function extRowGenNF(id){
+  if(!window.extData) return;
+  const it = window.extData.find(x => String(x.id) === String(id));
+  if(!it) return;
+  if(typeof nfOpenCreate !== 'function'){
+    if(typeof showToast === 'function') showToast('Notas Fiscais não carregado', 'err');
+    return;
+  }
+  nfOpenCreate({
+    cliente: it.cliente || it.descricao || 'Cliente',
+    cnpj: it.cnpj || it.documento || '',
+    email: it.email || '',
+    valor: Math.abs(Number(it.valor) || 0),
+    descricao: it.descricao || 'Serviços prestados · ' + (it.categoria || '') + ' · ' + (it.data || ''),
+    extratoLancId: id // vínculo com este lançamento
+  });
+}
+try { window.extRowMenu = extRowMenu; window.extRowGenCobranca = extRowGenCobranca; window.extRowGenNF = extRowGenNF; }catch(e){}
+
 function extEditManual(id){
   if(typeof id === 'string' && id.startsWith('grp:')){ extEditGroup(id); return; }
   const l = (extratoData.lancamentos || []).find(x => 'm:' + x.id === id);
@@ -91108,7 +91199,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779853404';
+      const CACHE = 'forekash-v1779854210';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -92681,9 +92772,34 @@ function nfDemoEmit(){
     if(n){
       n.status = 'aut';
       n.dataAutorizada = new Date().toISOString();
+      n.pdfUrl = 'data:application/pdf;base64,DEMO'; // placeholder pra Demo
       nfSave();
+      // AUTO-ATTACH: se vinculada a lançamento de extrato, preenche docNum + anexo
+      try{
+        if(n.extratoLancId && typeof extData !== 'undefined' && Array.isArray(extData)){
+          const lanc = extData.find(x => String(x.id) === String(n.extratoLancId));
+          if(lanc){
+            lanc.docNum = 'NFS-e #' + n.numero;
+            lanc.anexos = lanc.anexos || [];
+            lanc.anexos.push({ tipo:'nfs-e', numero:n.numero, nfId:n.id, label:'NFS-e #' + n.numero + ' · ' + n.cliente });
+            if(typeof saveExtrato === 'function') saveExtrato();
+            else if(typeof saveData === 'function') saveData();
+            if(typeof renderExtrato === 'function') renderExtrato();
+          }
+        }
+        // Se vinculada a Receita, marca cell.docNum também
+        if(n.receitaRowId && typeof receita !== 'undefined' && receita.years && receita.years[n.receitaYear]){
+          const row = (receita.years[n.receitaYear].clients || []).find(r => r.id === n.receitaRowId);
+          if(row && row.meses && row.meses[n.receitaMes]){
+            row.meses[n.receitaMes].numeroDocumento = 'NFS-e #' + n.numero;
+            row.meses[n.receitaMes].nfId = n.id;
+            if(typeof saveReceita === 'function') saveReceita();
+            if(typeof renderReceita === 'function') renderReceita();
+          }
+        }
+      }catch(_){}
       if(document.getElementById('mod-notasfiscais').classList.contains('active')) nfRender();
-      if(typeof showToast === 'function') showToast('✓ NFS-e #' + numero + ' autorizada · ' + n.cliente, 'ok');
+      if(typeof showToast === 'function') showToast('✓ NFS-e #' + numero + ' autorizada · ' + n.cliente + ' (vinculada ao lançamento)', 'ok');
     }
   }, 3000);
 }
@@ -94429,7 +94545,31 @@ function asaasDemoCreate(){
   });
   ASAAS.cobrancas.push(cb);
   asaasSave();
-  if(typeof showToast === 'function') showToast('✓ Cobrança gerada (modo demo) · R$ ' + _asaasFmt(cb.valor), 'ok');
+  // AUTO-ATTACH: se vinculada a lançamento de extrato, preenche docNum + anexo
+  try{
+    if(cb.extratoLancId && typeof extData !== 'undefined' && Array.isArray(extData)){
+      const lanc = extData.find(x => String(x.id) === String(cb.extratoLancId));
+      if(lanc){
+        lanc.docNum = 'Cobrança ' + cb.asaasId;
+        lanc.anexos = lanc.anexos || [];
+        const linkLabel = cb.tipo === 'pix' ? '⚡ PIX' : cb.tipo === 'boleto' ? '🧾 Boleto' : '💳 Cartão';
+        lanc.anexos.push({ tipo:'cobranca', asaasId:cb.asaasId, link:cb.linkPagamento, label:linkLabel + ' · R$ ' + _asaasFmt(cb.valor) });
+        if(typeof saveExtrato === 'function') saveExtrato();
+        else if(typeof saveData === 'function') saveData();
+        if(typeof renderExtrato === 'function') renderExtrato();
+      }
+    }
+    if(cb.receitaRowId && typeof receita !== 'undefined' && receita.years && receita.years[cb.receitaYear]){
+      const row = (receita.years[cb.receitaYear].clients || []).find(r => r.id === cb.receitaRowId);
+      if(row && row.meses && row.meses[cb.receitaMes]){
+        row.meses[cb.receitaMes].numeroDocumento = 'Cobrança ' + cb.asaasId;
+        row.meses[cb.receitaMes].asaasId = cb.asaasId;
+        if(typeof saveReceita === 'function') saveReceita();
+        if(typeof renderReceita === 'function') renderReceita();
+      }
+    }
+  }catch(_){}
+  if(typeof showToast === 'function') showToast('✓ Cobrança gerada (modo demo) · R$ ' + _asaasFmt(cb.valor) + (cb.extratoLancId ? ' (vinculada ao lançamento)' : ''), 'ok');
 }
 
 async function asaasSandboxCreate(){
