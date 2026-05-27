@@ -92168,7 +92168,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779916887';
+      const CACHE = 'forekash-v1779917144';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -97491,24 +97491,48 @@ function mrkProactiveLoad(){
 }
 function _mrkProactiveSave(){ try{ localStorage.setItem(MRK_PROACTIVE_KEY, JSON.stringify(MRK_PROACTIVE_STATE)); }catch(_){} }
 function mrkProactiveCheck(firstRun){
-  const sigs = mrkProactiveDetect();
-  const agora = Date.now();
-  // Respeita cooldown EXCETO no firstRun
-  if(!firstRun && agora - MRK_PROACTIVE_STATE.lastNudgeTs < 30000) return;
-  const ativos = sigs.filter(s => !MRK_PROACTIVE_STATE.dismissed[s.id]);
-  let top;
-  if(ativos.length){
-    top = ativos.sort((a,b)=>b.urgencia-a.urgencia)[0];
-  } else if(firstRun){
-    // Boas vindas com stat se nada crítico detectado
-    top = mrkProactiveGreeting();
+  try{
+    console.log('[MR KASH proativo] check rodando · firstRun=', firstRun);
+    const sigs = mrkProactiveDetect();
+    const agora = Date.now();
+    // Respeita cooldown EXCETO no firstRun
+    if(!firstRun && agora - MRK_PROACTIVE_STATE.lastNudgeTs < 30000){
+      console.log('[MR KASH proativo] cooldown ativo, pulando');
+      return;
+    }
+    // firstRun ignora dismissed também
+    const ativos = firstRun ? sigs : sigs.filter(s => !MRK_PROACTIVE_STATE.dismissed[s.id]);
+    let top;
+    if(ativos.length){
+      top = ativos.sort((a,b)=>b.urgencia-a.urgencia)[0];
+    } else if(firstRun){
+      top = mrkProactiveGreeting();
+    }
+    if(!top){ console.log('[MR KASH proativo] nada a disparar'); return; }
+    MRK_PROACTIVE_STATE.lastNudgeTs = agora;
+    _mrkProactiveSave();
+    console.log('[MR KASH proativo] disparando toast:', top.msg);
+    _mrkProactiveShow(top);
+  }catch(e){
+    console.error('[MR KASH proativo] erro:', e);
   }
-  if(!top) return;
-  MRK_PROACTIVE_STATE.lastNudgeTs = agora;
-  _mrkProactiveSave();
+}
+// Mostra toast (com fallback nativo se fkToast não existir)
+function _mrkProactiveShow(top){
+  const msg = `MR KASH: ${top.msg}`;
+  const tipo = top.tipo || 'info';
   if(typeof fkToast === 'function'){
-    fkToast(`MR KASH: ${top.msg}`, top.tipo || 'info', 6500);
+    fkToast(msg, tipo, 7000);
+    return;
   }
+  // Fallback: monta um toast simples direto no DOM
+  const cores = { ok:'#10B981', err:'#EF4444', warn:'#F59E0B', info:'#3B82F6' };
+  const cor = cores[tipo] || '#3B82F6';
+  const t = document.createElement('div');
+  t.style.cssText = `position:fixed;bottom:24px;right:24px;background:#0F172A;border-left:4px solid ${cor};color:#E5E7EB;padding:14px 18px;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.3);font-size:.86rem;max-width:380px;z-index:99999;line-height:1.5`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 7000);
 }
 function mrkProactiveGreeting(){
   // Pega 1 stat random do app pra mostrar
@@ -97590,12 +97614,37 @@ function mrkProactiveDetect(){
   return sigs;
 }
 function mrkProactiveStart(){
-  // Roda 1ª vez após 5s do boot (firstRun=true: dispara mesmo sem sinal crítico)
-  setTimeout(() => mrkProactiveCheck(true), 5000);
+  console.log('[MR KASH proativo] mrkProactiveStart() chamado');
+  // Roda 1ª vez após 8s do boot (firstRun=true: dispara mesmo sem sinal crítico)
+  setTimeout(() => {
+    console.log('[MR KASH proativo] disparando firstRun após 8s');
+    mrkProactiveCheck(true);
+  }, 8000);
   // Depois a cada 5 min (só dispara se tiver sinal crítico + cooldown 30s)
   setInterval(() => mrkProactiveCheck(false), 5*60*1000);
 }
-try{ window.mrkProactiveLoad = mrkProactiveLoad; window.mrkProactiveCheck = mrkProactiveCheck; window.mrkProactiveStart = mrkProactiveStart; }catch(_){}
+try{ window.mrkProactiveLoad = mrkProactiveLoad; window.mrkProactiveCheck = mrkProactiveCheck; window.mrkProactiveStart = mrkProactiveStart; window._mrkProactiveShow = _mrkProactiveShow; }catch(_){}
+
+// FALLBACK: dispara mesmo se _safeInit('mrkProactiveStart') não foi chamado
+// (ex: ordem de boot quebrou em algum lugar)
+(function _mrkProactiveAutoBoot(){
+  let booted = false;
+  function tryBoot(){
+    if(booted) return;
+    if(typeof mrkProactiveStart !== 'function') return;
+    if(typeof MRK_PROACTIVE_STATE === 'undefined') return;
+    booted = true;
+    // Garante que mrkProactiveLoad rodou (carrega state do localStorage)
+    try{ if(typeof mrkProactiveLoad === 'function') mrkProactiveLoad(); }catch(_){}
+    console.log('[MR KASH proativo] auto-boot iniciado');
+    mrkProactiveStart();
+  }
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', () => setTimeout(tryBoot, 1500));
+  } else {
+    setTimeout(tryBoot, 1500);
+  }
+})();
 
 // ── SNAPSHOT COMPARATIVO PATRIMÔNIO ────────────────────────────────
 function patrimSnapCompare(snapIdA, snapIdB){
