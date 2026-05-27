@@ -19415,13 +19415,6 @@
           </div>
           <div id="flx-forecast-chart"></div>
           <div id="flx-forecast-explain" style="margin-top:10px;padding:10px 12px;background:#fff;border:1px dashed #CBD5E1;border-radius:8px;font-size:.74rem;color:#475569;line-height:1.5"></div>
-          <!-- DRE projetado compacto (collapsible) -->
-          <details id="flx-dre-details" style="margin-top:8px;background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:6px 10px" ontoggle="if(this.open){ try{ const el=document.getElementById('flx-dre-proj'); if(el && typeof dreProjRender==='function') el.innerHTML = dreProjRender(); }catch(e){console.warn('dre proj:',e)} }">
-            <summary style="cursor:pointer;font-size:.78rem;font-weight:700;color:#475569;padding:4px 0">📊 DRE projetado · próximos 6 meses</summary>
-            <div id="flx-dre-proj" style="margin-top:8px">
-              <div style="text-align:center;padding:14px;color:#94A3B8;font-size:.78rem">Carregando projeção...</div>
-            </div>
-          </details>
         </div>
 
         <!-- Toolbar: Visão, Análise Vertical/Horizontal, Voltar projeção -->
@@ -34076,14 +34069,6 @@ function flxRenderForecast(){
   if(explainEl){
     explainEl.innerHTML = `🔮 <b>Modo Probabilística</b>: projeção estatística usando média móvel dos últimos ${Math.min(serieRecente.length, 6)} meses + tendência + ajuste sazonal vs ano anterior. Faixa cinza = intervalo de confiança (mais largo = mais incerteza). <i>Útil quando você não preencheu dados futuros nos módulos.</i>`;
   }
-  // DRE projetado compacto — só re-renderiza se já está aberto
-  try{
-    const det = document.getElementById('flx-dre-details');
-    if(det && det.open){
-      const dreEl = document.getElementById('flx-dre-proj');
-      if(dreEl && typeof dreProjRender === 'function') dreEl.innerHTML = dreProjRender();
-    }
-  }catch(_){}
 }
 // Renderiza chart no modo "probabilística" usando forecastRenderSparkline
 function _flxRenderChartProb(serieRecente, mesesProj){
@@ -92183,7 +92168,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779916698';
+      const CACHE = 'forekash-v1779916887';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -97711,69 +97696,6 @@ try{ window.patrimSnapCompare = patrimSnapCompare; window.patrimSnapCompareOpen 
 // ═════════════════════════════════════════════════════════════════════
 // 📊 RELATÓRIOS/DADOS — DRE projetado + Bulk edit + Multi-empresa compare
 // ═════════════════════════════════════════════════════════════════════
-
-// ── DRE PROJETADO COMPACTO ─────────────────────────────────────────
-// Gera DRE mini dos próximos 3 meses usando forecast
-function dreProjGenerate(meses){
-  meses = meses || 3;
-  // Pega série de receitas e gastos dos últimos meses
-  const serieReceita = [], serieGasto = [];
-  try{
-    const anos = (typeof fluxo !== 'undefined' && fluxo.years) ? fluxo.years.slice().sort() : [];
-    anos.forEach(y => {
-      for(let m=0; m<12; m++){
-        const ym = y + '-' + String(m+1).padStart(2,'0');
-        let r=0, g=0;
-        try{ r = flxReceitaMes(y, m) || 0; }catch(_){}
-        try{
-          g = (flxFolhaMes(y,m)||0)+(flxDespesasMes(y,m)||0)+(flxEmprestimosMes(y,m)||0)+(flxImpostoMes(y,m)||0);
-        }catch(_){}
-        if(r > 0 || g > 0){
-          serieReceita.push({ ym, valor:r });
-          serieGasto.push({ ym, valor:g });
-        }
-      }
-    });
-  }catch(_){}
-  if(serieReceita.length < 3) return null;
-  // Usa forecastCalc se disponível
-  let projReceita = [], projGasto = [];
-  try{
-    projReceita = (typeof forecastCalc === 'function') ? forecastCalc(serieReceita, meses) : [];
-    projGasto   = (typeof forecastCalc === 'function') ? forecastCalc(serieGasto, meses) : [];
-  }catch(_){}
-  if(!projReceita.length) return null;
-  // Monta linhas
-  const result = projReceita.map((r, i) => {
-    const g = projGasto[i] || { valor:0 };
-    return {
-      ym: r.ym,
-      receita: Math.max(0, r.valor),
-      gasto: Math.max(0, g.valor),
-      lucro: Math.max(0, r.valor) - Math.max(0, g.valor),
-      margem: r.valor > 0 ? ((r.valor - g.valor)/r.valor * 100) : 0
-    };
-  });
-  return result;
-}
-function dreProjRender(){
-  const proj = dreProjGenerate(6);
-  if(!proj || !proj.length) return '<div style="color:#94A3B8;font-size:.74rem;padding:6px;text-align:center">Preencha mais meses pro DRE projetado funcionar</div>';
-  const totRec = proj.reduce((s,p)=>s+p.receita, 0);
-  const totGas = proj.reduce((s,p)=>s+p.gasto, 0);
-  const totLuc = totRec - totGas;
-  const totMar = totRec > 0 ? (totLuc/totRec*100) : 0;
-  let html = '<table style="width:100%;font-size:.72rem;border-collapse:collapse;color:#475569">';
-  html += '<thead><tr style="background:#F1F5F9"><th style="padding:4px 6px;text-align:left;font-weight:700">Mês</th><th style="text-align:right;padding:4px 6px">Receita</th><th style="text-align:right;padding:4px 6px">Gasto</th><th style="text-align:right;padding:4px 6px">Lucro</th><th style="text-align:right;padding:4px 6px">%</th></tr></thead><tbody>';
-  proj.forEach(p => {
-    const cor = p.lucro >= 0 ? '#10B981' : '#EF4444';
-    html += `<tr style="border-bottom:1px solid #E2E8F0"><td style="padding:4px 6px"><b>${_flxLabelMes(p.ym)}</b></td><td style="text-align:right;padding:4px 6px">${_insFmt(p.receita)}</td><td style="text-align:right;padding:4px 6px">${_insFmt(p.gasto)}</td><td style="text-align:right;padding:4px 6px;color:${cor};font-weight:700">${_insFmt(p.lucro)}</td><td style="text-align:right;padding:4px 6px;color:${cor}">${p.margem.toFixed(0)}%</td></tr>`;
-  });
-  html += `<tr style="background:#F0FDF4"><td style="padding:6px;font-weight:700">Total</td><td style="text-align:right;padding:6px;font-weight:700">${_insFmt(totRec)}</td><td style="text-align:right;padding:6px;font-weight:700">${_insFmt(totGas)}</td><td style="text-align:right;padding:6px;color:${totLuc>=0?'#10B981':'#EF4444'};font-weight:800">${_insFmt(totLuc)}</td><td style="text-align:right;padding:6px;font-weight:700">${totMar.toFixed(0)}%</td></tr>`;
-  html += '</tbody></table>';
-  return html;
-}
-try{ window.dreProjGenerate = dreProjGenerate; window.dreProjRender = dreProjRender; }catch(_){}
 
 // ── BULK EDIT no Extrato ───────────────────────────────────────────
 // Estado simples: lista de IDs selecionados
