@@ -19401,7 +19401,7 @@
         <div class="flx-forecast" id="flx-forecast" style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:16px 18px;margin:14px 0">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;gap:12px;flex-wrap:wrap">
             <div style="flex:1;min-width:0">
-              <h3 style="margin:0;font-size:.92rem;color:#0F172A">📈 Projeção de Fluxo de Caixa · próximos 6 meses</h3>
+              <h3 id="flx-forecast-title" style="margin:0;font-size:.92rem;color:#0F172A">📈 Projeção de Fluxo de Caixa · próximos 6 meses</h3>
               <small id="flx-forecast-sub" style="color:#64748B;font-size:.74rem">Média móvel + sazonalidade do ano anterior + banda de confiança</small>
             </div>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
@@ -19416,9 +19416,11 @@
           <div id="flx-forecast-chart"></div>
           <div id="flx-forecast-explain" style="margin-top:10px;padding:10px 12px;background:#fff;border:1px dashed #CBD5E1;border-radius:8px;font-size:.74rem;color:#475569;line-height:1.5"></div>
           <!-- DRE projetado compacto (collapsible) -->
-          <details style="margin-top:8px;background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:6px 10px">
-            <summary style="cursor:pointer;font-size:.78rem;font-weight:700;color:#475569;padding:4px 0">📊 DRE projetado · próximos 3 meses</summary>
-            <div id="flx-dre-proj" style="margin-top:8px"></div>
+          <details id="flx-dre-details" style="margin-top:8px;background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:6px 10px" ontoggle="if(this.open){ try{ const el=document.getElementById('flx-dre-proj'); if(el && typeof dreProjRender==='function') el.innerHTML = dreProjRender(); }catch(e){console.warn('dre proj:',e)} }">
+            <summary style="cursor:pointer;font-size:.78rem;font-weight:700;color:#475569;padding:4px 0">📊 DRE projetado · próximos 6 meses</summary>
+            <div id="flx-dre-proj" style="margin-top:8px">
+              <div style="text-align:center;padding:14px;color:#94A3B8;font-size:.78rem">Carregando projeção...</div>
+            </div>
           </details>
         </div>
 
@@ -33990,9 +33992,14 @@ function flxRenderForecast(){
   const sub = document.getElementById('flx-forecast-sub');
   const explainEl = document.getElementById('flx-forecast-explain');
   const sel = document.getElementById('flx-forecast-mode');
+  const titEl = document.getElementById('flx-forecast-title');
   if(!el) return;
   // Sync select com state
   if(sel && sel.value !== FLX_FORECAST_MODE) sel.value = FLX_FORECAST_MODE;
+  // Atualiza título conforme visão (DRC vs DRE)
+  const v = (typeof flxView === 'string') ? flxView : 'drc';
+  const viewLabel = v === 'dre' ? 'Lucro Líquido (DRE)' : 'Saldo do Mês (DRC)';
+  if(titEl) titEl.textContent = `📈 Projeção · ${viewLabel} · próximos 6 meses`;
   // Determina ponto de corte: hoje (último mês fechado)
   const hoje = new Date();
   const yNow = hoje.getFullYear();
@@ -34069,10 +34076,13 @@ function flxRenderForecast(){
   if(explainEl){
     explainEl.innerHTML = `🔮 <b>Modo Probabilística</b>: projeção estatística usando média móvel dos últimos ${Math.min(serieRecente.length, 6)} meses + tendência + ajuste sazonal vs ano anterior. Faixa cinza = intervalo de confiança (mais largo = mais incerteza). <i>Útil quando você não preencheu dados futuros nos módulos.</i>`;
   }
-  // DRE projetado compacto
+  // DRE projetado compacto — só re-renderiza se já está aberto
   try{
-    const dreEl = document.getElementById('flx-dre-proj');
-    if(dreEl && typeof dreProjRender === 'function') dreEl.innerHTML = dreProjRender();
+    const det = document.getElementById('flx-dre-details');
+    if(det && det.open){
+      const dreEl = document.getElementById('flx-dre-proj');
+      if(dreEl && typeof dreProjRender === 'function') dreEl.innerHTML = dreProjRender();
+    }
   }catch(_){}
 }
 // Renderiza chart no modo "probabilística" usando forecastRenderSparkline
@@ -34483,6 +34493,8 @@ function setFlxView(v){
   try { localStorage.setItem(FLX_VIEW_KEY, v); } catch(e){}
   _flxUpdateViewBtns();
   renderFlxSheet();
+  // Re-renderiza forecast pra refletir a nova visão (DRC vs DRE)
+  try{ if(typeof flxRenderForecast === 'function') flxRenderForecast(); }catch(_){}
 }
 function _flxUpdateViewBtns(){
   const drc = document.getElementById('flx-view-drc-btn');
@@ -92171,7 +92183,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779915733';
+      const CACHE = 'forekash-v1779916698';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -97493,22 +97505,55 @@ function mrkProactiveLoad(){
   if(!MRK_PROACTIVE_STATE.dismissed) MRK_PROACTIVE_STATE.dismissed = {};
 }
 function _mrkProactiveSave(){ try{ localStorage.setItem(MRK_PROACTIVE_KEY, JSON.stringify(MRK_PROACTIVE_STATE)); }catch(_){} }
-function mrkProactiveCheck(){
-  // Roda 5s após boot e a cada 5min
+function mrkProactiveCheck(firstRun){
   const sigs = mrkProactiveDetect();
-  // Filtra dismissed e respeita cooldown de 30s
   const agora = Date.now();
-  if(agora - MRK_PROACTIVE_STATE.lastNudgeTs < 30000) return;
+  // Respeita cooldown EXCETO no firstRun
+  if(!firstRun && agora - MRK_PROACTIVE_STATE.lastNudgeTs < 30000) return;
   const ativos = sigs.filter(s => !MRK_PROACTIVE_STATE.dismissed[s.id]);
-  if(!ativos.length) return;
-  // Pega o de maior urgência
-  const top = ativos.sort((a,b)=>b.urgencia-a.urgencia)[0];
+  let top;
+  if(ativos.length){
+    top = ativos.sort((a,b)=>b.urgencia-a.urgencia)[0];
+  } else if(firstRun){
+    // Boas vindas com stat se nada crítico detectado
+    top = mrkProactiveGreeting();
+  }
+  if(!top) return;
   MRK_PROACTIVE_STATE.lastNudgeTs = agora;
   _mrkProactiveSave();
-  // Dispara toast com avatar
   if(typeof fkToast === 'function'){
-    fkToast(`MR KASH: ${top.msg}`, top.tipo || 'info', 6000);
+    fkToast(`MR KASH: ${top.msg}`, top.tipo || 'info', 6500);
   }
+}
+function mrkProactiveGreeting(){
+  // Pega 1 stat random do app pra mostrar
+  const stats = [];
+  try{
+    if(typeof COM !== 'undefined' && Array.isArray(COM.assinaturas)){
+      const ativas = COM.assinaturas.filter(a => a.ativa);
+      const mrr = ativas.reduce((s,a)=>s+(Number(a.valor)||0),0);
+      if(mrr > 0) stats.push({ msg:`MRR atual R$ ${mrr.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})} · ${ativas.length} assinatura(s) ativas`, tipo:'info' });
+    }
+  }catch(_){}
+  try{
+    if(typeof dispoData !== 'undefined' && Array.isArray(dispoData.contas)){
+      const saldo = dispoData.contas.reduce((s,c)=>s+(Number(c.saldo)||0),0);
+      if(saldo > 0) stats.push({ msg:`Caixa total R$ ${saldo.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})} em ${dispoData.contas.length} conta(s)`, tipo:'info' });
+    }
+  }catch(_){}
+  try{
+    if(typeof NF !== 'undefined' && Array.isArray(NF.notas)){
+      const ymNow = new Date().toISOString().slice(0,7);
+      const mes = NF.notas.filter(n => (n.dataEmissao||'').slice(0,7) === ymNow).length;
+      if(mes > 0) stats.push({ msg:`${mes} NF emitida(s) este mês · tá fluindo`, tipo:'info' });
+    }
+  }catch(_){}
+  // Fallback genérico
+  if(!stats.length){
+    stats.push({ msg:'Tô online. Pergunta qualquer coisa — eu leio teus dados em tempo real.', tipo:'info' });
+  }
+  const s = stats[Math.floor(Math.random()*stats.length)];
+  return Object.assign({ id:'greeting' }, s);
 }
 function mrkProactiveDetect(){
   const sigs = [];
@@ -97560,10 +97605,10 @@ function mrkProactiveDetect(){
   return sigs;
 }
 function mrkProactiveStart(){
-  // Roda 1ª vez após 8s do boot
-  setTimeout(mrkProactiveCheck, 8000);
-  // Depois a cada 5 min
-  setInterval(mrkProactiveCheck, 5*60*1000);
+  // Roda 1ª vez após 5s do boot (firstRun=true: dispara mesmo sem sinal crítico)
+  setTimeout(() => mrkProactiveCheck(true), 5000);
+  // Depois a cada 5 min (só dispara se tiver sinal crítico + cooldown 30s)
+  setInterval(() => mrkProactiveCheck(false), 5*60*1000);
 }
 try{ window.mrkProactiveLoad = mrkProactiveLoad; window.mrkProactiveCheck = mrkProactiveCheck; window.mrkProactiveStart = mrkProactiveStart; }catch(_){}
 
@@ -97712,7 +97757,7 @@ function dreProjGenerate(meses){
   return result;
 }
 function dreProjRender(){
-  const proj = dreProjGenerate(3);
+  const proj = dreProjGenerate(6);
   if(!proj || !proj.length) return '<div style="color:#94A3B8;font-size:.74rem;padding:6px;text-align:center">Preencha mais meses pro DRE projetado funcionar</div>';
   const totRec = proj.reduce((s,p)=>s+p.receita, 0);
   const totGas = proj.reduce((s,p)=>s+p.gasto, 0);
