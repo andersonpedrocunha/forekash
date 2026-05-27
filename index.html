@@ -19450,12 +19450,12 @@
         <h1 class="pg-title">Patrimônio</h1>
         <p class="pg-sub">Fotografia da sua posição financeira em qualquer momento — ATIVO (o que você tem) − PASSIVO (o que deve) = PATRIMÔNIO LÍQUIDO. Auto-importa de Disponibilidades, Asaas e Empréstimos. Use o modo <b>Simulação</b> pra projetar cenários sem afetar os dados reais.</p>
 
-        <!-- Tabs: Real | Dashboard | Simulação | Snapshots -->
+        <!-- Tabs: Real | Simulação | Snapshots | Dashboard (LAST) -->
         <div class="tabs" style="margin-bottom:14px">
           <button class="tab-btn active" id="patrim-tab-real-btn" onclick="patrimSwitchTab('real',this)">📊&nbsp; Posição Real</button>
-          <button class="tab-btn" id="patrim-tab-dash-btn" onclick="patrimSwitchTab('dash',this)">📈&nbsp; Dashboard</button>
           <button class="tab-btn" id="patrim-tab-sim-btn" onclick="patrimSwitchTab('sim',this)">🧪&nbsp; Simulação</button>
           <button class="tab-btn" id="patrim-tab-snap-btn" onclick="patrimSwitchTab('snap',this)">📸&nbsp; Histórico (Snapshots)</button>
+          <button class="tab-btn" id="patrim-tab-dash-btn" onclick="patrimSwitchTab('dash',this)">📈&nbsp; Dashboard</button>
         </div>
 
         <!-- Aba REAL -->
@@ -91533,7 +91533,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779856215';
+      const CACHE = 'forekash-v1779890052';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -93629,7 +93629,7 @@ function patrimRender(){
 function patrimRenderDashTab(){
   const el = document.getElementById('patrim-dash-content');
   if(!el) return;
-  // Snapshots + atual
+  // Snapshots + atual (mais recentes em ordem cronológica)
   const series = [];
   (PATRIM.snapshots || []).slice().reverse().forEach(snap => {
     series.push({
@@ -93640,7 +93640,6 @@ function patrimRenderDashTab(){
       obs: snap.obs || ''
     });
   });
-  // Atual no fim
   const tot = patrimCalcTotals(PATRIM.contas, PATRIM.capital);
   const ymNow = new Date().toISOString().slice(0,7);
   series.push({
@@ -93654,36 +93653,63 @@ function patrimRenderDashTab(){
     return;
   }
 
-  // ── Cálculo de indicadores ────────────────────────────────────
+  // ── Cálculo de indicadores ATUAIS ─────────────────────────────
   const cur = series[series.length - 1];
   const prev = series[series.length - 2];
   const first = series[0];
-  // Variações
-  const dPL = prev.pl > 0 ? ((cur.pl - prev.pl) / prev.pl * 100) : 0;
-  const dAtivo = prev.ativo > 0 ? ((cur.ativo - prev.ativo) / prev.ativo * 100) : 0;
-  const dPassivo = prev.passivo > 0 ? ((cur.passivo - prev.passivo) / prev.passivo * 100) : 0;
-  const dPLTotal = first.pl > 0 ? ((cur.pl - first.pl) / first.pl * 100) : 0;
-  // Indicadores ATUAIS
-  const liquidezCor = tot.pcPassivo > 0 ? (tot.acAtivo / tot.pcPassivo) : null;
+  const dPL = prev.pl !== 0 ? ((cur.pl - prev.pl) / Math.abs(prev.pl) * 100) : 0;
+  const dPLTotal = first.pl !== 0 ? ((cur.pl - first.pl) / Math.abs(first.pl) * 100) : 0;
+
+  // Detalhamento das contas
   const ativoCirc = tot.acAtivo;
-  const ativoNCirc = tot.totAtivo - tot.acAtivo;
+  const ativoNCirc = tot.totAtivo - ativoCirc;
   const passivoCirc = tot.pcPassivo;
-  const passivoNCirc = tot.totPassivo - tot.pcPassivo;
-  const endividamento = tot.totAtivo > 0 ? (tot.totPassivo / tot.totAtivo * 100) : 0;
-  const imobilizacaoPL = tot.plReal > 0 ? (ativoNCirc / tot.plReal * 100) : 0;
-  const compEndiv = tot.totPassivo > 0 ? (passivoCirc / tot.totPassivo * 100) : 0;
-  // Liquidez seca: ativo circ - estoque · vou estimar estoque como 1/4 do AC se não tiver
-  const estoqueItem = PATRIM.contas.find(c => c.nome.toLowerCase().includes('estoque'));
-  const estoque = estoqueItem ? estoqueItem.valor : 0;
-  const liquidezSeca = passivoCirc > 0 ? ((ativoCirc - estoque) / passivoCirc) : null;
-  const caixaItem = PATRIM.contas.find(c => c.src === 'dispo-caixa');
-  const caixa = caixaItem ? caixaItem.valor : 0;
-  const liquidezImediata = passivoCirc > 0 ? (caixa / passivoCirc) : null;
+  const passivoNCirc = tot.totPassivo - passivoCirc;
+  const estoqueItem = PATRIM.contas.find(c => (c.nome || '').toLowerCase().includes('estoque'));
+  const estoque = estoqueItem ? Number(estoqueItem.valor) || 0 : 0;
+  // Disponibilidades = Caixa + Aplicações de curto prazo
+  const dispoItems = PATRIM.contas.filter(c =>
+    c.src === 'dispo-caixa' || c.src === 'dispo-reserva' ||
+    (c.nome || '').toLowerCase().match(/caixa|aplica|equivalente/)
+  );
+  const disponibilidades = dispoItems.reduce((s, c) => s + (Number(c.valor) || 0), 0);
+  // Realizável de longo prazo = Investimentos LP + Intangível (parte não-imobilizada)
+  const realLP = PATRIM.contas
+    .filter(c => c.secao === 'anc' && (c.nome || '').toLowerCase().match(/investimento|aplicação.*longo|realizável/))
+    .reduce((s, c) => s + (Number(c.valor) || 0), 0);
+
+  // ── 1. LIQUIDEZ ───────────────────────────────────────────────
+  const LC = passivoCirc > 0 ? (ativoCirc / passivoCirc) : null;
+  const LS = passivoCirc > 0 ? ((ativoCirc - estoque) / passivoCirc) : null;
+  const LI = passivoCirc > 0 ? (disponibilidades / passivoCirc) : null;
+  const LG = (passivoCirc + passivoNCirc) > 0 ? ((ativoCirc + realLP) / (passivoCirc + passivoNCirc)) : null;
+
+  // ── 2. ENDIVIDAMENTO ──────────────────────────────────────────
+  const PCT = tot.plReal > 0 ? (tot.totPassivo / tot.plReal * 100) : null;
+  const CE = tot.totPassivo > 0 ? (passivoCirc / tot.totPassivo * 100) : 0;
+  const IPL = tot.plReal > 0 ? (ativoNCirc / tot.plReal * 100) : null;
+  const endividamentoGeral = tot.totAtivo > 0 ? (tot.totPassivo / tot.totAtivo * 100) : 0;
+
+  // ── 3. RENTABILIDADE (cruza com DRE) ──────────────────────────
+  let lucroLiquidoAnual = 0;
+  try{
+    const y = new Date().getFullYear();
+    for(let m = 0; m < 12; m++){
+      const rec = typeof flxReceitaMes === 'function' ? Number(flxReceitaMes(y, m)) || 0 : 0;
+      const folha = typeof flxFolhaMes === 'function' ? Number(flxFolhaMes(y, m)) || 0 : 0;
+      const desp = typeof flxDespesasMes === 'function' ? Number(flxDespesasMes(y, m)) || 0 : 0;
+      const empr = typeof flxEmprestimosMes === 'function' ? Number(flxEmprestimosMes(y, m)) || 0 : 0;
+      const imp = typeof flxImpostoMes === 'function' ? Number(flxImpostoMes(y, m)) || 0 : 0;
+      lucroLiquidoAnual += rec - folha - desp - empr - imp;
+    }
+  }catch(_){}
+  const ROA = tot.totAtivo > 0 ? (lucroLiquidoAnual / tot.totAtivo * 100) : null;
+  const ROE = tot.plReal > 0 ? (lucroLiquidoAnual / tot.plReal * 100) : null;
 
   // ── HTML render ───────────────────────────────────────────────
   let html = '';
 
-  // KPIs do topo
+  // KPIs do topo (4 cards) — visão rápida
   html += '<div class="patrim-kpis" style="margin-bottom:16px">' +
     '<div class="patrim-kpi pl"><div class="patrim-kpi-lbl">PATRIMÔNIO LÍQUIDO</div>' +
       '<div class="patrim-kpi-val">R$ ' + _patrimFmt(cur.pl) + '</div>' +
@@ -93696,30 +93722,28 @@ function patrimRenderDashTab(){
       '<div class="patrim-kpi-sub">desde ' + first.ym + ' (' + series.length + ' pontos)</div>' +
     '</div>' +
     '<div class="patrim-kpi liquidez"><div class="patrim-kpi-lbl">LIQUIDEZ CORRENTE</div>' +
-      '<div class="patrim-kpi-val">' + (liquidezCor != null ? liquidezCor.toFixed(2) + 'x' : '—') + '</div>' +
-      '<div class="patrim-kpi-sub">' + (liquidezCor == null ? 'sem passivo curto' : liquidezCor >= 1.5 ? '✓ saudável' : liquidezCor >= 1 ? 'equilibrada' : '⚠ crítica') + '</div>' +
+      '<div class="patrim-kpi-val">' + (LC != null ? LC.toFixed(2) + 'x' : '—') + '</div>' +
+      '<div class="patrim-kpi-sub">' + (LC == null ? 'sem passivo curto' : LC >= 1.5 ? '✓ saudável' : LC >= 1 ? 'equilibrada' : '⚠ crítica') + '</div>' +
     '</div>' +
     '<div class="patrim-kpi passivo"><div class="patrim-kpi-lbl">ENDIVIDAMENTO</div>' +
-      '<div class="patrim-kpi-val">' + endividamento.toFixed(1) + '%</div>' +
-      '<div class="patrim-kpi-sub">' + (endividamento <= 40 ? '✓ confortável' : endividamento <= 60 ? 'moderado' : '⚠ elevado') + '</div>' +
+      '<div class="patrim-kpi-val">' + endividamentoGeral.toFixed(1) + '%</div>' +
+      '<div class="patrim-kpi-sub">passivo / ativo total</div>' +
     '</div>' +
   '</div>';
 
-  // Chart de linha · PL no tempo
+  // Charts
   html += '<div class="patrim-chart-wrap">' +
     '<div class="patrim-chart-hd"><h4>📈 Evolução do Patrimônio Líquido</h4>' +
       '<small>' + series.length + ' pontos · ' + first.ym + ' → ' + cur.ym + '</small></div>' +
     _patrimDashLineChart(series) +
   '</div>';
 
-  // Chart de barras: Ativo × Passivo
   html += '<div class="patrim-chart-wrap">' +
     '<div class="patrim-chart-hd"><h4>📊 Ativo × Passivo · histórico</h4>' +
       '<small>Comparativo em cada snapshot</small></div>' +
     _patrimDashBarChart(series) +
   '</div>';
 
-  // 2 donuts + tabela de indicadores
   html += '<div class="patrim-dash-grid">' +
     '<div class="patrim-chart-wrap">' +
       '<div class="patrim-chart-hd"><h4>🟢 Composição do ATIVO</h4>' +
@@ -93739,30 +93763,70 @@ function patrimRenderDashTab(){
     '</div>' +
   '</div>';
 
-  // Tabela de indicadores patrimoniais
+  // ── INDICADORES em 3 grupos ──────────────────────────────────
+  // GRUPO 1: LIQUIDEZ
   html += '<div class="patrim-chart-wrap">' +
-    '<div class="patrim-chart-hd"><h4>🧮 Indicadores Patrimoniais · análise</h4>' +
-      '<small>indicadores contábeis padrão pra avaliação de saúde financeira</small></div>' +
-    '<table class="patrim-ind-table"><thead><tr><th>Indicador</th><th class="r">Valor</th><th>Status</th><th>Interpretação</th></tr></thead><tbody>' +
-      _patrimDashIndRow('Liquidez Corrente', liquidezCor != null ? liquidezCor.toFixed(2) + 'x' : '—',
-        liquidezCor == null ? '' : liquidezCor >= 1.5 ? 'ok' : liquidezCor >= 1 ? 'mid' : 'bad',
-        'AC / PC · capacidade de pagar dívidas de curto prazo. Ideal ≥ 1.5x.') +
-      _patrimDashIndRow('Liquidez Seca', liquidezSeca != null ? liquidezSeca.toFixed(2) + 'x' : '—',
-        liquidezSeca == null ? '' : liquidezSeca >= 1 ? 'ok' : liquidezSeca >= 0.7 ? 'mid' : 'bad',
-        '(AC − Estoque) / PC · liquidez sem depender de vender estoque. Ideal ≥ 1x.') +
-      _patrimDashIndRow('Liquidez Imediata', liquidezImediata != null ? liquidezImediata.toFixed(2) + 'x' : '—',
-        liquidezImediata == null ? '' : liquidezImediata >= 0.5 ? 'ok' : liquidezImediata >= 0.2 ? 'mid' : 'bad',
-        'Caixa / PC · % de dívida curto que pago HOJE com caixa. Ideal ≥ 0.5x.') +
-      _patrimDashIndRow('Endividamento Geral', endividamento.toFixed(1) + '%',
-        endividamento <= 40 ? 'ok' : endividamento <= 60 ? 'mid' : 'bad',
-        'Passivo / Ativo · quanto da empresa é "do banco". Ideal ≤ 40%.') +
-      _patrimDashIndRow('Composição do Endividamento', compEndiv.toFixed(1) + '%',
-        compEndiv <= 50 ? 'ok' : compEndiv <= 70 ? 'mid' : 'bad',
-        'PC / Passivo Total · % de dívida vencendo em até 12m. Ideal ≤ 50%.') +
-      _patrimDashIndRow('Imobilização do PL', imobilizacaoPL.toFixed(1) + '%',
-        imobilizacaoPL <= 50 ? 'ok' : imobilizacaoPL <= 100 ? 'mid' : 'bad',
-        'ANC / PL · quanto do PL está em imobilizado/longo prazo. Ideal ≤ 50%.') +
+    '<div class="patrim-chart-hd"><h4>💧 Liquidez · capacidade de pagamento</h4>' +
+      '<small>Regra geral: quanto maior, melhor (acima de 1 = consegue pagar)</small></div>' +
+    '<table class="patrim-ind-table"><thead><tr><th style="width:30%">Indicador</th><th class="r" style="width:15%">Valor</th><th style="width:15%">Status</th><th>Interpretação</th></tr></thead><tbody>' +
+      _patrimDashIndRow('Liquidez Corrente (LC)', LC != null ? LC.toFixed(2) + 'x' : '—',
+        LC == null ? '' : LC >= 1.5 ? 'ok' : LC >= 1 ? 'mid' : 'bad',
+        '<code>AC / PC</code> · curto prazo. Se = 1,50, tem R$ 1,50 pra cada R$ 1,00 de dívida CP. Ideal ≥ 1,5x.') +
+      _patrimDashIndRow('Liquidez Seca (LS)', LS != null ? LS.toFixed(2) + 'x' : '—',
+        LS == null ? '' : LS >= 1 ? 'ok' : LS >= 0.7 ? 'mid' : 'bad',
+        '<code>(AC − Estoque) / PC</code> · medida conservadora, não depende de vender estoque. Ideal ≥ 1x.') +
+      _patrimDashIndRow('Liquidez Imediata (LI)', LI != null ? LI.toFixed(2) + 'x' : '—',
+        LI == null ? '' : LI >= 0.5 ? 'ok' : LI >= 0.2 ? 'mid' : 'bad',
+        '<code>Disponibilidades / PC</code> · só o que tá em caixa hoje (não inclui receber). Ideal ≥ 0,5x.') +
+      _patrimDashIndRow('Liquidez Geral (LG)', LG != null ? LG.toFixed(2) + 'x' : '—',
+        LG == null ? '' : LG >= 1.2 ? 'ok' : LG >= 1 ? 'mid' : 'bad',
+        '<code>(AC + Real. LP) / (PC + PNC)</code> · saúde financeira de LP somando tudo a receber e a pagar. Ideal ≥ 1,2x.') +
     '</tbody></table>' +
+  '</div>';
+
+  // GRUPO 2: ENDIVIDAMENTO
+  html += '<div class="patrim-chart-wrap">' +
+    '<div class="patrim-chart-hd"><h4>⚖ Endividamento · estrutura de capital</h4>' +
+      '<small>Dependência de capital de terceiros vs capital próprio. Quanto menor, mais segura.</small></div>' +
+    '<table class="patrim-ind-table"><thead><tr><th style="width:30%">Indicador</th><th class="r" style="width:15%">Valor</th><th style="width:15%">Status</th><th>Interpretação</th></tr></thead><tbody>' +
+      _patrimDashIndRow('Participação de Capital de Terceiros (PCT)', PCT != null ? PCT.toFixed(1) + '%' : '—',
+        PCT == null ? '' : PCT <= 50 ? 'ok' : PCT <= 100 ? 'mid' : 'bad',
+        '<code>(PC + PNC) / PL × 100</code> · % de capital de bancos/fornecedores em relação ao próprio. Ideal ≤ 50%.') +
+      _patrimDashIndRow('Composição do Endividamento (CE)', CE.toFixed(1) + '%',
+        CE <= 50 ? 'ok' : CE <= 70 ? 'mid' : 'bad',
+        '<code>PC / (PC + PNC) × 100</code> · % de dívida vencendo até 12m. Concentrada no CP exige fôlego imediato. Ideal ≤ 50%.') +
+      _patrimDashIndRow('Imobilização do PL (IPL)', IPL != null ? IPL.toFixed(1) + '%' : '—',
+        IPL == null ? '' : IPL <= 50 ? 'ok' : IPL <= 100 ? 'mid' : 'bad',
+        '<code>ANC / PL × 100</code> · quanto do dinheiro dos sócios tá travado em bens que não giram rápido. Ideal ≤ 50%.') +
+      _patrimDashIndRow('Endividamento Geral', endividamentoGeral.toFixed(1) + '%',
+        endividamentoGeral <= 40 ? 'ok' : endividamentoGeral <= 60 ? 'mid' : 'bad',
+        '<code>Passivo Total / Ativo Total × 100</code> · % do ativo financiado por dívida. Ideal ≤ 40%.') +
+    '</tbody></table>' +
+  '</div>';
+
+  // GRUPO 3: RENTABILIDADE (cruza com DRE)
+  const dreNote = lucroLiquidoAnual === 0
+    ? '<div style="background:#FEF3C7;border-left:3px solid #F59E0B;padding:10px 14px;border-radius:5px;font-size:.78rem;color:#78350F;margin-bottom:10px"><b>⚠ Sem dados de DRE no ano atual.</b> ROA/ROE são calculados via <code>flx*Mes()</code> · preencha Receita, Folha, Estrutura, Impostos pra ver indicadores reais.</div>'
+    : '<div style="background:#F0FDF4;border-left:3px solid #10B981;padding:10px 14px;border-radius:5px;font-size:.78rem;color:#065F46;margin-bottom:10px"><b>Lucro Líquido projetado (ano):</b> R$ ' + _patrimFmt(lucroLiquidoAnual) + ' · soma de Receita − Folha − Estrutura − Empréstimos − Impostos.</div>';
+  html += '<div class="patrim-chart-wrap">' +
+    '<div class="patrim-chart-hd"><h4>💰 Rentabilidade · retorno sobre capital</h4>' +
+      '<small>Cruza Balanço com DRE · indicador preferido de sócio e investidor</small></div>' +
+    dreNote +
+    '<table class="patrim-ind-table"><thead><tr><th style="width:30%">Indicador</th><th class="r" style="width:15%">Valor</th><th style="width:15%">Status</th><th>Interpretação</th></tr></thead><tbody>' +
+      _patrimDashIndRow('Retorno sobre o Ativo (ROA)', ROA != null ? ROA.toFixed(2) + '%' : '—',
+        ROA == null ? '' : ROA >= 10 ? 'ok' : ROA >= 5 ? 'mid' : 'bad',
+        '<code>Lucro Líquido / Ativo Total × 100</code> · eficiência em gerar lucro a partir do que a empresa TEM. Ideal ≥ 10% ao ano.') +
+      _patrimDashIndRow('Retorno sobre o PL (ROE)', ROE != null ? ROE.toFixed(2) + '%' : '—',
+        ROE == null ? '' : ROE >= 15 ? 'ok' : ROE >= 8 ? 'mid' : 'bad',
+        '<code>Lucro Líquido / PL × 100</code> · rentabilidade do dinheiro que sócios colocaram. Ideal ≥ 15% ao ano (preferido de investidor).') +
+    '</tbody></table>' +
+  '</div>';
+
+  // Dica final
+  html += '<div style="background:linear-gradient(135deg,#FAF5FF 0%,#F3E8FF 100%);border:1px solid #DDD6FE;border-radius:11px;padding:14px 18px;margin-top:6px;font-size:.82rem;color:#5B21B6;line-height:1.55">' +
+    '<b>💡 Dica de análise (MR KASH):</b> Nenhum indicador deve ser analisado isoladamente. ' +
+    'Uma Liquidez Corrente alta pode parecer ótima, mas se inflada por estoque obsoleto, a realidade muda. ' +
+    'Compare com seu histórico (snapshots acima) e com a média do setor.' +
   '</div>';
 
   el.innerHTML = html;
