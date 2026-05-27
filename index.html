@@ -669,6 +669,15 @@
     }
     [data-theme="dark"] .fk-skel{background:linear-gradient(90deg,#1E293B 0%,#334155 50%,#1E293B 100%) !important}
 
+    /* ══ KASHBOARD · Avançado (Sankey/Waterfall/Heatmap) ══ */
+    .ana-adv-card{background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:18px}
+    .ana-adv-hd{margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #F1F5F9}
+    .ana-adv-hd h3{margin:0;font-size:1rem;color:#0F172A;letter-spacing:-.3px}
+    .ana-adv-hd small{color:#64748B;font-size:.74rem;display:block;margin-top:2px}
+    [data-theme="dark"] .ana-adv-card{background:#1E293B;border-color:#334155}
+    [data-theme="dark"] .ana-adv-hd{border-color:#334155}
+    [data-theme="dark"] .ana-adv-hd h3{color:#E5E7EB}
+
     /* ══ MÓDULO PATRIMÔNIO ══ */
     .patrim-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}
     .patrim-kpi{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:14px 16px}
@@ -18913,6 +18922,7 @@
           <button class="tab-btn active" id="ana-tab-pivot-btn" onclick="anaSetTab('pivot',this)">📊&nbsp; Pivot</button>
           <button class="tab-btn" id="ana-tab-charts-btn" onclick="anaSetTab('charts',this)">📈&nbsp; Charts</button>
           <button class="tab-btn" id="ana-tab-custom-btn" onclick="anaSetTab('custom',this)">🎨&nbsp; Custom</button>
+          <button class="tab-btn" id="ana-tab-advgraph-btn" onclick="anaSetTab('advgraph',this)" style="background:linear-gradient(135deg,#10B981,#059669);color:#fff">📐&nbsp; Avançado</button>
           <button class="tab-btn" id="ana-tab-present-btn" onclick="anaSetTab('present',this)">🎬&nbsp; Apresentação</button>
         </div>
 
@@ -19181,6 +19191,36 @@
             Solte sobre um widget existente pra <b>substituí-lo</b>. Use o handle <b>⠿</b> pra mover widgets já no canvas pra qualquer célula (col + row).
             Botão <b>📌</b> volta o widget pro auto-flow (sem posição fixa).
           </p>
+        </div>
+
+        <!-- ─── PANE: AVANÇADO (Sankey, Waterfall, Heatmap) ─── -->
+        <div class="tab-pane" id="ana-tab-advgraph" style="display:none">
+          <div style="display:grid;grid-template-columns:1fr;gap:18px">
+            <!-- Sankey -->
+            <div class="ana-adv-card">
+              <div class="ana-adv-hd">
+                <h3>🔀 Sankey · Fluxo de Dinheiro</h3>
+                <small>De onde vem e pra onde vai · período selecionado nos filtros acima</small>
+              </div>
+              <div id="ana-sankey-chart"></div>
+            </div>
+            <!-- Waterfall -->
+            <div class="ana-adv-card">
+              <div class="ana-adv-hd">
+                <h3>💧 Cashflow Waterfall</h3>
+                <small>Saldo inicial + entradas − saídas = saldo final · visão clássica CFO/contador</small>
+              </div>
+              <div id="ana-waterfall-chart"></div>
+            </div>
+            <!-- Heatmap -->
+            <div class="ana-adv-card">
+              <div class="ana-adv-hd">
+                <h3>🗓 Heatmap · Receita por dia</h3>
+                <small>Calendário com intensidade de cor · identifica padrões sazonais (dias bons vs ruins)</small>
+              </div>
+              <div id="ana-heatmap-chart"></div>
+            </div>
+          </div>
         </div>
 
       </div>
@@ -21330,6 +21370,25 @@
                 <span style="font-size:.72rem;color:#6B7280">Cores rápidas:</span>
               </div>
               <div class="cc-list" id="cc-list"></div>
+            </div>
+          </div>
+
+          <!-- ── SNIPPETS · templates de descrição pra lançamentos recorrentes ── -->
+          <div class="cfg-section snippets" id="cfg-snippets-section">
+            <div class="cfg-section-hd">
+              <div class="cfg-section-ico" style="background:#A78BFA">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+              </div>
+              <h3>Snippets · templates de descrição</h3>
+            </div>
+            <p class="cfg-section-sub">Crie atalhos pra descrições repetitivas. Em qualquer campo de descrição (Extrato, Receita, Recibo), digite <code>/nome-do-snippet</code> e Forekash expande pro texto completo. Ex: <code>/aluguel</code> → "Aluguel sede · referência mês 06/2026".</p>
+            <div class="cfg-section-body">
+              <div id="snippets-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <input type="text" id="snippets-new-key" placeholder="atalho (ex: aluguel)" style="flex:0 0 160px;padding:7px 10px;border:1.5px solid #E2E8F0;border-radius:7px;font-size:.84rem">
+                <input type="text" id="snippets-new-val" placeholder="texto completo que substitui o atalho" style="flex:1;min-width:200px;padding:7px 10px;border:1.5px solid #E2E8F0;border-radius:7px;font-size:.84rem">
+                <button class="btn btn-p" onclick="snipAdd()" style="padding:7px 14px;font-size:.84rem">+ Adicionar</button>
+              </div>
             </div>
           </div>
 
@@ -74968,8 +75027,9 @@ function anaSetTab(tab, btn){
   const pPiv = document.getElementById('ana-tab-pivot');
   const pChr = document.getElementById('ana-tab-charts');
   const pCus = document.getElementById('ana-tab-custom');
+  const pAdv = document.getElementById('ana-tab-advgraph');
   // Esconde todos primeiro
-  [pPiv, pChr, pCus].forEach(p => { if(p) p.style.display = 'none'; });
+  [pPiv, pChr, pCus, pAdv].forEach(p => { if(p) p.style.display = 'none'; });
   const pPre = document.getElementById('ana-tab-present');
   if(pPre) pPre.style.display = 'none';
   if(tab === 'charts'){
@@ -74978,6 +75038,9 @@ function anaSetTab(tab, btn){
   } else if(tab === 'custom'){
     if(pCus) pCus.style.display = 'block';
     setTimeout(_anaRenderCustom, 30);
+  } else if(tab === 'advgraph'){
+    if(pAdv) pAdv.style.display = 'block';
+    setTimeout(() => { try{ anaRenderAdvanced(); }catch(e){ console.warn('adv:', e); } }, 30);
   } else if(tab === 'present'){
     if(pPre) pPre.style.display = 'block';
     setTimeout(_anaRenderPresent, 30);
@@ -92168,7 +92231,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779917421';
+      const CACHE = 'forekash-v1779920238';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -92571,6 +92634,14 @@ const CMDK_COMMANDS = [
   { group:'Ações',   label:'Emitir recibo avulso',      ico:'🧾', kbd:'', action:() => { switchModule('comercial',null); setTimeout(() => { if(typeof comSwitchTab==='function') comSwitchTab('rec2'); if(typeof comReciboOpen==='function') comReciboOpen(); }, 120); } },
   { group:'Configurações', label:'Configurar API & Webhooks', ico:'🔌', kbd:'', action:() => { switchModule('configuracoes',null); setTimeout(() => { const el=document.getElementById('cfg-api-section'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 200); } },
   { group:'Configurações', label:'Modo Contador (White-label)', ico:'🎨', kbd:'', action:() => { switchModule('configuracoes',null); setTimeout(() => { const el=document.getElementById('cfg-wl-section'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 200); } },
+  { group:'Configurações', label:'🎉 Ver novidades (What\'s New)', ico:'🎉', kbd:'', action:() => { if(typeof whatsnewOpen==='function') whatsnewOpen(); } },
+  { group:'Configurações', label:'🎭 Trocar persona (CEO/CFO/Analista)', ico:'🎭', kbd:'', action:() => { if(typeof personaOpenSwitcher==='function') personaOpenSwitcher(); } },
+  { group:'Configurações', label:'🚀 Carregar dataset DEMO SaaS', ico:'🚀', kbd:'', action:() => { if(typeof demoSaasLoad==='function') demoSaasLoad(); } },
+  { group:'Configurações', label:'🔔 Ativar notificações push', ico:'🔔', kbd:'', action:() => { if(typeof webpushRequest==='function') webpushRequest(); } },
+  { group:'Ações',         label:'✨ Sugestões de categoria (Smart Cat)', ico:'✨', kbd:'', action:() => { if(typeof smartCatBadgeOpen==='function') smartCatBadgeOpen(); } },
+  { group:'Ações',         label:'💬 Adicionar comentário', ico:'💬', kbd:'', action:() => { if(typeof commOpenContextual==='function') commOpenContextual(); } },
+  { group:'Ações',         label:'🧮 Análises avançadas (CLV/CAC/Break-even)', ico:'🧮', kbd:'', action:() => { if(typeof finAnalisesOpen==='function') finAnalisesOpen(); } },
+  { group:'Configurações', label:'⚙ Snippets de descrição', ico:'⚙', kbd:'', action:() => { switchModule('customizacoes',null); setTimeout(() => { const el=document.getElementById('cfg-snippets-section'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 200); } },
   // Tema
   { group:'Configurações', label:'Alternar tema (claro/escuro)', ico:'🌓', kbd:'⌘D', action:() => themeToggle() },
   { group:'Configurações', label:'Ver audit log',         ico:'📋', kbd:'',  action:() => { if(typeof auditOpenRich==='function') auditOpenRich(); else if(typeof auditOpen==='function') auditOpen(); } },
@@ -92599,16 +92670,38 @@ function cmdkRender(query){
   if(q.length > 6){
     quickAdd = _cmdkDetectQuickAdd(q);
   }
+  // 1b) Tenta detectar navegação direta ("ir/abrir/go X")
+  let navCmd = null;
+  if(q.length > 3 && typeof _cmdkDetectNavigate === 'function'){
+    navCmd = _cmdkDetectNavigate(q);
+  }
+  // 1c) Histórico recente (só quando query vazia)
+  let histItems = [];
+  if(!q && typeof MOD_HISTORY !== 'undefined' && Array.isArray(MOD_HISTORY) && MOD_HISTORY.length){
+    const _modLabels = { dashboard:'Início', kashtrack:'KASHtrack', extrato:'Extrato',
+      disponibilidades:'Disponibilidades', cartoes:'Cartões', receita:'Receita',
+      notasfiscais:'Notas Fiscais', comercial:'Comercial', 'outras-op':'Outras Operações',
+      pessoas:'Pessoas', colaboradores:'Colaboradores', estrutura:'Estrutura', impostos:'Impostos',
+      emprestimos:'Empréstimos', analise:'KASHBOARD', fluxo:'Fluxo', orcamento:'Orçamento',
+      patrimonio:'Patrimônio', fklab:'FK Lab', relatorios:'Relatórios', workflows:'Workflows',
+      configuracoes:'Configurações', customizacoes:'Customizações', asaas:'Asaas',
+      diagnostico:'Diagnóstico', kashtrack_old:'KASHtrack' };
+    histItems = MOD_HISTORY.slice(0,4).map(m => ({
+      group:'🕘 Recentes', ico:'↩', label: _modLabels[m]||m, sub:'visitado recentemente',
+      action: () => { try{ if(typeof switchModule==='function') switchModule(m, null); }catch(_){} }
+    }));
+  }
   // 2) Comandos filtrados
   const cmdMatches = !q ? CMDK_COMMANDS : CMDK_COMMANDS.filter(cmd =>
     cmd.label.toLowerCase().includes(q) || cmd.group.toLowerCase().includes(q)
   );
   // 3) Busca dados (clientes, lançamentos, contratos, assinaturas, NF)
   const dataMatches = q.length >= 2 ? _cmdkSearchData(q) : [];
-  // Combina: quickAdd primeiro, depois dados, depois comandos
+  // Combina: quickAdd > navCmd > histórico > dados > comandos
   _cmdkFiltered = [];
   if(quickAdd) _cmdkFiltered.push(quickAdd);
-  _cmdkFiltered = _cmdkFiltered.concat(dataMatches).concat(cmdMatches);
+  if(navCmd) _cmdkFiltered.push(navCmd);
+  _cmdkFiltered = _cmdkFiltered.concat(histItems).concat(dataMatches).concat(cmdMatches);
   if(_cmdkFiltered.length === 0){
     el.innerHTML = '<div class="cmdk-empty">Nada encontrado pra <b>"' + query + '"</b><br><small style="color:#94A3B8;font-size:.74rem;margin-top:6px;display:block">Tenta: <code>lançamento aluguel 2500</code> · <code>receita venda 1500</code></small></div>';
     return;
@@ -92620,8 +92713,8 @@ function cmdkRender(query){
     if(!groups[g]) groups[g] = [];
     groups[g].push(cmd);
   });
-  // Ordem de grupos: Quick-add → Dados → Navegar → Ações → Configurações
-  const ordemGrupos = ['⚡ Quick-add','🔎 Dados','Navegar','Ações','Configurações'];
+  // Ordem de grupos: Quick-add → Nav direta → Recentes → Dados → Navegar → Ações → Configurações
+  const ordemGrupos = ['⚡ Quick-add','⚡ Navegação','🕘 Recentes','🔎 Dados','Navegar','Ações','Configurações'];
   const gruposOrdenados = ordemGrupos.filter(g => groups[g]).concat(
     Object.keys(groups).filter(g => !ordemGrupos.includes(g))
   );
@@ -98130,6 +98223,1056 @@ function auditClearAll(){
 try{ window.auditOpenRich = auditOpenRich; window.auditRenderFiltered = auditRenderFiltered; window.auditExportCsv = auditExportCsv; window.auditClearAll = auditClearAll; }catch(_){}
 
 // ═════════════════════════════════════════════════════════════════════
+// 🧮 ANÁLISES FINANCEIRAS AVANÇADAS · CLV + Payback + Break-even + Margem
+// ═════════════════════════════════════════════════════════════════════
+function _finCollectMetrics(){
+  const m = { mrr:0, arr:0, custoTotal12m:0, receita12m:0, custoVariavel:0, custoFixo:0,
+              clientesAtivos:0, ticketMedio:0, churnRate:0, cacEstimado:0 };
+  // MRR/ARR
+  try{
+    if(typeof COM !== 'undefined' && Array.isArray(COM.assinaturas)){
+      const ativas = COM.assinaturas.filter(a => a.ativa);
+      m.mrr = ativas.reduce((s,a)=>s+(Number(a.valor)||0),0);
+      m.arr = m.mrr * 12;
+      m.clientesAtivos = ativas.length;
+      m.ticketMedio = ativas.length ? m.mrr/ativas.length : 0;
+      // Churn rate: % de inativas / total
+      const total = COM.assinaturas.length;
+      const inativas = COM.assinaturas.filter(a => !a.ativa).length;
+      m.churnRate = total > 0 ? (inativas/total*100) : 0;
+    }
+  }catch(_){}
+  // Receita e custo 12m
+  try{
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      const hoje = new Date();
+      const inicio = new Date(hoje); inicio.setMonth(inicio.getMonth() - 11);
+      const ymInicio = inicio.toISOString().slice(0,7);
+      extratoData.lancamentos.forEach(l => {
+        if(!l.data) return;
+        const ym = l.data.slice(0,7);
+        if(ym < ymInicio) return;
+        const v = Math.abs(Number(l.valor)||0);
+        if(l.tipo === 'ganho' || (l.valor > 0 && !l.tipo)) m.receita12m += v;
+        else m.custoTotal12m += v;
+      });
+    }
+  }catch(_){}
+  // Custo variável vs fixo (heurística: custos recorrentes em folha/aluguel/etc = fixos)
+  m.custoFixo = m.custoTotal12m * 0.65;  // estimativa: 65% fixo
+  m.custoVariavel = m.custoTotal12m * 0.35; // estimativa: 35% variável
+  // CAC estimado: assume 15% das despesas vai pra aquisição
+  m.cacEstimado = m.clientesAtivos > 0 ? (m.custoTotal12m * 0.15) / Math.max(1, m.clientesAtivos) : 0;
+  return m;
+}
+function finAnalisesOpen(){
+  const m = _finCollectMetrics();
+  // Cálculos
+  // CLV = (Ticket Médio mensal) × (1 / churn rate decimal) — duration estimada
+  const churnDec = (m.churnRate || 5) / 100; // se zero, usa 5% como fallback
+  const lifetimeMonths = churnDec > 0 ? Math.min(60, 1/churnDec) : 24;
+  const clv = m.ticketMedio * lifetimeMonths;
+  // Payback CAC = CAC / Ticket Mensal
+  const payback = m.ticketMedio > 0 ? (m.cacEstimado / m.ticketMedio) : 0;
+  // Break-even (clientes necessários pra cobrir custo fixo)
+  // Margem por cliente = ticket - custo variável/cliente
+  const custoVarPorCli = m.clientesAtivos > 0 ? (m.custoVariavel/12) / m.clientesAtivos : 0;
+  const margemPorCli = m.ticketMedio - custoVarPorCli;
+  const breakEvenClientes = margemPorCli > 0 ? Math.ceil((m.custoFixo/12) / margemPorCli) : 0;
+  // Margem de contribuição %
+  const margemContrib = m.ticketMedio > 0 ? ((m.ticketMedio - custoVarPorCli) / m.ticketMedio * 100) : 0;
+  // LTV/CAC
+  const ltvCac = m.cacEstimado > 0 ? (clv / m.cacEstimado) : 0;
+  // Render
+  const fmt = v => (Number(v)||0).toLocaleString('pt-BR', { minimumFractionDigits:0, maximumFractionDigits:0 });
+  const card = (titulo, valor, sub, cor, expl) => `
+    <div style="background:#0F172A;border-left:3px solid ${cor};border-radius:10px;padding:14px 16px">
+      <div style="color:${cor};font-size:.66rem;letter-spacing:1.5px;font-weight:700">${titulo}</div>
+      <div style="font-size:1.4rem;color:#fff;font-weight:800;margin-top:4px;word-break:break-word">${valor}</div>
+      <div style="color:#94A3B8;font-size:.7rem;margin-top:4px">${sub}</div>
+      <div style="color:#64748B;font-size:.66rem;margin-top:6px;line-height:1.4;font-style:italic">${expl}</div>
+    </div>`;
+  const html = `<div style="color:#E5E7EB">
+    <p style="font-size:.84rem;color:#94A3B8;margin:0 0 16px">4 métricas que VC, banco e CFO sempre perguntam · calculadas a partir dos teus dados:</p>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">
+      ${card('💎 CLV · Customer Lifetime Value', 'R$ '+fmt(clv), `lifetime ~${lifetimeMonths.toFixed(0)} meses · churn ${m.churnRate.toFixed(1)}%`, '#A78BFA', 'Quanto cada cliente vale ao longo da vida útil dele na empresa.')}
+      ${card('⏱ Payback CAC', payback.toFixed(1)+' meses', `CAC R$ ${fmt(m.cacEstimado)} ÷ ticket R$ ${fmt(m.ticketMedio)}`, payback < 12 ? '#10B981' : payback < 18 ? '#F59E0B' : '#EF4444', 'Tempo até recuperar o que gasta pra conquistar um cliente novo.')}
+      ${card('📐 Break-even', fmt(breakEvenClientes)+' clientes', `cobre custo fixo R$ ${fmt(m.custoFixo/12)}/mês`, '#3B82F6', 'Quantos clientes ativos pra empatar (sem lucro nem prejuízo).')}
+      ${card('💰 Margem de contribuição', margemContrib.toFixed(0)+'%', `por cliente · R$ ${fmt(margemPorCli)}/mês líquido`, margemContrib >= 50 ? '#10B981' : margemContrib >= 20 ? '#F59E0B' : '#EF4444', 'Quanto sobra de cada cliente depois de pagar custos variáveis.')}
+    </div>
+    <div style="margin-top:18px;padding:14px 16px;background:linear-gradient(135deg,#10B98115,#10B98108);border:1px solid #10B98144;border-radius:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="color:#10B981;font-size:.78rem;font-weight:700;letter-spacing:1px">LTV / CAC</div>
+          <div style="font-size:1.6rem;color:#10B981;font-weight:800;margin-top:2px">${ltvCac > 0 ? ltvCac.toFixed(1)+'x' : '—'}</div>
+        </div>
+        <div style="text-align:right;color:#94A3B8;font-size:.74rem;line-height:1.5">
+          ${ltvCac >= 3 ? '✅ <b style="color:#10B981">Saudável</b> · vale investir em aquisição' : ltvCac >= 1.5 ? '⚠ <b style="color:#F59E0B">Razoável</b> · otimizar antes de escalar' : ltvCac > 0 ? '❌ <b style="color:#EF4444">Crítico</b> · revisar pricing/CAC' : 'Sem dados suficientes'}
+        </div>
+      </div>
+    </div>
+    <p style="margin-top:14px;font-size:.7rem;color:#64748B;line-height:1.5;text-align:center;font-style:italic">
+      ⚠ Modelo simplificado. CAC e divisão custo fixo/variável são estimativas. Refine em <code>Estrutura</code> pra precisão maior.
+    </p>
+  </div>`;
+  if(typeof _fkModal === 'function'){
+    _fkModal('🧮 Análises Financeiras Avançadas', html, () => true);
+  }
+}
+try{ window.finAnalisesOpen = finAnalisesOpen; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// 🔔 WEB PUSH · notificações fora do app (Service Worker)
+// ═════════════════════════════════════════════════════════════════════
+const WEBPUSH_KEY = 'forekash:webpush:enabled';
+function webpushSupported(){
+  return 'Notification' in window && 'serviceWorker' in navigator;
+}
+function webpushIsGranted(){
+  return webpushSupported() && Notification.permission === 'granted';
+}
+async function webpushRequest(){
+  if(!webpushSupported()){
+    fkToast('Seu navegador não suporta notificações push', 'warn', 4000);
+    return false;
+  }
+  try{
+    const perm = await Notification.requestPermission();
+    if(perm === 'granted'){
+      try{ localStorage.setItem(WEBPUSH_KEY, '1'); }catch(_){}
+      fkToast('🔔 Notificações ativadas! MR KASH vai te avisar mesmo com o app fechado.', 'ok', 5000);
+      // Notif de boas-vindas
+      setTimeout(() => webpushSend('Forekash', 'Notificações ativadas com sucesso 🎉'), 800);
+      return true;
+    } else {
+      fkToast('Permissão negada. Você pode ativar depois nas configurações do navegador.', 'warn', 4000);
+      return false;
+    }
+  }catch(e){
+    console.error('webpush:', e);
+    return false;
+  }
+}
+function webpushSend(titulo, corpo, opts){
+  if(!webpushIsGranted()) return;
+  try{
+    const n = new Notification(titulo, Object.assign({
+      body: corpo,
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      tag: 'forekash',
+      silent: false
+    }, opts || {}));
+    n.onclick = () => {
+      window.focus();
+      n.close();
+    };
+    // Auto-close em 10s
+    setTimeout(() => n.close(), 10000);
+  }catch(e){
+    console.warn('webpushSend:', e);
+  }
+}
+// Hook no MR KASH proativo: se tiver permissão, dispara push também
+function webpushHook(){
+  if(!webpushIsGranted()) return;
+  // Já tem o _mrkProactiveShow? Wrappa
+  const orig = window._mrkProactiveShow;
+  if(orig && !orig._webpushHooked){
+    window._mrkProactiveShow = function(top){
+      try{ orig(top); }catch(_){}
+      try{ webpushSend('MR KASH', top.msg, { tag: 'mrkash-'+top.id }); }catch(_){}
+    };
+    window._mrkProactiveShow._webpushHooked = true;
+  }
+}
+try{ window.webpushRequest = webpushRequest; window.webpushSend = webpushSend; window.webpushIsGranted = webpushIsGranted; window.webpushHook = webpushHook; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// ✨ SMART CAT BADGE · sugere ao invés de aplicar direto
+// ═════════════════════════════════════════════════════════════════════
+function smartCatAnalyze(){
+  if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)){
+    return [];
+  }
+  const sugestoes = [];
+  extratoData.lancamentos.forEach(l => {
+    if(!l.categoria){
+      const sug = (typeof smartCatSuggest === 'function') ? smartCatSuggest(l.descricao) : null;
+      if(sug) sugestoes.push({ id:l.id, desc:l.descricao, sugestao:sug });
+    }
+  });
+  return sugestoes;
+}
+function smartCatBadgeOpen(){
+  const sugs = smartCatAnalyze();
+  if(!sugs.length){
+    fkToast('Nenhum lançamento sem categoria com sugestão automática.', 'info', 3000);
+    return;
+  }
+  // Agrupa por categoria sugerida
+  const grupos = {};
+  sugs.forEach(s => {
+    if(!grupos[s.sugestao]) grupos[s.sugestao] = [];
+    grupos[s.sugestao].push(s);
+  });
+  const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  let html = `<div style="color:#E5E7EB">
+    <p style="font-size:.86rem;color:#94A3B8;margin:0 0 14px"><b>${sugs.length}</b> lançamento(s) sem categoria · MR KASH sugere:</p>
+    <div style="max-height:380px;overflow:auto;display:flex;flex-direction:column;gap:12px">`;
+  Object.entries(grupos).forEach(([cat, items]) => {
+    html += `<div style="background:#0F172A;border-left:3px solid #A78BFA;border-radius:8px;padding:10px 14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div><b style="color:#A78BFA">${_esc(cat)}</b> <span style="color:#94A3B8;font-size:.74rem">· ${items.length} lançamento(s)</span></div>
+        <button onclick="smartCatAcceptGroup('${_esc(cat)}')" style="background:#10B981;color:#0F172A;border:none;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:.74rem;font-weight:700">✓ Aceitar todos</button>
+      </div>
+      <div style="font-size:.74rem;color:#64748B;max-height:80px;overflow:auto">
+        ${items.slice(0,3).map(i => `• ${_esc(i.desc||'')}`).join('<br>')}
+        ${items.length > 3 ? `<br><i>+${items.length-3} mais...</i>` : ''}
+      </div>
+    </div>`;
+  });
+  html += '</div></div>';
+  if(typeof _fkModal === 'function'){
+    _fkModal('✨ Sugestões de categoria', html, () => true);
+  }
+}
+function smartCatAcceptGroup(cat){
+  if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return;
+  let n = 0;
+  extratoData.lancamentos.forEach(l => {
+    if(!l.categoria){
+      const sug = smartCatSuggest(l.descricao);
+      if(sug === cat){ l.categoria = cat; n++; }
+    }
+  });
+  try{ if(typeof saveExtrato === 'function') saveExtrato(); else localStorage.setItem('forekash:extrato:v1', JSON.stringify(extratoData)); }catch(_){}
+  fkToast(`✨ ${n} lançamento(s) categorizado(s) como "${cat}"`, 'ok', 3000);
+  if(typeof auditLog === 'function') auditLog('extrato', `smart-cat aceitou ${n} sugestões "${cat}"`);
+  // Re-render extrato
+  try{ if(typeof renderExtrato === 'function') renderExtrato(); }catch(_){}
+  // Reabre modal pra mostrar resto
+  setTimeout(() => {
+    const remain = smartCatAnalyze();
+    if(remain.length) smartCatBadgeOpen();
+    else fkToast('🎉 Todos os lançamentos categorizados!', 'ok', 3000);
+  }, 400);
+}
+try{ window.smartCatAnalyze = smartCatAnalyze; window.smartCatBadgeOpen = smartCatBadgeOpen; window.smartCatAcceptGroup = smartCatAcceptGroup; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// 💬 COMENTÁRIOS · plugar nos lugares (Lançamentos, Contratos, Assinaturas, NF)
+// Como cada módulo já tá renderizado, adicionamos uma "lente" via Cmd+K + atalho.
+// O botão "💬 Comentar" abre commOpen no contexto atual.
+// ═════════════════════════════════════════════════════════════════════
+function commOpenContextual(){
+  // Detecta módulo ativo + tenta inferir entidade
+  const ativo = document.querySelector('.mod.active');
+  if(!ativo){ fkToast('Vá pra um módulo primeiro', 'warn'); return; }
+  const mod = ativo.id.replace('mod-','');
+  // Modal genérico onde user escolhe sobre o quê comentar
+  const html = `<div style="color:#E5E7EB">
+    <p style="font-size:.86rem;color:#94A3B8;margin:0 0 14px">Sobre qual entidade você quer adicionar comentário?</p>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button class="btn btn-sec" onclick="document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove();commOpen('${mod}','geral','Comentários gerais · ${mod}')" style="text-align:left;padding:12px 14px">
+        💬 <b>Comentários gerais do módulo</b><br><small style="color:#94A3B8">Thread geral · ${mod}</small>
+      </button>
+      ${mod === 'extrato' ? `
+        <button class="btn btn-sec" onclick="commPickFromList('extrato')" style="text-align:left;padding:12px 14px">
+          💰 <b>Sobre um lançamento específico</b><br><small style="color:#94A3B8">Escolhe da lista</small>
+        </button>` : ''}
+      ${mod === 'comercial' ? `
+        <button class="btn btn-sec" onclick="commPickFromList('com-assinatura')" style="text-align:left;padding:12px 14px">
+          🔄 <b>Sobre uma assinatura</b><br><small style="color:#94A3B8">Escolhe da lista</small>
+        </button>
+        <button class="btn btn-sec" onclick="commPickFromList('com-contrato')" style="text-align:left;padding:12px 14px">
+          📄 <b>Sobre um contrato</b><br><small style="color:#94A3B8">Escolhe da lista</small>
+        </button>` : ''}
+      ${mod === 'notasfiscais' ? `
+        <button class="btn btn-sec" onclick="commPickFromList('nf')" style="text-align:left;padding:12px 14px">
+          🧾 <b>Sobre uma NF</b><br><small style="color:#94A3B8">Escolhe da lista</small>
+        </button>` : ''}
+    </div>
+  </div>`;
+  if(typeof _fkModal === 'function') _fkModal('💬 Comentar', html, () => true);
+}
+function commPickFromList(tipo){
+  document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove();
+  let opts = [];
+  try{
+    if(tipo === 'extrato' && typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      opts = extratoData.lancamentos.slice(0,40).map(l => ({ id:l.id, label:`${l.data||'—'} · ${l.descricao||'—'} · R$ ${Math.abs(Number(l.valor)||0).toFixed(2)}` }));
+    } else if(tipo === 'com-assinatura' && typeof COM !== 'undefined' && Array.isArray(COM.assinaturas)){
+      opts = COM.assinaturas.map(a => ({ id:a.id, label:`${a.cliente} · R$ ${(Number(a.valor)||0).toFixed(2)}/mês` }));
+    } else if(tipo === 'com-contrato' && typeof COM !== 'undefined' && Array.isArray(COM.contratos)){
+      opts = COM.contratos.map(c => ({ id:c.id, label:`${c.titulo} · ${c.contraparte}` }));
+    } else if(tipo === 'nf' && typeof NF !== 'undefined' && Array.isArray(NF.notas)){
+      opts = NF.notas.slice(0,40).map(n => ({ id:n.id, label:`NF #${n.numero} · ${n.cliente} · R$ ${(Number(n.valor)||0).toFixed(2)}` }));
+    }
+  }catch(_){}
+  if(!opts.length){ fkToast('Nenhum item encontrado', 'warn'); return; }
+  const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const html = `<div style="color:#E5E7EB">
+    <p style="font-size:.86rem;color:#94A3B8;margin:0 0 12px">Escolha o item:</p>
+    <input type="text" id="comm-pick-search" placeholder="🔎 filtrar..." oninput="commPickFilter()" style="width:100%;padding:8px 12px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;margin-bottom:10px">
+    <div id="comm-pick-list" style="max-height:380px;overflow:auto;display:flex;flex-direction:column;gap:4px">
+      ${opts.map(o => `<button class="comm-pick-item" data-label="${_esc(o.label).toLowerCase()}" onclick="document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove();commOpen('${tipo}','${o.id}','${_esc(o.label)}')" style="text-align:left;background:#0F172A;border:1px solid #334155;color:#E5E7EB;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:.78rem">${_esc(o.label)}</button>`).join('')}
+    </div>
+  </div>`;
+  if(typeof _fkModal === 'function') _fkModal('Escolha o item', html, () => true);
+}
+function commPickFilter(){
+  const q = ((document.getElementById('comm-pick-search')||{}).value||'').toLowerCase();
+  document.querySelectorAll('.comm-pick-item').forEach(btn => {
+    btn.style.display = btn.dataset.label.includes(q) ? '' : 'none';
+  });
+}
+try{ window.commOpenContextual = commOpenContextual; window.commPickFromList = commPickFromList; window.commPickFilter = commPickFilter; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// 🎭 PERSONA SWITCHER · CEO / CFO / Analista
+// Muda quais KPIs aparecem em destaque conforme o papel
+// ═════════════════════════════════════════════════════════════════════
+const PERSONA_KEY = 'forekash:persona:v1';
+let PERSONA_CURRENT = 'ceo';
+const PERSONAS = {
+  ceo:      { label:'CEO',      ico:'👑', cor:'#A78BFA', desc:'Visão estratégica: MRR, Runway, Growth, Churn' },
+  cfo:      { label:'CFO',      ico:'📊', cor:'#3B82F6', desc:'Visão financeira: DRE, Caixa, Custos, Margem, Impostos' },
+  analista: { label:'Analista', ico:'🔬', cor:'#10B981', desc:'Visão operacional: lançamentos, conciliação, categorias, anomalias' }
+};
+function personaLoad(){
+  try{ const raw = localStorage.getItem(PERSONA_KEY); if(raw && PERSONAS[raw]) PERSONA_CURRENT = raw; }catch(_){}
+}
+function personaSet(p){
+  if(!PERSONAS[p]) return;
+  PERSONA_CURRENT = p;
+  try{ localStorage.setItem(PERSONA_KEY, p); }catch(_){}
+  personaApply();
+  if(typeof fkToast === 'function'){
+    const pd = PERSONAS[p];
+    fkToast(`${pd.ico} Persona: ${pd.label} · ${pd.desc}`, 'info', 4000);
+  }
+  if(typeof auditLog === 'function') auditLog('persona', `mudou pra ${p}`);
+}
+function personaApply(){
+  // Cria/atualiza badge no header
+  let badge = document.getElementById('hdr-persona-badge');
+  if(!badge){
+    const userArea = document.getElementById('hdr-user') || document.getElementById('hdr-theme-btn');
+    if(userArea){
+      badge = document.createElement('button');
+      badge.id = 'hdr-persona-badge';
+      badge.type = 'button';
+      badge.title = 'Mudar persona (CEO/CFO/Analista)';
+      badge.style.cssText = 'background:transparent;border:1px solid #334155;color:#E5E7EB;padding:5px 12px;border-radius:8px;font-size:.74rem;cursor:pointer;margin-right:8px;display:inline-flex;align-items:center;gap:6px;font-weight:600;letter-spacing:.3px;transition:all .15s';
+      badge.onclick = personaOpenSwitcher;
+      userArea.parentNode.insertBefore(badge, userArea);
+    }
+  }
+  if(badge){
+    const pd = PERSONAS[PERSONA_CURRENT];
+    badge.style.borderColor = pd.cor;
+    badge.style.color = pd.cor;
+    badge.innerHTML = `<span style="font-size:.96rem;line-height:1">${pd.ico}</span><span>${pd.label}</span>`;
+  }
+  // Marca body com data-persona pra CSS poder reagir
+  document.body.setAttribute('data-persona', PERSONA_CURRENT);
+}
+function personaOpenSwitcher(){
+  const html = `<div style="color:#E5E7EB">
+    <p style="font-size:.86rem;color:#94A3B8;margin:0 0 16px">Cada persona destaca KPIs diferentes na home e adapta o foco do MR KASH. Você pode trocar quando quiser.</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      ${Object.entries(PERSONAS).map(([k, p]) => `
+        <button onclick="personaSet('${k}');document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove()" style="display:flex;gap:12px;align-items:center;background:#0F172A;border:1px solid ${k===PERSONA_CURRENT?p.cor:'#334155'};border-radius:10px;padding:12px 14px;cursor:pointer;text-align:left;color:#E5E7EB;transition:all .15s">
+          <div style="width:42px;height:42px;border-radius:50%;background:${p.cor}22;color:${p.cor};display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">${p.ico}</div>
+          <div style="flex:1">
+            <div style="font-weight:700;font-size:.92rem;color:${p.cor}">${p.label} ${k===PERSONA_CURRENT?'<span style="background:'+p.cor+'22;color:'+p.cor+';padding:2px 6px;border-radius:4px;font-size:.66rem;font-weight:700;margin-left:6px">ATUAL</span>':''}</div>
+            <div style="color:#94A3B8;font-size:.78rem;margin-top:2px">${p.desc}</div>
+          </div>
+        </button>
+      `).join('')}
+    </div>
+  </div>`;
+  if(typeof _fkModal === 'function') _fkModal('🎭 Trocar persona', html, () => true);
+}
+try{ window.personaLoad = personaLoad; window.personaSet = personaSet; window.personaApply = personaApply; window.personaOpenSwitcher = personaOpenSwitcher; window.PERSONA_CURRENT = PERSONA_CURRENT; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// 🚀 DEMO DATASET · "Startup SaaS crescendo" — popula caso completo
+// ═════════════════════════════════════════════════════════════════════
+function demoSaasLoad(){
+  if(!confirm('Carregar dataset DEMO "Startup SaaS"?\n\nIsso vai POPULAR:\n• Comercial: 8 assinaturas + 3 propostas + 2 contratos\n• Asaas: 6 cobranças variadas\n• NF: 4 notas emitidas\n• Comentários em algumas entidades\n\n⚠ NÃO sobrescreve dados existentes — só adiciona.')) return;
+  let adicionados = { assinaturas:0, propostas:0, contratos:0, cobrancas:0, nf:0 };
+  try{
+    // ASSINATURAS
+    if(typeof COM !== 'undefined' && Array.isArray(COM.assinaturas)){
+      const seedAssin = [
+        { cliente:'Acme Corp',          valor:1500, diaVenc:5,  descricao:'Plano Enterprise',  ativa:true,  autoEmitNF:true,  reajusteIdx:'ipca', reajusteMes:1 },
+        { cliente:'Tech Brasil',        valor:850,  diaVenc:10, descricao:'Plano Pro',         ativa:true,  autoEmitNF:true,  reajusteIdx:'igpm', reajusteMes:6 },
+        { cliente:'Studio Design',      valor:350,  diaVenc:5,  descricao:'Plano Starter',     ativa:true,  autoEmitNF:false, reajusteIdx:'fixo5', reajusteMes:1 },
+        { cliente:'Loja Online XYZ',    valor:1200, diaVenc:15, descricao:'Plano Business',    ativa:true,  autoEmitNF:true,  reajusteIdx:null,    reajusteMes:1 },
+        { cliente:'Consultoria Alpha',  valor:2500, diaVenc:1,  descricao:'Plano Custom',      ativa:true,  autoEmitNF:true,  reajusteIdx:'fixo10', reajusteMes:3 },
+        { cliente:'Agência Beta',       valor:600,  diaVenc:20, descricao:'Plano Pro',         ativa:true,  autoEmitNF:false, reajusteIdx:'ipca', reajusteMes:1 },
+        { cliente:'E-commerce Delta',   valor:1800, diaVenc:5,  descricao:'Plano Business',    ativa:true,  autoEmitNF:true,  reajusteIdx:null,    reajusteMes:1 },
+        { cliente:'StartupX',           valor:450,  diaVenc:10, descricao:'Plano Starter',     ativa:false, autoEmitNF:false, reajusteIdx:null,    reajusteMes:1 }
+      ];
+      seedAssin.forEach(s => {
+        if(COM.assinaturas.some(a => a.cliente === s.cliente)) return;
+        const ass = Object.assign({}, s, {
+          id: (COM.nextId||1) + adicionados.assinaturas + 100,
+          ultimaGer:null, hist:[], changes:[], receitaLinks:[], criadoEm:Date.now() - (adicionados.assinaturas * 30 * 86400000)
+        });
+        COM.assinaturas.push(ass);
+        adicionados.assinaturas++;
+      });
+      COM.nextId = (COM.nextId||1) + 200;
+    }
+    // PROPOSTAS
+    if(typeof COM !== 'undefined' && Array.isArray(COM.propostas)){
+      const seedProp = [
+        { cliente:'NovaCo Ltda',       valorEstimado:1200, estagio:'proposta',   vendedor:'João',  descricao:'Demo agendada pra próxima semana' },
+        { cliente:'BigCo Brasil',      valorEstimado:3500, estagio:'negociacao', vendedor:'Maria', descricao:'Negociando desconto anual' },
+        { cliente:'Pequena Empresa',   valorEstimado:500,  estagio:'lead',       vendedor:'',      descricao:'Inbound do site' }
+      ];
+      seedProp.forEach(p => {
+        if(COM.propostas.some(x => x.cliente === p.cliente)) return;
+        COM.propostas.push(Object.assign({}, p, {
+          id: (COM.nextId||1) + adicionados.propostas + 50,
+          criadoEm: Date.now() - (adicionados.propostas * 7 * 86400000),
+          atualizadoEm: Date.now()
+        }));
+        adicionados.propostas++;
+      });
+    }
+    // CONTRATOS
+    if(typeof COM !== 'undefined' && Array.isArray(COM.contratos)){
+      const hoje = new Date();
+      const em30 = new Date(hoje.getTime() + 25*86400000).toISOString().slice(0,10);
+      const em180 = new Date(hoje.getTime() + 180*86400000).toISOString().slice(0,10);
+      const seedCont = [
+        { titulo:'Aluguel sede SP',    contraparte:'Imóveis ZZZ Ltda', tipo:'Aluguel',              valor:6500,  inicio:'2026-01-01', fim:em180, status:'ativo', obs:'Contrato 12 meses · IGPM anual', alertaDias:60, renovaAuto:true },
+        { titulo:'Acme Corp · serviços', contraparte:'Acme Corp',       tipo:'Prestação de serviços', valor:18000, inicio:'2026-01-01', fim:em30,  status:'ativo', obs:'Vence em breve — agendar renovação',     alertaDias:30, renovaAuto:false }
+      ];
+      seedCont.forEach(c => {
+        if(COM.contratos.some(x => x.titulo === c.titulo)) return;
+        COM.contratos.push(Object.assign({}, c, { id: (COM.nextId||1) + adicionados.contratos + 30 }));
+        adicionados.contratos++;
+      });
+    }
+    // ASAAS COBRANÇAS
+    if(typeof ASAAS !== 'undefined' && Array.isArray(ASAAS.cobrancas)){
+      const hoje = new Date();
+      const seedCob = [
+        { cliente:'Acme Corp',         valor:1500, vencimento: hoje.toISOString().slice(0,10), status:'pendente', descricao:'Mensalidade · jun/26', origem:'demo' },
+        { cliente:'Tech Brasil',       valor:850,  vencimento: new Date(hoje.getTime()+3*86400000).toISOString().slice(0,10), status:'pendente', descricao:'Mensalidade · jun/26', origem:'demo' },
+        { cliente:'Studio Design',     valor:350,  vencimento: new Date(hoje.getTime()-5*86400000).toISOString().slice(0,10), status:'pendente', descricao:'Mensalidade · mai/26 · ATRASADA', origem:'demo' },
+        { cliente:'Loja Online XYZ',   valor:1200, vencimento: new Date(hoje.getTime()-10*86400000).toISOString().slice(0,10), status:'recebido', descricao:'Mensalidade · mai/26', origem:'demo' },
+        { cliente:'Consultoria Alpha', valor:2500, vencimento: new Date(hoje.getTime()-15*86400000).toISOString().slice(0,10), status:'recebido', descricao:'Mensalidade · mai/26', origem:'demo' },
+        { cliente:'NovaCo Ltda',       valor:1200, vencimento: new Date(hoje.getTime()+10*86400000).toISOString().slice(0,10), status:'pendente', descricao:'Setup fee', origem:'demo' }
+      ];
+      seedCob.forEach(c => {
+        if(ASAAS.cobrancas.some(x => x.cliente === c.cliente && x.valor === c.valor && x.vencimento === c.vencimento)) return;
+        ASAAS.cobrancas.push(Object.assign({ id: Date.now() + Math.random(), asaasId: 'demo_'+Date.now()+'_'+adicionados.cobrancas, ts: Date.now() }, c));
+        adicionados.cobrancas++;
+      });
+    }
+    // NF
+    if(typeof NF !== 'undefined' && Array.isArray(NF.notas)){
+      const maxNum = NF.notas.length ? Math.max(...NF.notas.map(n => Number(n.numero)||0)) : 0;
+      const seedNf = [
+        { numero: maxNum+1, status:'autorizada', cliente:'Acme Corp',         valor:1500, descricao:'Mensalidade SaaS · mai/26' },
+        { numero: maxNum+2, status:'autorizada', cliente:'Tech Brasil',       valor:850,  descricao:'Mensalidade SaaS · mai/26' },
+        { numero: maxNum+3, status:'autorizada', cliente:'Loja Online XYZ',   valor:1200, descricao:'Mensalidade SaaS · mai/26' },
+        { numero: maxNum+4, status:'autorizada', cliente:'Consultoria Alpha', valor:2500, descricao:'Plano Custom · mai/26' }
+      ];
+      seedNf.forEach(n => {
+        if(NF.notas.some(x => Number(x.numero) === n.numero)) return;
+        NF.notas.push(Object.assign({
+          id: 'nf_demo_'+Date.now()+'_'+adicionados.nf,
+          dataEmissao: new Date().toISOString(),
+          dataAutorizada: new Date().toISOString(),
+          codigoVerificacao: 'DEMO'+Date.now().toString(36).toUpperCase(),
+          origem:'demo'
+        }, n));
+        adicionados.nf++;
+      });
+    }
+    // Save tudo
+    try{ if(typeof comSave === 'function') comSave(); }catch(_){}
+    try{ if(typeof asaasSave === 'function') asaasSave(); }catch(_){}
+    try{ if(typeof nfSave === 'function') nfSave(); }catch(_){}
+    if(typeof fkToast === 'function'){
+      fkToast(`🚀 Demo carregada: ${adicionados.assinaturas} assinaturas · ${adicionados.cobrancas} cobranças · ${adicionados.nf} NF`, 'ok', 5500);
+    }
+    if(typeof auditLog === 'function') auditLog('demo', `carregou dataset SaaS: ${JSON.stringify(adicionados)}`);
+    if(typeof fkConfetti === 'function') fkConfetti();
+    setTimeout(() => location.reload(), 1200);
+  }catch(e){
+    console.error('demoSaasLoad:', e);
+    alert('Erro ao carregar demo: ' + e.message);
+  }
+}
+try{ window.demoSaasLoad = demoSaasLoad; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// 🎉 WHAT'S NEW · modal mostra features recentes na primeira visita pós-update
+// ═════════════════════════════════════════════════════════════════════
+const WHATSNEW_VERSION = 'v2.6.0-2026-05';
+const WHATSNEW_KEY = 'forekash:whatsnew:lastSeen';
+const WHATSNEW_FEATURES = [
+  { ico:'🤖', titulo:'MR KASH proativo', desc:'Avisa sozinho quando detecta cobrança atrasada, contrato vencendo, churn risk ou anomalia.' },
+  { ico:'🔄', titulo:'Comercial v2 com Pipeline + IA Insights', desc:'Funil de propostas + MRR Movements + Churn Predictor + Customer Health Score + Pricing Simulator.' },
+  { ico:'📈', titulo:'Projeção de Fluxo de Caixa', desc:'2 modos: probabilística (estatística) ou dados preenchidos. Banda de confiança visual.' },
+  { ico:'🚀', titulo:'Investor Deck auto-gerado', desc:'6 slides profissionais a partir dos teus números — pronto pra apresentar.' },
+  { ico:'🔍', titulo:'Cmd+K busca dados', desc:'Encontra clientes, lançamentos, contratos. Quick-add por texto: "lançamento aluguel 2500".' },
+  { ico:'✨', titulo:'Smart Categorization', desc:'Auto-categoriza lançamentos por descrição (Uber → Transporte, iFood → Alimentação, etc).' },
+  { ico:'🔗', titulo:'Reconciliação Asaas × Extrato', desc:'Detecta automaticamente recebimentos no extrato que batem com cobranças pendentes.' },
+  { ico:'📐', titulo:'KASHBOARD Avançado', desc:'Sankey do fluxo de dinheiro + Waterfall + Heatmap de receita por dia.' },
+  { ico:'💬', titulo:'Comentários em entidades', desc:'Equipe pode discutir lançamentos, contratos, assinaturas.' },
+  { ico:'🎮', titulo:'Easter egg Konami', desc:'↑↑↓↓←→←→BA · descobre o terminal fsociety.' }
+];
+function whatsnewMaybeShow(){
+  try{
+    const lastSeen = localStorage.getItem(WHATSNEW_KEY);
+    if(lastSeen === WHATSNEW_VERSION) return; // já viu
+    setTimeout(whatsnewOpen, 1500);
+  }catch(_){}
+}
+function whatsnewOpen(){
+  const html = `<div style="color:#E5E7EB">
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="font-size:42px;margin-bottom:8px">🎉</div>
+      <h2 style="margin:0;font-size:1.2rem;color:#10B981;letter-spacing:-.5px">Tem coisa nova no Forekash</h2>
+      <small style="color:#94A3B8;font-size:.78rem">Versão ${WHATSNEW_VERSION} · ${WHATSNEW_FEATURES.length} novidades</small>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;max-height:420px;overflow:auto;padding-right:6px">
+      ${WHATSNEW_FEATURES.map(f => `
+        <div style="display:flex;gap:12px;background:#0F172A;border-left:3px solid #10B981;padding:10px 14px;border-radius:8px">
+          <div style="font-size:20px;flex-shrink:0">${f.ico}</div>
+          <div style="flex:1;min-width:0">
+            <div style="color:#10B981;font-weight:700;font-size:.84rem">${f.titulo}</div>
+            <div style="color:#94A3B8;font-size:.74rem;line-height:1.4;margin-top:2px">${f.desc}</div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+    <p style="text-align:center;color:#64748B;font-size:.72rem;margin:14px 0 0">Manda ⌘K e tenta digitar "ir patrimônio", "lançamento aluguel 2500" ou "?" pra atalhos.</p>
+  </div>`;
+  if(typeof _fkModal === 'function'){
+    _fkModal('🎉 Novidades', html, () => {
+      try{ localStorage.setItem(WHATSNEW_KEY, WHATSNEW_VERSION); }catch(_){}
+      return true;
+    });
+  }
+}
+try{ window.whatsnewOpen = whatsnewOpen; window.whatsnewMaybeShow = whatsnewMaybeShow; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// ⚡ POWER USER · Cmd+K nav direta + Histórico recente + Snippets
+// ═════════════════════════════════════════════════════════════════════
+
+// ── HISTÓRICO RECENTE de módulos ──────────────────────────────────
+const MOD_HIST_KEY = 'forekash:mod-history:v1';
+let MOD_HISTORY = [];
+function modHistLoad(){
+  try{ const raw = localStorage.getItem(MOD_HIST_KEY); if(raw) MOD_HISTORY = JSON.parse(raw) || []; }catch(_){}
+  if(!Array.isArray(MOD_HISTORY)) MOD_HISTORY = [];
+}
+function modHistPush(mod){
+  if(!mod) return;
+  MOD_HISTORY = MOD_HISTORY.filter(m => m !== mod);
+  MOD_HISTORY.unshift(mod);
+  MOD_HISTORY = MOD_HISTORY.slice(0, 5);
+  try{ localStorage.setItem(MOD_HIST_KEY, JSON.stringify(MOD_HISTORY)); }catch(_){}
+}
+// Hook em switchModule pra registrar histórico
+(function _hookSwitchModule(){
+  try{
+    if(typeof window.switchModule !== 'function') return;
+    if(window._switchModuleHookedHist) return;
+    window._switchModuleHookedHist = true;
+    const orig = window.switchModule;
+    window.switchModule = function(mod, btn){
+      const r = orig.apply(this, arguments);
+      try{ modHistPush(mod); }catch(_){}
+      return r;
+    };
+  }catch(_){}
+})();
+try{ window.modHistLoad = modHistLoad; window.modHistPush = modHistPush; }catch(_){}
+
+// ── CMD+K NAV DIRETA · "ir/abrir/go X" ────────────────────────────
+// Mapa de aliases → mod id
+const CMDK_NAV_ALIASES = {
+  'inicio':'dashboard', 'início':'dashboard', 'home':'dashboard', 'dashboard':'dashboard', 'painel':'dashboard',
+  'kashtrack':'kashtrack', 'calendario':'kashtrack', 'calendário':'kashtrack', 'agenda':'kashtrack',
+  'extrato':'extrato', 'lancamentos':'extrato', 'lançamentos':'extrato',
+  'disponibilidades':'disponibilidades', 'contas':'disponibilidades', 'caixa':'disponibilidades', 'bancos':'disponibilidades',
+  'cartoes':'cartoes', 'cartões':'cartoes', 'cartao':'cartoes',
+  'receita':'receita', 'kanban':'receita',
+  'notas':'notasfiscais', 'nf':'notasfiscais', 'nfs':'notasfiscais', 'fiscal':'notasfiscais', 'fiscais':'notasfiscais',
+  'comercial':'comercial', 'assinaturas':'comercial', 'pipeline':'comercial', 'contratos':'comercial', 'recibos':'comercial',
+  'outras':'outras-op', 'outras operacoes':'outras-op', 'outras operações':'outras-op',
+  'pessoas':'pessoas', 'colaboradores':'colaboradores', 'equipe':'colaboradores', 'time':'colaboradores',
+  'estrutura':'estrutura', 'custos':'estrutura', 'despesas':'estrutura',
+  'impostos':'impostos', 'tributos':'impostos',
+  'emprestimos':'emprestimos', 'empréstimos':'emprestimos', 'dividas':'emprestimos', 'dívidas':'emprestimos',
+  'kashboard':'analise', 'analise':'analise', 'análise':'analise',
+  'fluxo':'fluxo', 'fluxo de caixa':'fluxo', 'dre':'fluxo', 'drc':'fluxo',
+  'orcamento':'orcamento', 'orçamento':'orcamento', 'budget':'orcamento',
+  'patrimonio':'patrimonio', 'patrimônio':'patrimonio', 'balanco':'patrimonio', 'balanço':'patrimonio',
+  'fklab':'fklab', 'fk lab':'fklab', 'lab':'fklab', 'what-if':'fklab', 'cenarios':'fklab', 'cenários':'fklab',
+  'relatorios':'relatorios', 'relatórios':'relatorios', 'pdf':'relatorios',
+  'workflows':'workflows', 'notas-post':'workflows', 'post-it':'workflows',
+  'configuracoes':'configuracoes', 'configurações':'configuracoes', 'config':'configuracoes', 'settings':'configuracoes',
+  'customizacoes':'customizacoes', 'customizações':'customizacoes', 'snippets':'customizacoes', 'categorias':'customizacoes',
+  'asaas':'asaas', 'cobrancas':'asaas', 'cobranças':'asaas'
+};
+function _cmdkDetectNavigate(q){
+  const m = q.match(/^(ir|abrir|abre|go|vai|vou|voltar)\s+(?:pr?a?|para|ao|no|na|o|a|em)?\s*(.+)$/i);
+  if(!m) return null;
+  const alvo = m[2].trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  // Procura no mapa
+  const mod = CMDK_NAV_ALIASES[alvo];
+  if(!mod) return null;
+  return {
+    group:'⚡ Navegação',
+    ico:'→',
+    label:`Ir para ${alvo.charAt(0).toUpperCase()+alvo.slice(1)}`,
+    sub:`Abre o módulo ${mod}`,
+    action: () => { try{ if(typeof switchModule==='function') switchModule(mod, null); }catch(_){} }
+  };
+}
+try{ window._cmdkDetectNavigate = _cmdkDetectNavigate; }catch(_){}
+
+// ── SNIPPETS · expansão de atalhos em campos de descrição ─────────
+const SNIP_KEY = 'forekash:snippets:v1';
+let SNIPPETS = {};
+function snipLoad(){
+  try{ const raw = localStorage.getItem(SNIP_KEY); if(raw) SNIPPETS = JSON.parse(raw) || {}; }catch(_){}
+  // Seed com alguns úteis se vazio
+  if(!Object.keys(SNIPPETS).length){
+    SNIPPETS = {
+      'aluguel': 'Aluguel sede · referência mês ' + new Date().toLocaleDateString('pt-BR', {month:'2-digit', year:'numeric'}),
+      'salario': 'Pagamento folha mês ' + new Date().toLocaleDateString('pt-BR', {month:'2-digit', year:'numeric'}),
+      'energia': 'Conta de energia · sede',
+      'internet': 'Internet · plano empresarial'
+    };
+    snipSave();
+  }
+  snipRender();
+}
+function snipSave(){ try{ localStorage.setItem(SNIP_KEY, JSON.stringify(SNIPPETS)); }catch(_){} }
+function snipAdd(){
+  const k = (document.getElementById('snippets-new-key')||{}).value;
+  const v = (document.getElementById('snippets-new-val')||{}).value;
+  if(!k || !v){ alert('Preencha atalho e texto'); return; }
+  const key = String(k).trim().toLowerCase().replace(/[^a-z0-9-_]/g, '');
+  if(!key){ alert('Atalho inválido (use só letras/números/-)'); return; }
+  SNIPPETS[key] = String(v).trim();
+  snipSave(); snipRender();
+  document.getElementById('snippets-new-key').value = '';
+  document.getElementById('snippets-new-val').value = '';
+  if(typeof fkToast === 'function') fkToast(`Snippet /${key} adicionado`, 'ok', 2000);
+  if(typeof auditLog === 'function') auditLog('config', `snippet criado: /${key}`);
+}
+function snipRemove(key){
+  if(!confirm(`Remover snippet /${key}?`)) return;
+  delete SNIPPETS[key];
+  snipSave(); snipRender();
+}
+function snipRender(){
+  const el = document.getElementById('snippets-list');
+  if(!el) return;
+  const keys = Object.keys(SNIPPETS).sort();
+  if(!keys.length){
+    el.innerHTML = '<p style="color:#94A3B8;font-size:.82rem;text-align:center;padding:12px">Nenhum snippet ainda. Cria um abaixo pra acelerar lançamentos repetitivos.</p>';
+    return;
+  }
+  el.innerHTML = keys.map(k => {
+    const v = SNIPPETS[k] || '';
+    return `<div style="display:flex;align-items:center;gap:10px;background:#F8FAFC;padding:8px 12px;border-radius:8px;border:1px solid #E2E8F0">
+      <code style="background:#A78BFA22;color:#7C3AED;padding:3px 8px;border-radius:5px;font-size:.78rem;font-weight:700;flex-shrink:0">/${k}</code>
+      <span style="flex:1;color:#475569;font-size:.82rem">${v.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</span>
+      <button onclick="snipRemove('${k}')" style="background:transparent;border:none;color:#94A3B8;cursor:pointer;font-size:.84rem;padding:2px 6px" title="Remover">🗑</button>
+    </div>`;
+  }).join('');
+}
+// Hook nos inputs/textareas com classe .fk-snip ou no atributo data-snip
+function snipExpand(el){
+  if(!el || typeof el.value !== 'string') return false;
+  const val = el.value;
+  // Procura padrão /palavra com espaço/quebra/fim
+  const m = val.match(/\/([a-z0-9_-]+)$/);
+  if(!m) return false;
+  const key = m[1].toLowerCase();
+  if(SNIPPETS[key] === undefined) return false;
+  // Substitui o /key pelo texto
+  el.value = val.slice(0, m.index) + SNIPPETS[key];
+  // Dispara input event pra outras integrações ouvirem
+  try{ el.dispatchEvent(new Event('input', {bubbles:true})); }catch(_){}
+  if(typeof fkToast === 'function') fkToast(`Snippet /${key} expandido`, 'info', 1500);
+  return true;
+}
+// Listener global: ao digitar Tab ou Enter em qualquer input/textarea, tenta expandir
+document.addEventListener('keydown', (e) => {
+  if(e.key !== 'Tab') return;
+  const t = e.target;
+  if(!t || !t.tagName) return;
+  const tag = t.tagName.toLowerCase();
+  if(tag !== 'input' && tag !== 'textarea') return;
+  if(snipExpand(t)){ e.preventDefault(); }
+});
+try{ window.snipLoad = snipLoad; window.snipAdd = snipAdd; window.snipRemove = snipRemove; window.snipRender = snipRender; window.snipExpand = snipExpand; window.SNIPPETS = SNIPPETS; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// 📐 KASHBOARD AVANÇADO · Sankey + Waterfall + Heatmap (SVG inline)
+// ═════════════════════════════════════════════════════════════════════
+function anaRenderAdvanced(){
+  try{ anaRenderSankey(); }catch(e){ console.warn('sankey:', e); }
+  try{ anaRenderWaterfall(); }catch(e){ console.warn('waterfall:', e); }
+  try{ anaRenderHeatmap(); }catch(e){ console.warn('heatmap:', e); }
+}
+try{ window.anaRenderAdvanced = anaRenderAdvanced; }catch(_){}
+
+// ── SANKEY · entradas → categorias → contas ───────────────────────
+function anaRenderSankey(){
+  const el = document.getElementById('ana-sankey-chart');
+  if(!el) return;
+  // Coleta dados: extrato + receita kanban
+  const dados = _advCollectFinanceData();
+  if(!dados.entradas.length && !dados.saidas.length){
+    el.innerHTML = '<div style="padding:40px;text-align:center;color:#94A3B8;font-size:.86rem">Sem dados suficientes pra Sankey. Preencha extrato/receita primeiro.</div>';
+    return;
+  }
+  // Constrói nós e links
+  // Nó central: "Receita Total" → divide pra categorias de gasto e pra "Saldo"
+  const totalEntradas = dados.entradas.reduce((s,e)=>s+e.valor,0);
+  const totalSaidas = dados.saidas.reduce((s,e)=>s+e.valor,0);
+  const saldo = totalEntradas - totalSaidas;
+  // Top 5 clientes (entradas)
+  const byCli = {};
+  dados.entradas.forEach(e => { const k = (e.cliente||e.desc||'Cliente').slice(0,18); byCli[k] = (byCli[k]||0) + e.valor; });
+  const topClis = Object.entries(byCli).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  // Top 5 categorias (saídas)
+  const byCat = {};
+  dados.saidas.forEach(e => { const k = (e.categoria||'Sem categoria').slice(0,20); byCat[k] = (byCat[k]||0) + e.valor; });
+  const topCats = Object.entries(byCat).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  // Renderiza SVG
+  const W = 900, H = 380;
+  const padX = 20, padY = 16;
+  const colWidth = (W - padX*2) / 3;
+  const nodeW = 16;
+  // Coluna 0: clientes (esquerda)
+  // Coluna 1: Receita Total (centro)
+  // Coluna 2: categorias gasto + Saldo (direita)
+  function scaleY(val, total, baseY, baseH){ return val/total * baseH; }
+  // Layout vertical pra coluna 0 (clientes)
+  let yCursor = padY;
+  const nodesCli = topClis.map(([nome, val]) => {
+    const h = scaleY(val, totalEntradas, padY, H - padY*2);
+    const y = yCursor;
+    yCursor += h + 4;
+    return { nome, val, x: padX, y, h, color:'#10B981' };
+  });
+  // Nó central
+  const centerNode = { nome:'Receita Total', val:totalEntradas, x: padX + colWidth, y:padY, h:H - padY*2, color:'#3B82F6' };
+  // Coluna 2: categorias + saldo
+  yCursor = padY;
+  const totalDir = totalSaidas + Math.max(0, saldo);
+  const nodesCat = topCats.map(([nome, val]) => {
+    const h = scaleY(val, totalDir, padY, H - padY*2);
+    const y = yCursor;
+    yCursor += h + 4;
+    return { nome, val, x: padX + colWidth*2 + (colWidth-nodeW), y, h, color:'#EF4444' };
+  });
+  // Saldo (verde se positivo)
+  if(saldo > 0){
+    const h = scaleY(saldo, totalDir, padY, H - padY*2);
+    nodesCat.push({ nome:'Saldo Restante', val:saldo, x: padX + colWidth*2 + (colWidth-nodeW), y:yCursor, h, color:'#A78BFA' });
+  }
+  // Helper: caminho curva Bézier
+  function bezPath(x1,y1,x2,y2){
+    const mx = (x1+x2)/2;
+    return `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+  }
+  // Renderiza links: clientes → centro
+  let linksHtml = '';
+  // Links esquerda → centro
+  let cursorCenterLeft = padY;
+  nodesCli.forEach(n => {
+    const linkH = n.h;
+    const x1 = n.x + nodeW;
+    const y1 = n.y + n.h/2;
+    const x2 = centerNode.x;
+    const y2 = cursorCenterLeft + linkH/2;
+    cursorCenterLeft += linkH + 0;
+    // Path com espessura = linkH
+    const d = bezPath(x1, y1, x2, y2);
+    linksHtml += `<path d="${d}" fill="none" stroke="${n.color}" stroke-width="${Math.max(1, linkH)}" opacity=".35"/>`;
+  });
+  // Links centro → categorias/saldo
+  let cursorCenterRight = padY;
+  nodesCat.forEach(n => {
+    const linkH = n.h;
+    const x1 = centerNode.x + nodeW;
+    const y1 = cursorCenterRight + linkH/2;
+    const x2 = n.x;
+    const y2 = n.y + n.h/2;
+    cursorCenterRight += linkH + 0;
+    const d = bezPath(x1, y1, x2, y2);
+    linksHtml += `<path d="${d}" fill="none" stroke="${n.color}" stroke-width="${Math.max(1, linkH)}" opacity=".35"/>`;
+  });
+  // Renderiza nós
+  function nodeRect(n, anchor){
+    const txtX = anchor === 'right' ? n.x - 6 : n.x + nodeW + 6;
+    const txtAnchor = anchor === 'right' ? 'end' : 'start';
+    return `
+      <rect x="${n.x}" y="${n.y}" width="${nodeW}" height="${n.h}" fill="${n.color}" rx="3"/>
+      <text x="${txtX}" y="${n.y + n.h/2 + 4}" font-size="11" fill="#475569" text-anchor="${txtAnchor}" font-family="system-ui,sans-serif">${(n.nome||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')} · R$ ${_insFmt(n.val)}</text>
+    `;
+  }
+  const nodesHtml = [...nodesCli.map(n => nodeRect(n,'left')), nodeRect(centerNode,'left'), ...nodesCat.map(n => nodeRect(n,'right'))].join('');
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-height:${H}px;display:block">
+    ${linksHtml}
+    ${nodesHtml}
+  </svg>
+  <div style="margin-top:10px;padding:10px 14px;background:#F8FAFC;border-radius:8px;font-size:.74rem;color:#475569;line-height:1.5">
+    🟢 Top 5 fontes de receita →  🔵 Receita Total  →  🔴 Top 5 destinos de gasto + 🟣 saldo restante.
+    Espessura proporcional ao valor.
+  </div>`;
+}
+
+// ── WATERFALL · saldo inicial + entradas − saídas = final ─────────
+function anaRenderWaterfall(){
+  const el = document.getElementById('ana-waterfall-chart');
+  if(!el) return;
+  const dados = _advCollectFinanceData();
+  // Estimar saldo inicial: tenta dispoData ou usa 0
+  let saldoInicial = 0;
+  try{
+    if(typeof dispoData !== 'undefined' && Array.isArray(dispoData.contas)){
+      // soma saldoInicial das contas (não saldo atual)
+      saldoInicial = dispoData.contas.reduce((s,c) => s + (Number(c.saldoInicial)||0), 0);
+    }
+  }catch(_){}
+  const entradas = dados.entradas.reduce((s,e)=>s+e.valor, 0);
+  const saidas = dados.saidas.reduce((s,e)=>s+e.valor, 0);
+  const final = saldoInicial + entradas - saidas;
+  if(!entradas && !saidas){
+    el.innerHTML = '<div style="padding:40px;text-align:center;color:#94A3B8;font-size:.86rem">Sem movimentações no período pra Waterfall.</div>';
+    return;
+  }
+  // Categorias de saída (top 4)
+  const byCat = {};
+  dados.saidas.forEach(e => { const k = (e.categoria||'Outros').slice(0,16); byCat[k] = (byCat[k]||0) + e.valor; });
+  const topCats = Object.entries(byCat).sort((a,b)=>b[1]-a[1]).slice(0,4);
+  const outros = saidas - topCats.reduce((s,c)=>s+c[1],0);
+  const cats = [...topCats];
+  if(outros > 0.5) cats.push(['Outros gastos', outros]);
+  // Constrói barras
+  const bars = [];
+  bars.push({ label:'Saldo Inicial', val:saldoInicial, type:'total' });
+  bars.push({ label:'+ Entradas', val:entradas, type:'positive' });
+  cats.forEach(([nome, val]) => bars.push({ label:'− '+nome, val:-val, type:'negative' }));
+  bars.push({ label:'= Saldo Final', val:final, type:'total' });
+  // Calcula posições cumulativas
+  let cum = 0;
+  bars.forEach((b, i) => {
+    if(b.type === 'total'){ b.start = 0; b.end = b.val; cum = b.val; }
+    else { b.start = cum; b.end = cum + b.val; cum = b.end; }
+  });
+  // Layout
+  const W = 900, H = 320;
+  const padL = 90, padR = 40, padT = 20, padB = 60;
+  const chartH = H - padT - padB;
+  const barW = (W - padL - padR) / bars.length - 8;
+  const allVals = bars.flatMap(b => [b.start, b.end]);
+  const maxV = Math.max(...allVals, 0);
+  const minV = Math.min(...allVals, 0);
+  const range = maxV - minV || 1;
+  const scaleY = v => padT + chartH - ((v - minV)/range) * chartH;
+  // Cores
+  const corOf = b => b.type === 'total' ? '#3B82F6' : b.type === 'positive' ? '#10B981' : '#EF4444';
+  let barsHtml = '';
+  bars.forEach((b, i) => {
+    const x = padL + i * (barW + 8);
+    const y1 = scaleY(b.start);
+    const y2 = scaleY(b.end);
+    const barY = Math.min(y1, y2);
+    const barH = Math.abs(y2 - y1);
+    barsHtml += `<rect x="${x}" y="${barY}" width="${barW}" height="${Math.max(2, barH)}" fill="${corOf(b)}" rx="2" opacity=".85"/>`;
+    // Linha conectora (não na última)
+    if(i < bars.length - 1){
+      const nextX = padL + (i+1) * (barW + 8);
+      barsHtml += `<line x1="${x+barW}" y1="${y2}" x2="${nextX}" y2="${y2}" stroke="#94A3B8" stroke-width="1" stroke-dasharray="2 2"/>`;
+    }
+    // Valor em cima
+    barsHtml += `<text x="${x + barW/2}" y="${barY - 4}" font-size="10" fill="#475569" text-anchor="middle" font-family="system-ui">R$ ${_insFmt(b.val)}</text>`;
+    // Label embaixo
+    barsHtml += `<text x="${x + barW/2}" y="${H - padB + 14}" font-size="10" fill="#64748B" text-anchor="middle" font-family="system-ui">${b.label.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</text>`;
+  });
+  // Linha de zero
+  const yZero = scaleY(0);
+  barsHtml += `<line x1="${padL}" y1="${yZero}" x2="${W-padR}" y2="${yZero}" stroke="#CBD5E1" stroke-width="1"/>`;
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-height:${H}px;display:block">${barsHtml}</svg>
+  <div style="margin-top:10px;padding:10px 14px;background:#F8FAFC;border-radius:8px;font-size:.74rem;color:#475569;line-height:1.5">
+    🔵 Saldo (inicial e final) · 🟢 Entradas · 🔴 Saídas por categoria. Cada barra começa onde a anterior terminou.
+  </div>`;
+}
+
+// ── HEATMAP · receita por dia (calendário ano/semana) ──────────────
+function anaRenderHeatmap(){
+  const el = document.getElementById('ana-heatmap-chart');
+  if(!el) return;
+  const dados = _advCollectFinanceData();
+  if(!dados.entradas.length){
+    el.innerHTML = '<div style="padding:40px;text-align:center;color:#94A3B8;font-size:.86rem">Sem entradas no período pra Heatmap.</div>';
+    return;
+  }
+  // Agrega por dia
+  const byDay = {};
+  dados.entradas.forEach(e => {
+    const d = e.data;
+    if(!d) return;
+    byDay[d] = (byDay[d] || 0) + e.valor;
+  });
+  const dias = Object.keys(byDay).sort();
+  if(!dias.length) { el.innerHTML = '<div style="padding:40px;text-align:center;color:#94A3B8;font-size:.86rem">Sem datas.</div>'; return; }
+  // Pega ano dominante (último ano com mais dados)
+  const yearCounts = {};
+  dias.forEach(d => { const y = d.slice(0,4); yearCounts[y] = (yearCounts[y]||0)+1; });
+  const targetYear = Object.entries(yearCounts).sort((a,b)=>b[1]-a[1])[0][0];
+  // Constrói grid: 53 semanas × 7 dias
+  const W = 900, cellW = 14, cellH = 14, padL = 32, padT = 24, gap = 2;
+  const monthLabels = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const dayLabels = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const maxVal = Math.max(...Object.values(byDay));
+  function colorOf(val){
+    if(!val) return '#F1F5F9';
+    const intensity = Math.min(1, val/maxVal);
+    if(intensity < 0.2) return '#A7F3D0';
+    if(intensity < 0.4) return '#6EE7B7';
+    if(intensity < 0.6) return '#34D399';
+    if(intensity < 0.8) return '#10B981';
+    return '#059669';
+  }
+  let cellsHtml = '';
+  let monthsHtml = '';
+  const startDate = new Date(targetYear+'-01-01');
+  // Pega o domingo antes do dia 1
+  const startWeekDay = startDate.getDay();
+  let cursor = new Date(startDate);
+  cursor.setDate(cursor.getDate() - startWeekDay);
+  let week = 0;
+  let lastMonth = -1;
+  while(cursor.getFullYear() <= Number(targetYear)){
+    if(cursor.getFullYear() < Number(targetYear)){ cursor.setDate(cursor.getDate()+1); continue; }
+    for(let d=0; d<7; d++){
+      if(cursor.getFullYear() !== Number(targetYear)){ cursor.setDate(cursor.getDate()+1); continue; }
+      const ds = cursor.toISOString().slice(0,10);
+      const v = byDay[ds] || 0;
+      const x = padL + week * (cellW + gap);
+      const y = padT + d * (cellH + gap);
+      const cor = colorOf(v);
+      const tip = v > 0 ? `${ds} · R$ ${_insFmt(v)}` : ds;
+      cellsHtml += `<rect x="${x}" y="${y}" width="${cellW}" height="${cellH}" fill="${cor}" rx="2"><title>${tip}</title></rect>`;
+      // Label de mês quando começa novo mês na primeira linha
+      if(d === 0 && cursor.getDate() <= 7){
+        const monthIdx = cursor.getMonth();
+        if(monthIdx !== lastMonth){
+          monthsHtml += `<text x="${x}" y="${padT - 6}" font-size="10" fill="#64748B" font-family="system-ui">${monthLabels[monthIdx]}</text>`;
+          lastMonth = monthIdx;
+        }
+      }
+      cursor.setDate(cursor.getDate()+1);
+    }
+    week++;
+    if(week > 53) break;
+  }
+  // Labels dos dias (segunda, quarta, sexta)
+  let dayLabelsHtml = '';
+  [1,3,5].forEach(d => {
+    const y = padT + d * (cellH + gap) + cellH/2 + 3;
+    dayLabelsHtml += `<text x="${padL-6}" y="${y}" font-size="9" fill="#94A3B8" text-anchor="end" font-family="system-ui">${dayLabels[d]}</text>`;
+  });
+  const H = padT + 7 * (cellH + gap) + 40;
+  const totalReceita = Object.values(byDay).reduce((s,v)=>s+v, 0);
+  const diasComReceita = Object.keys(byDay).length;
+  // Top 3 dias da semana
+  const byWeekDay = [0,0,0,0,0,0,0];
+  Object.entries(byDay).forEach(([d, v]) => {
+    const dt = new Date(d);
+    byWeekDay[dt.getDay()] += v;
+  });
+  const bestDay = dayLabels[byWeekDay.indexOf(Math.max(...byWeekDay))];
+  // Legenda
+  let legendHtml = '<div style="display:flex;align-items:center;gap:6px;font-size:.7rem;color:#64748B;margin-top:10px">Menos';
+  ['#F1F5F9','#A7F3D0','#6EE7B7','#34D399','#10B981','#059669'].forEach(c => {
+    legendHtml += `<span style="width:14px;height:14px;background:${c};border-radius:2px;display:inline-block"></span>`;
+  });
+  legendHtml += 'Mais</div>';
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-height:${H}px;display:block">
+    ${monthsHtml}${dayLabelsHtml}${cellsHtml}
+  </svg>
+  ${legendHtml}
+  <div style="margin-top:10px;padding:10px 14px;background:#F8FAFC;border-radius:8px;font-size:.74rem;color:#475569;line-height:1.5">
+    📅 ${targetYear} · <b>${diasComReceita}</b> dias com receita · total R$ ${_insFmt(totalReceita)} · melhor dia da semana: <b style="color:#10B981">${bestDay}</b>
+  </div>`;
+}
+
+// ── Helper: coleta dados consolidados (extrato + receita kanban) ──
+function _advCollectFinanceData(){
+  const entradas = [];
+  const saidas = [];
+  // Período do filtro Análise (se existir)
+  let de = '0000-00', ate = '9999-99';
+  try{
+    if(typeof _anaState !== 'undefined'){
+      if(_anaState.anoDe && _anaState.mesDe) de = _anaState.anoDe + '-' + String(_anaState.mesDe).padStart(2,'0');
+      if(_anaState.anoAte && _anaState.mesAte) ate = _anaState.anoAte + '-' + String(_anaState.mesAte).padStart(2,'0');
+    }
+  }catch(_){}
+  const inRange = ym => ym >= de && ym <= ate;
+  // Extrato
+  try{
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      extratoData.lancamentos.forEach(l => {
+        if(!l.data) return;
+        const ym = l.data.slice(0,7);
+        if(!inRange(ym)) return;
+        const v = Math.abs(Number(l.valor)||0);
+        if(!v) return;
+        const entry = { data:l.data, valor:v, desc:l.descricao||'', categoria:l.categoria||'Sem categoria', cliente:l.cliente||l.descricao||'' };
+        if(l.tipo === 'ganho' || (l.valor > 0 && !l.tipo)) entradas.push(entry);
+        else saidas.push(entry);
+      });
+    }
+  }catch(_){}
+  // Receita Kanban (entradas previstas)
+  try{
+    if(typeof receita !== 'undefined' && receita && receita.years){
+      const meses = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+      Object.entries(receita.years).forEach(([y, yData]) => {
+        if(!Array.isArray(yData.clients)) return;
+        yData.clients.forEach(cli => {
+          if(!cli.meses) return;
+          meses.forEach((m, idx) => {
+            const cell = cli.meses[m];
+            if(!cell || !cell.valor) return;
+            const ym = y + '-' + String(idx+1).padStart(2,'0');
+            if(!inRange(ym)) return;
+            const data = cell.dataVencimento || `${y}-${String(idx+1).padStart(2,'0')}-15`;
+            entradas.push({ data, valor:Math.abs(Number(cell.valor)||0), desc:'Receita: '+cli.nome, categoria:'Receita Operacional', cliente:cli.nome });
+          });
+        });
+      });
+    }
+  }catch(_){}
+  return { entradas, saidas };
+}
+
+// ═════════════════════════════════════════════════════════════════════
 // 📈 FORECAST — projeção 3-6 meses no fluxo (média móvel + sazonalidade)
 // ═════════════════════════════════════════════════════════════════════
 function forecastCalc(serieHistorica, mesesProjetar){
@@ -102658,6 +103801,12 @@ function fkBootApp(){
   _safeInit('nfLoad',             () => nfLoad());
   _safeInit('comLoad',            () => comLoad());
   _safeInit('commLoad',           () => commLoad());
+  _safeInit('modHistLoad',        () => modHistLoad());
+  _safeInit('snipLoad',           () => snipLoad());
+  _safeInit('personaLoad',        () => personaLoad());
+  _safeInit('personaApply',       () => personaApply());
+  _safeInit('webpushHook',        () => { setTimeout(webpushHook, 6000); });
+  _safeInit('whatsnewMaybeShow',  () => whatsnewMaybeShow());
   _safeInit('konamiInit',         () => konamiInit());
   _safeInit('mrkProactiveLoad',   () => mrkProactiveLoad());
   _safeInit('mrkProactiveStart',  () => mrkProactiveStart());
