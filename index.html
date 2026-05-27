@@ -7784,6 +7784,7 @@
       cursor:pointer;font-size:.72rem;font-weight:600;color:#475569;font-family:inherit;transition:all .12s}
     .rec-kb-toolbar .quick:hover{border-color:#7C3AED;color:#5B21B6}
     .rec-kb-toolbar .quick.is-active{background:#F5F3FF;border-color:#7C3AED;color:#5B21B6}
+    .rec-kb-cob-bar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
     .rec-kb-board{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;align-items:flex-start}
     .rec-kb-col{background:#F8FAFC;border:1px solid #E5E7EB;border-radius:10px;
       display:flex;flex-direction:column;min-height:240px;max-height:75vh;overflow:hidden}
@@ -7800,7 +7801,7 @@
     .rec-kb-col[data-st="recebido"] .rec-kb-col-hd{background:#D1FAE5;color:#065F46}
     .rec-kb-col-bd{padding:10px;flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
     .rec-kb-empty{padding:30px 14px;text-align:center;color:#94A3B8;font-size:.74rem;font-style:italic}
-    .rec-kb-card{background:#fff;border:1px solid #E5E7EB;border-radius:9px;padding:11px 13px;cursor:grab;
+    .rec-kb-card{position:relative;background:#fff;border:1px solid #E5E7EB;border-radius:9px;padding:11px 13px;cursor:grab;
       box-shadow:0 1px 2px rgba(15,23,42,.04);transition:all .12s;font-size:.78rem;
       display:flex;flex-direction:column;gap:7px}
     .rec-kb-card:hover{border-color:#7C3AED;box-shadow:0 3px 8px rgba(124,58,237,.12);transform:translateY(-1px)}
@@ -7820,6 +7821,13 @@
     .rec-kb-card[data-st="mes"]      .rec-kb-card-val{color:#92400E}
     .rec-kb-card[data-st="semana"]   .rec-kb-card-val{color:#9A3412}
     .rec-kb-card[data-st="recebido"] .rec-kb-card-val{color:#065F46}
+    .rec-kb-card-cob{position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:7px;
+                     background:linear-gradient(135deg,#0BB1E1 0%,#0891B2 100%);border:none;color:#fff;
+                     cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;
+                     box-shadow:0 1px 3px rgba(11,177,225,.4);transition:all .15s;opacity:0;z-index:2}
+    .rec-kb-card:hover .rec-kb-card-cob{opacity:1}
+    .rec-kb-card-cob:hover{transform:scale(1.1);box-shadow:0 3px 8px rgba(11,177,225,.55)}
+    .rec-kb-card-cob:active{transform:scale(.95)}
     .rec-kb-card[data-st="recebido"]{background:#F0FDF4}
     @media (max-width:1400px){
       .rec-kb-board{grid-template-columns:repeat(3,minmax(0,1fr))}
@@ -17618,19 +17626,8 @@
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><line x1="12" y1="4" x2="12" y2="20"/><line x1="4" y1="12" x2="20" y2="12"/></svg>
             Novo lead (simulação)
           </button>
-          <button class="btn btn-asaas" onclick="asaasOpenCreate()" title="Gerar boleto/PIX automaticamente via Asaas">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <path d="M21 12V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7"/>
-              <path d="M16 14h6M19 11v6"/>
-            </svg>
-            Gerar cobrança
-          </button>
-          <button class="btn btn-g" onclick="asaasOpenList()" title="Ver cobranças geradas">
-            📋 Cobranças
-            <span class="asaas-toolbar-badge" id="asaas-toolbar-badge" style="display:none">0</span>
-          </button>
           <div style="margin-left:auto;font-size:.7rem;color:var(--txl);align-self:center">
-            Os dados são salvos automaticamente no navegador.
+            Os dados são salvos automaticamente no navegador. <b style="color:#0BB1E1">💡 Cobrança</b> agora fica na aba <b>Kanban Financeiro</b>.
           </div>
         </div>
         <p class="formula-hint">
@@ -17640,6 +17637,19 @@
 
         <!-- Kanban Financeiro view -->
         <div id="rec-view-kanban" style="display:none">
+          <div class="rec-kb-cob-bar">
+            <button class="btn btn-asaas" onclick="asaasOpenCreate()" title="Gerar nova cobrança Asaas (boleto/PIX/cartão)">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-2px;margin-right:5px">
+                <path d="M21 12V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7"/>
+                <path d="M16 14h6M19 11v6"/>
+              </svg>
+              Gerar cobrança
+            </button>
+            <button class="btn btn-g" onclick="asaasOpenList()" title="Ver cobranças geradas">
+              📋 Cobranças
+              <span class="asaas-toolbar-badge" id="asaas-toolbar-badge" style="display:none">0</span>
+            </button>
+          </div>
           <div class="rec-kb-toolbar" id="rec-kb-toolbar"></div>
           <div class="rec-kb-board" id="rec-kb-board"></div>
           <p style="font-size:.7rem;color:var(--txl);margin-top:10px;line-height:1.5">
@@ -30635,10 +30645,16 @@ function recRenderKanban(){
         const metaHtml = (refPill || vencPill || paisPill || docPill || notasPill)
           ? '<div class="rec-kb-card-meta">' + refPill + vencPill + paisPill + docPill + notasPill + '</div>'
           : '';
+        // Botão de cobrança no canto superior direito · vínculo com este lançamento
+        const cobBtn = '<button class="rec-kb-card-cob" onclick="event.stopPropagation();recKbGenCobranca(' + c.year + ',\''+ c.mesAbbr + '\',' + c.rowId + ')" title="Gerar cobrança vinculada a este lançamento">' +
+                       '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">' +
+                       '<path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>' +
+                       '</button>';
         html += '<div class="rec-kb-card" data-st="' + col.id + '" draggable="true"'
           + ' onclick="recKbCardOpen(' + c.year + ',\''+ c.mesAbbr + '\',' + c.rowId + ')"'
           + ' ondragstart="_recKbCardDragStart(event,' + c.year + ',\''+ c.mesAbbr + '\',' + c.rowId + ')"'
           + ' ondragend="_recKbCardDragEnd(event)">'
+          + cobBtn
           + '<div class="rec-kb-card-name"><span class="dot" style="background:' + c.color + '"></span>' + _recKbEsc(c.nome) + '</div>'
           + descHtml
           + metaHtml
@@ -30651,6 +30667,67 @@ function recRenderKanban(){
   board.innerHTML = html;
 }
 try { window.recRenderKanban = recRenderKanban; } catch(e){}
+
+// ── Gerar cobrança VINCULADA a um lançamento da Receita ──
+function recKbGenCobranca(year, mesAbbr, rowId){
+  try{
+    // Acha o lançamento no receitaData
+    if(typeof receitaData === 'undefined' || !Array.isArray(receitaData)) return;
+    const row = receitaData.find(r => (r.id === rowId || r._id === rowId) && (r.year === year || r.ano === year));
+    if(!row){
+      if(typeof showToast === 'function') showToast('Lançamento não encontrado · tente recarregar', 'err');
+      return;
+    }
+    // Valor do mês específico
+    let valor = 0;
+    if(row[mesAbbr] && typeof row[mesAbbr] === 'object') valor = Number(row[mesAbbr].valor) || 0;
+    else if(row[mesAbbr]) valor = Number(row[mesAbbr]) || 0;
+    // Vencimento: último dia do mês + descrição = cliente + ref
+    const monthIx = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'].indexOf(mesAbbr);
+    const venc = new Date(year, monthIx + 1, 0).toISOString().slice(0,10); // último dia do mês
+    // Abrir modal Asaas com dados pré-preenchidos
+    if(typeof ASAAS_DRAFT === 'undefined') return;
+    ASAAS_DRAFT = {
+      id:null,
+      cliente: row.nome || row.cliente || 'Cliente',
+      cnpj: row.cnpj || row.documento || '',
+      email: row.email || '',
+      valor: valor,
+      descricao: (row.tipo || 'Serviço') + ' · ' + mesAbbr + '/' + String(year).slice(2) + (row.desc ? ' · ' + row.desc : ''),
+      tipo: 'pix',
+      vencimento: venc,
+      multa: 2, juros: 1, desconto: 0,
+      // VÍNCULO com o lançamento
+      receitaRowId: rowId, receitaYear: year, receitaMes: mesAbbr
+    };
+    // Abrir modal
+    if(typeof asaasOpenCreate === 'function'){
+      // Truque: abre o modal mas mantém nosso DRAFT
+      asaasOpenCreate();
+      // Re-aplica o draft (asaasOpenCreate resetou)
+      ASAAS_DRAFT = ASAAS_DRAFT; // já temos
+      if(typeof asaasRenderCreateForm === 'function'){
+        // Sobrescreve com nosso pré-preenchimento
+        ASAAS_DRAFT.cliente = row.nome || row.cliente || 'Cliente';
+        ASAAS_DRAFT.cnpj = row.cnpj || row.documento || '';
+        ASAAS_DRAFT.email = row.email || '';
+        ASAAS_DRAFT.valor = valor;
+        ASAAS_DRAFT.descricao = (row.tipo || 'Serviço') + ' · ' + mesAbbr + '/' + String(year).slice(2) + (row.desc ? ' · ' + row.desc : '');
+        ASAAS_DRAFT.vencimento = venc;
+        ASAAS_DRAFT.receitaRowId = rowId;
+        ASAAS_DRAFT.receitaYear = year;
+        ASAAS_DRAFT.receitaMes = mesAbbr;
+        asaasRenderCreateForm();
+      }
+      if(typeof showToast === 'function') showToast('✓ Cobrança vinculada a ' + (row.nome || 'lançamento') + ' · ' + mesAbbr + '/' + String(year).slice(2), 'ok');
+    }
+  }catch(e){
+    console.error('recKbGenCobranca:', e);
+    if(typeof showToast === 'function') showToast('Erro ao gerar cobrança', 'err');
+  }
+}
+try { window.recKbGenCobranca = recKbGenCobranca; } catch(e){}
+
 
 function recKbSetFilter(field, value){
   _recKbState.quick = null; // edição manual sai dos atalhos
@@ -90762,7 +90839,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779850587';
+      const CACHE = 'forekash-v1779851531';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
