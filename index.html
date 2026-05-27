@@ -581,6 +581,34 @@
     .patrim-col-passivo .patrim-col-foot b{color:#F87171}
     .patrim-col-pl .patrim-col-foot b{color:#60A5FA}
 
+    /* ── Dashboard Patrimônio · charts + indicadores ── */
+    .patrim-chart-wrap{background:#fff;border:1px solid #E2E8F0;border-radius:11px;padding:16px 18px;margin-bottom:14px}
+    .patrim-chart-hd{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}
+    .patrim-chart-hd h4{margin:0;font-size:.94rem;font-weight:800;color:#0F172A;letter-spacing:-.01em}
+    .patrim-chart-hd small{color:#94A3B8;font-size:.72rem}
+    .patrim-svg-chart{width:100%;height:auto;max-height:280px;display:block}
+    .patrim-dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+    @media (max-width:880px){.patrim-dash-grid{grid-template-columns:1fr}}
+    .patrim-donut-wrap{display:grid;grid-template-columns:200px 1fr;gap:18px;align-items:center}
+    @media (max-width:520px){.patrim-donut-wrap{grid-template-columns:1fr}}
+    .patrim-donut-svg{width:200px;height:200px;display:block;margin:0 auto}
+    .patrim-donut-legend{display:flex;flex-direction:column;gap:10px}
+    .patrim-donut-leg{display:flex;gap:10px;align-items:flex-start;font-size:.82rem}
+    .patrim-donut-dot{width:14px;height:14px;border-radius:4px;margin-top:2px;flex-shrink:0}
+    .patrim-donut-leg b{display:block;color:#0F172A;font-weight:700}
+    .patrim-donut-leg small{display:block;color:#64748B;font-size:.7rem;margin-top:2px;font-family:'JetBrains Mono',monospace}
+
+    .patrim-ind-table{width:100%;border-collapse:collapse;font-size:.86rem}
+    .patrim-ind-table th{background:#F8FAFC;color:#475569;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;font-weight:700;padding:10px 12px;text-align:left;border-bottom:1.5px solid #E2E8F0}
+    .patrim-ind-table th.r{text-align:right}
+    .patrim-ind-table td{padding:11px 12px;border-bottom:1px solid #F1F5F9;color:#0F172A}
+    .patrim-ind-table td.r{text-align:right}
+    .patrim-ind-table tbody tr:hover{background:#F8FAFC}
+    .patrim-ind-st{display:inline-block;padding:3px 10px;border-radius:11px;font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;font-family:'JetBrains Mono',monospace}
+    .patrim-ind-st.ok{background:#D1FAE5;color:#065F46}
+    .patrim-ind-st.mid{background:#FEF3C7;color:#92400E}
+    .patrim-ind-st.bad{background:#FEE2E2;color:#991B1B}
+
     /* Simulação banner */
     .patrim-sim-banner{display:flex;gap:14px;align-items:flex-start;padding:14px 18px;background:linear-gradient(135deg,#FFFBEB 0%,#FEF3C7 100%);border:1px solid #FDE68A;border-radius:11px;margin-bottom:16px;border-left:4px solid #F59E0B}
     .patrim-sim-banner-ico{font-size:1.6rem;line-height:1}
@@ -19422,9 +19450,10 @@
         <h1 class="pg-title">Patrimônio</h1>
         <p class="pg-sub">Fotografia da sua posição financeira em qualquer momento — ATIVO (o que você tem) − PASSIVO (o que deve) = PATRIMÔNIO LÍQUIDO. Auto-importa de Disponibilidades, Asaas e Empréstimos. Use o modo <b>Simulação</b> pra projetar cenários sem afetar os dados reais.</p>
 
-        <!-- Tabs: Real | Simulação | Snapshots -->
+        <!-- Tabs: Real | Dashboard | Simulação | Snapshots -->
         <div class="tabs" style="margin-bottom:14px">
           <button class="tab-btn active" id="patrim-tab-real-btn" onclick="patrimSwitchTab('real',this)">📊&nbsp; Posição Real</button>
+          <button class="tab-btn" id="patrim-tab-dash-btn" onclick="patrimSwitchTab('dash',this)">📈&nbsp; Dashboard</button>
           <button class="tab-btn" id="patrim-tab-sim-btn" onclick="patrimSwitchTab('sim',this)">🧪&nbsp; Simulação</button>
           <button class="tab-btn" id="patrim-tab-snap-btn" onclick="patrimSwitchTab('snap',this)">📸&nbsp; Histórico (Snapshots)</button>
         </div>
@@ -19519,6 +19548,11 @@
               </div>
             </div>
           </div>
+        </div>
+
+        <!-- Aba DASHBOARD · indicadores patrimoniais no tempo -->
+        <div id="patrim-tab-dash" class="tab-pane" style="display:none">
+          <div id="patrim-dash-content"></div>
         </div>
 
         <!-- Aba SIMULAÇÃO -->
@@ -91499,7 +91533,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779855865';
+      const CACHE = 'forekash-v1779856215';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -93579,6 +93613,7 @@ function patrimSwitchTab(tab, btn){
   if(pane){ pane.style.display = ''; pane.classList.add('active'); }
   if(tab === 'sim') patrimRenderSimTab();
   else if(tab === 'snap') patrimRenderSnapTab();
+  else if(tab === 'dash') patrimRenderDashTab();
 }
 
 function patrimRender(){
@@ -93587,6 +93622,273 @@ function patrimRender(){
   if(PATRIM_CUR_TAB === 'real') patrimRenderRealTab();
   else if(PATRIM_CUR_TAB === 'sim') patrimRenderSimTab();
   else if(PATRIM_CUR_TAB === 'snap') patrimRenderSnapTab();
+  else if(PATRIM_CUR_TAB === 'dash') patrimRenderDashTab();
+}
+
+// ─── Aba DASHBOARD · indicadores patrimoniais no tempo ───
+function patrimRenderDashTab(){
+  const el = document.getElementById('patrim-dash-content');
+  if(!el) return;
+  // Snapshots + atual
+  const series = [];
+  (PATRIM.snapshots || []).slice().reverse().forEach(snap => {
+    series.push({
+      ts: snap.ts, ym: snap.ym, label: snap.ym,
+      ativo: snap.ativo || 0,
+      passivo: snap.passivo || 0,
+      pl: snap.pl || 0,
+      obs: snap.obs || ''
+    });
+  });
+  // Atual no fim
+  const tot = patrimCalcTotals(PATRIM.contas, PATRIM.capital);
+  const ymNow = new Date().toISOString().slice(0,7);
+  series.push({
+    ts: Date.now(), ym: ymNow, label: ymNow + ' · ATUAL',
+    ativo: tot.totAtivo, passivo: tot.totPassivo, pl: tot.plReal,
+    obs:'posição atual', isCurrent:true
+  });
+
+  if(series.length < 2){
+    el.innerHTML = '<div style="padding:50px 20px;text-align:center;color:#64748B;background:#F8FAFC;border-radius:11px"><div style="font-size:3rem;margin-bottom:12px">📈</div><h3 style="margin:0 0 8px;color:#0F172A">Dashboard precisa de pelo menos 2 snapshots</h3><p style="max-width:480px;margin:0 auto;font-size:.86rem;line-height:1.55">Vá na aba <b>Posição Real</b> e clique em <b>📸 Salvar snapshot</b>. Cada snapshot é um ponto no tempo — quanto mais, mais rica fica a análise.</p></div>';
+    return;
+  }
+
+  // ── Cálculo de indicadores ────────────────────────────────────
+  const cur = series[series.length - 1];
+  const prev = series[series.length - 2];
+  const first = series[0];
+  // Variações
+  const dPL = prev.pl > 0 ? ((cur.pl - prev.pl) / prev.pl * 100) : 0;
+  const dAtivo = prev.ativo > 0 ? ((cur.ativo - prev.ativo) / prev.ativo * 100) : 0;
+  const dPassivo = prev.passivo > 0 ? ((cur.passivo - prev.passivo) / prev.passivo * 100) : 0;
+  const dPLTotal = first.pl > 0 ? ((cur.pl - first.pl) / first.pl * 100) : 0;
+  // Indicadores ATUAIS
+  const liquidezCor = tot.pcPassivo > 0 ? (tot.acAtivo / tot.pcPassivo) : null;
+  const ativoCirc = tot.acAtivo;
+  const ativoNCirc = tot.totAtivo - tot.acAtivo;
+  const passivoCirc = tot.pcPassivo;
+  const passivoNCirc = tot.totPassivo - tot.pcPassivo;
+  const endividamento = tot.totAtivo > 0 ? (tot.totPassivo / tot.totAtivo * 100) : 0;
+  const imobilizacaoPL = tot.plReal > 0 ? (ativoNCirc / tot.plReal * 100) : 0;
+  const compEndiv = tot.totPassivo > 0 ? (passivoCirc / tot.totPassivo * 100) : 0;
+  // Liquidez seca: ativo circ - estoque · vou estimar estoque como 1/4 do AC se não tiver
+  const estoqueItem = PATRIM.contas.find(c => c.nome.toLowerCase().includes('estoque'));
+  const estoque = estoqueItem ? estoqueItem.valor : 0;
+  const liquidezSeca = passivoCirc > 0 ? ((ativoCirc - estoque) / passivoCirc) : null;
+  const caixaItem = PATRIM.contas.find(c => c.src === 'dispo-caixa');
+  const caixa = caixaItem ? caixaItem.valor : 0;
+  const liquidezImediata = passivoCirc > 0 ? (caixa / passivoCirc) : null;
+
+  // ── HTML render ───────────────────────────────────────────────
+  let html = '';
+
+  // KPIs do topo
+  html += '<div class="patrim-kpis" style="margin-bottom:16px">' +
+    '<div class="patrim-kpi pl"><div class="patrim-kpi-lbl">PATRIMÔNIO LÍQUIDO</div>' +
+      '<div class="patrim-kpi-val">R$ ' + _patrimFmt(cur.pl) + '</div>' +
+      '<div class="patrim-kpi-sub" style="color:' + (dPL >= 0 ? '#065F46' : '#991B1B') + '">' +
+      (dPL >= 0 ? '↑ ' : '↓ ') + Math.abs(dPL).toFixed(1) + '% vs anterior</div>' +
+    '</div>' +
+    '<div class="patrim-kpi ativo"><div class="patrim-kpi-lbl">VARIAÇÃO TOTAL</div>' +
+      '<div class="patrim-kpi-val" style="color:' + (dPLTotal >= 0 ? '#065F46' : '#991B1B') + '">' +
+      (dPLTotal >= 0 ? '+' : '') + dPLTotal.toFixed(1) + '%</div>' +
+      '<div class="patrim-kpi-sub">desde ' + first.ym + ' (' + series.length + ' pontos)</div>' +
+    '</div>' +
+    '<div class="patrim-kpi liquidez"><div class="patrim-kpi-lbl">LIQUIDEZ CORRENTE</div>' +
+      '<div class="patrim-kpi-val">' + (liquidezCor != null ? liquidezCor.toFixed(2) + 'x' : '—') + '</div>' +
+      '<div class="patrim-kpi-sub">' + (liquidezCor == null ? 'sem passivo curto' : liquidezCor >= 1.5 ? '✓ saudável' : liquidezCor >= 1 ? 'equilibrada' : '⚠ crítica') + '</div>' +
+    '</div>' +
+    '<div class="patrim-kpi passivo"><div class="patrim-kpi-lbl">ENDIVIDAMENTO</div>' +
+      '<div class="patrim-kpi-val">' + endividamento.toFixed(1) + '%</div>' +
+      '<div class="patrim-kpi-sub">' + (endividamento <= 40 ? '✓ confortável' : endividamento <= 60 ? 'moderado' : '⚠ elevado') + '</div>' +
+    '</div>' +
+  '</div>';
+
+  // Chart de linha · PL no tempo
+  html += '<div class="patrim-chart-wrap">' +
+    '<div class="patrim-chart-hd"><h4>📈 Evolução do Patrimônio Líquido</h4>' +
+      '<small>' + series.length + ' pontos · ' + first.ym + ' → ' + cur.ym + '</small></div>' +
+    _patrimDashLineChart(series) +
+  '</div>';
+
+  // Chart de barras: Ativo × Passivo
+  html += '<div class="patrim-chart-wrap">' +
+    '<div class="patrim-chart-hd"><h4>📊 Ativo × Passivo · histórico</h4>' +
+      '<small>Comparativo em cada snapshot</small></div>' +
+    _patrimDashBarChart(series) +
+  '</div>';
+
+  // 2 donuts + tabela de indicadores
+  html += '<div class="patrim-dash-grid">' +
+    '<div class="patrim-chart-wrap">' +
+      '<div class="patrim-chart-hd"><h4>🟢 Composição do ATIVO</h4>' +
+        '<small>circulante vs não-circulante</small></div>' +
+      _patrimDashDonut([
+        { label:'Circulante (curto prazo)', value:ativoCirc, color:'#10B981' },
+        { label:'Não circulante (longo prazo)', value:ativoNCirc, color:'#059669' }
+      ]) +
+    '</div>' +
+    '<div class="patrim-chart-wrap">' +
+      '<div class="patrim-chart-hd"><h4>🔴 Composição do PASSIVO</h4>' +
+        '<small>circulante vs não-circulante</small></div>' +
+      _patrimDashDonut([
+        { label:'Circulante (curto prazo)', value:passivoCirc, color:'#EF4444' },
+        { label:'Não circulante (longo prazo)', value:passivoNCirc, color:'#B91C1C' }
+      ]) +
+    '</div>' +
+  '</div>';
+
+  // Tabela de indicadores patrimoniais
+  html += '<div class="patrim-chart-wrap">' +
+    '<div class="patrim-chart-hd"><h4>🧮 Indicadores Patrimoniais · análise</h4>' +
+      '<small>indicadores contábeis padrão pra avaliação de saúde financeira</small></div>' +
+    '<table class="patrim-ind-table"><thead><tr><th>Indicador</th><th class="r">Valor</th><th>Status</th><th>Interpretação</th></tr></thead><tbody>' +
+      _patrimDashIndRow('Liquidez Corrente', liquidezCor != null ? liquidezCor.toFixed(2) + 'x' : '—',
+        liquidezCor == null ? '' : liquidezCor >= 1.5 ? 'ok' : liquidezCor >= 1 ? 'mid' : 'bad',
+        'AC / PC · capacidade de pagar dívidas de curto prazo. Ideal ≥ 1.5x.') +
+      _patrimDashIndRow('Liquidez Seca', liquidezSeca != null ? liquidezSeca.toFixed(2) + 'x' : '—',
+        liquidezSeca == null ? '' : liquidezSeca >= 1 ? 'ok' : liquidezSeca >= 0.7 ? 'mid' : 'bad',
+        '(AC − Estoque) / PC · liquidez sem depender de vender estoque. Ideal ≥ 1x.') +
+      _patrimDashIndRow('Liquidez Imediata', liquidezImediata != null ? liquidezImediata.toFixed(2) + 'x' : '—',
+        liquidezImediata == null ? '' : liquidezImediata >= 0.5 ? 'ok' : liquidezImediata >= 0.2 ? 'mid' : 'bad',
+        'Caixa / PC · % de dívida curto que pago HOJE com caixa. Ideal ≥ 0.5x.') +
+      _patrimDashIndRow('Endividamento Geral', endividamento.toFixed(1) + '%',
+        endividamento <= 40 ? 'ok' : endividamento <= 60 ? 'mid' : 'bad',
+        'Passivo / Ativo · quanto da empresa é "do banco". Ideal ≤ 40%.') +
+      _patrimDashIndRow('Composição do Endividamento', compEndiv.toFixed(1) + '%',
+        compEndiv <= 50 ? 'ok' : compEndiv <= 70 ? 'mid' : 'bad',
+        'PC / Passivo Total · % de dívida vencendo em até 12m. Ideal ≤ 50%.') +
+      _patrimDashIndRow('Imobilização do PL', imobilizacaoPL.toFixed(1) + '%',
+        imobilizacaoPL <= 50 ? 'ok' : imobilizacaoPL <= 100 ? 'mid' : 'bad',
+        'ANC / PL · quanto do PL está em imobilizado/longo prazo. Ideal ≤ 50%.') +
+    '</tbody></table>' +
+  '</div>';
+
+  el.innerHTML = html;
+}
+
+// ─── Chart Helpers (SVG inline) ───────────────────────────────────
+function _patrimDashLineChart(series){
+  const W = 900, H = 240, P = 40;
+  const maxV = Math.max(...series.map(s => s.pl), 1);
+  const minV = Math.min(...series.map(s => s.pl), 0);
+  const range = maxV - minV || 1;
+  const pts = series.map((s, i) => {
+    const x = P + (i / Math.max(1, series.length - 1)) * (W - 2*P);
+    const y = H - P - ((s.pl - minV) / range) * (H - 2*P);
+    return { x, y, s };
+  });
+  let path = 'M' + pts.map(p => p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' L');
+  let areaPath = path + ' L' + pts[pts.length-1].x.toFixed(1) + ',' + (H - P) + ' L' + pts[0].x.toFixed(1) + ',' + (H - P) + ' Z';
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="patrim-svg-chart" preserveAspectRatio="none">' +
+    '<defs><linearGradient id="patgrad-pl" x1="0" x2="0" y1="0" y2="1">' +
+      '<stop offset="0%" stop-color="#3B82F6" stop-opacity=".35"/>' +
+      '<stop offset="100%" stop-color="#3B82F6" stop-opacity="0"/>' +
+    '</linearGradient></defs>' +
+    // Grid lines horizontais
+    [0, 0.25, 0.5, 0.75, 1].map(t => '<line x1="' + P + '" x2="' + (W-P) + '" y1="' + (P + t*(H-2*P)) + '" y2="' + (P + t*(H-2*P)) + '" stroke="#E5E7EB" stroke-width="1" stroke-dasharray="2,4"/>').join('') +
+    // Y axis labels (escala de PL)
+    [0, 0.5, 1].map(t => {
+      const val = minV + (1-t) * range;
+      return '<text x="' + (P - 6) + '" y="' + (P + t*(H-2*P) + 4) + '" text-anchor="end" font-size="10" fill="#94A3B8" font-family="JetBrains Mono,monospace">R$ ' + _patrimFmtK(val) + '</text>';
+    }).join('') +
+    // Área
+    '<path d="' + areaPath + '" fill="url(#patgrad-pl)"/>' +
+    // Linha
+    '<path d="' + path + '" fill="none" stroke="#1D4ED8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' +
+    // Pontos
+    pts.map((p, i) => {
+      const isLast = i === pts.length - 1;
+      return '<g><circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + (isLast ? 6 : 4) + '" fill="' + (isLast ? '#10B981' : '#1D4ED8') + '" stroke="#fff" stroke-width="2"/>' +
+        '<text x="' + p.x.toFixed(1) + '" y="' + (H - P + 18) + '" text-anchor="middle" font-size="10" fill="#475569" font-weight="600" font-family="JetBrains Mono,monospace">' + p.s.ym + '</text>' +
+        '<text x="' + p.x.toFixed(1) + '" y="' + Math.max(15, p.y - 10) + '" text-anchor="middle" font-size="10" fill="' + (isLast ? '#065F46' : '#1E40AF') + '" font-weight="700" font-family="JetBrains Mono,monospace">R$ ' + _patrimFmtK(p.s.pl) + '</text></g>';
+    }).join('') +
+  '</svg>';
+}
+
+function _patrimDashBarChart(series){
+  const W = 900, H = 220, P = 40;
+  const maxV = Math.max(...series.map(s => Math.max(s.ativo, s.passivo)), 1);
+  const groupWidth = (W - 2*P) / series.length;
+  const barWidth = Math.min(34, (groupWidth - 12) / 2);
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="patrim-svg-chart">' +
+    // Grid
+    [0, 0.5, 1].map(t => '<line x1="' + P + '" x2="' + (W-P) + '" y1="' + (P + t*(H-2*P)) + '" y2="' + (P + t*(H-2*P)) + '" stroke="#E5E7EB" stroke-width="1" stroke-dasharray="2,4"/>').join('') +
+    // Y labels
+    [0, 1].map(t => {
+      const val = (1-t) * maxV;
+      return '<text x="' + (P - 6) + '" y="' + (P + t*(H-2*P) + 4) + '" text-anchor="end" font-size="10" fill="#94A3B8" font-family="JetBrains Mono,monospace">R$ ' + _patrimFmtK(val) + '</text>';
+    }).join('') +
+    series.map((s, i) => {
+      const cx = P + (i + 0.5) * groupWidth;
+      const hAtivo = (s.ativo / maxV) * (H - 2*P);
+      const hPassivo = (s.passivo / maxV) * (H - 2*P);
+      const x1 = cx - barWidth - 2;
+      const x2 = cx + 2;
+      return '<g>' +
+        '<rect x="' + x1 + '" y="' + (H - P - hAtivo) + '" width="' + barWidth + '" height="' + hAtivo + '" fill="#10B981" rx="3"/>' +
+        '<rect x="' + x2 + '" y="' + (H - P - hPassivo) + '" width="' + barWidth + '" height="' + hPassivo + '" fill="#EF4444" rx="3"/>' +
+        '<text x="' + cx + '" y="' + (H - P + 16) + '" text-anchor="middle" font-size="10" fill="#475569" font-weight="600" font-family="JetBrains Mono,monospace">' + s.ym + '</text>' +
+        '<text x="' + (x1 + barWidth/2) + '" y="' + Math.max(12, H - P - hAtivo - 4) + '" text-anchor="middle" font-size="9" fill="#065F46" font-weight="700" font-family="JetBrains Mono,monospace">' + _patrimFmtK(s.ativo) + '</text>' +
+        '<text x="' + (x2 + barWidth/2) + '" y="' + Math.max(12, H - P - hPassivo - 4) + '" text-anchor="middle" font-size="9" fill="#991B1B" font-weight="700" font-family="JetBrains Mono,monospace">' + _patrimFmtK(s.passivo) + '</text>' +
+      '</g>';
+    }).join('') +
+    // Legend
+    '<g transform="translate(' + (W - 200) + ',8)">' +
+      '<rect x="0" y="0" width="12" height="12" fill="#10B981" rx="2"/>' +
+      '<text x="18" y="10" font-size="11" fill="#0F172A" font-weight="600">Ativo</text>' +
+      '<rect x="80" y="0" width="12" height="12" fill="#EF4444" rx="2"/>' +
+      '<text x="98" y="10" font-size="11" fill="#0F172A" font-weight="600">Passivo</text>' +
+    '</g>' +
+  '</svg>';
+}
+
+function _patrimDashDonut(slices){
+  const total = slices.reduce((s, x) => s + x.value, 0) || 1;
+  const cx = 100, cy = 100, r = 80, ir = 50;
+  let angle = -Math.PI / 2;
+  let paths = '';
+  let legend = '';
+  slices.forEach((s, i) => {
+    const portion = s.value / total;
+    const endAngle = angle + portion * Math.PI * 2;
+    const large = portion > 0.5 ? 1 : 0;
+    const x1 = cx + r * Math.cos(angle);
+    const y1 = cy + r * Math.sin(angle);
+    const x2 = cx + r * Math.cos(endAngle);
+    const y2 = cy + r * Math.sin(endAngle);
+    const xi1 = cx + ir * Math.cos(endAngle);
+    const yi1 = cy + ir * Math.sin(endAngle);
+    const xi2 = cx + ir * Math.cos(angle);
+    const yi2 = cy + ir * Math.sin(angle);
+    paths += '<path d="M' + x1 + ',' + y1 + ' A' + r + ',' + r + ' 0 ' + large + ' 1 ' + x2 + ',' + y2 + ' L' + xi1 + ',' + yi1 + ' A' + ir + ',' + ir + ' 0 ' + large + ' 0 ' + xi2 + ',' + yi2 + ' Z" fill="' + s.color + '"/>';
+    legend += '<div class="patrim-donut-leg"><span class="patrim-donut-dot" style="background:' + s.color + '"></span>' +
+              '<div><b>' + s.label + '</b><small>R$ ' + _patrimFmt(s.value) + ' · ' + (portion * 100).toFixed(1) + '%</small></div></div>';
+    angle = endAngle;
+  });
+  return '<div class="patrim-donut-wrap">' +
+    '<svg viewBox="0 0 200 200" class="patrim-donut-svg">' +
+      paths +
+      '<text x="100" y="95" text-anchor="middle" font-size="13" fill="#94A3B8" font-weight="600" font-family="JetBrains Mono,monospace">TOTAL</text>' +
+      '<text x="100" y="115" text-anchor="middle" font-size="15" fill="#0F172A" font-weight="900" font-family="JetBrains Mono,monospace">R$ ' + _patrimFmtK(total) + '</text>' +
+    '</svg>' +
+    '<div class="patrim-donut-legend">' + legend + '</div>' +
+  '</div>';
+}
+
+function _patrimDashIndRow(label, val, status, hint){
+  const statusBadge = status === 'ok' ? '<span class="patrim-ind-st ok">✓ Saudável</span>' :
+                       status === 'mid' ? '<span class="patrim-ind-st mid">⚠ Atenção</span>' :
+                       status === 'bad' ? '<span class="patrim-ind-st bad">✕ Crítico</span>' : '<span class="patrim-ind-st">—</span>';
+  return '<tr><td><b>' + label + '</b></td><td class="r" style="font-variant-numeric:tabular-nums;font-weight:800">' + val + '</td><td>' + statusBadge + '</td><td><small style="color:#64748B;line-height:1.45">' + hint + '</small></td></tr>';
+}
+
+function _patrimFmtK(v){
+  v = Number(v) || 0;
+  if(Math.abs(v) >= 1000000) return (v/1000000).toFixed(2) + 'M';
+  if(Math.abs(v) >= 1000) return (v/1000).toFixed(0) + 'k';
+  return v.toFixed(0);
 }
 
 function patrimRenderRealTab(){
