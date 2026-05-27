@@ -235,7 +235,11 @@
     .fkl-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
     .fkl-card{background:#fff;border:1.5px solid #E2E8F0;border-radius:12px;padding:18px 20px;cursor:pointer;transition:all .15s;position:relative}
     .fkl-card:hover{border-color:#10B981;box-shadow:0 4px 14px rgba(16,185,129,.15);transform:translateY(-2px)}
-    .fkl-card-check{position:absolute;top:14px;right:14px;width:22px;height:22px;border-radius:6px;border:1.5px solid #CBD5E1;background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:.88rem;color:transparent}
+    .fkl-card-check{position:absolute;top:14px;right:46px;width:22px;height:22px;border-radius:6px;border:1.5px solid #CBD5E1;background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:.88rem;color:transparent}
+    .fkl-card-del{position:absolute;top:14px;right:14px;width:24px;height:24px;border-radius:6px;border:1px solid #FECACA;background:#FEE2E2;color:#991B1B;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:all .15s;opacity:0;z-index:3}
+    .fkl-card:hover .fkl-card-del{opacity:1}
+    .fkl-card-del:hover{background:#FCA5A5;color:#fff;border-color:#EF4444;transform:scale(1.1)}
+    .fkl-card-del:active{transform:scale(.92)}
     .fkl-card-check:hover{border-color:#10B981}
     .fkl-card.selected{border-color:#10B981;background:#ECFDF5}
     .fkl-card.selected .fkl-card-check{background:#10B981;border-color:#10B981;color:#fff}
@@ -248,6 +252,8 @@
     .fkl-card-impact.neg{color:#991B1B}
 
     .fkl-compare-bar{position:sticky;bottom:20px;background:#0F172A;color:#fff;padding:14px 20px;border-radius:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:18px;box-shadow:0 12px 32px rgba(0,0,0,.25);font-family:'JetBrains Mono',monospace}
+    .fkl-compare-bar .fkl-danger{background:#7F1D1D;color:#FCA5A5;border:1px solid #991B1B}
+    .fkl-compare-bar .fkl-danger:hover{background:#991B1B;color:#fff}
     .fkl-compare-bar span{color:#E2E8F0;font-size:.86rem}
     .fkl-compare-bar b{color:#10B981;font-weight:800}
 
@@ -19596,6 +19602,7 @@
           <div class="fkl-compare-bar" id="fkl-compare-bar" style="display:none">
             <span><b id="fkl-compare-count">0</b> cenário(s) selecionado(s)</span>
             <button class="btn btn-sec" onclick="fklabClearSelection()">Limpar</button>
+            <button class="btn btn-sec fkl-danger" onclick="fklabDeleteSelected()">🗑 Apagar selecionados</button>
             <button class="btn btn-p" onclick="fklabOpenCompare()">⚖ Comparar lado a lado</button>
           </div>
         </div>
@@ -91200,7 +91207,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779854485';
+      const CACHE = 'forekash-v1779854651';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -91946,6 +91953,9 @@ function fklabRenderList(){
     const lucroCls = impact.delta.lucroAnual >= 0 ? 'pos' : 'neg';
     const lucroSign = impact.delta.lucroAnual >= 0 ? '+' : '';
     card.innerHTML =
+      '<button class="fkl-card-del" onclick="event.stopPropagation();fklabDeleteScenario(' + s.id + ')" title="Apagar cenário">' +
+        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>' +
+      '</button>' +
       '<div class="fkl-card-check" onclick="event.stopPropagation();fklabToggleSelect(' + s.id + ')">✓</div>' +
       '<h4>' + (s.name || 'Sem nome') + '</h4>' +
       '<div class="fkl-card-desc">' + (s.desc || '<i style="color:#CBD5E1">sem descrição</i>') + '</div>' +
@@ -92271,6 +92281,45 @@ function fklabDuplicate(){
   fklabSave();
   fklabRenderEditor();
 }
+// ── Delete por ID (da lista) ─────────────────────────────────────
+async function fklabDeleteScenario(id){
+  const sc = FKLAB.scenarios.find(s => s.id === id);
+  if(!sc) return;
+  const ok = await (typeof anaConfirm === 'function' ? anaConfirm({
+    title:'Apagar cenário "' + sc.name + '"?',
+    body:'Esta ação não pode ser desfeita. Os ' + (sc.acts || []).length + ' ato(s) serão perdidos.',
+    okLabel:'Sim, apagar', cancelLabel:'Cancelar'
+  }) : Promise.resolve(window.confirm('Apagar cenário "' + sc.name + '"?')));
+  if(!ok) return;
+  FKLAB.scenarios = FKLAB.scenarios.filter(s => s.id !== id);
+  // Remove da seleção se estava
+  FKLAB.selected = FKLAB.selected.filter(sid => sid !== id);
+  // Se era o curId, limpa
+  if(FKLAB.curId === id) FKLAB.curId = null;
+  fklabSave();
+  fklabRenderList();
+  if(typeof showToast === 'function') showToast('🗑 Cenário "' + sc.name + '" apagado', 'ok');
+}
+try { window.fklabDeleteScenario = fklabDeleteScenario; }catch(e){}
+
+// ── Apagar em LOTE os cenários selecionados ─────────────────────
+async function fklabDeleteSelected(){
+  if(FKLAB.selected.length === 0) return;
+  const n = FKLAB.selected.length;
+  const ok = await (typeof anaConfirm === 'function' ? anaConfirm({
+    title:'Apagar ' + n + ' cenário' + (n === 1 ? '' : 's') + '?',
+    body:'Esta ação não pode ser desfeita. Todos os atos desses cenários serão perdidos.',
+    okLabel:'Sim, apagar ' + n, cancelLabel:'Cancelar'
+  }) : Promise.resolve(window.confirm('Apagar ' + n + ' cenários selecionados?')));
+  if(!ok) return;
+  FKLAB.scenarios = FKLAB.scenarios.filter(s => !FKLAB.selected.includes(s.id));
+  FKLAB.selected = [];
+  fklabSave();
+  fklabRenderList();
+  if(typeof showToast === 'function') showToast('🗑 ' + n + ' cenário(s) apagado(s)', 'ok');
+}
+try { window.fklabDeleteSelected = fklabDeleteSelected; }catch(e){}
+
 async function fklabDeleteCurrent(){
   const sc = fklabGetCurrent(); if(!sc) return;
   const ok = await (typeof anaConfirm === 'function' ? anaConfirm({
