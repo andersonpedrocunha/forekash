@@ -4368,7 +4368,8 @@
     .ext-table .val-pos{color:#15803D}
     .ext-table .val-neg{color:#B91C1C}
     .ext-table .saldo-neg{color:#B91C1C}
-    .ext-table .ext-status{display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:999px;font-size:.7rem;font-weight:700;cursor:pointer;border:1px solid transparent;font-family:inherit}
+    .ext-table .ext-status{display:inline-flex;align-items:center;gap:4px;padding:2px 10px;border-radius:999px;font-size:.7rem;font-weight:700;cursor:pointer;border:1px solid transparent;font-family:inherit;white-space:nowrap;line-height:1.5}
+    .ext-table .col-status{white-space:nowrap;min-width:96px}
     .ext-table .ext-status.pago{background:#DCFCE7;color:#15803D;border-color:#86EFAC}
     .ext-table .ext-status.pendente{background:#FEF3C7;color:#92400E;border-color:#FCD34D}
     .ext-table .ext-status.atraso{background:#FEE2E2;color:#991B1B;border-color:#FCA5A5}
@@ -57752,9 +57753,11 @@ function renderExtrato(){
     }
     const catCellHtml = '<span class="ext-cat-badge" style="background:' + catColor + '" title="' + _extEsc(it.categoria || '') + '">' + catLbl + '</span>';
     const isDerived = !it.manual;
+    // sign já calculado acima: positivo = entrada (ganho/receita), negativo = saída
+    const isEntradaForMenu = (sign > 0) ? 1 : 0;
     const actBtn = isDerived
       ? '<button class="ext-row-act" type="button" onclick="extOpenSource(\''+ it.id + '\')" title="Abrir no módulo de origem">↗</button>'
-      : '<button class="ext-row-act ext-row-act-menu" type="button" onclick="event.stopPropagation();extRowMenu(event,\''+ it.id + '\')" title="Mais opções">⋯</button>';
+      : '<button class="ext-row-act ext-row-act-menu" type="button" onclick="event.stopPropagation();extRowMenu(event,\''+ it.id + '\',' + isEntradaForMenu + ')" title="Mais opções">⋯</button>';
     const isSel = _extSelected.has(it.id);
     // Toggle de expansão para faturas agrupadas (sourceKind=cartao-fatura)
     let descPrefix = '';
@@ -59695,7 +59698,7 @@ function extDeleteGroup(){
 }
 try { window.extDeleteGroup = extDeleteGroup; } catch(e){}
 // ── Menu 3-pontos do Extrato: Editar / Cobrança / NF ─────────────
-function extRowMenu(ev, id){
+function extRowMenu(ev, id, isEntradaFlag){
   ev.preventDefault();
   ev.stopPropagation();
   // Fecha menu anterior se houver
@@ -59707,11 +59710,9 @@ function extRowMenu(ev, id){
   menu.className = 'ext-pop-menu';
   menu.id = 'ext-pop-menu-active';
   menu.style.top = (rect.bottom + 4) + 'px';
-  menu.style.left = (rect.right - 200) + 'px';
-  // Lançamento info pra decidir opções
-  const it = (window.extData && Array.isArray(window.extData))
-    ? window.extData.find(x => String(x.id) === String(id)) : null;
-  const isReceita = it && (it.tipo === 'ganho' || it.tipo === 'Receita');
+  menu.style.left = (rect.right - 240) + 'px';
+  // isEntrada vem como flag direta (1=entrada, 0=saída). Cobrança+NF só fazem sentido pra entradas.
+  const isReceita = isEntradaFlag === 1 || isEntradaFlag === true;
   menu.innerHTML =
     '<button class="ext-pop-item" onclick="_extCloseAllMenus();extEditManual(\'' + id + '\')">' +
       '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>' +
@@ -91199,7 +91200,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779854210';
+      const CACHE = 'forekash-v1779854485';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
