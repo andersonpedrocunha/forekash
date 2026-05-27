@@ -661,6 +661,30 @@
     .com-kpi.vencendo .com-kpi-val{color:#92400E}
     .com-kpi.ativo{background:#F0FDF4;border-color:#BBF7D0}
     .com-kpi.ativo .com-kpi-val{color:#065F46}
+
+    /* ══ MODO APRESENTAÇÃO ══ */
+    body.pres-mode .sidebar{display:none !important}
+    body.pres-mode .content-wrap{margin-left:0 !important;padding-bottom:160px !important}
+    body.pres-mode .hdr-actions-extra{display:none}
+    body.pres-mode .mrk-chat-launcher{display:none !important}
+
+    /* ══ INSIGHTS DA SEMANA ══ */
+    .ins-wrap{margin:18px 0}
+    .ins-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;gap:12px;flex-wrap:wrap}
+    .ins-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+    .ins-card{background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:14px;transition:all .15s;display:flex;flex-direction:column;gap:8px}
+    .ins-card:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(15,23,42,.08)}
+    .ins-card.ins-empty{background:linear-gradient(135deg,#ECFDF5 0%,#D1FAE5 100%);border-color:#A7F3D0;padding:24px}
+    .ins-card-top{display:flex;gap:10px;align-items:flex-start}
+    .ins-card-ico{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+    .ins-card-tit{font-weight:700;font-size:.86rem;color:#0F172A;line-height:1.3}
+    .ins-card-desc{color:#64748B;font-size:.74rem;margin-top:3px;line-height:1.4}
+    .ins-card-foot{display:flex;justify-content:space-between;align-items:center;padding-top:6px;border-top:1px solid #F1F5F9}
+    [data-theme="dark"] .ins-card{background:#1E293B;border-color:#334155}
+    [data-theme="dark"] .ins-card-tit{color:#E5E7EB}
+    [data-theme="dark"] .ins-card-foot{border-color:#334155}
+    [data-theme="dark"] .ins-card.ins-empty{background:linear-gradient(135deg,#064E3B 0%,#065F46 100%);border-color:#10B981}
+
     /* ══ MÓDULO PATRIMÔNIO ══ */
     .patrim-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}
     .patrim-kpi{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:14px 16px}
@@ -16647,6 +16671,11 @@
       <div class="hdr-notif-foot"><button onclick="notifClearAll()">Limpar histórico</button></div>
     </div>
 
+    <!-- 🎤 Modo Apresentação -->
+    <button type="button" class="hdr-icon-btn" id="hdr-pres-btn" onclick="presStart()" title="Modo Apresentação · demo automático fullscreen" style="font-size:15px">
+      🎤
+    </button>
+
     <!-- Theme toggle · claro / escuro -->
     <button type="button" class="hdr-icon-btn" id="hdr-theme-btn" onclick="themeToggle()" title="Alternar tema (claro/escuro)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" id="hdr-theme-ico"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
@@ -16922,6 +16951,9 @@
            MÓDULO: DASHBOARD / INÍCIO
            ══════════════════════════════════════════════ -->
       <div class="mod" id="mod-dashboard">
+
+        <!-- 💡 Insights da Semana — aparece no topo do Início -->
+        <div class="ins-wrap" id="insights-wrap"></div>
 
         <!-- Empty-state CTA: aparece quando nenhum módulo tem dados -->
         <div class="home-empty" id="home-empty">
@@ -19370,17 +19402,17 @@
         <!-- KPIs -->
         <div class="pes-kpi-grid">
           <div class="pes-kpi folha">
-            <div class="pes-kpi-lbl">Receita (Ano)</div>
+            <div class="pes-kpi-lbl">Receita (Ano) <span id="flx-yoy-receita"></span></div>
             <div class="pes-kpi-val blu" id="flx-kpi-receita">R$ 0,00</div>
             <div class="pes-kpi-sub">soma dos 12 meses</div>
           </div>
           <div class="pes-kpi head">
-            <div class="pes-kpi-lbl">Gasto Total (Ano)</div>
+            <div class="pes-kpi-lbl">Gasto Total (Ano) <span id="flx-yoy-custo"></span></div>
             <div class="pes-kpi-val" style="color:#DC2626" id="flx-kpi-custo">R$ 0,00</div>
             <div class="pes-kpi-sub" id="flx-kpi-custo-sub">folha + despesas + empréstimos + impostos</div>
           </div>
           <div class="pes-kpi media">
-            <div class="pes-kpi-lbl">Resultado (Ano)</div>
+            <div class="pes-kpi-lbl">Resultado (Ano) <span id="flx-yoy-result"></span></div>
             <div class="pes-kpi-val" id="flx-kpi-result">R$ 0,00</div>
             <div class="pes-kpi-sub" id="flx-kpi-result-sub">receita − gasto total</div>
           </div>
@@ -19388,6 +19420,18 @@
 
         <!-- Destaque: Saldo Inicial (editável) + Saldo Final (dez) -->
         <div class="flx-cashbox" id="flx-cashbox"></div>
+
+        <!-- 📈 Forecast — projeção próximos 6 meses -->
+        <div class="flx-forecast" id="flx-forecast" style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:16px 18px;margin:14px 0">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div>
+              <h3 style="margin:0;font-size:.92rem;color:#0F172A">📈 Projeção · próximos 6 meses</h3>
+              <small style="color:#64748B;font-size:.74rem">Média móvel + sazonalidade do ano anterior + banda de confiança</small>
+            </div>
+            <button class="btn btn-sec" onclick="flxRenderForecast()" style="padding:5px 10px;font-size:.7rem">↻ Recalcular</button>
+          </div>
+          <div id="flx-forecast-chart"></div>
+        </div>
 
         <!-- Toolbar: Visão, Análise Vertical/Horizontal, Voltar projeção -->
         <div class="flx-ana-toolbar" role="group" aria-label="Ferramentas do Demonstrativo">
@@ -33923,7 +33967,84 @@ function renderFluxo(){
   renderFlxYearTabs();
   renderFlxSheet();
   updateFlxKpis();
+  try{ flxRenderForecast(); }catch(e){ console.warn('forecast:', e); }
+  try{ flxRenderYoY(); }catch(e){ console.warn('yoy:', e); }
 }
+
+// 📈 Forecast — gera série histórica dos últimos 12 meses e projeta 6 à frente
+function flxRenderForecast(){
+  const el = document.getElementById('flx-forecast-chart');
+  if(!el) return;
+  // Monta série histórica: pra cada mês de cada ano disponível, calcula resultado
+  const serie = [];
+  try{
+    const anos = (fluxo.years||[]).slice().sort();
+    anos.forEach(y => {
+      for(let m=0; m<12; m++){
+        const ym = y + '-' + String(m+1).padStart(2,'0');
+        let receita = 0, gasto = 0;
+        try{ receita = flxReceitaMes(y, m) || 0; }catch(_){}
+        try{
+          const folha = flxFolhaMes(y, m) || 0;
+          const desp  = flxDespesasMes(y, m) || 0;
+          const emp   = flxEmprestimosMes(y, m) || 0;
+          const imp   = flxImpostoMes(y, m) || 0;
+          gasto = folha + desp + emp + imp;
+        }catch(_){}
+        const resultado = receita - gasto;
+        // só inclui meses com algum dado (evita ruído de meses vazios futuros)
+        if(receita > 0 || gasto > 0){
+          serie.push({ ym, valor: resultado });
+        }
+      }
+    });
+  }catch(e){ console.warn('serie forecast:', e); }
+  if(serie.length < 3){
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:#94A3B8;font-size:.82rem">Preencha pelo menos 3 meses de dados para o forecast começar a projetar.</div>';
+    return;
+  }
+  // Pega só últimos 18 pra evitar gráfico esticado
+  const serieRecente = serie.slice(-18);
+  try{
+    el.innerHTML = forecastRenderSparkline(serieRecente, 6, 720, 110);
+  }catch(e){
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:#EF4444;font-size:.82rem">Erro no forecast: '+e.message+'</div>';
+  }
+}
+// 📊 YoY badges nos KPIs anuais
+function flxRenderYoY(){
+  try{
+    const yAtual = flxActiveYear;
+    if(!yAtual) return;
+    const yAnt = String(Number(yAtual) - 1);
+    if(!fluxo.years.includes(yAnt)){
+      ['receita','custo','result'].forEach(k => { const el = document.getElementById('flx-yoy-'+k); if(el) el.innerHTML = ''; });
+      return;
+    }
+    // Calcula totais
+    const totalAno = (y) => {
+      let r=0, g=0;
+      for(let m=0; m<12; m++){
+        try{ r += flxReceitaMes(y, m) || 0; }catch(_){}
+        try{ g += (flxFolhaMes(y,m)||0)+(flxDespesasMes(y,m)||0)+(flxEmprestimosMes(y,m)||0)+(flxImpostoMes(y,m)||0); }catch(_){}
+      }
+      return { r, g, res:r-g };
+    };
+    const at = totalAno(yAtual);
+    const an = totalAno(yAnt);
+    const _yoy = (atu, ant) => {
+      const d = atu - ant; const p = ant !== 0 ? (d/Math.abs(ant)*100) : (atu>0?100:0);
+      return { atual:atu, anterior:ant, delta:d, deltaPct:p, yAtual, yAnterior:yAnt };
+    };
+    const elR = document.getElementById('flx-yoy-receita');
+    const elC = document.getElementById('flx-yoy-custo');
+    const elT = document.getElementById('flx-yoy-result');
+    if(elR) elR.innerHTML = ' '+yoyBadge(_yoy(at.r, an.r));
+    if(elC) elC.innerHTML = ' '+yoyBadge(_yoy(at.g, an.g), {invertColors:true});
+    if(elT) elT.innerHTML = ' '+yoyBadge(_yoy(at.res, an.res));
+  }catch(e){ console.warn('yoy render:', e); }
+}
+try{ window.flxRenderForecast = flxRenderForecast; window.flxRenderYoY = flxRenderYoY; }catch(_){}
 
 function renderFlxYearTabs(){
   const tabs = document.getElementById('flx-year-tabs');
@@ -44172,7 +44293,10 @@ function switchModule(mod, btn){
   window.scrollTo({top:0,behavior:'instant'});
 
   // Atualiza dashboard ao abrir
-  if(mod === 'dashboard') updateDashboard();
+  if(mod === 'dashboard') {
+    updateDashboard();
+    try{ if(typeof insightsRender === 'function') insightsRender(); }catch(_){}
+  }
 
   // KASHtrack: renderiza calendário + forecast ao abrir
   if(mod === 'kashtrack'){
@@ -91899,7 +92023,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779909145';
+      const CACHE = 'forekash-v1779913311';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -92290,6 +92414,8 @@ const CMDK_COMMANDS = [
   // Export
   { group:'Ações',   label:'Exportar dados do módulo atual', ico:'📥', kbd:'',  action:() => fkExportCurrentModule() },
   // Killer features (Lote 4)
+  { group:'Ações',   label:'🎤 Iniciar Modo Apresentação', ico:'🎤', kbd:'', action:() => { if(typeof presStart==='function') presStart(); } },
+  { group:'Ações',   label:'💡 Ver Insights da Semana', ico:'💡', kbd:'', action:() => { switchModule('dashboard',null); setTimeout(()=>{ if(typeof insightsRender==='function') insightsRender(); document.getElementById('insights-wrap')?.scrollIntoView({behavior:'smooth'}); }, 120); } },
   { group:'Ações',   label:'Gerar Investor Deck (PDF)', ico:'🚀', kbd:'', action:() => { switchModule('relatorios',null); setTimeout(() => { if(typeof repSetType==='function') repSetType('investor', document.querySelector('[data-rep=investor]')); }, 120); } },
   { group:'Ações',   label:'Gerar Daily Briefing agora', ico:'🌅', kbd:'', action:() => { if(typeof dailyBriefingNow === 'function') dailyBriefingNow(); } },
   { group:'Ações',   label:'Nova assinatura recorrente', ico:'🔄', kbd:'', action:() => { switchModule('comercial',null); setTimeout(() => { if(typeof comRecOpen === 'function') comRecOpen(); }, 120); } },
@@ -96716,6 +96842,663 @@ function dailyScheduleCheck(){
 }
 
 // ═════════════════════════════════════════════════════════════════════
+// 🎤 MODO APRESENTAÇÃO — demo automático fullscreen
+// Cicla pelos módulos com narração overlay, controles pause/next/exit
+// ═════════════════════════════════════════════════════════════════════
+const PRES_SLIDES = [
+  { mod:'dashboard',  titulo:'Início · Visão Geral',         legenda:'Hub central com KPIs, KASH SCORE, alertas e atalhos.', tab:null },
+  { mod:'kashtrack',  titulo:'KASHtrack · Previsão do Caixa', legenda:'Calendário com vencimentos e recebimentos — weather forecast do caixa.', tab:null },
+  { mod:'receita',    titulo:'Receita · Kanban',              legenda:'Cada cliente é um card. Drag pra mudar status. Drill-down por mês.', tab:null },
+  { mod:'comercial',  titulo:'Comercial · Recorrência',       legenda:'Assinaturas mensais com MRR/ARR auto-calculado. 12 previsões automáticas em Receita.', tab:'rec' },
+  { mod:'comercial',  titulo:'Comercial · Pipeline',          legenda:'Funil de vendas: lead → proposta → ganhou. Converte em assinatura num clique.', tab:'pipe' },
+  { mod:'comercial',  titulo:'Comercial · IA Insights',       legenda:'MRR Movements + Churn Predictor + Health Score + Upsell + Pricing Simulator.', tab:'ia' },
+  { mod:'patrimonio', titulo:'Patrimônio · Balanço',          legenda:'Ativo − Passivo = PL. Auto-importa Disponibilidades, Asaas e Empréstimos.', tab:null },
+  { mod:'fluxo',      titulo:'Fluxo de Caixa',                legenda:'Realizado + projeção dos próximos meses com banda de confiança.', tab:null },
+  { mod:'fklab',      titulo:'FK Lab · What-If',              legenda:'Simulador de cenários cross-module: corte de custo, contratação, reajuste.', tab:null },
+  { mod:'relatorios', titulo:'Relatórios · Investor Deck',    legenda:'6 slides profissionais gerados automaticamente: DRE, KPIs, growth, ask.', tab:'investor' }
+];
+let PRES_STATE = { active:false, idx:0, timer:null, paused:false, intervalMs:7000 };
+function presStart(){
+  if(PRES_STATE.active) return;
+  PRES_STATE.active = true;
+  PRES_STATE.idx = 0;
+  PRES_STATE.paused = false;
+  // Fullscreen
+  try{ if(document.documentElement.requestFullscreen) document.documentElement.requestFullscreen(); }catch(_){}
+  // Esconde sidebar pra dar mais espaço (toggle visual)
+  document.body.classList.add('pres-mode');
+  presBuildOverlay();
+  presGoto(0);
+  // ESC pra sair
+  document.addEventListener('keydown', presKeyHandler);
+  if(typeof auditLog==='function') auditLog('apresentacao', 'iniciou modo apresentação');
+}
+function presStop(){
+  PRES_STATE.active = false;
+  if(PRES_STATE.timer){ clearTimeout(PRES_STATE.timer); PRES_STATE.timer = null; }
+  document.body.classList.remove('pres-mode');
+  const ov = document.getElementById('pres-overlay');
+  if(ov) ov.remove();
+  document.removeEventListener('keydown', presKeyHandler);
+  try{ if(document.fullscreenElement && document.exitFullscreen) document.exitFullscreen(); }catch(_){}
+}
+function presKeyHandler(e){
+  if(!PRES_STATE.active) return;
+  if(e.key === 'Escape'){ presStop(); }
+  else if(e.key === 'ArrowRight' || e.key === ' '){ e.preventDefault(); presNext(); }
+  else if(e.key === 'ArrowLeft'){ e.preventDefault(); presPrev(); }
+  else if(e.key.toLowerCase() === 'p'){ e.preventDefault(); presPause(); }
+}
+function presBuildOverlay(){
+  const ov = document.createElement('div');
+  ov.id = 'pres-overlay';
+  ov.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(180deg,transparent,rgba(15,23,42,.95));padding:24px 40px 18px;display:flex;flex-direction:column;gap:12px;color:#E5E7EB;pointer-events:none';
+  ov.innerHTML = `
+    <div style="display:flex;align-items:center;gap:14px;pointer-events:auto">
+      <div style="flex:1">
+        <div style="color:#10B981;font-size:.74rem;letter-spacing:3px;font-weight:700;margin-bottom:4px">FOREKASH · DEMO MODE</div>
+        <h2 id="pres-titulo" style="margin:0;color:#fff;font-size:1.5rem;font-weight:800;letter-spacing:-.5px">—</h2>
+        <p id="pres-legenda" style="margin:6px 0 0;color:#94A3B8;font-size:.92rem;max-width:900px;line-height:1.5">—</p>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-sec" onclick="presPrev()" title="Anterior (←)" style="padding:8px 12px;font-size:.84rem">← Anterior</button>
+        <button class="btn btn-sec" onclick="presPause()" id="pres-pause-btn" title="Pause (P)" style="padding:8px 12px;font-size:.84rem">⏸ Pause</button>
+        <button class="btn btn-p"   onclick="presNext()" title="Próximo (→)" style="padding:8px 14px;font-size:.84rem">Próximo →</button>
+        <button class="btn btn-sec" onclick="presStop()" title="Sair (ESC)" style="padding:8px 12px;font-size:.84rem;color:#EF4444">× Sair</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:4px;pointer-events:auto" id="pres-dots"></div>
+    <div style="text-align:center;color:#64748B;font-size:.66rem;letter-spacing:2px;pointer-events:none">← → próximo · P pause · ESC sai</div>
+  `;
+  document.body.appendChild(ov);
+  // Dots
+  const dotsEl = document.getElementById('pres-dots');
+  if(dotsEl){
+    dotsEl.innerHTML = PRES_SLIDES.map((_,i) => `<div class="pres-dot" data-idx="${i}" onclick="presGoto(${i})" style="flex:1;height:3px;background:#334155;border-radius:2px;cursor:pointer;transition:all .3s"></div>`).join('');
+  }
+}
+function presGoto(i){
+  if(i < 0) i = 0;
+  if(i >= PRES_SLIDES.length){ presStop(); return; }
+  PRES_STATE.idx = i;
+  const slide = PRES_SLIDES[i];
+  try{ if(typeof switchModule === 'function') switchModule(slide.mod, null); }catch(_){}
+  // Switch tab se aplicável
+  if(slide.tab){
+    setTimeout(() => {
+      try{
+        if(slide.mod === 'comercial' && typeof comSwitchTab === 'function') comSwitchTab(slide.tab);
+        else if(slide.mod === 'relatorios' && typeof repSetType === 'function'){
+          const btn = document.querySelector('[data-rep="'+slide.tab+'"]');
+          if(btn) repSetType(slide.tab, btn);
+        }
+      }catch(_){}
+    }, 200);
+  }
+  // Update overlay text
+  const tit = document.getElementById('pres-titulo');
+  const leg = document.getElementById('pres-legenda');
+  if(tit) tit.textContent = slide.titulo;
+  if(leg) leg.textContent = slide.legenda;
+  // Update dots
+  document.querySelectorAll('.pres-dot').forEach((d, idx) => {
+    d.style.background = idx === i ? '#10B981' : (idx < i ? '#334155' : '#1E293B');
+  });
+  // Auto-advance
+  if(PRES_STATE.timer) clearTimeout(PRES_STATE.timer);
+  if(!PRES_STATE.paused){
+    PRES_STATE.timer = setTimeout(() => presNext(), PRES_STATE.intervalMs);
+  }
+}
+function presNext(){ presGoto(PRES_STATE.idx + 1); }
+function presPrev(){ presGoto(Math.max(0, PRES_STATE.idx - 1)); }
+function presPause(){
+  PRES_STATE.paused = !PRES_STATE.paused;
+  const btn = document.getElementById('pres-pause-btn');
+  if(btn) btn.textContent = PRES_STATE.paused ? '▶ Play' : '⏸ Pause';
+  if(PRES_STATE.paused){
+    if(PRES_STATE.timer){ clearTimeout(PRES_STATE.timer); PRES_STATE.timer = null; }
+  } else {
+    PRES_STATE.timer = setTimeout(() => presNext(), PRES_STATE.intervalMs);
+  }
+}
+try{ window.presStart = presStart; window.presStop = presStop; window.presNext = presNext; window.presPrev = presPrev; window.presPause = presPause; window.presGoto = presGoto; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// 💡 CROSS-MODULE INSIGHTS DA SEMANA
+// Agregador inteligente que varre TODOS os módulos e prioriza ações
+// ═════════════════════════════════════════════════════════════════════
+function insightsGather(){
+  const insights = [];
+  const hoje = new Date();
+  const hojeStr = hoje.toISOString().slice(0,10);
+  const semana = new Date(hoje.getTime() + 7*24*60*60*1000).toISOString().slice(0,10);
+  // 1. Cobranças atrasadas (Asaas)
+  try{
+    if(typeof ASAAS !== 'undefined' && Array.isArray(ASAAS.cobrancas)){
+      const atrasadas = ASAAS.cobrancas.filter(c => c.status === 'pendente' && c.vencimento && c.vencimento < hojeStr);
+      if(atrasadas.length){
+        const valor = atrasadas.reduce((s,c)=>s+(Number(c.valor)||0),0);
+        insights.push({
+          urgencia: 95,
+          ico: '🚨',
+          cor: '#EF4444',
+          titulo: `${atrasadas.length} cobrança(s) em atraso`,
+          desc: `R$ ${_insFmt(valor)} aguardando recebimento`,
+          modulo: 'asaas',
+          acao: () => { if(typeof switchModule==='function') switchModule('asaas', null); }
+        });
+      }
+      // 2. Vencendo nos próximos 7 dias
+      const proximas = ASAAS.cobrancas.filter(c => c.status === 'pendente' && c.vencimento >= hojeStr && c.vencimento <= semana);
+      if(proximas.length){
+        const valor = proximas.reduce((s,c)=>s+(Number(c.valor)||0),0);
+        insights.push({
+          urgencia: 75,
+          ico: '📅',
+          cor: '#F59E0B',
+          titulo: `${proximas.length} cobrança(s) vencem essa semana`,
+          desc: `R$ ${_insFmt(valor)} a receber`,
+          modulo: 'asaas',
+          acao: () => { if(typeof switchModule==='function') switchModule('asaas', null); }
+        });
+      }
+    }
+  }catch(_){}
+  // 3. Contratos vencendo
+  try{
+    if(typeof COM !== 'undefined' && Array.isArray(COM.contratos)){
+      const vencendo = COM.contratos.filter(c => c.fim && c.fim >= hojeStr && c.fim <= semana);
+      if(vencendo.length){
+        insights.push({
+          urgencia: 80,
+          ico: '📄',
+          cor: '#F59E0B',
+          titulo: `${vencendo.length} contrato(s) vencem em ≤7 dias`,
+          desc: vencendo.slice(0,2).map(c => c.titulo).join(' · '),
+          modulo: 'comercial',
+          acao: () => { if(typeof switchModule==='function') switchModule('comercial', null); setTimeout(()=>{if(typeof comSwitchTab==='function') comSwitchTab('cont');},120); }
+        });
+      }
+      // Vencidos
+      const vencidos = COM.contratos.filter(c => c.fim && c.fim < hojeStr);
+      if(vencidos.length){
+        insights.push({
+          urgencia: 90,
+          ico: '❌',
+          cor: '#EF4444',
+          titulo: `${vencidos.length} contrato(s) vencidos`,
+          desc: 'Precisam ser renovados ou removidos',
+          modulo: 'comercial',
+          acao: () => { if(typeof switchModule==='function') switchModule('comercial', null); setTimeout(()=>{if(typeof comSwitchTab==='function') comSwitchTab('cont');},120); }
+        });
+      }
+    }
+  }catch(_){}
+  // 4. Churn risk (Comercial v2)
+  try{
+    if(typeof _comCalcChurnRisk === 'function'){
+      const risco = _comCalcChurnRisk();
+      if(risco.length){
+        const valor = risco.reduce((s,r)=>s+(Number(r.valor)||0),0);
+        insights.push({
+          urgencia: 85,
+          ico: '🚨',
+          cor: '#EF4444',
+          titulo: `${risco.length} cliente(s) em risco de churn`,
+          desc: `R$ ${_insFmt(valor)}/mês em jogo · ${risco[0].cliente} · ${risco[0].score}%`,
+          modulo: 'comercial',
+          acao: () => { if(typeof switchModule==='function') switchModule('comercial', null); setTimeout(()=>{if(typeof comSwitchTab==='function') comSwitchTab('ia');},120); }
+        });
+      }
+    }
+  }catch(_){}
+  // 5. Upsell suggestions
+  try{
+    if(typeof _comCalcUpsells === 'function'){
+      const ups = _comCalcUpsells();
+      if(ups.length){
+        const potencial = ups.reduce((s,u)=>s+(u.sugestao-u.atual),0);
+        insights.push({
+          urgencia: 60,
+          ico: '⬆',
+          cor: '#10B981',
+          titulo: `${ups.length} oportunidade(s) de upsell`,
+          desc: `Potencial +R$ ${_insFmt(potencial)}/mês`,
+          modulo: 'comercial',
+          acao: () => { if(typeof switchModule==='function') switchModule('comercial', null); setTimeout(()=>{if(typeof comSwitchTab==='function') comSwitchTab('ia');},120); }
+        });
+      }
+    }
+  }catch(_){}
+  // 6. Impostos a pagar
+  try{
+    if(typeof impData !== 'undefined'){
+      const lista = Array.isArray(impData) ? impData : (impData.list || []);
+      const pendentes = lista.filter(i => {
+        const venc = i.vencimento || i.data;
+        return venc && venc >= hojeStr && venc <= semana && !i.pago;
+      });
+      if(pendentes.length){
+        const valor = pendentes.reduce((s,i)=>s+(Number(i.valor)||0),0);
+        insights.push({
+          urgencia: 88,
+          ico: '📑',
+          cor: '#EF4444',
+          titulo: `${pendentes.length} imposto(s) vencendo essa semana`,
+          desc: `R$ ${_insFmt(valor)} a recolher`,
+          modulo: 'impostos',
+          acao: () => { if(typeof switchModule==='function') switchModule('impostos', null); }
+        });
+      }
+    }
+  }catch(_){}
+  // 7. Anomalias detectadas
+  try{
+    if(typeof AI_LAST_ALERTS !== 'undefined' && Array.isArray(AI_LAST_ALERTS) && AI_LAST_ALERTS.length){
+      const ativos = AI_LAST_ALERTS.filter(a => !AI_DISMISSED.includes(a.id));
+      if(ativos.length){
+        insights.push({
+          urgencia: 70,
+          ico: '⚠',
+          cor: '#F59E0B',
+          titulo: `${ativos.length} anomalia(s) detectada(s)`,
+          desc: ativos[0].titulo || 'MR KASH viu algo estranho',
+          modulo: 'dashboard',
+          acao: () => { document.getElementById('ai-alerts-wrap')?.scrollIntoView({behavior:'smooth'}); }
+        });
+      }
+    }
+  }catch(_){}
+  // 8. Saldo baixo
+  try{
+    if(typeof dispoData !== 'undefined' && Array.isArray(dispoData.contas)){
+      const saldoTotal = dispoData.contas.reduce((s,c)=>s+(Number(c.saldo)||0),0);
+      // Compara com despesas médias mensais (rough)
+      let burn = 0;
+      try{
+        if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+          const ym = hoje.toISOString().slice(0,7);
+          burn = extratoData.lancamentos
+            .filter(l => (l.data||'').slice(0,7) === ym && (l.tipo === 'gasto' || l.valor < 0))
+            .reduce((s,l)=>s+Math.abs(Number(l.valor)||0), 0);
+        }
+      }catch(_){}
+      if(burn > 0){
+        const runway = saldoTotal / burn;
+        if(runway < 3 && runway > 0){
+          insights.push({
+            urgencia: 92,
+            ico: '⏰',
+            cor: '#EF4444',
+            titulo: `Runway curto: ~${runway.toFixed(1)} meses`,
+            desc: `Caixa R$ ${_insFmt(saldoTotal)} · burn R$ ${_insFmt(burn)}/mês`,
+            modulo: 'fluxo',
+            acao: () => { if(typeof switchModule==='function') switchModule('fluxo', null); }
+          });
+        }
+      }
+    }
+  }catch(_){}
+  // 9. NF quota próxima do limite
+  try{
+    if(typeof NF_PLAN !== 'undefined' && NF_PLAN && NF_PLAN.usage){
+      const planKey = NF_PLAN.current;
+      if(typeof NF_PLANS !== 'undefined' && NF_PLANS[planKey]){
+        const cap = NF_PLANS[planKey].nfMonth;
+        const usado = NF_PLAN.usage.nfMonth || 0;
+        const pct = cap > 0 ? (usado/cap*100) : 0;
+        if(pct >= 80){
+          insights.push({
+            urgencia: 65,
+            ico: '🧾',
+            cor: '#F59E0B',
+            titulo: `Quota NF em ${pct.toFixed(0)}%`,
+            desc: `${usado}/${cap} este mês — considere upgrade de plano`,
+            modulo: 'notasfiscais',
+            acao: () => { if(typeof switchModule==='function') switchModule('notasfiscais', null); }
+          });
+        }
+      }
+    }
+  }catch(_){}
+  // Ordena por urgência DESC
+  insights.sort((a,b) => b.urgencia - a.urgencia);
+  return insights;
+}
+function _insFmt(v){
+  v = Math.abs(Number(v) || 0);
+  return v.toLocaleString('pt-BR', { minimumFractionDigits:0, maximumFractionDigits:0 });
+}
+function insightsRender(){
+  const wrap = document.getElementById('insights-wrap');
+  if(!wrap) return;
+  const items = insightsGather();
+  if(!items.length){
+    wrap.innerHTML = `<div class="ins-card ins-empty">
+      <div style="font-size:32px;text-align:center">💚</div>
+      <h3 style="text-align:center;margin:8px 0 4px;color:#10B981">Tudo sob controle</h3>
+      <p style="text-align:center;color:#94A3B8;font-size:.84rem;margin:0">Nenhum insight prioritário esta semana. Operação saudável.</p>
+    </div>`;
+    return;
+  }
+  let html = `<div class="ins-head">
+    <div>
+      <h2 style="margin:0;font-size:1.05rem;color:#E5E7EB">💡 Insights da Semana</h2>
+      <small style="color:#94A3B8;font-size:.78rem">MR KASH varreu seus módulos · ${items.length} ações priorizadas</small>
+    </div>
+    <button class="btn btn-sec" onclick="insightsRender()" style="padding:6px 12px;font-size:.74rem">↻ Atualizar</button>
+  </div>`;
+  html += '<div class="ins-grid">';
+  items.slice(0,8).forEach((it, idx) => {
+    html += `<div class="ins-card" data-urg="${it.urgencia}" style="border-left:3px solid ${it.cor};cursor:pointer" onclick="insightsClickItem(${idx})">
+      <div class="ins-card-top">
+        <div class="ins-card-ico" style="background:${it.cor}22;color:${it.cor}">${it.ico}</div>
+        <div style="flex:1;min-width:0">
+          <div class="ins-card-tit">${_insEsc(it.titulo)}</div>
+          <div class="ins-card-desc">${_insEsc(it.desc)}</div>
+        </div>
+      </div>
+      <div class="ins-card-foot">
+        <span style="color:${it.cor};font-size:.66rem;font-weight:700;letter-spacing:2px">URGÊNCIA ${it.urgencia}</span>
+        <span style="color:#94A3B8;font-size:.7rem">→ ${it.modulo}</span>
+      </div>
+    </div>`;
+  });
+  html += '</div>';
+  wrap.innerHTML = html;
+  // Armazena pra callback
+  wrap._items = items;
+}
+function _insEsc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+function insightsClickItem(idx){
+  const wrap = document.getElementById('insights-wrap');
+  if(!wrap || !wrap._items) return;
+  const it = wrap._items[idx];
+  if(it && typeof it.acao === 'function') it.acao();
+}
+try{ window.insightsRender = insightsRender; window.insightsClickItem = insightsClickItem; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// 📈 FORECAST — projeção 3-6 meses no fluxo (média móvel + sazonalidade)
+// ═════════════════════════════════════════════════════════════════════
+function forecastCalc(serieHistorica, mesesProjetar){
+  // serieHistorica: array de {ym, valor}
+  // Retorna array de {ym, valor, low, high, projetado:true}
+  mesesProjetar = mesesProjetar || 6;
+  if(!Array.isArray(serieHistorica) || serieHistorica.length < 3) return [];
+  // Média móvel dos últimos 6 (ou disponíveis)
+  const window = Math.min(6, serieHistorica.length);
+  const recent = serieHistorica.slice(-window);
+  const media = recent.reduce((s,p)=>s+(Number(p.valor)||0),0) / window;
+  // Desvio padrão pra banda de confiança
+  const variance = recent.reduce((s,p)=>{
+    const d = (Number(p.valor)||0) - media;
+    return s + d*d;
+  }, 0) / window;
+  const stddev = Math.sqrt(variance);
+  // Tendência (slope) — diff entre primeira metade e segunda metade
+  let trend = 0;
+  if(recent.length >= 4){
+    const half = Math.floor(recent.length/2);
+    const avgInicio = recent.slice(0, half).reduce((s,p)=>s+(Number(p.valor)||0),0)/half;
+    const avgFim = recent.slice(-half).reduce((s,p)=>s+(Number(p.valor)||0),0)/half;
+    trend = (avgFim - avgInicio) / half;
+  }
+  // Última data
+  const ult = serieHistorica[serieHistorica.length-1];
+  let [y, m] = (ult.ym||'').split('-').map(Number);
+  const result = [];
+  for(let i=1; i<=mesesProjetar; i++){
+    m++;
+    if(m > 12){ m = 1; y++; }
+    // Sazonalidade: compara com o mesmo mês do ano anterior se disponível
+    const ymAnterior = (y-1) + '-' + String(m).padStart(2,'0');
+    const sameMonthLastYear = serieHistorica.find(p => p.ym === ymAnterior);
+    let valorProj = media + trend*i;
+    if(sameMonthLastYear){
+      // Ajusta pela variação sazonal do mesmo mês ano passado
+      const mediaAnoAnterior = serieHistorica.filter(p => p.ym.startsWith((y-1)+'')).reduce((s,p)=>s+(Number(p.valor)||0),0) /
+                               Math.max(1, serieHistorica.filter(p => p.ym.startsWith((y-1)+'')).length);
+      if(mediaAnoAnterior > 0){
+        const sazonal = (Number(sameMonthLastYear.valor)||0) / mediaAnoAnterior;
+        valorProj = valorProj * sazonal;
+      }
+    }
+    // Banda de confiança aumenta com a distância
+    const incerteza = stddev * (1 + i*0.15);
+    result.push({
+      ym: y + '-' + String(m).padStart(2,'0'),
+      valor: Math.round(valorProj),
+      low:   Math.round(valorProj - incerteza),
+      high:  Math.round(valorProj + incerteza),
+      projetado: true
+    });
+  }
+  return result;
+}
+// Wrapper que gera SVG inline da projeção pra anexar no Fluxo
+function forecastRenderSparkline(serieHistorica, mesesProjetar, width, height){
+  const proj = forecastCalc(serieHistorica, mesesProjetar||6);
+  if(!proj.length) return '';
+  const all = [...serieHistorica, ...proj];
+  const max = Math.max(...all.map(p => Math.max(Number(p.valor)||0, Number(p.high)||0)));
+  const min = Math.min(...all.map(p => Math.min(Number(p.valor)||0, Number(p.low)||0)));
+  const range = max - min || 1;
+  const W = width||520, H = height||100;
+  const stepX = W / (all.length-1);
+  const scaleY = v => H - ((v-min)/range) * (H*0.8) - H*0.1;
+  let pathReal = '', pathProj = '', bandHigh = '', bandLow = '';
+  all.forEach((p, i) => {
+    const x = i*stepX;
+    if(!p.projetado){
+      pathReal += (pathReal?' L ':'M ') + x.toFixed(1) + ' ' + scaleY(p.valor).toFixed(1);
+    } else {
+      if(i > 0 && !all[i-1].projetado){
+        // continua do último real
+        pathProj = 'M ' + ((i-1)*stepX).toFixed(1) + ' ' + scaleY(all[i-1].valor).toFixed(1) + ' L ';
+      }
+      pathProj += x.toFixed(1) + ' ' + scaleY(p.valor).toFixed(1) + ' ';
+      bandHigh += (bandHigh?' L ':'M ') + x.toFixed(1) + ' ' + scaleY(p.high).toFixed(1);
+      bandLow  += (bandLow ? ' L ':'M ') + x.toFixed(1) + ' ' + scaleY(p.low).toFixed(1);
+    }
+  });
+  // Band fill polygon
+  const bandPoints = proj.map((p,i) => `${((serieHistorica.length-1)+i+1)*stepX},${scaleY(p.high)}`).concat(
+    proj.slice().reverse().map((p,i) => {
+      const realIdx = (serieHistorica.length-1) + (proj.length-i);
+      return `${realIdx*stepX},${scaleY(p.low)}`;
+    })
+  ).join(' ');
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:${H}px">
+    <polygon points="${bandPoints}" fill="#10B98122" stroke="none"/>
+    <path d="${pathReal}" fill="none" stroke="#10B981" stroke-width="2"/>
+    <path d="${pathProj}" fill="none" stroke="#10B981" stroke-width="2" stroke-dasharray="6 4" opacity=".75"/>
+    <text x="${W-100}" y="14" fill="#10B981" font-size="10" font-family="JetBrains Mono">━ realizado</text>
+    <text x="${W-100}" y="28" fill="#10B981" font-size="10" font-family="JetBrains Mono" opacity=".75">┄ projetado</text>
+  </svg>
+  <div style="display:grid;grid-template-columns:repeat(${proj.length},1fr);gap:4px;margin-top:8px;font-size:.66rem;color:#94A3B8;text-align:center">
+    ${proj.map(p => `<div><b style="color:#10B981">${p.ym.slice(5)}</b><br>R$ ${_insFmt(p.valor)}</div>`).join('')}
+  </div>`;
+}
+try{ window.forecastCalc = forecastCalc; window.forecastRenderSparkline = forecastRenderSparkline; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// 📊 YoY COMPARISON — calcula delta ano-a-ano de KPIs
+// ═════════════════════════════════════════════════════════════════════
+function yoyCalc(serie, modo){
+  // serie: array de {ym, valor}, modo: 'mes'|'ano'
+  // Retorna { atual, anterior, delta, deltaPct }
+  modo = modo || 'mes';
+  if(!Array.isArray(serie) || !serie.length) return { atual:0, anterior:0, delta:0, deltaPct:0 };
+  const hoje = new Date();
+  const ymAtual = hoje.toISOString().slice(0,7);
+  const yAtual = ymAtual.slice(0,4);
+  const yAnterior = String(Number(yAtual)-1);
+  let atual=0, anterior=0;
+  if(modo === 'mes'){
+    const ptAtual = serie.find(p => p.ym === ymAtual);
+    const ptAnt = serie.find(p => p.ym === yAnterior + ymAtual.slice(4));
+    atual = ptAtual ? Number(ptAtual.valor)||0 : 0;
+    anterior = ptAnt ? Number(ptAnt.valor)||0 : 0;
+  } else {
+    atual = serie.filter(p => p.ym.startsWith(yAtual+'')).reduce((s,p)=>s+(Number(p.valor)||0), 0);
+    anterior = serie.filter(p => p.ym.startsWith(yAnterior+'')).reduce((s,p)=>s+(Number(p.valor)||0), 0);
+  }
+  const delta = atual - anterior;
+  const deltaPct = anterior > 0 ? (delta/anterior*100) : (atual > 0 ? 100 : 0);
+  return { atual, anterior, delta, deltaPct, yAtual, yAnterior };
+}
+function yoyBadge(yoyResult, opts){
+  const o = opts||{};
+  const pct = Number(yoyResult.deltaPct)||0;
+  const positiva = pct >= 0;
+  const cor = o.invertColors ? (positiva?'#EF4444':'#10B981') : (positiva?'#10B981':'#EF4444');
+  const seta = positiva ? '↑' : '↓';
+  return `<span style="background:${cor}22;color:${cor};padding:2px 8px;border-radius:6px;font-size:.7rem;font-weight:700;display:inline-flex;align-items:center;gap:3px" title="vs ${yoyResult.yAnterior}">${seta} ${Math.abs(pct).toFixed(1)}% YoY</span>`;
+}
+try{ window.yoyCalc = yoyCalc; window.yoyBadge = yoyBadge; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// 🎮 EASTER EGG · KONAMI CODE → fsociety terminal
+// ═════════════════════════════════════════════════════════════════════
+const KONAMI = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
+let _konamiIdx = 0;
+function konamiInit(){
+  document.addEventListener('keydown', (e) => {
+    const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if(k === KONAMI[_konamiIdx]){
+      _konamiIdx++;
+      if(_konamiIdx === KONAMI.length){
+        _konamiIdx = 0;
+        konamiTrigger();
+      }
+    } else {
+      _konamiIdx = k === KONAMI[0] ? 1 : 0;
+    }
+  });
+}
+function konamiTrigger(){
+  if(document.getElementById('konami-term')) return; // já aberto
+  const term = document.createElement('div');
+  term.id = 'konami-term';
+  term.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#000;color:#10B981;font-family:"JetBrains Mono","Courier New",monospace;padding:24px;overflow:auto;font-size:13px;line-height:1.5';
+  term.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #1E3A2E">
+      <div style="color:#10B981;letter-spacing:3px">▌ FSOCIETY @ FOREKASH ━ root</div>
+      <div style="color:#64748B;font-size:11px">ESC pra sair · digite "help" pra comandos</div>
+    </div>
+    <pre id="konami-out" style="white-space:pre-wrap;margin:0;color:#10B981"></pre>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:14px">
+      <span style="color:#10B981">root@forekash:~$</span>
+      <input id="konami-in" autocomplete="off" autofocus style="flex:1;background:transparent;border:none;outline:none;color:#10B981;font-family:inherit;font-size:13px;caret-color:#10B981">
+    </div>
+  `;
+  document.body.appendChild(term);
+  const out = document.getElementById('konami-out');
+  const inp = document.getElementById('konami-in');
+  const print = (s, cls) => { out.innerHTML += (cls?`<span style="color:${cls}">${s}</span>`:s) + '\n'; out.scrollTop = out.scrollHeight; };
+  const printSlow = async (lines) => {
+    for(const line of lines){
+      await new Promise(r=>setTimeout(r, 40+Math.random()*80));
+      print(line);
+    }
+  };
+  // Boot sequence
+  printSlow([
+    '',
+    'fsociety v2.6 — connecting to forekash...',
+    'establishing secure channel ... ok',
+    'bypassing auth ... ok',
+    'extracting financial data ... ok',
+    '',
+    'hello, friend.',
+    '',
+    'You found the back door. The thing about back doors is — once you',
+    'know they exist, you can never look at the front the same way.',
+    '',
+    'Available commands:',
+    '  whoami     — quem é você (de verdade)',
+    '  ls         — listar módulos do Forekash',
+    '  cat .env   — segredos (✗ permission denied)',
+    '  fortune    — citação Mr Robot aleatória',
+    '  ps         — processos rodando',
+    '  decrypt    — descriptografar a verdade',
+    '  hack       — quebrar o sistema (não faça isso)',
+    '  exit       — voltar pra Matrix',
+    ''
+  ]);
+  inp.focus();
+  inp.addEventListener('keydown', (e) => {
+    if(e.key === 'Escape'){ term.remove(); return; }
+    if(e.key !== 'Enter') return;
+    const cmd = inp.value.trim().toLowerCase();
+    print('root@forekash:~$ ' + cmd, '#94A3B8');
+    inp.value = '';
+    if(cmd === 'help'){
+      print('whoami · ls · cat · fortune · ps · decrypt · hack · clear · exit');
+    } else if(cmd === 'whoami'){
+      print('uid=0(root) gid=0(fsociety) groups=0(root),99(nobody)');
+      print('Você é o que faz, não o que tem.', '#10B981');
+    } else if(cmd === 'ls' || cmd === 'ls -la'){
+      print('drwxr-xr-x  receita/');
+      print('drwxr-xr-x  comercial/');
+      print('drwxr-xr-x  patrimonio/');
+      print('drwxr-xr-x  fluxo/');
+      print('drwxr-xr-x  fklab/');
+      print('drwxr-xr-x  mrkash/');
+      print('-rw-------  .secrets  (1 byte)');
+    } else if(cmd.startsWith('cat')){
+      print('Permission denied.', '#EF4444');
+      print('Some doors are better left closed.', '#64748B');
+    } else if(cmd === 'fortune'){
+      const frases = [
+        '"Control is an illusion." — Mr. Robot',
+        '"Sometimes I dream of saving the world." — Elliot',
+        '"Our democracy has been hacked." — fsociety',
+        '"We are fsociety, we are finally free." — fsociety',
+        '"Hello, friend. Hello, friend? That\'s lame." — Elliot',
+        '"Money isn\'t real. It\'s an agreement." — Mr. Robot',
+        '"The world is a dangerous place, not because of those who do evil but because of those who look on and do nothing."'
+      ];
+      print(frases[Math.floor(Math.random()*frases.length)], '#10B981');
+    } else if(cmd === 'ps' || cmd === 'ps aux'){
+      print('PID   COMMAND');
+      print('  1   /forekash/mrkash --mode=local');
+      print('  42  /forekash/anomaly-detector');
+      print('  99  /forekash/forecast-engine');
+      print(' 666  fsociety.sh  (you)');
+    } else if(cmd === 'decrypt'){
+      print('decrypting...', '#F59E0B');
+      setTimeout(() => {
+        print('done.', '#10B981');
+        print('');
+        print('A verdade é: os números não mentem. As pessoas mentem sobre os números.', '#10B981');
+        print('Forekash mostra os números crus. O resto é com você.', '#10B981');
+      }, 800);
+    } else if(cmd === 'hack' || cmd === 'hack the planet'){
+      print('hacking', '#EF4444');
+      let dots = 0;
+      const t = setInterval(() => {
+        if(dots++ > 5){ clearInterval(t); print('done. nothing changed. nothing ever does.', '#94A3B8'); return; }
+        print('.'.repeat(dots*8) + ' ' + Math.floor(Math.random()*100) + '%', '#EF4444');
+      }, 200);
+    } else if(cmd === 'clear' || cmd === 'cls'){
+      out.innerHTML = '';
+    } else if(cmd === 'exit' || cmd === 'quit'){
+      print('logging off...', '#94A3B8');
+      setTimeout(() => term.remove(), 400);
+    } else if(cmd === ''){
+      // noop
+    } else {
+      print('bash: ' + cmd + ': command not found', '#EF4444');
+    }
+  });
+  if(typeof auditLog === 'function') auditLog('easter-egg', 'konami code ativado');
+}
+try{ window.konamiTrigger = konamiTrigger; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
 // 🔌 API PÚBLICA + WEBHOOKS
 // ═════════════════════════════════════════════════════════════════════
 const API_KEY_LS = 'forekash:api:v1';
@@ -100964,6 +101747,8 @@ function fkBootApp(){
   _safeInit('fklabLoad',          () => fklabLoad());
   _safeInit('nfLoad',             () => nfLoad());
   _safeInit('comLoad',            () => comLoad());
+  _safeInit('konamiInit',         () => konamiInit());
+  _safeInit('insightsRender',     () => insightsRender());
   _safeInit('dailyLoad',          () => dailyLoad());
   _safeInit('dailySchedule',      () => dailyScheduleCheck());
   _safeInit('apiLoad',            () => apiLoad());
