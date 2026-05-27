@@ -91899,7 +91899,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779902976';
+      const CACHE = 'forekash-v1779903808';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -98478,15 +98478,32 @@ function _mrkSleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 function mrkRenderSuggestions(){
   const el = document.getElementById('mrk-suggestions');
   if(!el) return;
-  const sugs = [
+  // Pool maior, rotaciona aleatório 6 a cada abertura
+  const pool = [
     'Quanto entrou esse mês?',
     'Qual meu runway?',
+    'Qual meu MRR?',
+    'Tem cliente em risco?',
+    'Quem posso reajustar?',
+    'Como tá o pipeline?',
+    'O que vence essa semana?',
+    'Quanto vale a empresa?',
+    'Contratos vencendo?',
+    'KASH SCORE atual?',
+    'Tem alguma anomalia?',
+    'Status dos clientes?',
     'Cliente que mais paga?',
     'Categoria que mais gastei?',
-    'KASH SCORE atual?',
-    'Tem alguma anomalia?'
+    'Quantas notas emiti?',
+    'Faz o daily briefing',
+    'Gera o Investor Deck',
+    'Simula reajuste de 10%',
+    'Mostra cohort',
+    'Panorama geral'
   ];
-  el.innerHTML = sugs.map(s =>
+  // Pega 6 aleatórios
+  const shuffled = pool.slice().sort(() => Math.random()-0.5).slice(0,6);
+  el.innerHTML = shuffled.map(s =>
     '<button class="mrk-suggestion" onclick="mrkPickSuggestion(\'' + s.replace(/\'/g,"\\\'") + '\')">' + s + '</button>'
   ).join('');
 }
@@ -98496,9 +98513,13 @@ function mrkPickSuggestion(s){
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// INTENT PARSER LOCAL — regex + keywords
+// INTENT PARSER LOCAL v2 — regex + keywords + sinônimos + memória
 // Analisa pergunta em PT-BR e responde com dados REAIS do app
+// Aprendeu: Comercial v2 (MRR/Churn/Health/Pipeline/Upsell/Pricing),
+//          NF, Patrimônio, KASHtrack, vencimentos, contratos
 // ═════════════════════════════════════════════════════════════════════
+let MRK_LAST_INTENT = null;       // pra "e o anterior?", "mais detalhes"
+let MRK_LAST_CTX_HINT = null;     // ex: 'mes_anterior', 'cliente_X'
 function mrkLocalRespond(text){
   const q = text.toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g,''); // sem acentos
@@ -98506,77 +98527,116 @@ function mrkLocalRespond(text){
   // Pega contexto: dados reais do app
   const ctx = mrkGatherContext();
 
-  // ── INTENT: KASH SCORE ──────────────────────────────────────────
-  if(/(kash[\s_-]?score|nota|score|saude.*financeira|como esta o negocio)/.test(q)){
-    return mrkAnswerKashScore(ctx);
+  // ── MEMÓRIA: "e o anterior?" / "mais detalhes" usa último intent ───
+  if(/^(e o anterior|e mes anterior|e o mes passado|anterior\??|mes passado\??)$/.test(q.trim()) && MRK_LAST_INTENT){
+    MRK_LAST_CTX_HINT = 'mes_anterior';
+    return mrkRunIntent(MRK_LAST_INTENT, ctx);
   }
-  // ── INTENT: Runway ──────────────────────────────────────────────
-  if(/(runway|quanto tempo|caixa.*aguenta|fechar|quebrar|quanto.*meses|sobrevivo)/.test(q)){
-    return mrkAnswerRunway(ctx);
-  }
-  // ── INTENT: Entrada/Saída mês ────────────────────────────────────
-  if(/(entrou|recebido|receita).*(mes|esse mes|mes atual)/.test(q) ||
-     /quanto.*receb|faturei|faturamento/.test(q)){
-    return mrkAnswerEntradaMes(ctx);
-  }
-  if(/(saiu|sair|gastei|gasto|despesa|saida).*(mes|esse mes)/.test(q) ||
-     /quanto.*gastei|quanto.*pago/.test(q)){
-    return mrkAnswerSaidaMes(ctx);
-  }
-  if(/(saldo|disponivel|caixa|tem.*quanto)/.test(q)){
-    return mrkAnswerSaldo(ctx);
-  }
-  // ── INTENT: Cliente top / concentração ───────────────────────────
-  if(/(cliente.*paga|cliente.*mais|maior cliente|concentr.*cliente|top.*cliente)/.test(q)){
-    return mrkAnswerClienteTop(ctx);
-  }
-  // ── INTENT: Categoria gasto ──────────────────────────────────────
-  if(/(categoria.*gast|maior gasto|onde.*gast|gasto.*maior|gasto.*concent|maior despesa)/.test(q)){
-    return mrkAnswerCategoriaGasto(ctx);
-  }
-  // ── INTENT: Anomalia ────────────────────────────────────────────
-  if(/(anomalia|estranho|incomum|alerta|estranho|suspeito|anomalo)/.test(q)){
-    return mrkAnswerAnomalia(ctx);
-  }
-  // ── INTENT: Margem ──────────────────────────────────────────────
-  if(/(margem|lucro|lucratividade|sobra|sobrou)/.test(q)){
-    return mrkAnswerMargem(ctx);
-  }
-  // ── INTENT: Cartão ──────────────────────────────────────────────
-  if(/(cartao|fatura|cartao.*credito)/.test(q)){
-    return mrkAnswerCartao(ctx);
-  }
-  // ── INTENT: Impostos ────────────────────────────────────────────
-  if(/(imposto|tributo|simples|darf|irpj|inss)/.test(q)){
-    return mrkAnswerImpostos(ctx);
-  }
-  // ── INTENT: Empréstimo ──────────────────────────────────────────
-  if(/(emprestimo|loan|divida|financiamento|parcela)/.test(q)){
-    return mrkAnswerEmprestimo(ctx);
-  }
-  // ── INTENT: Pluggy/Open Finance ────────────────────────────────
-  if(/(pluggy|open finance|conectar.*banco|sync.*banco|banco.*conect)/.test(q)){
-    return mrkAnswerPluggy(ctx);
-  }
-  // ── INTENT: Ajuda ───────────────────────────────────────────────
-  if(/(ajud|help|o que.*faz|comando|capacidad|sabe.*responder)/.test(q)){
-    return mrkAnswerHelp();
-  }
-  // ── INTENT: Saudação ────────────────────────────────────────────
-  if(/^(oi|ola|hey|bom dia|boa tarde|boa noite|salve|eai|fala|whats up)/.test(q)){
-    return mrkAnswerSaudacao();
-  }
-  // ── INTENT: Status geral ────────────────────────────────────────
-  if(/(como.*vou|como.*estamos|geral|panorama|status|situacao)/.test(q)){
-    return mrkAnswerStatus(ctx);
-  }
-  // ── INTENT: Configuração API ───────────────────────────────────
-  if(/(api|configur|chave|integr.*ia|integr.*anthropic|integr.*openai|integr.*ai)/.test(q)){
-    return mrkAnswerApiConfig();
+  if(/^(mais detalhes?|detalhar|explica|abre|expandir|conta mais)\??$/.test(q.trim()) && MRK_LAST_INTENT){
+    MRK_LAST_CTX_HINT = 'detalhe';
+    return mrkRunIntent(MRK_LAST_INTENT, ctx);
   }
 
-  // ── FALLBACK ────────────────────────────────────────────────────
-  return mrkAnswerFallback(text, ctx);
+  const intent = mrkDetectIntent(q);
+  MRK_LAST_INTENT = intent;
+  MRK_LAST_CTX_HINT = null;
+  return mrkRunIntent(intent, ctx, text);
+}
+
+// ── Tabela de intents + sinônimos ──────────────────────────────────
+// Cada intent tem palavras-chave que se combinam com OR
+const MRK_INTENTS = [
+  // existentes
+  { id:'kashscore',   keys:['kash score','kashscore','minha nota','meu score','score atual','saude financeira','como esta o negocio','indicador geral'] },
+  { id:'runway',      keys:['runway','quanto tempo','caixa aguenta','quando fecho','quando quebro','quantos meses','sobrevivo','queima de caixa','quanto tempo de caixa'] },
+  { id:'entrada',     keys:['entrou','recebido','receita','faturei','faturamento','faturou','entrada','recebimento','recebimentos','recebeu','quanto recebi','quanto entrou','receita do mes','quanto faturei'] },
+  { id:'saida',       keys:['saiu','sair','gastei','gasto','despesa','despesas','saida','quanto gastei','quanto paguei','quanto custou','custos do mes','onde gastei'] },
+  { id:'saldo',       keys:['saldo','disponivel','caixa','tem quanto','quanto tem na conta','quanto tem no banco','disponibilidade','saldo das contas'] },
+  { id:'cliente_top', keys:['cliente top','cliente que mais paga','maior cliente','top cliente','concentracao cliente','melhor cliente','quem mais paga','cliente principal'] },
+  { id:'cat_gasto',   keys:['categoria gasto','maior gasto','onde gastei','gasto maior','maior despesa','top categoria','onde foi a grana','categoria que mais gasto'] },
+  { id:'anomalia',    keys:['anomalia','estranho','incomum','alerta','suspeito','anomalo','anomalias','tem anomalia','fora do padrao','algo errado'] },
+  { id:'margem',      keys:['margem','lucro','lucratividade','sobra','sobrou','lucratividade','quanto sobrou','margem liquida'] },
+  { id:'cartao',      keys:['cartao','fatura','cartao credito','cartao de credito','faturas','vencimento cartao'] },
+  { id:'impostos',    keys:['imposto','tributo','simples','darf','irpj','inss','impostos','das','iss','tributacao'] },
+  { id:'emprestimo',  keys:['emprestimo','loan','divida','financiamento','parcela','emprestimos','dividas','quanto devo'] },
+  { id:'pluggy',      keys:['pluggy','open finance','conectar banco','sync banco','banco conectado','sincronizar banco','integracao bancaria'] },
+  { id:'ajuda',       keys:['ajuda','help','o que faz','comando','capacidade','sabe responder','o que sabe','como funciona'] },
+  { id:'saudacao',    keys:['oi','ola','hey','bom dia','boa tarde','boa noite','salve','eai','fala','whats up','tudo bem','beleza'] },
+  { id:'status',      keys:['como vou','como estamos','panorama','status','situacao','resumo geral','overview','dashboard rapido','geral'] },
+  { id:'api_config',  keys:['api','configurar','chave','integrar ia','integrar anthropic','integrar openai','integrar ai','llm'] },
+  // novos — Comercial v2
+  { id:'mrr',         keys:['mrr','arr','receita recorrente','assinaturas','quanto de assinatura','receita mensal recorrente'] },
+  { id:'churn',       keys:['churn','quem vai sair','clientes em risco','quem ta em risco','assinatura em risco','perda de cliente','rotatividade','retencao'] },
+  { id:'health',      keys:['health score','saude do cliente','clientes saudaveis','health','status cliente','cliente saudavel','clientes verdes','clientes vermelhos'] },
+  { id:'upsell',      keys:['upsell','quem pode pagar mais','reajustar','reajuste','quem reajustar','sugestao reajuste','aumentar valor','quem cobrar mais'] },
+  { id:'pricing_sim', keys:['pricing','simular preco','what if preco','aumentar preco','se aumentar','simulador de preco','simulacao reajuste'] },
+  { id:'pipeline',    keys:['pipeline','funil','propostas','leads','negociacao','quantos leads','propostas abertas','funil de vendas','prospects'] },
+  { id:'recibos',     keys:['recibo','recibos','emiti recibo','quantos recibos','meus recibos'] },
+  { id:'contratos',   keys:['contrato','contratos','contratos vencendo','contrato vencido','contrato a vencer','renovacao contrato','contratos ativos'] },
+  { id:'cohort',      keys:['cohort','cohorts','clientes por mes','retencao por mes','quando entrou'] },
+  // NF
+  { id:'nf',          keys:['nf','nfs-e','nfe','nota fiscal','notas fiscais','emiti nota','quantas notas','emitir nota'] },
+  // Patrimônio
+  { id:'patrimonio',  keys:['patrimonio','balanco','ativo','passivo','pl','patrimonio liquido','quanto vale a empresa','minha empresa vale'] },
+  // KASHtrack / vencimentos
+  { id:'vencimentos', keys:['vencimentos','o que vence','vencendo','vence hoje','vence amanha','vence essa semana','calendario','agenda'] },
+  // Investor Deck
+  { id:'investor',    keys:['investor','investidor','deck','apresentar pra investidor','pitch','captacao','captar'] },
+  // Daily Briefing
+  { id:'briefing',    keys:['briefing','daily','resumo diario','resumo do dia','daily briefing','bom dia mr kash'] },
+  // FK Lab
+  { id:'fklab',       keys:['fk lab','fklab','what if','cenario','simular cenario','simulacao financeira','what-if'] },
+  // Sobre o MR KASH
+  { id:'identidade',  keys:['quem e voce','quem voce e','o que voce e','seu nome','voce e humano','voce e robo','voce e ia']  }
+];
+function mrkDetectIntent(q){
+  let best = { id:null, score:0 };
+  MRK_INTENTS.forEach(intent => {
+    let score = 0;
+    intent.keys.forEach(k => {
+      if(q.includes(k)) score += k.length; // mais longa = mais específica
+    });
+    if(score > best.score) best = { id:intent.id, score };
+  });
+  return best.id;
+}
+function mrkRunIntent(intent, ctx, originalText){
+  switch(intent){
+    case 'kashscore':   return mrkAnswerKashScore(ctx);
+    case 'runway':      return mrkAnswerRunway(ctx);
+    case 'entrada':     return MRK_LAST_CTX_HINT === 'mes_anterior' ? mrkAnswerEntradaMesAnterior(ctx) : mrkAnswerEntradaMes(ctx);
+    case 'saida':       return MRK_LAST_CTX_HINT === 'mes_anterior' ? mrkAnswerSaidaMesAnterior(ctx) : mrkAnswerSaidaMes(ctx);
+    case 'saldo':       return mrkAnswerSaldo(ctx);
+    case 'cliente_top': return mrkAnswerClienteTop(ctx);
+    case 'cat_gasto':   return mrkAnswerCategoriaGasto(ctx);
+    case 'anomalia':    return mrkAnswerAnomalia(ctx);
+    case 'margem':      return mrkAnswerMargem(ctx);
+    case 'cartao':      return mrkAnswerCartao(ctx);
+    case 'impostos':    return mrkAnswerImpostos(ctx);
+    case 'emprestimo':  return mrkAnswerEmprestimo(ctx);
+    case 'pluggy':      return mrkAnswerPluggy(ctx);
+    case 'ajuda':       return mrkAnswerHelp();
+    case 'saudacao':    return mrkAnswerSaudacao();
+    case 'status':      return mrkAnswerStatus(ctx);
+    case 'api_config':  return mrkAnswerApiConfig();
+    case 'mrr':         return mrkAnswerMRR(ctx);
+    case 'churn':       return mrkAnswerChurn(ctx);
+    case 'health':      return mrkAnswerHealth(ctx);
+    case 'upsell':      return mrkAnswerUpsell(ctx);
+    case 'pricing_sim': return mrkAnswerPricingSim(ctx);
+    case 'pipeline':    return mrkAnswerPipeline(ctx);
+    case 'recibos':     return mrkAnswerRecibos(ctx);
+    case 'contratos':   return mrkAnswerContratos(ctx);
+    case 'cohort':      return mrkAnswerCohort(ctx);
+    case 'nf':          return mrkAnswerNF(ctx);
+    case 'patrimonio':  return mrkAnswerPatrimonio(ctx);
+    case 'vencimentos': return mrkAnswerVencimentos(ctx);
+    case 'investor':    return mrkAnswerInvestor(ctx);
+    case 'briefing':    return mrkAnswerBriefing(ctx);
+    case 'fklab':       return mrkAnswerFKLab(ctx);
+    case 'identidade':  return mrkAnswerIdentidade();
+    default:            return mrkAnswerFallback(originalText||'', ctx);
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════
@@ -98586,33 +98646,84 @@ function mrkGatherContext(){
   const ctx = {
     now: new Date(),
     ymNow: '',
-    extrato:[], receita:[], dispo:{contas:[]},
-    pessoas:[], cartoes:[], impostos:[], emprestimos:[]
+    extrato:[], receita:[], receitaKanban:null, dispo:{contas:[]},
+    pessoas:[], cartoes:[], impostos:[], emprestimos:[],
+    comercial:null, asaas:null, nf:null, patrim:null
   };
   const ym = (d) => d.toISOString().slice(0,7);
   ctx.ymNow = ym(ctx.now);
+  // EXTRATO — variável real é extratoData.lancamentos[]
   try{
-    if(typeof extData !== 'undefined' && Array.isArray(extData)) ctx.extrato = extData;
+    if(typeof extratoData !== 'undefined' && extratoData && Array.isArray(extratoData.lancamentos)){
+      ctx.extrato = extratoData.lancamentos;
+    }
   }catch(_){}
+  // RECEITA — variável real é receita.years[Y].clients[].meses[mAbbr]
+  // Vamos achatar pra um array de {data, valor, tipo, descricao, cliente, status} unificado
   try{
-    if(typeof receitaData !== 'undefined' && Array.isArray(receitaData)) ctx.receita = receitaData;
+    if(typeof receita !== 'undefined' && receita && receita.years){
+      ctx.receitaKanban = receita;
+      const flat = [];
+      const mNames = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+      Object.entries(receita.years).forEach(([y, yData]) => {
+        if(!yData || !Array.isArray(yData.clients)) return;
+        yData.clients.forEach(cli => {
+          if(!cli || !cli.meses) return;
+          mNames.forEach((mAbbr, idx) => {
+            const cell = cli.meses[mAbbr];
+            if(!cell) return;
+            const valor = Number(cell.valor || 0);
+            if(!valor) return;
+            const dt = cell.dataVencimento || `${y}-${String(idx+1).padStart(2,'0')}-01`;
+            flat.push({
+              data: dt,
+              valor: valor,
+              tipo: 'ganho',
+              descricao: 'Receita: ' + (cli.nome||'Cliente'),
+              cliente: cli.nome,
+              status: cell.status || 'previsto',
+              origem: cell.origem || 'kanban'
+            });
+          });
+        });
+      });
+      // Adiciona ao extrato como entradas (se já não tiver via extrato real)
+      ctx.receita = flat;
+    }
   }catch(_){}
+  // DISPONIBILIDADES
   try{
-    if(typeof dispoData !== 'undefined' && dispoData) ctx.dispo = dispoData;
-    if(typeof dispoData !== 'undefined' && dispoData && Array.isArray(dispoData.contas)) ctx.dispo.contas = dispoData.contas;
+    if(typeof dispoData !== 'undefined' && dispoData){
+      ctx.dispo = dispoData;
+      if(Array.isArray(dispoData.contas)) ctx.dispo.contas = dispoData.contas;
+    }
   }catch(_){}
+  // PESSOAS
   try{
     if(typeof pessoasData !== 'undefined' && Array.isArray(pessoasData)) ctx.pessoas = pessoasData;
+    else if(typeof colData !== 'undefined' && colData && Array.isArray(colData.list)) ctx.pessoas = colData.list;
   }catch(_){}
+  // CARTÕES
   try{
-    if(typeof cartoesData !== 'undefined' && cartoesData) ctx.cartoes = cartoesData.cartoes || [];
+    if(typeof cartoesData !== 'undefined' && cartoesData) ctx.cartoes = cartoesData.cartoes || cartoesData.list || [];
   }catch(_){}
+  // IMPOSTOS
   try{
     if(typeof impData !== 'undefined' && Array.isArray(impData)) ctx.impostos = impData;
+    else if(typeof impData !== 'undefined' && impData && Array.isArray(impData.list)) ctx.impostos = impData.list;
   }catch(_){}
+  // EMPRÉSTIMOS
   try{
     if(typeof DATA !== 'undefined' && Array.isArray(DATA)) ctx.emprestimos = DATA;
   }catch(_){}
+  // COMERCIAL v2
+  try{ if(typeof COM !== 'undefined') ctx.comercial = COM; }catch(_){}
+  // ASAAS
+  try{ if(typeof ASAAS !== 'undefined') ctx.asaas = ASAAS; }catch(_){}
+  // NF
+  try{ if(typeof NF !== 'undefined') ctx.nf = NF; }catch(_){}
+  // Patrimônio
+  try{ if(typeof PATRIM !== 'undefined') ctx.patrim = PATRIM; }catch(_){}
   return ctx;
 }
 
@@ -98669,7 +98780,9 @@ function mrkAnswerRunway(ctx){
 function mrkAnswerEntradaMes(ctx){
   const ym = ctx.ymNow;
   let total = 0; let count = 0;
-  ctx.extrato.forEach(t => {
+  // Lê de extrato + receita kanban (combinado)
+  const allEntradas = [...(ctx.extrato||[]), ...(ctx.receita||[])];
+  allEntradas.forEach(t => {
     if((t.data || '').slice(0,7) === ym && (t.tipo === 'ganho' || (t.valor > 0 && !t.tipo))){
       total += Math.abs(Number(t.valor) || 0); count++;
     }
@@ -98678,7 +98791,7 @@ function mrkAnswerEntradaMes(ctx){
   const dt = new Date(ctx.now); dt.setMonth(dt.getMonth()-1);
   const ymPrev = dt.toISOString().slice(0,7);
   let totalPrev = 0;
-  ctx.extrato.forEach(t => {
+  allEntradas.forEach(t => {
     if((t.data || '').slice(0,7) === ymPrev && (t.tipo === 'ganho' || (t.valor > 0 && !t.tipo))){
       totalPrev += Math.abs(Number(t.valor) || 0);
     }
@@ -98963,20 +99076,23 @@ function mrkAnswerStatus(ctx){
 }
 
 function mrkAnswerHelp(){
-  return '<b>O que eu sei responder:</b><ul>' +
-    '<li>📊 <b>KASH SCORE</b> — sua nota geral</li>' +
-    '<li>⏰ <b>Runway</b> — quantos meses de caixa</li>' +
-    '<li>💰 <b>Entrada/saída do mês</b> — fluxo do período</li>' +
-    '<li>📈 <b>Margem</b> — quanto sobra do que entra</li>' +
-    '<li>👥 <b>Clientes top</b> — concentração de receita</li>' +
-    '<li>🏷 <b>Categoria de gasto</b> — onde sua grana vai</li>' +
-    '<li>⚠ <b>Anomalias</b> — gastos fora do padrão</li>' +
-    '<li>💳 <b>Cartões</b> — visão dos cartões</li>' +
-    '<li>📑 <b>Impostos</b> — DARF, INSS, etc.</li>' +
-    '<li>🏦 <b>Empréstimos</b> — dívidas em aberto</li>' +
-    '<li>🔌 <b>Open Finance</b> — bancos conectados</li>' +
+  return '<b>O que eu sei responder:</b><br><br>' +
+    '<b style="color:#10B981">💰 Financeiro</b><ul>' +
+    '<li><b>KASH SCORE</b> · <b>runway</b> · <b>margem</b> · <b>saldo</b></li>' +
+    '<li><b>entrada/saída do mês</b> (e do anterior — diga "e o anterior?")</li>' +
+    '<li><b>anomalias</b> · <b>cliente top</b> · <b>categoria de gasto</b></li>' +
     '</ul>' +
-    'Manda em PT-BR direto, do jeito que você fala.';
+    '<b style="color:#3B82F6">🔄 Comercial v2</b><ul>' +
+    '<li><b>MRR/ARR</b> · <b>pipeline</b> · <b>cohort</b></li>' +
+    '<li><b>churn</b> (cliente em risco) · <b>health score</b> · <b>upsell</b></li>' +
+    '<li><b>contratos vencendo</b> · <b>recibos</b> · <b>pricing simulator</b></li>' +
+    '</ul>' +
+    '<b style="color:#A78BFA">📊 Outros</b><ul>' +
+    '<li><b>NF / notas fiscais</b> · <b>patrimônio</b> · <b>cartões</b></li>' +
+    '<li><b>impostos</b> · <b>empréstimos</b> · <b>vencimentos da semana</b></li>' +
+    '<li><b>investor deck</b> · <b>daily briefing</b> · <b>FK Lab</b></li>' +
+    '</ul>' +
+    'Manda em PT-BR direto, do jeito que você fala. Funciono em modo local — sem custo de API.';
 }
 function mrkAnswerSaudacao(){
   const h = new Date().getHours();
@@ -98998,13 +99114,332 @@ function mrkAnswerApiConfig(){
 }
 
 function mrkAnswerFallback(text, ctx){
-  return '<b>Hmm.</b> Não captei exatamente o que você quer.<br><br>' +
-    'Tenta perguntar de outra forma, ou usa uma das sugestões abaixo. ' +
-    'Sou bom em: <code>runway</code>, <code>margem</code>, <code>KASH SCORE</code>, ' +
-    '<code>cliente top</code>, <code>categoria gasto</code>, <code>anomalia</code>, ' +
-    '<code>saldo</code>, <code>impostos</code>, <code>cartões</code>, <code>panorama</code>.<br><br>' +
-    '<i style="color:#64748B;font-size:.7rem">Tip: ainda sou um modelo local — pergunta direta dá melhor resposta.</i>';
+  // Smart fallback: encontra os 3 intents mais próximos por similaridade simples
+  const q = (text||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  const scored = [];
+  MRK_INTENTS.forEach(intent => {
+    let s = 0;
+    intent.keys.forEach(k => {
+      // letras em comum entre q e k (substring matching)
+      const words = q.split(/\s+/);
+      words.forEach(w => { if(w.length >= 3 && k.includes(w)) s += w.length; });
+    });
+    if(s > 0) scored.push({ id:intent.id, score:s, key:intent.keys[0] });
+  });
+  scored.sort((a,b)=>b.score-a.score);
+  const suggs = scored.slice(0,3);
+  const QMAP = {
+    kashscore:'KASH SCORE atual?', runway:'Qual meu runway?', entrada:'Quanto entrou esse mês?',
+    saida:'Quanto gastei esse mês?', saldo:'Quanto tem em caixa?', cliente_top:'Cliente que mais paga?',
+    cat_gasto:'Categoria que mais gastei?', anomalia:'Tem alguma anomalia?', margem:'Qual minha margem?',
+    cartao:'Como tá o cartão?', impostos:'Tenho imposto a pagar?', emprestimo:'Quanto devo de empréstimo?',
+    mrr:'Qual meu MRR?', churn:'Tem cliente em risco?', health:'Status dos clientes?',
+    upsell:'Quem posso reajustar?', pricing_sim:'Simula reajuste de 10%', pipeline:'Como tá o pipeline?',
+    recibos:'Quantos recibos emiti?', contratos:'Contratos vencendo?', cohort:'Mostra cohort',
+    nf:'Quantas notas emiti?', patrimonio:'Quanto vale a empresa?', vencimentos:'O que vence essa semana?',
+    investor:'Gera o Investor Deck', briefing:'Faz o daily briefing', fklab:'Cenário FK Lab',
+    status:'Panorama geral', ajuda:'O que você sabe responder?'
+  };
+  let html = '<b>Hmm.</b> Não captei 100% — me ajuda dizendo de outro jeito?<br>';
+  if(suggs.length){
+    html += '<br><small style="color:#94A3B8">Você quis dizer:</small><div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">';
+    suggs.forEach(s => {
+      const lbl = QMAP[s.id] || s.key;
+      html += `<button class="mrk-suggestion" style="text-align:left" onclick="mrkPickSuggestion('${lbl.replace(/'/g,"&#39;")}')">→ ${lbl}</button>`;
+    });
+    html += '</div>';
+  } else {
+    html += '<br>Tenta perguntar sobre:<br>' +
+      '<small style="color:#94A3B8;line-height:1.8">runway · margem · MRR · churn · health · pipeline · upsell · vencimentos · patrimônio · contratos · investidor · briefing · anomalia · KASH SCORE</small>';
+  }
+  html += '<br><br><i style="color:#64748B;font-size:.7rem">Pergunta direta funciona melhor — tô sem LLM, só regras.</i>';
+  return html;
 }
+
+// ═════════════════════════════════════════════════════════════════════
+// NOVOS ANSWERS — Comercial v2 + módulos novos
+// ═════════════════════════════════════════════════════════════════════
+
+function mrkAnswerEntradaMesAnterior(ctx){
+  const dt = new Date(ctx.now); dt.setMonth(dt.getMonth()-1);
+  const ym = dt.toISOString().slice(0,7);
+  let total = 0; let count = 0;
+  const allEntradas = [...(ctx.extrato||[]), ...(ctx.receita||[])];
+  allEntradas.forEach(t => {
+    if((t.data || '').slice(0,7) === ym && (t.tipo === 'ganho' || (t.valor > 0 && !t.tipo))){
+      total += Math.abs(Number(t.valor) || 0); count++;
+    }
+  });
+  return '<b>Entrada em ' + _mrkMonthName(ym) + '</b><span class="mrk-num-big">R$ ' + _mrkFmt(total) + '</span>' +
+    '<div class="mrk-table"><span class="l">Lançamentos</span><span class="v">' + count + '</span></div>';
+}
+function mrkAnswerSaidaMesAnterior(ctx){
+  const dt = new Date(ctx.now); dt.setMonth(dt.getMonth()-1);
+  const ym = dt.toISOString().slice(0,7);
+  let total = 0; let count = 0;
+  (ctx.extrato||[]).forEach(t => {
+    if((t.data || '').slice(0,7) === ym && (t.tipo === 'gasto' || t.valor < 0)){
+      total += Math.abs(Number(t.valor) || 0); count++;
+    }
+  });
+  return '<b>Saída em ' + _mrkMonthName(ym) + '</b><span class="mrk-num-big">R$ ' + _mrkFmt(total) + '</span>' +
+    '<div class="mrk-table"><span class="l">Lançamentos</span><span class="v">' + count + '</span></div>';
+}
+
+function mrkAnswerMRR(ctx){
+  const com = ctx.comercial;
+  if(!com || !Array.isArray(com.assinaturas) || !com.assinaturas.length){
+    return '<b>Sem assinaturas ativas ainda.</b><br>Vá em <code>Comercial → Cobrança Recorrente</code> e cadastra a primeira pra eu calcular MRR/ARR.';
+  }
+  const ativas = com.assinaturas.filter(a => a.ativa);
+  const mrr = ativas.reduce((s,a) => s+(Number(a.valor)||0), 0);
+  const arr = mrr * 12;
+  const todas = com.assinaturas.length;
+  const ticket = ativas.length ? (mrr/ativas.length) : 0;
+  return '<b>Receita Recorrente</b><span class="mrk-num-big">' + _mrkFmt(mrr) + '</span><small style="color:#94A3B8">MRR · ARR projetado R$ ' + _mrkFmt(arr) + '</small>' +
+    '<div class="mrk-table">' +
+      '<span class="l">Assinaturas ativas</span><span class="v">' + ativas.length + ' / ' + todas + '</span>' +
+      '<span class="l">Ticket médio</span><span class="v">R$ ' + _mrkFmt(ticket) + '</span>' +
+      '<span class="l">ARR projetado</span><span class="v" style="color:#10B981">R$ ' + _mrkFmt(arr) + '</span>' +
+    '</div>' +
+    '<small style="color:#64748B;font-size:.7rem">Pergunta "churn", "upsell" ou "simula reajuste" pra aprofundar.</small>';
+}
+function mrkAnswerChurn(ctx){
+  const com = ctx.comercial;
+  if(!com || !Array.isArray(com.assinaturas) || !com.assinaturas.length){
+    return '<b>Sem assinaturas pra analisar.</b><br>Sem dados, sem churn predictor. Cadastra em <code>Comercial</code> primeiro.';
+  }
+  if(typeof _comCalcChurnRisk !== 'function') return '<b>Engine de churn indisponível.</b> Reload a página.';
+  const risco = _comCalcChurnRisk();
+  if(!risco.length){
+    return '<b style="color:#10B981">✅ Zero clientes em risco.</b><br>Todos pagando em dia, sem sinais de churn. Operação saudável.';
+  }
+  let html = '<b style="color:#EF4444">🚨 ' + risco.length + ' cliente(s) em risco</b><br>';
+  html += '<small style="color:#94A3B8">Total em jogo: R$ ' + _mrkFmt(risco.reduce((s,r)=>s+r.valor,0)) + '/mês</small>';
+  html += '<div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">';
+  risco.slice(0,5).forEach(r => {
+    html += '<div style="background:#0F172A;border-left:3px solid #EF4444;padding:8px 10px;border-radius:6px;font-size:.78rem">' +
+      '<b style="color:#EF4444">' + _mrkEsc(r.cliente) + '</b> · ' + r.score + '% risco<br>' +
+      '<span style="color:#94A3B8;font-size:.7rem">' + _mrkEsc(r.razoes.join(' · ')) + '</span></div>';
+  });
+  html += '</div>';
+  return html;
+}
+function mrkAnswerHealth(ctx){
+  const com = ctx.comercial;
+  if(!com || !Array.isArray(com.assinaturas) || !com.assinaturas.length){
+    return '<b>Sem clientes recorrentes ainda.</b> Cadastra em <code>Comercial → Cobrança Recorrente</code>.';
+  }
+  if(typeof _comCalcHealthScores !== 'function') return '<b>Engine de health indisponível.</b>';
+  const health = _comCalcHealthScores();
+  const verde = health.filter(h => h.score >= 75).length;
+  const amarelo = health.filter(h => h.score >= 50 && h.score < 75).length;
+  const vermelho = health.filter(h => h.score < 50).length;
+  let html = '<b>Customer Health Score</b><div class="mrk-table">' +
+    '<span class="l">💚 Saudáveis</span><span class="v" style="color:#10B981">' + verde + '</span>' +
+    '<span class="l">💛 Atenção</span><span class="v" style="color:#F59E0B">' + amarelo + '</span>' +
+    '<span class="l">❤ Em risco</span><span class="v" style="color:#EF4444">' + vermelho + '</span>' +
+    '</div>';
+  html += '<small style="color:#94A3B8;font-size:.74rem;margin-top:10px;display:block">Top 3 melhores:</small>';
+  health.slice(0,3).forEach(h => {
+    html += '<div style="background:#0F172A;padding:6px 10px;border-radius:6px;margin-top:4px;display:flex;justify-content:space-between;font-size:.78rem">' +
+      '<span>' + _mrkEsc(h.cliente) + '</span><span style="color:' + h.color + ';font-weight:700">' + h.score + ' ' + h.emoji + '</span></div>';
+  });
+  return html;
+}
+function mrkAnswerUpsell(ctx){
+  if(typeof _comCalcUpsells !== 'function') return '<b>Engine de upsell indisponível.</b>';
+  const ups = _comCalcUpsells();
+  if(!ups.length){
+    return '<b>Nenhum upsell óbvio agora.</b><br>Critérios: cliente com 6+ meses sem upgrade + bom pagador. Espera mais histórico acumular.';
+  }
+  let html = '<b style="color:#10B981">⬆ ' + ups.length + ' sugestão(ões) de upsell</b><br>';
+  const potencial = ups.reduce((s,u)=>s+(u.sugestao-u.atual),0);
+  html += '<small style="color:#94A3B8">Potencial: +R$ ' + _mrkFmt(potencial) + '/mês</small>';
+  html += '<div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">';
+  ups.slice(0,5).forEach(u => {
+    html += '<div style="background:#0F172A;border-left:3px solid #10B981;padding:8px 10px;border-radius:6px;font-size:.78rem">' +
+      '<b style="color:#10B981">' + _mrkEsc(u.cliente) + '</b><br>' +
+      'R$ ' + _mrkFmt(u.atual) + ' → <b style="color:#10B981">R$ ' + _mrkFmt(u.sugestao) + '</b><br>' +
+      '<span style="color:#94A3B8;font-size:.7rem">' + _mrkEsc(u.razao) + '</span></div>';
+  });
+  html += '</div>';
+  return html;
+}
+function mrkAnswerPricingSim(ctx){
+  return '<b>💰 Pricing Simulator</b><br>' +
+    'Vá em <code>Comercial → IA Insights</code> e arrasta o slider — calcula em tempo real o novo MRR, ARR e churn estimado por sensibilidade ao preço.<br><br>' +
+    '<button class="mrk-suggestion" onclick="switchModule(\'comercial\',null);setTimeout(()=>comSwitchTab(\'ia\'),120)">→ Abrir Pricing Simulator</button>';
+}
+function mrkAnswerPipeline(ctx){
+  const com = ctx.comercial;
+  if(!com || !Array.isArray(com.propostas) || !com.propostas.length){
+    return '<b>Pipeline vazia.</b><br>Vá em <code>Comercial → Pipeline</code> pra cadastrar leads e propostas.';
+  }
+  const total = com.propostas.length;
+  const valor = com.propostas.reduce((s,p)=>s+(Number(p.valorEstimado)||0),0);
+  const counts = {};
+  com.propostas.forEach(p => { counts[p.estagio] = (counts[p.estagio]||0) + 1; });
+  const ganhou = counts.ganhou || 0;
+  const conv = total ? (ganhou/total*100).toFixed(0) : 0;
+  return '<b>Pipeline comercial</b><span class="mrk-num-big">' + _mrkFmt(valor) + '</span><small style="color:#94A3B8">valor estimado total</small>' +
+    '<div class="mrk-table">' +
+      '<span class="l">🌱 Leads</span><span class="v">' + (counts.lead||0) + '</span>' +
+      '<span class="l">📝 Propostas</span><span class="v">' + (counts.proposta||0) + '</span>' +
+      '<span class="l">💬 Negociação</span><span class="v">' + (counts.negociacao||0) + '</span>' +
+      '<span class="l">✅ Ganhas</span><span class="v" style="color:#10B981">' + ganhou + '</span>' +
+      '<span class="l">❌ Perdidas</span><span class="v" style="color:#EF4444">' + (counts.perdeu||0) + '</span>' +
+      '<span class="l">Taxa conversão</span><span class="v">' + conv + '%</span>' +
+    '</div>';
+}
+function mrkAnswerRecibos(ctx){
+  const com = ctx.comercial;
+  if(!com || !Array.isArray(com.recibos) || !com.recibos.length){
+    return '<b>Nenhum recibo emitido.</b><br><code>Comercial → Recibos → + Emitir recibo</code>.';
+  }
+  const total = com.recibos.length;
+  const valor = com.recibos.reduce((s,r)=>s+(Number(r.valor)||0),0);
+  const ymNow = ctx.ymNow;
+  const noMes = com.recibos.filter(r => (r.data||'').slice(0,7) === ymNow).length;
+  return '<b>Recibos</b><span class="mrk-num-big">' + total + '</span><small style="color:#94A3B8">' + noMes + ' este mês · R$ ' + _mrkFmt(valor) + ' acumulado</small>';
+}
+function mrkAnswerContratos(ctx){
+  const com = ctx.comercial;
+  if(!com || !Array.isArray(com.contratos) || !com.contratos.length){
+    return '<b>Nenhum contrato cadastrado.</b><br><code>Comercial → Contratos</code> pra começar.';
+  }
+  // Recalcula status
+  const hoje = new Date();
+  let ativos=0, breve=0, vencidos=0, valor=0;
+  com.contratos.forEach(c => {
+    valor += Number(c.valor)||0;
+    if(!c.fim) return;
+    const fim = new Date(c.fim);
+    const diff = Math.ceil((fim - hoje)/(1000*60*60*24));
+    if(diff < 0) vencidos++;
+    else if(diff <= (c.alertaDias||30)) breve++;
+    else ativos++;
+  });
+  return '<b>Contratos</b><div class="mrk-table">' +
+    '<span class="l">✅ Ativos</span><span class="v" style="color:#10B981">' + ativos + '</span>' +
+    '<span class="l">⚠ Vencem em breve</span><span class="v" style="color:#F59E0B">' + breve + '</span>' +
+    '<span class="l">❌ Vencidos</span><span class="v" style="color:#EF4444">' + vencidos + '</span>' +
+    '<span class="l">Valor total</span><span class="v">R$ ' + _mrkFmt(valor) + '</span>' +
+    '</div>' + (breve > 0 ? '<small style="color:#F59E0B;font-size:.74rem;margin-top:8px;display:block">⚠ Tem contrato vencendo. Vale revisar antes que pegue de surpresa.</small>' : '');
+}
+function mrkAnswerCohort(ctx){
+  if(typeof _comCalcCohorts !== 'function') return '<b>Engine de cohort indisponível.</b>';
+  const cohorts = _comCalcCohorts();
+  if(!cohorts.length) return '<b>Sem dados pra cohort.</b><br>Crie assinaturas em meses diferentes pra eu calcular retenção.';
+  let html = '<b>Cohort Analysis</b><small style="color:#94A3B8">retenção por mês de entrada</small><br>';
+  html += '<div style="display:flex;flex-direction:column;gap:4px;margin-top:8px">';
+  cohorts.forEach(c => {
+    const ret = c.total>0 ? (c.ativos/c.total*100) : 0;
+    const cor = ret>=80?'#10B981':ret>=50?'#F59E0B':'#EF4444';
+    html += '<div style="background:#0F172A;padding:6px 10px;border-radius:6px;display:flex;justify-content:space-between;font-size:.78rem">' +
+      '<span>' + c.ym + '</span>' +
+      '<span style="color:#94A3B8">' + c.ativos + '/' + c.total + ' ativos</span>' +
+      '<span style="color:' + cor + ';font-weight:700">' + ret.toFixed(0) + '%</span></div>';
+  });
+  html += '</div>';
+  return html;
+}
+function mrkAnswerNF(ctx){
+  const nf = ctx.nf;
+  if(!nf || !Array.isArray(nf.notas) || !nf.notas.length){
+    return '<b>Nenhuma NFS-e emitida ainda.</b><br><code>Notas Fiscais → Emitir NFS-e</code> pra começar.';
+  }
+  const total = nf.notas.length;
+  const ymNow = ctx.ymNow;
+  const noMes = nf.notas.filter(n => (n.dataEmissao||'').slice(0,7) === ymNow).length;
+  const valor = nf.notas.reduce((s,n)=>s+(Number(n.valor)||0), 0);
+  const autorizadas = nf.notas.filter(n => n.status === 'autorizada').length;
+  return '<b>Notas Fiscais</b><span class="mrk-num-big">' + total + '</span><small style="color:#94A3B8">' + noMes + ' este mês · R$ ' + _mrkFmt(valor) + '</small>' +
+    '<div class="mrk-table"><span class="l">Autorizadas</span><span class="v" style="color:#10B981">' + autorizadas + '</span></div>';
+}
+function mrkAnswerPatrimonio(ctx){
+  const p = ctx.patrim;
+  if(!p || !Array.isArray(p.contas) || !p.contas.length){
+    return '<b>Patrimônio ainda vazio.</b><br>Vá em <code>Patrimônio</code> pra cadastrar ativos e passivos. Auto-importa de Disponibilidades + Asaas + Empréstimos.';
+  }
+  const ativo = p.contas.filter(c => c.secao==='ac'||c.secao==='anc').reduce((s,c)=>s+(Number(c.valor)||0), 0);
+  const passivo = p.contas.filter(c => c.secao==='pc'||c.secao==='pnc').reduce((s,c)=>s+(Number(c.valor)||0), 0);
+  const pl = ativo - passivo;
+  return '<b>Patrimônio</b><span class="mrk-num-big">' + _mrkFmt(pl) + '</span><small style="color:#94A3B8">Patrimônio Líquido (Ativo − Passivo)</small>' +
+    '<div class="mrk-table">' +
+      '<span class="l">↑ Ativo total</span><span class="v" style="color:#10B981">R$ ' + _mrkFmt(ativo) + '</span>' +
+      '<span class="l">↓ Passivo total</span><span class="v" style="color:#EF4444">R$ ' + _mrkFmt(passivo) + '</span>' +
+      '<span class="l">= PL</span><span class="v" style="color:' + (pl>=0?'#10B981':'#EF4444') + ';font-weight:700">R$ ' + _mrkFmt(pl) + '</span>' +
+    '</div>';
+}
+function mrkAnswerVencimentos(ctx){
+  const hoje = new Date(); const hojeStr = hoje.toISOString().slice(0,10);
+  const semana = new Date(hoje.getTime() + 7*24*60*60*1000).toISOString().slice(0,10);
+  const eventos = [];
+  // Asaas pendente
+  try{
+    if(ctx.asaas && Array.isArray(ctx.asaas.cobrancas)){
+      ctx.asaas.cobrancas.forEach(c => {
+        if(c.status === 'pendente' && c.vencimento && c.vencimento >= hojeStr && c.vencimento <= semana){
+          eventos.push({ data:c.vencimento, tipo:'cobrança', desc:c.cliente, valor:c.valor, cor:'#10B981' });
+        }
+      });
+    }
+  }catch(_){}
+  // Contratos vencendo
+  if(ctx.comercial && Array.isArray(ctx.comercial.contratos)){
+    ctx.comercial.contratos.forEach(c => {
+      if(c.fim && c.fim >= hojeStr && c.fim <= semana){
+        eventos.push({ data:c.fim, tipo:'contrato', desc:c.titulo, valor:c.valor, cor:'#F59E0B' });
+      }
+    });
+  }
+  // Impostos
+  try{
+    (ctx.impostos||[]).forEach(i => {
+      const venc = i.vencimento || i.data;
+      if(venc && venc >= hojeStr && venc <= semana){
+        eventos.push({ data:venc, tipo:'imposto', desc:i.descricao||i.nome||'Imposto', valor:i.valor, cor:'#EF4444' });
+      }
+    });
+  }catch(_){}
+  eventos.sort((a,b)=>a.data.localeCompare(b.data));
+  if(!eventos.length) return '<b style="color:#10B981">✅ Nada vencendo essa semana.</b><br>Pode respirar fundo.';
+  let html = '<b>Vencimentos · próximos 7 dias</b><small style="color:#94A3B8">' + eventos.length + ' evento(s)</small>';
+  html += '<div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">';
+  eventos.slice(0,10).forEach(e => {
+    html += '<div style="background:#0F172A;border-left:3px solid ' + e.cor + ';padding:8px 10px;border-radius:6px;display:flex;justify-content:space-between;align-items:center;font-size:.78rem">' +
+      '<div><b>' + e.data.slice(5).replace('-','/') + '</b> · ' + e.tipo + '<br><span style="color:#94A3B8;font-size:.7rem">' + _mrkEsc(e.desc||'') + '</span></div>' +
+      '<span style="color:' + e.cor + ';font-weight:700">R$ ' + _mrkFmt(e.valor||0) + '</span></div>';
+  });
+  html += '</div>';
+  return html;
+}
+function mrkAnswerInvestor(ctx){
+  return '<b>🚀 Investor Deck</b><br>' +
+    'Já tenho 6 slides prontos com seus números: Executive Summary, Market & Product, Métricas (LTV/CAC/Burn), DRE, Growth Story e Ask.<br><br>' +
+    '<button class="mrk-suggestion" onclick="switchModule(\'relatorios\',null);setTimeout(()=>{if(typeof repSetType===\'function\')repSetType(\'investor\',document.querySelector(\'[data-rep=investor]\'))},120)">→ Abrir Investor Deck</button>';
+}
+function mrkAnswerBriefing(ctx){
+  return '<b>🌅 Daily Briefing</b><br>' +
+    'Posso gerar agora um resumo financeiro: saldo, vencimentos, MRR, anomalias.<br><br>' +
+    '<button class="mrk-suggestion" onclick="if(typeof dailyBriefingNow===\'function\')dailyBriefingNow()">→ Gerar briefing agora</button>';
+}
+function mrkAnswerFKLab(ctx){
+  return '<b>🧪 FK Lab</b><br>' +
+    'Simulador de cenários what-if cross-module. Crie um cenário, aplique atos (corte de custo, contratação, reajuste, etc.) e veja o impacto em DRE, fluxo e patrimônio.<br><br>' +
+    '<button class="mrk-suggestion" onclick="switchModule(\'fklab\',null)">→ Abrir FK Lab</button>';
+}
+function mrkAnswerIdentidade(){
+  const opcoes = [
+    '<b>MR KASH.</b> Assistente financeiro do Forekash.<br>Eu leio teus números em tempo real e respondo direto. Sem LLM, sem custo, sem rolê.',
+    '<b>Sou o MR KASH.</b><br>Funciono em modo local — leio teus módulos (Receita, Comercial, Patrimônio…) e respondo com o que tem ali. Determinístico. Sem alucinação.',
+    '<b>Hello, friend.</b><br>Sou o MR KASH. Modo local, código zero-custo. Só sei o que teus dados me contam — então quanto mais você preenche o Forekash, mais útil eu fico.'
+  ];
+  return opcoes[Math.floor(Math.random()*opcoes.length)];
+}
+
+function _mrkEsc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 
 // ═════════════════════════════════════════════════════════════════════
 // HELPERS
