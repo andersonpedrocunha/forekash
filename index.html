@@ -92231,7 +92231,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779920238';
+      const CACHE = 'forekash-v1779920680';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -92635,7 +92635,6 @@ const CMDK_COMMANDS = [
   { group:'Configurações', label:'Configurar API & Webhooks', ico:'🔌', kbd:'', action:() => { switchModule('configuracoes',null); setTimeout(() => { const el=document.getElementById('cfg-api-section'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 200); } },
   { group:'Configurações', label:'Modo Contador (White-label)', ico:'🎨', kbd:'', action:() => { switchModule('configuracoes',null); setTimeout(() => { const el=document.getElementById('cfg-wl-section'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 200); } },
   { group:'Configurações', label:'🎉 Ver novidades (What\'s New)', ico:'🎉', kbd:'', action:() => { if(typeof whatsnewOpen==='function') whatsnewOpen(); } },
-  { group:'Configurações', label:'🎭 Trocar persona (CEO/CFO/Analista)', ico:'🎭', kbd:'', action:() => { if(typeof personaOpenSwitcher==='function') personaOpenSwitcher(); } },
   { group:'Configurações', label:'🚀 Carregar dataset DEMO SaaS', ico:'🚀', kbd:'', action:() => { if(typeof demoSaasLoad==='function') demoSaasLoad(); } },
   { group:'Configurações', label:'🔔 Ativar notificações push', ico:'🔔', kbd:'', action:() => { if(typeof webpushRequest==='function') webpushRequest(); } },
   { group:'Ações',         label:'✨ Sugestões de categoria (Smart Cat)', ico:'✨', kbd:'', action:() => { if(typeof smartCatBadgeOpen==='function') smartCatBadgeOpen(); } },
@@ -98530,74 +98529,6 @@ function commPickFilter(){
 try{ window.commOpenContextual = commOpenContextual; window.commPickFromList = commPickFromList; window.commPickFilter = commPickFilter; }catch(_){}
 
 // ═════════════════════════════════════════════════════════════════════
-// 🎭 PERSONA SWITCHER · CEO / CFO / Analista
-// Muda quais KPIs aparecem em destaque conforme o papel
-// ═════════════════════════════════════════════════════════════════════
-const PERSONA_KEY = 'forekash:persona:v1';
-let PERSONA_CURRENT = 'ceo';
-const PERSONAS = {
-  ceo:      { label:'CEO',      ico:'👑', cor:'#A78BFA', desc:'Visão estratégica: MRR, Runway, Growth, Churn' },
-  cfo:      { label:'CFO',      ico:'📊', cor:'#3B82F6', desc:'Visão financeira: DRE, Caixa, Custos, Margem, Impostos' },
-  analista: { label:'Analista', ico:'🔬', cor:'#10B981', desc:'Visão operacional: lançamentos, conciliação, categorias, anomalias' }
-};
-function personaLoad(){
-  try{ const raw = localStorage.getItem(PERSONA_KEY); if(raw && PERSONAS[raw]) PERSONA_CURRENT = raw; }catch(_){}
-}
-function personaSet(p){
-  if(!PERSONAS[p]) return;
-  PERSONA_CURRENT = p;
-  try{ localStorage.setItem(PERSONA_KEY, p); }catch(_){}
-  personaApply();
-  if(typeof fkToast === 'function'){
-    const pd = PERSONAS[p];
-    fkToast(`${pd.ico} Persona: ${pd.label} · ${pd.desc}`, 'info', 4000);
-  }
-  if(typeof auditLog === 'function') auditLog('persona', `mudou pra ${p}`);
-}
-function personaApply(){
-  // Cria/atualiza badge no header
-  let badge = document.getElementById('hdr-persona-badge');
-  if(!badge){
-    const userArea = document.getElementById('hdr-user') || document.getElementById('hdr-theme-btn');
-    if(userArea){
-      badge = document.createElement('button');
-      badge.id = 'hdr-persona-badge';
-      badge.type = 'button';
-      badge.title = 'Mudar persona (CEO/CFO/Analista)';
-      badge.style.cssText = 'background:transparent;border:1px solid #334155;color:#E5E7EB;padding:5px 12px;border-radius:8px;font-size:.74rem;cursor:pointer;margin-right:8px;display:inline-flex;align-items:center;gap:6px;font-weight:600;letter-spacing:.3px;transition:all .15s';
-      badge.onclick = personaOpenSwitcher;
-      userArea.parentNode.insertBefore(badge, userArea);
-    }
-  }
-  if(badge){
-    const pd = PERSONAS[PERSONA_CURRENT];
-    badge.style.borderColor = pd.cor;
-    badge.style.color = pd.cor;
-    badge.innerHTML = `<span style="font-size:.96rem;line-height:1">${pd.ico}</span><span>${pd.label}</span>`;
-  }
-  // Marca body com data-persona pra CSS poder reagir
-  document.body.setAttribute('data-persona', PERSONA_CURRENT);
-}
-function personaOpenSwitcher(){
-  const html = `<div style="color:#E5E7EB">
-    <p style="font-size:.86rem;color:#94A3B8;margin:0 0 16px">Cada persona destaca KPIs diferentes na home e adapta o foco do MR KASH. Você pode trocar quando quiser.</p>
-    <div style="display:flex;flex-direction:column;gap:10px">
-      ${Object.entries(PERSONAS).map(([k, p]) => `
-        <button onclick="personaSet('${k}');document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove()" style="display:flex;gap:12px;align-items:center;background:#0F172A;border:1px solid ${k===PERSONA_CURRENT?p.cor:'#334155'};border-radius:10px;padding:12px 14px;cursor:pointer;text-align:left;color:#E5E7EB;transition:all .15s">
-          <div style="width:42px;height:42px;border-radius:50%;background:${p.cor}22;color:${p.cor};display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">${p.ico}</div>
-          <div style="flex:1">
-            <div style="font-weight:700;font-size:.92rem;color:${p.cor}">${p.label} ${k===PERSONA_CURRENT?'<span style="background:'+p.cor+'22;color:'+p.cor+';padding:2px 6px;border-radius:4px;font-size:.66rem;font-weight:700;margin-left:6px">ATUAL</span>':''}</div>
-            <div style="color:#94A3B8;font-size:.78rem;margin-top:2px">${p.desc}</div>
-          </div>
-        </button>
-      `).join('')}
-    </div>
-  </div>`;
-  if(typeof _fkModal === 'function') _fkModal('🎭 Trocar persona', html, () => true);
-}
-try{ window.personaLoad = personaLoad; window.personaSet = personaSet; window.personaApply = personaApply; window.personaOpenSwitcher = personaOpenSwitcher; window.PERSONA_CURRENT = PERSONA_CURRENT; }catch(_){}
-
-// ═════════════════════════════════════════════════════════════════════
 // 🚀 DEMO DATASET · "Startup SaaS crescendo" — popula caso completo
 // ═════════════════════════════════════════════════════════════════════
 function demoSaasLoad(){
@@ -103803,8 +103734,6 @@ function fkBootApp(){
   _safeInit('commLoad',           () => commLoad());
   _safeInit('modHistLoad',        () => modHistLoad());
   _safeInit('snipLoad',           () => snipLoad());
-  _safeInit('personaLoad',        () => personaLoad());
-  _safeInit('personaApply',       () => personaApply());
   _safeInit('webpushHook',        () => { setTimeout(webpushHook, 6000); });
   _safeInit('whatsnewMaybeShow',  () => whatsnewMaybeShow());
   _safeInit('konamiInit',         () => konamiInit());
