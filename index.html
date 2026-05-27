@@ -19450,10 +19450,9 @@
         <h1 class="pg-title">Patrimônio</h1>
         <p class="pg-sub">Fotografia da sua posição financeira em qualquer momento — ATIVO (o que você tem) − PASSIVO (o que deve) = PATRIMÔNIO LÍQUIDO. Auto-importa de Disponibilidades, Asaas e Empréstimos. Use o modo <b>Simulação</b> pra projetar cenários sem afetar os dados reais.</p>
 
-        <!-- Tabs: Real | Simulação | Snapshots | Dashboard (LAST) -->
+        <!-- Tabs: Real | Snapshots | Dashboard (Simulação foi consolidada no FK Lab) -->
         <div class="tabs" style="margin-bottom:14px">
           <button class="tab-btn active" id="patrim-tab-real-btn" onclick="patrimSwitchTab('real',this)">📊&nbsp; Posição Real</button>
-          <button class="tab-btn" id="patrim-tab-sim-btn" onclick="patrimSwitchTab('sim',this)">🧪&nbsp; Simulação</button>
           <button class="tab-btn" id="patrim-tab-snap-btn" onclick="patrimSwitchTab('snap',this)">📸&nbsp; Histórico (Snapshots)</button>
           <button class="tab-btn" id="patrim-tab-dash-btn" onclick="patrimSwitchTab('dash',this)">📈&nbsp; Dashboard</button>
         </div>
@@ -19553,26 +19552,6 @@
         <!-- Aba DASHBOARD · indicadores patrimoniais no tempo -->
         <div id="patrim-tab-dash" class="tab-pane" style="display:none">
           <div id="patrim-dash-content"></div>
-        </div>
-
-        <!-- Aba SIMULAÇÃO -->
-        <div id="patrim-tab-sim" class="tab-pane" style="display:none">
-          <div class="patrim-sim-banner">
-            <span class="patrim-sim-banner-ico">🧪</span>
-            <div>
-              <b>Modo Simulação · what-if scenarios</b>
-              <p>Edite valores hipoteticamente — receba financiamento, venda imobilizado, paga dívida toda. O Patrimônio Real <b>não é alterado</b>. Use pra apresentar cenários ao sócio/banco.</p>
-            </div>
-          </div>
-          <div class="patrim-toolbar">
-            <select id="patrim-sim-picker" onchange="patrimLoadSimulacao(this.value)"></select>
-            <button class="btn btn-sec" onclick="patrimSimNew()">+ Novo cenário</button>
-            <button class="btn btn-sec" onclick="patrimSimResetToReal()">↻ Resetar pra Real</button>
-            <div style="flex:1"></div>
-            <button class="btn btn-sec danger" onclick="patrimSimDelete()" title="Apaga este cenário">🗑 Apagar cenário</button>
-            <button class="btn btn-p" onclick="patrimSimSave()">💾 Salvar cenário</button>
-          </div>
-          <div id="patrim-sim-content"></div>
         </div>
 
         <!-- Aba SNAPSHOTS -->
@@ -91533,7 +91512,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779890052';
+      const CACHE = 'forekash-v1779890854';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -92031,6 +92010,47 @@ const FKLAB_ACTS = {
       { key:'valor', label:'Valor do aporte (R$)', type:'number', default:200000 },
       { key:'socio', label:'Nome do sócio', type:'text', default:'Sócio investidor' }
     ]
+  },
+  'patr-vender-imob': {
+    cat:'patr', label:'Vender imobilizado', ico:'🏗',
+    desc:'Vender equipamento, móvel, veículo ou imóvel · entrada de caixa',
+    fields:[
+      { key:'valorVenda', label:'Valor de venda (R$)', type:'number', default:50000 },
+      { key:'valorContabil', label:'Valor contábil baixado (R$)', type:'number', default:45000 },
+      { key:'descricao', label:'O que está sendo vendido', type:'text', default:'Equipamento usado' }
+    ]
+  },
+  'patr-comprar-estoque': {
+    cat:'patr', label:'Comprar estoque', ico:'📦',
+    desc:'Investir em mercadoria/insumo · transforma caixa em estoque',
+    fields:[
+      { key:'valor', label:'Valor da compra (R$)', type:'number', default:30000 },
+      { key:'descricao', label:'Tipo de estoque', type:'text', default:'Mercadoria pra revenda' }
+    ]
+  },
+  'patr-distribuir': {
+    cat:'patr', label:'Distribuir dividendos', ico:'💸',
+    desc:'Pagar lucros aos sócios · sai do caixa e do PL',
+    fields:[
+      { key:'valor', label:'Valor distribuído (R$)', type:'number', default:100000 },
+      { key:'periodo', label:'Período', type:'text', default:'Lucro do exercício 2026' }
+    ]
+  },
+  'patr-alienar-invest': {
+    cat:'patr', label:'Alienar investimento de LP', ico:'💎',
+    desc:'Resgatar CDB, vender ações ou desinvestir · vira caixa imediato',
+    fields:[
+      { key:'valor', label:'Valor resgatado (R$)', type:'number', default:80000 },
+      { key:'tipoInvest', label:'Tipo de investimento', type:'text', default:'CDB / Tesouro Direto' }
+    ]
+  },
+  'patr-aumento-capital': {
+    cat:'patr', label:'Aumento de capital social', ico:'📈',
+    desc:'Integralização formal de capital · aumenta capital social registrado',
+    fields:[
+      { key:'valor', label:'Valor do aumento (R$)', type:'number', default:500000 },
+      { key:'origem', label:'Origem', type:'select', options:[['novo','Capital novo dos sócios'],['lucros','Capitalização de lucros acumulados']], default:'novo' }
+    ]
   }
 };
 
@@ -92222,6 +92242,43 @@ function fklabComputeImpact(acts){
       delta.caixa += v;
       delta.patrimonioLiq += v;
       detail.push({ act:act, label:'Aporte ' + (p.socio || 'sócio') + ' · R$ ' + v, deltaCaixa:v });
+    }
+    else if(t === 'patr-vender-imob'){
+      const venda = Number(p.valorVenda) || 0;
+      const contabil = Number(p.valorContabil) || 0;
+      const ganhoCapital = venda - contabil;
+      delta.caixa += venda;
+      // Aumento de PL pelo ganho de capital (lucro não-operacional)
+      delta.patrimonioLiq += ganhoCapital;
+      detail.push({ act:act, label:'Vendeu ' + (p.descricao || 'imobilizado') + ' · ' + (ganhoCapital >= 0 ? 'ganho' : 'perda') + ' R$ ' + Math.abs(ganhoCapital), deltaCaixa:venda });
+    }
+    else if(t === 'patr-comprar-estoque'){
+      const v = Number(p.valor) || 0;
+      delta.caixa -= v;
+      // Estoque vira ativo · neutro em PL (troca de ativo por ativo)
+      detail.push({ act:act, label:'Compra ' + (p.descricao || 'estoque') + ' · R$ ' + v, deltaCaixa:-v });
+    }
+    else if(t === 'patr-distribuir'){
+      const v = Number(p.valor) || 0;
+      delta.caixa -= v;
+      delta.patrimonioLiq -= v;
+      detail.push({ act:act, label:'Distribuição ' + (p.periodo || 'dividendos') + ' · R$ ' + v, deltaCaixa:-v });
+    }
+    else if(t === 'patr-alienar-invest'){
+      const v = Number(p.valor) || 0;
+      delta.caixa += v;
+      // Neutro em PL (troca de ativo · invest LP → caixa)
+      detail.push({ act:act, label:'Resgate ' + (p.tipoInvest || 'investimento') + ' · R$ ' + v, deltaCaixa:v });
+    }
+    else if(t === 'patr-aumento-capital'){
+      const v = Number(p.valor) || 0;
+      // Se origem é novo capital: caixa entra + PL aumenta
+      // Se origem é capitalização de lucros: só formal · neutro
+      if(p.origem === 'novo'){
+        delta.caixa += v;
+        delta.patrimonioLiq += v;
+      }
+      detail.push({ act:act, label:'Aumento de capital · ' + (p.origem === 'novo' ? 'novo aporte' : 'capitalização') + ' R$ ' + v, deltaCaixa: p.origem === 'novo' ? v : 0 });
     }
   });
   // Recalc lucro = receita - despesa (delta)
@@ -92443,6 +92500,11 @@ function _fklActSummary(act){
   if(act.type === 'imp-regime') return 'Regime → ' + p.regimeNovo + ' · ' + p.aliquotaEfetiva + '% efetiva';
   if(act.type === 'estr-corte') return '-' + p.pct + '% · ' + (p.categoria || '');
   if(act.type === 'patr-aporte') return 'R$ ' + _fklFmt(p.valor) + ' · ' + (p.socio || '');
+  if(act.type === 'patr-vender-imob') return 'R$ ' + _fklFmt(p.valorVenda) + ' venda · ' + (p.descricao || '');
+  if(act.type === 'patr-comprar-estoque') return 'R$ ' + _fklFmt(p.valor) + ' · ' + (p.descricao || '');
+  if(act.type === 'patr-distribuir') return 'R$ ' + _fklFmt(p.valor) + ' · ' + (p.periodo || '');
+  if(act.type === 'patr-alienar-invest') return 'R$ ' + _fklFmt(p.valor) + ' · ' + (p.tipoInvest || '');
+  if(act.type === 'patr-aumento-capital') return 'R$ ' + _fklFmt(p.valor) + ' · ' + (p.origem === 'novo' ? 'novo capital' : 'capitalização lucros');
   return '';
 }
 
@@ -93611,8 +93673,7 @@ function patrimSwitchTab(tab, btn){
   document.querySelectorAll('#mod-patrimonio .tab-pane').forEach(p => p.style.display = 'none');
   const pane = document.getElementById('patrim-tab-' + tab);
   if(pane){ pane.style.display = ''; pane.classList.add('active'); }
-  if(tab === 'sim') patrimRenderSimTab();
-  else if(tab === 'snap') patrimRenderSnapTab();
+  if(tab === 'snap') patrimRenderSnapTab();
   else if(tab === 'dash') patrimRenderDashTab();
 }
 
@@ -93620,7 +93681,6 @@ function patrimRender(){
   patrimAutoImport();
   patrimSave();
   if(PATRIM_CUR_TAB === 'real') patrimRenderRealTab();
-  else if(PATRIM_CUR_TAB === 'sim') patrimRenderSimTab();
   else if(PATRIM_CUR_TAB === 'snap') patrimRenderSnapTab();
   else if(PATRIM_CUR_TAB === 'dash') patrimRenderDashTab();
 }
