@@ -19421,16 +19421,24 @@
         <!-- Destaque: Saldo Inicial (editável) + Saldo Final (dez) -->
         <div class="flx-cashbox" id="flx-cashbox"></div>
 
-        <!-- 📈 Forecast — projeção próximos 6 meses -->
+        <!-- 📈 Projeção de Fluxo de Caixa — próximos 6 meses -->
         <div class="flx-forecast" id="flx-forecast" style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:16px 18px;margin:14px 0">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-            <div>
-              <h3 style="margin:0;font-size:.92rem;color:#0F172A">📈 Projeção · próximos 6 meses</h3>
-              <small style="color:#64748B;font-size:.74rem">Média móvel + sazonalidade do ano anterior + banda de confiança</small>
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:0">
+              <h3 style="margin:0;font-size:.92rem;color:#0F172A">📈 Projeção de Fluxo de Caixa · próximos 6 meses</h3>
+              <small id="flx-forecast-sub" style="color:#64748B;font-size:.74rem">Média móvel + sazonalidade do ano anterior + banda de confiança</small>
             </div>
-            <button class="btn btn-sec" onclick="flxRenderForecast()" style="padding:5px 10px;font-size:.7rem">↻ Recalcular</button>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <label style="font-size:.74rem;color:#475569;font-weight:600">Modo:</label>
+              <select id="flx-forecast-mode" onchange="flxForecastSetMode(this.value)" style="padding:5px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:.74rem;background:#fff;cursor:pointer">
+                <option value="probabilistica">🔮 Probabilística (estatística)</option>
+                <option value="preenchidos">📋 Dados preenchidos</option>
+              </select>
+              <button class="btn btn-sec" onclick="flxRenderForecast()" style="padding:5px 10px;font-size:.7rem">↻ Recalcular</button>
+            </div>
           </div>
           <div id="flx-forecast-chart"></div>
+          <div id="flx-forecast-explain" style="margin-top:10px;padding:10px 12px;background:#fff;border:1px dashed #CBD5E1;border-radius:8px;font-size:.74rem;color:#475569;line-height:1.5"></div>
         </div>
 
         <!-- Toolbar: Visão, Análise Vertical/Horizontal, Voltar projeção -->
@@ -33971,45 +33979,202 @@ function renderFluxo(){
   try{ flxRenderYoY(); }catch(e){ console.warn('yoy:', e); }
 }
 
-// 📈 Forecast — gera série histórica dos últimos 12 meses e projeta 6 à frente
+// 📈 Forecast — 2 modos: probabilística (estatística) OU dados preenchidos
+const FLX_FORECAST_KEY = 'forekash:flx-forecast-mode:v1';
+let FLX_FORECAST_MODE = (function(){ try{ return localStorage.getItem(FLX_FORECAST_KEY) || 'probabilistica'; }catch(_){ return 'probabilistica'; } })();
+function flxForecastSetMode(m){
+  FLX_FORECAST_MODE = m || 'probabilistica';
+  try{ localStorage.setItem(FLX_FORECAST_KEY, FLX_FORECAST_MODE); }catch(_){}
+  flxRenderForecast();
+}
+function _flxCalcMes(y, m){
+  let receita = 0, gasto = 0;
+  try{ receita = flxReceitaMes(y, m) || 0; }catch(_){}
+  try{
+    const folha = flxFolhaMes(y, m) || 0;
+    const desp  = flxDespesasMes(y, m) || 0;
+    const emp   = flxEmprestimosMes(y, m) || 0;
+    const imp   = flxImpostoMes(y, m) || 0;
+    gasto = folha + desp + emp + imp;
+  }catch(_){}
+  return { receita, gasto, resultado: receita - gasto };
+}
+function _flxLabelMes(ym){
+  const [y, m] = (ym||'').split('-');
+  const names = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  return (names[Number(m)-1] || '?') + '/' + (y || '?').slice(2);
+}
 function flxRenderForecast(){
   const el = document.getElementById('flx-forecast-chart');
+  const sub = document.getElementById('flx-forecast-sub');
+  const explainEl = document.getElementById('flx-forecast-explain');
+  const sel = document.getElementById('flx-forecast-mode');
   if(!el) return;
-  // Monta série histórica: pra cada mês de cada ano disponível, calcula resultado
-  const serie = [];
+  // Sync select com state
+  if(sel && sel.value !== FLX_FORECAST_MODE) sel.value = FLX_FORECAST_MODE;
+  // Determina ponto de corte: hoje (último mês fechado)
+  const hoje = new Date();
+  const yNow = hoje.getFullYear();
+  const mNow = hoje.getMonth(); // 0-based
+  // Histórico (até mês atual inclusive)
+  const historico = [];
+  const futuroPreenchido = [];
   try{
     const anos = (fluxo.years||[]).slice().sort();
     anos.forEach(y => {
+      const yNum = Number(y);
       for(let m=0; m<12; m++){
         const ym = y + '-' + String(m+1).padStart(2,'0');
-        let receita = 0, gasto = 0;
-        try{ receita = flxReceitaMes(y, m) || 0; }catch(_){}
-        try{
-          const folha = flxFolhaMes(y, m) || 0;
-          const desp  = flxDespesasMes(y, m) || 0;
-          const emp   = flxEmprestimosMes(y, m) || 0;
-          const imp   = flxImpostoMes(y, m) || 0;
-          gasto = folha + desp + emp + imp;
-        }catch(_){}
-        const resultado = receita - gasto;
-        // só inclui meses com algum dado (evita ruído de meses vazios futuros)
-        if(receita > 0 || gasto > 0){
-          serie.push({ ym, valor: resultado });
+        const v = _flxCalcMes(y, m);
+        const isFuturo = (yNum > yNow) || (yNum === yNow && m > mNow);
+        if(!isFuturo){
+          if(v.receita > 0 || v.gasto > 0){
+            historico.push({ ym, valor: v.resultado, receita:v.receita, gasto:v.gasto });
+          }
+        } else {
+          // futuro: só registra se tem algo preenchido
+          if(v.receita > 0 || v.gasto > 0){
+            futuroPreenchido.push({ ym, valor: v.resultado, receita:v.receita, gasto:v.gasto });
+          }
         }
       }
     });
-  }catch(e){ console.warn('serie forecast:', e); }
-  if(serie.length < 3){
-    el.innerHTML = '<div style="padding:20px;text-align:center;color:#94A3B8;font-size:.82rem">Preencha pelo menos 3 meses de dados para o forecast começar a projetar.</div>';
+  }catch(e){ console.warn('serie:', e); }
+  // Atualiza subtítulo conforme modo
+  if(sub){
+    if(FLX_FORECAST_MODE === 'preenchidos'){
+      sub.textContent = 'Usa os valores já cadastrados em cada módulo (Receita Kanban, Folha, Despesas, Empréstimos, Impostos) pra meses futuros.';
+    } else {
+      sub.textContent = 'Média móvel dos últimos meses + tendência + sazonalidade do ano anterior + banda de confiança estatística.';
+    }
+  }
+  // ── MODO: DADOS PREENCHIDOS ─────────────────────────────────────
+  if(FLX_FORECAST_MODE === 'preenchidos'){
+    if(!historico.length && !futuroPreenchido.length){
+      el.innerHTML = '<div style="padding:20px;text-align:center;color:#94A3B8;font-size:.82rem">Preencha valores em Receita, Folha, Despesas ou Empréstimos pra ver a projeção baseada em dados reais.</div>';
+      if(explainEl) explainEl.innerHTML = '';
+      return;
+    }
+    // Pega 6 próximos meses futuros (pode ter buracos)
+    let proximos = [];
+    let cursorY = yNow, cursorM = mNow + 1;
+    for(let i=0; i<6; i++){
+      if(cursorM > 11){ cursorM = 0; cursorY++; }
+      const ym = cursorY + '-' + String(cursorM+1).padStart(2,'0');
+      const found = futuroPreenchido.find(f => f.ym === ym);
+      proximos.push(found || { ym, valor:0, receita:0, gasto:0, vazio:true });
+      cursorM++;
+    }
+    el.innerHTML = _flxRenderChartPreenchido(historico.slice(-12), proximos);
+    if(explainEl){
+      const totalProj = proximos.reduce((s,p)=>s+p.valor, 0);
+      const cheios = proximos.filter(p => !p.vazio).length;
+      explainEl.innerHTML = `📋 <b>Modo Dados Preenchidos</b>: soma dos valores que você já cadastrou em Receita Kanban, Folha, Despesas, Empréstimos e Impostos pros próximos meses. <b>${cheios}/6</b> meses têm dados · resultado projetado: <b style="color:${totalProj>=0?'#10B981':'#EF4444'}">${_insFmt(totalProj)}</b>. Meses vazios não foram preenchidos.`;
+    }
     return;
   }
-  // Pega só últimos 18 pra evitar gráfico esticado
-  const serieRecente = serie.slice(-18);
+  // ── MODO: PROBABILÍSTICA (estatística) ──────────────────────────
+  if(historico.length < 3){
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:#94A3B8;font-size:.82rem">Preencha pelo menos 3 meses de dados para a projeção estatística começar a funcionar.</div>';
+    if(explainEl) explainEl.innerHTML = '';
+    return;
+  }
+  const serieRecente = historico.slice(-18);
   try{
-    el.innerHTML = forecastRenderSparkline(serieRecente, 6, 720, 110);
+    el.innerHTML = _flxRenderChartProb(serieRecente, 6);
   }catch(e){
     el.innerHTML = '<div style="padding:20px;text-align:center;color:#EF4444;font-size:.82rem">Erro no forecast: '+e.message+'</div>';
   }
+  if(explainEl){
+    explainEl.innerHTML = `🔮 <b>Modo Probabilística</b>: projeção estatística usando média móvel dos últimos ${Math.min(serieRecente.length, 6)} meses + tendência + ajuste sazonal vs ano anterior. Faixa cinza = intervalo de confiança (mais largo = mais incerteza). <i>Útil quando você não preencheu dados futuros nos módulos.</i>`;
+  }
+}
+// Renderiza chart no modo "probabilística" usando forecastRenderSparkline
+function _flxRenderChartProb(serieRecente, mesesProj){
+  const proj = forecastCalc(serieRecente, mesesProj||6);
+  if(!proj.length) return '<div style="padding:20px;text-align:center;color:#94A3B8;font-size:.82rem">Sem projeção disponível.</div>';
+  const all = [...serieRecente, ...proj];
+  const max = Math.max(...all.map(p => Math.max(Number(p.valor)||0, Number(p.high)||0)));
+  const min = Math.min(...all.map(p => Math.min(Number(p.valor)||0, Number(p.low)||0)));
+  const range = (max - min) || 1;
+  const W = 720, H = 110;
+  const stepX = W / (all.length-1);
+  const scaleY = v => H - ((v-min)/range) * (H*0.8) - H*0.1;
+  let pathReal = '', pathProj = '';
+  all.forEach((p, i) => {
+    const x = i*stepX;
+    if(!p.projetado){
+      pathReal += (pathReal?' L ':'M ') + x.toFixed(1) + ' ' + scaleY(p.valor).toFixed(1);
+    } else {
+      if(i > 0 && !all[i-1].projetado){
+        pathProj = 'M ' + ((i-1)*stepX).toFixed(1) + ' ' + scaleY(all[i-1].valor).toFixed(1) + ' L ';
+      }
+      pathProj += x.toFixed(1) + ' ' + scaleY(p.valor).toFixed(1) + ' ';
+    }
+  });
+  // Band fill polygon
+  const projStartIdx = serieRecente.length-1;
+  const bandTop = proj.map((p,i) => `${(projStartIdx+i+1)*stepX},${scaleY(p.high)}`).join(' ');
+  const bandBot = proj.slice().reverse().map((p,i) => `${(projStartIdx+(proj.length-i))*stepX},${scaleY(p.low)}`).join(' ');
+  const bandPoints = bandTop + ' ' + bandBot;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:${H}px">
+    <polygon points="${bandPoints}" fill="#94A3B833" stroke="none"/>
+    <path d="${pathReal}" fill="none" stroke="#10B981" stroke-width="2"/>
+    <path d="${pathProj}" fill="none" stroke="#10B981" stroke-width="2" stroke-dasharray="6 4" opacity=".75"/>
+    <text x="${W-110}" y="14" fill="#10B981" font-size="10" font-family="JetBrains Mono">━ realizado</text>
+    <text x="${W-110}" y="28" fill="#10B981" font-size="10" font-family="JetBrains Mono" opacity=".75">┄ projetado</text>
+    <text x="${W-110}" y="42" fill="#94A3B8" font-size="10" font-family="JetBrains Mono">▒ incerteza</text>
+  </svg>`;
+  svg += `<div style="display:grid;grid-template-columns:repeat(${proj.length},1fr);gap:4px;margin-top:8px;font-size:.66rem;color:#94A3B8;text-align:center">
+    ${proj.map(p => `<div><b style="color:#10B981">${_flxLabelMes(p.ym)}</b><br>R$ ${_insFmt(p.valor)}<br><span style="color:#94A3B8;font-size:.62rem">faixa: ${_insFmt(p.low)} – ${_insFmt(p.high)}</span></div>`).join('')}
+  </div>`;
+  return svg;
+}
+// Renderiza chart no modo "dados preenchidos"
+function _flxRenderChartPreenchido(historico, proximos){
+  const all = [...historico, ...proximos.map(p => Object.assign({}, p, { projetado:true }))];
+  if(!all.length) return '<div style="padding:20px;text-align:center;color:#94A3B8;font-size:.82rem">Sem dados.</div>';
+  const max = Math.max(...all.map(p => Number(p.valor)||0), 1);
+  const min = Math.min(...all.map(p => Number(p.valor)||0), 0);
+  const range = (max - min) || 1;
+  const W = 720, H = 110;
+  const stepX = W / Math.max(1, all.length-1);
+  const scaleY = v => H - ((v-min)/range) * (H*0.8) - H*0.1;
+  let pathReal = '', pathProj = '';
+  all.forEach((p, i) => {
+    const x = i*stepX;
+    if(!p.projetado){
+      pathReal += (pathReal?' L ':'M ') + x.toFixed(1) + ' ' + scaleY(p.valor).toFixed(1);
+    } else {
+      if(i > 0 && !all[i-1].projetado){
+        pathProj = 'M ' + ((i-1)*stepX).toFixed(1) + ' ' + scaleY(all[i-1].valor).toFixed(1) + ' L ';
+      }
+      pathProj += x.toFixed(1) + ' ' + scaleY(p.valor).toFixed(1) + ' ';
+    }
+  });
+  // Marca pontos vazios (sem dados preenchidos)
+  const dotsVazios = proximos.map((p, i) => {
+    if(!p.vazio) return '';
+    const x = (historico.length + i) * stepX;
+    return `<circle cx="${x.toFixed(1)}" cy="${scaleY(0).toFixed(1)}" r="3" fill="#CBD5E1" stroke="#94A3B8" stroke-width="1"/>`;
+  }).join('');
+  let svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:${H}px">
+    <line x1="0" y1="${scaleY(0).toFixed(1)}" x2="${W}" y2="${scaleY(0).toFixed(1)}" stroke="#E2E8F0" stroke-dasharray="2 2"/>
+    <path d="${pathReal}" fill="none" stroke="#10B981" stroke-width="2"/>
+    <path d="${pathProj}" fill="none" stroke="#3B82F6" stroke-width="2" stroke-dasharray="6 4" opacity=".85"/>
+    ${dotsVazios}
+    <text x="${W-110}" y="14" fill="#10B981" font-size="10" font-family="JetBrains Mono">━ realizado</text>
+    <text x="${W-110}" y="28" fill="#3B82F6" font-size="10" font-family="JetBrains Mono">┄ preenchido</text>
+    <text x="${W-110}" y="42" fill="#94A3B8" font-size="10" font-family="JetBrains Mono">○ sem dados</text>
+  </svg>`;
+  svg += `<div style="display:grid;grid-template-columns:repeat(${proximos.length},1fr);gap:4px;margin-top:8px;font-size:.66rem;color:#94A3B8;text-align:center">
+    ${proximos.map(p => {
+      if(p.vazio) return `<div style="opacity:.55"><b style="color:#94A3B8">${_flxLabelMes(p.ym)}</b><br><span style="color:#94A3B8">sem dados</span></div>`;
+      const cor = p.valor>=0?'#10B981':'#EF4444';
+      return `<div><b style="color:#3B82F6">${_flxLabelMes(p.ym)}</b><br><span style="color:${cor};font-weight:700">R$ ${_insFmt(p.valor)}</span><br><span style="color:#94A3B8;font-size:.62rem">+${_insFmt(p.receita)} −${_insFmt(p.gasto)}</span></div>`;
+    }).join('')}
+  </div>`;
+  return svg;
 }
 // 📊 YoY badges nos KPIs anuais
 function flxRenderYoY(){
@@ -92023,7 +92188,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779913311';
+      const CACHE = 'forekash-v1779913907';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
