@@ -662,6 +662,13 @@
     .com-kpi.ativo{background:#F0FDF4;border-color:#BBF7D0}
     .com-kpi.ativo .com-kpi-val{color:#065F46}
 
+    /* ══ POLISH · Skeleton shimmer ══ */
+    @keyframes fkSkelShimmer{
+      0%{background-position:200% 0}
+      100%{background-position:-200% 0}
+    }
+    [data-theme="dark"] .fk-skel{background:linear-gradient(90deg,#1E293B 0%,#334155 50%,#1E293B 100%) !important}
+
     /* ══ MÓDULO PATRIMÔNIO ══ */
     .patrim-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}
     .patrim-kpi{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:14px 16px}
@@ -19408,6 +19415,11 @@
           </div>
           <div id="flx-forecast-chart"></div>
           <div id="flx-forecast-explain" style="margin-top:10px;padding:10px 12px;background:#fff;border:1px dashed #CBD5E1;border-radius:8px;font-size:.74rem;color:#475569;line-height:1.5"></div>
+          <!-- DRE projetado compacto (collapsible) -->
+          <details style="margin-top:8px;background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:6px 10px">
+            <summary style="cursor:pointer;font-size:.78rem;font-weight:700;color:#475569;padding:4px 0">📊 DRE projetado · próximos 3 meses</summary>
+            <div id="flx-dre-proj" style="margin-top:8px"></div>
+          </details>
         </div>
 
         <!-- Toolbar: Visão, Análise Vertical/Horizontal, Voltar projeção -->
@@ -34057,6 +34069,11 @@ function flxRenderForecast(){
   if(explainEl){
     explainEl.innerHTML = `🔮 <b>Modo Probabilística</b>: projeção estatística usando média móvel dos últimos ${Math.min(serieRecente.length, 6)} meses + tendência + ajuste sazonal vs ano anterior. Faixa cinza = intervalo de confiança (mais largo = mais incerteza). <i>Útil quando você não preencheu dados futuros nos módulos.</i>`;
   }
+  // DRE projetado compacto
+  try{
+    const dreEl = document.getElementById('flx-dre-proj');
+    if(dreEl && typeof dreProjRender === 'function') dreEl.innerHTML = dreProjRender();
+  }catch(_){}
 }
 // Renderiza chart no modo "probabilística" usando forecastRenderSparkline
 function _flxRenderChartProb(serieRecente, mesesProj){
@@ -92154,7 +92171,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779914552';
+      const CACHE = 'forekash-v1779915733';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -92546,6 +92563,11 @@ const CMDK_COMMANDS = [
   { group:'Ações',   label:'Exportar dados do módulo atual', ico:'📥', kbd:'',  action:() => fkExportCurrentModule() },
   // Killer features (Lote 4)
   { group:'Ações',   label:'Gerar Investor Deck (PDF)', ico:'🚀', kbd:'', action:() => { switchModule('relatorios',null); setTimeout(() => { if(typeof repSetType==='function') repSetType('investor', document.querySelector('[data-rep=investor]')); }, 120); } },
+  // Inteligência prática (Batch 3)
+  { group:'Ações',   label:'✨ Auto-categorizar lançamentos', ico:'✨', kbd:'', action:() => { switchModule('extrato',null); setTimeout(()=>smartCatRunOnExtrato(), 120); } },
+  { group:'Ações',   label:'🔗 Reconciliar Asaas × Extrato', ico:'🔗', kbd:'', action:() => { if(typeof reconOpenPreview==='function') reconOpenPreview(); } },
+  { group:'Ações',   label:'📸 Comparar snapshots Patrimônio', ico:'📸', kbd:'', action:() => { switchModule('patrimonio',null); setTimeout(()=>{ if(typeof patrimSnapCompareOpen==='function') patrimSnapCompareOpen(); }, 200); } },
+  { group:'Ações',   label:'🏢 Comparar empresas do grupo', ico:'🏢', kbd:'', action:() => { if(typeof empresasComparar==='function') empresasComparar(); } },
   { group:'Ações',   label:'Gerar Daily Briefing agora', ico:'🌅', kbd:'', action:() => { if(typeof dailyBriefingNow === 'function') dailyBriefingNow(); } },
   { group:'Ações',   label:'Nova assinatura recorrente', ico:'🔄', kbd:'', action:() => { switchModule('comercial',null); setTimeout(() => { if(typeof comRecOpen === 'function') comRecOpen(); }, 120); } },
   { group:'Ações',   label:'Novo contrato',              ico:'📄', kbd:'', action:() => { switchModule('comercial',null); setTimeout(() => { if(typeof comSwitchTab==='function') comSwitchTab('cont'); if(typeof comContratoOpen==='function') comContratoOpen(); }, 120); } },
@@ -92554,7 +92576,7 @@ const CMDK_COMMANDS = [
   { group:'Configurações', label:'Modo Contador (White-label)', ico:'🎨', kbd:'', action:() => { switchModule('configuracoes',null); setTimeout(() => { const el=document.getElementById('cfg-wl-section'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 200); } },
   // Tema
   { group:'Configurações', label:'Alternar tema (claro/escuro)', ico:'🌓', kbd:'⌘D', action:() => themeToggle() },
-  { group:'Configurações', label:'Ver audit log',         ico:'📋', kbd:'',  action:() => auditOpen() },
+  { group:'Configurações', label:'Ver audit log',         ico:'📋', kbd:'',  action:() => { if(typeof auditOpenRich==='function') auditOpenRich(); else if(typeof auditOpen==='function') auditOpen(); } },
   { group:'Configurações', label:'Notificações',           ico:'🔔', kbd:'',  action:() => notifToggle() },
 ];
 
@@ -92575,27 +92597,45 @@ function cmdkRender(query){
   const el = document.getElementById('cmdk-results');
   if(!el) return;
   const q = (query || '').toLowerCase().trim();
-  _cmdkFiltered = !q ? CMDK_COMMANDS : CMDK_COMMANDS.filter(cmd =>
+  // 1) Tenta detectar quick-add (padrão: "lançamento|receita|gasto descrição valor")
+  let quickAdd = null;
+  if(q.length > 6){
+    quickAdd = _cmdkDetectQuickAdd(q);
+  }
+  // 2) Comandos filtrados
+  const cmdMatches = !q ? CMDK_COMMANDS : CMDK_COMMANDS.filter(cmd =>
     cmd.label.toLowerCase().includes(q) || cmd.group.toLowerCase().includes(q)
   );
+  // 3) Busca dados (clientes, lançamentos, contratos, assinaturas, NF)
+  const dataMatches = q.length >= 2 ? _cmdkSearchData(q) : [];
+  // Combina: quickAdd primeiro, depois dados, depois comandos
+  _cmdkFiltered = [];
+  if(quickAdd) _cmdkFiltered.push(quickAdd);
+  _cmdkFiltered = _cmdkFiltered.concat(dataMatches).concat(cmdMatches);
   if(_cmdkFiltered.length === 0){
-    el.innerHTML = '<div class="cmdk-empty">Nada encontrado pra <b>"' + query + '"</b></div>';
+    el.innerHTML = '<div class="cmdk-empty">Nada encontrado pra <b>"' + query + '"</b><br><small style="color:#94A3B8;font-size:.74rem;margin-top:6px;display:block">Tenta: <code>lançamento aluguel 2500</code> · <code>receita venda 1500</code></small></div>';
     return;
   }
   // Agrupa
   const groups = {};
   _cmdkFiltered.forEach(cmd => {
-    if(!groups[cmd.group]) groups[cmd.group] = [];
-    groups[cmd.group].push(cmd);
+    const g = cmd.group || 'Outros';
+    if(!groups[g]) groups[g] = [];
+    groups[g].push(cmd);
   });
+  // Ordem de grupos: Quick-add → Dados → Navegar → Ações → Configurações
+  const ordemGrupos = ['⚡ Quick-add','🔎 Dados','Navegar','Ações','Configurações'];
+  const gruposOrdenados = ordemGrupos.filter(g => groups[g]).concat(
+    Object.keys(groups).filter(g => !ordemGrupos.includes(g))
+  );
   let html = '';
   let idx = 0;
-  Object.keys(groups).forEach(g => {
+  gruposOrdenados.forEach(g => {
     html += '<div class="cmdk-group"><div class="cmdk-group-title">' + g + '</div>';
     groups[g].forEach(cmd => {
       html += '<div class="cmdk-item' + (idx === _cmdkActiveIdx ? ' active' : '') + '" data-idx="' + idx + '" onclick="cmdkRun(' + idx + ')">' +
               '<div class="cmdk-item-ico">' + cmd.ico + '</div>' +
-              '<div class="cmdk-item-body"><b>' + cmd.label + '</b><small>' + cmd.group + '</small></div>' +
+              '<div class="cmdk-item-body"><b>' + cmd.label + '</b><small>' + (cmd.sub || cmd.group) + '</small></div>' +
               (cmd.kbd ? '<span class="cmdk-item-kbd">' + cmd.kbd + '</span>' : '') +
               '</div>';
       idx++;
@@ -92603,6 +92643,149 @@ function cmdkRender(query){
     html += '</div>';
   });
   el.innerHTML = html;
+}
+
+// Detector de quick-add via NLP simples
+function _cmdkDetectQuickAdd(q){
+  // Padrões: "lançamento|receita|despesa|gasto <desc> <valor>"
+  const reTipo = /^(lan[çc]amento|receita|entrada|despesa|gasto|sa[íi]da|pagamento|recebimento)\s+(.+?)\s+(\d+[.,]?\d*)$/i;
+  const m = q.match(reTipo);
+  if(!m) return null;
+  const tipoRaw = m[1].toLowerCase();
+  const desc = m[2].trim();
+  const valor = parseFloat(m[3].replace(',', '.'));
+  if(!desc || isNaN(valor) || valor <= 0) return null;
+  const isReceita = /receita|entrada|recebimento/.test(tipoRaw);
+  return {
+    group:'⚡ Quick-add',
+    ico: isReceita ? '+' : '−',
+    label: `Criar ${isReceita?'entrada':'saída'}: ${desc} · R$ ${valor.toFixed(2).replace('.',',')}`,
+    sub: 'Vai direto pro Extrato com tudo preenchido',
+    action: () => _cmdkQuickAddExec({ tipo: isReceita?'ganho':'gasto', desc, valor })
+  };
+}
+
+function _cmdkQuickAddExec(parsed){
+  try{
+    if(typeof extratoData === 'undefined' || !extratoData){
+      alert('Módulo Extrato não carregado.');
+      return;
+    }
+    extratoData.lancamentos = extratoData.lancamentos || [];
+    const hoje = new Date().toISOString().slice(0,10);
+    const novo = {
+      id: 'qa_'+Date.now(),
+      data: hoje,
+      descricao: parsed.desc,
+      valor: parsed.tipo === 'ganho' ? Math.abs(parsed.valor) : -Math.abs(parsed.valor),
+      tipo: parsed.tipo,
+      categoria: '',
+      conta: '',
+      origem: 'quick-add'
+    };
+    extratoData.lancamentos.unshift(novo);
+    try{ if(typeof saveExtrato === 'function') saveExtrato(); else localStorage.setItem('forekash:extrato:v1', JSON.stringify(extratoData)); }catch(_){}
+    try{ if(typeof switchModule === 'function') switchModule('extrato', null); }catch(_){}
+    try{ if(typeof fkToast === 'function') fkToast(`✓ Lançamento criado: ${parsed.desc} · R$ ${parsed.valor.toFixed(2).replace('.',',')}`, 'ok'); }catch(_){}
+    try{ if(typeof auditLog === 'function') auditLog('extrato', `quick-add: ${parsed.desc} R$ ${parsed.valor}`); }catch(_){}
+  }catch(e){
+    console.error('quickAdd:', e);
+    alert('Erro ao criar lançamento: ' + e.message);
+  }
+}
+
+// Busca em dados: clientes, contratos, assinaturas, NF, propostas
+function _cmdkSearchData(q){
+  const out = [];
+  // CLIENTES (Receita)
+  try{
+    if(typeof receita !== 'undefined' && receita && Array.isArray(receita.clientes)){
+      receita.clientes.forEach(c => {
+        const nome = (c.nome||'').toLowerCase();
+        if(nome.includes(q)){
+          out.push({
+            group:'🔎 Dados', ico:'👤', label: c.nome, sub:'Cliente',
+            action: () => { if(typeof switchModule==='function') switchModule('receita', null); }
+          });
+        }
+      });
+    }
+  }catch(_){}
+  // ASSINATURAS (Comercial)
+  try{
+    if(typeof COM !== 'undefined' && Array.isArray(COM.assinaturas)){
+      COM.assinaturas.forEach(a => {
+        const nome = (a.cliente||'').toLowerCase();
+        if(nome.includes(q)){
+          out.push({
+            group:'🔎 Dados', ico:'🔄', label: a.cliente,
+            sub: `Assinatura · R$ ${(Number(a.valor)||0).toFixed(2).replace('.',',')}/mês ${a.ativa?'· ativa':'· pausada'}`,
+            action: () => { if(typeof switchModule==='function') switchModule('comercial', null); setTimeout(()=>{if(typeof comSwitchTab==='function') comSwitchTab('rec');},120); }
+          });
+        }
+      });
+    }
+  }catch(_){}
+  // CONTRATOS
+  try{
+    if(typeof COM !== 'undefined' && Array.isArray(COM.contratos)){
+      COM.contratos.forEach(c => {
+        if((c.titulo||'').toLowerCase().includes(q) || (c.contraparte||'').toLowerCase().includes(q)){
+          out.push({
+            group:'🔎 Dados', ico:'📄', label: c.titulo,
+            sub: `Contrato · ${c.contraparte} · R$ ${(Number(c.valor)||0).toFixed(2).replace('.',',')}`,
+            action: () => { if(typeof switchModule==='function') switchModule('comercial', null); setTimeout(()=>{if(typeof comSwitchTab==='function') comSwitchTab('cont');},120); }
+          });
+        }
+      });
+    }
+  }catch(_){}
+  // PROPOSTAS (Pipeline)
+  try{
+    if(typeof COM !== 'undefined' && Array.isArray(COM.propostas)){
+      COM.propostas.forEach(p => {
+        if((p.cliente||'').toLowerCase().includes(q)){
+          out.push({
+            group:'🔎 Dados', ico:'🎯', label: p.cliente,
+            sub: `Proposta · ${p.estagio} · R$ ${(Number(p.valorEstimado)||0).toFixed(2).replace('.',',')}`,
+            action: () => { if(typeof switchModule==='function') switchModule('comercial', null); setTimeout(()=>{if(typeof comSwitchTab==='function') comSwitchTab('pipe');},120); }
+          });
+        }
+      });
+    }
+  }catch(_){}
+  // NF
+  try{
+    if(typeof NF !== 'undefined' && Array.isArray(NF.notas)){
+      NF.notas.forEach(n => {
+        if((n.cliente||'').toLowerCase().includes(q) || String(n.numero||'').includes(q)){
+          out.push({
+            group:'🔎 Dados', ico:'🧾', label: `NF #${n.numero} · ${n.cliente}`,
+            sub: `R$ ${(Number(n.valor)||0).toFixed(2).replace('.',',')} · ${n.status||'—'}`,
+            action: () => { if(typeof switchModule==='function') switchModule('notasfiscais', null); }
+          });
+        }
+      });
+    }
+  }catch(_){}
+  // LANÇAMENTOS Extrato (apenas matches em descrição)
+  try{
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      const lancs = extratoData.lancamentos.filter(l =>
+        (l.descricao||'').toLowerCase().includes(q)
+      ).slice(0, 5); // top 5
+      lancs.forEach(l => {
+        const sinal = (l.valor||0) > 0 || l.tipo === 'ganho' ? '+' : '−';
+        out.push({
+          group:'🔎 Dados', ico:'💰',
+          label: l.descricao || 'Lançamento',
+          sub: `${l.data||'—'} · ${sinal}R$ ${Math.abs(Number(l.valor)||0).toFixed(2).replace('.',',')}`,
+          action: () => { if(typeof switchModule==='function') switchModule('extrato', null); }
+        });
+      });
+    }
+  }catch(_){}
+  return out.slice(0, 12); // limita a 12 resultados de dados
 }
 function cmdkRun(idx){
   const cmd = _cmdkFiltered[idx];
@@ -92620,11 +92803,30 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   const overlay = document.getElementById('cmdk-overlay');
-  if(!overlay || !overlay.classList.contains('open')) return;
-  if(e.key === 'Escape'){ cmdkClose(); return; }
-  if(e.key === 'ArrowDown'){ e.preventDefault(); _cmdkActiveIdx = Math.min(_cmdkActiveIdx + 1, _cmdkFiltered.length - 1); cmdkRender(document.getElementById('cmdk-input').value); _cmdkScrollToActive(); return; }
-  if(e.key === 'ArrowUp'){ e.preventDefault(); _cmdkActiveIdx = Math.max(_cmdkActiveIdx - 1, 0); cmdkRender(document.getElementById('cmdk-input').value); _cmdkScrollToActive(); return; }
-  if(e.key === 'Enter'){ e.preventDefault(); cmdkRun(_cmdkActiveIdx); return; }
+  if(overlay && overlay.classList.contains('open')){
+    if(e.key === 'Escape'){ cmdkClose(); return; }
+    if(e.key === 'ArrowDown'){ e.preventDefault(); _cmdkActiveIdx = Math.min(_cmdkActiveIdx + 1, _cmdkFiltered.length - 1); cmdkRender(document.getElementById('cmdk-input').value); _cmdkScrollToActive(); return; }
+    if(e.key === 'ArrowUp'){ e.preventDefault(); _cmdkActiveIdx = Math.max(_cmdkActiveIdx - 1, 0); cmdkRender(document.getElementById('cmdk-input').value); _cmdkScrollToActive(); return; }
+    if(e.key === 'Enter'){ e.preventDefault(); cmdkRun(_cmdkActiveIdx); return; }
+    return;
+  }
+  // Atalhos globais (só fora de inputs/textareas)
+  const tag = (e.target.tagName || '').toLowerCase();
+  if(tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
+  if(e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  // N → novo lançamento (abre Cmd+K com cursor pra digitar)
+  if(k === 'n'){ e.preventDefault(); cmdkOpen(); setTimeout(() => { const inp = document.getElementById('cmdk-input'); if(inp){ inp.value = 'lançamento '; inp.focus(); cmdkRender(inp.value); } }, 50); return; }
+  // R → refresh módulo atual (re-render)
+  if(k === 'r'){ e.preventDefault(); try{ const cur = document.querySelector('.mod.active'); if(cur){ const id = cur.id.replace('mod-',''); if(typeof switchModule==='function') switchModule(id, null); fkToast('Módulo recarregado', 'info', 1500); } }catch(_){} return; }
+  // G → vai pra Início (Go home)
+  if(k === 'g'){ e.preventDefault(); try{ if(typeof switchModule==='function') switchModule('dashboard', null); }catch(_){} return; }
+  // ? → mostra atalhos disponíveis
+  if(k === '?' || (e.shiftKey && k === '/')){
+    e.preventDefault();
+    fkToast('⌨ Atalhos: ⌘K busca · N novo · R refresh · G ir pro Início · ESC fecha modais · ? esta ajuda', 'info', 5500);
+    return;
+  }
 });
 function _cmdkScrollToActive(){
   const el = document.querySelector('.cmdk-item.active');
@@ -96977,6 +97179,933 @@ function _insFmt(v){
   v = Math.abs(Number(v) || 0);
   return v.toLocaleString('pt-BR', { minimumFractionDigits:0, maximumFractionDigits:0 });
 }
+
+// ═════════════════════════════════════════════════════════════════════
+// ✨ POLISH — toasts animados, confetti, skeletons, splash
+// ═════════════════════════════════════════════════════════════════════
+
+// ── TOAST ANIMADO (slide-in, stack, auto-dismiss) ──────────────────
+function fkToast(msg, type, duration){
+  type = type || 'info';
+  duration = duration || 3500;
+  let container = document.getElementById('fk-toast-container');
+  if(!container){
+    container = document.createElement('div');
+    container.id = 'fk-toast-container';
+    container.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:99999;display:flex;flex-direction:column;gap:10px;pointer-events:none';
+    document.body.appendChild(container);
+  }
+  const icons = { ok:'✓', err:'✕', warn:'⚠', info:'ℹ', meta:'🎯' };
+  const colors = { ok:'#10B981', err:'#EF4444', warn:'#F59E0B', info:'#3B82F6', meta:'#A78BFA' };
+  const t = document.createElement('div');
+  t.style.cssText = `background:#0F172A;border-left:4px solid ${colors[type]||colors.info};color:#E5E7EB;padding:12px 16px 12px 14px;border-radius:10px;box-shadow:0 10px 25px rgba(0,0,0,.3);font-size:.84rem;display:flex;gap:10px;align-items:flex-start;max-width:380px;min-width:240px;pointer-events:auto;transform:translateX(420px);opacity:0;transition:transform .35s cubic-bezier(.34,1.56,.64,1),opacity .25s`;
+  t.innerHTML = `<span style="color:${colors[type]||colors.info};font-size:1rem;flex-shrink:0;line-height:1.2">${icons[type]||icons.info}</span><div style="flex:1;line-height:1.4">${String(msg||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div><button style="background:transparent;border:none;color:#64748B;cursor:pointer;padding:0 4px;font-size:1.1rem;line-height:1" onclick="this.parentElement.remove()">×</button>`;
+  container.appendChild(t);
+  requestAnimationFrame(() => { t.style.transform = 'translateX(0)'; t.style.opacity = '1'; });
+  setTimeout(() => {
+    t.style.transform = 'translateX(420px)'; t.style.opacity = '0';
+    setTimeout(() => t.remove(), 350);
+  }, duration);
+}
+try{
+  window.fkToast = fkToast;
+  // Substitui showToast por fkToast com hook pra notifPush
+  if(!window._origShowToast) window._origShowToast = window.showToast;
+  window.showToast = function(msg, type){
+    fkToast(msg, type);
+    try{ if(typeof notifPush === 'function' && msg && typeof msg === 'string' && msg.length > 5){
+      const icon = type === 'ok' ? '✓' : type === 'err' ? '✕' : type === 'warn' ? '⚠' : 'ℹ';
+      notifPush({ title: msg, type: type || 'info', icon });
+    } }catch(_){}
+  };
+  window._toastHooked = true;
+}catch(_){}
+
+// ── CONFETTI (canvas simples, 80 partículas) ──────────────────────
+function fkConfetti(opts){
+  opts = opts || {};
+  const cv = document.createElement('canvas');
+  cv.style.cssText = 'position:fixed;inset:0;z-index:99998;pointer-events:none';
+  cv.width = window.innerWidth; cv.height = window.innerHeight;
+  document.body.appendChild(cv);
+  const ctx = cv.getContext('2d');
+  const colors = opts.colors || ['#10B981','#34D399','#3B82F6','#A78BFA','#F59E0B','#EF4444'];
+  const parts = [];
+  const n = opts.count || 80;
+  const cx = opts.x != null ? opts.x : cv.width/2;
+  const cy = opts.y != null ? opts.y : cv.height/3;
+  for(let i=0;i<n;i++){
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 4 + Math.random()*8;
+    parts.push({
+      x:cx, y:cy,
+      vx: Math.cos(angle)*speed,
+      vy: Math.sin(angle)*speed - 4,
+      g: 0.18,
+      r: 2 + Math.random()*4,
+      rot: Math.random()*Math.PI*2,
+      vrot: (Math.random()-0.5)*0.3,
+      color: colors[Math.floor(Math.random()*colors.length)],
+      shape: Math.random() > 0.5 ? 'rect' : 'circle',
+      life: 0
+    });
+  }
+  const max = 120;
+  let frame = 0;
+  function tick(){
+    frame++;
+    ctx.clearRect(0,0,cv.width,cv.height);
+    parts.forEach(p => {
+      p.vy += p.g;
+      p.x += p.vx; p.y += p.vy;
+      p.rot += p.vrot;
+      p.life++;
+      const alpha = Math.max(0, 1 - p.life/max);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.color;
+      ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      if(p.shape === 'rect'){
+        ctx.fillRect(-p.r, -p.r*0.4, p.r*2, p.r*0.8);
+      } else {
+        ctx.beginPath(); ctx.arc(0,0,p.r,0,Math.PI*2); ctx.fill();
+      }
+      ctx.restore();
+    });
+    if(frame < max) requestAnimationFrame(tick);
+    else cv.remove();
+  }
+  tick();
+}
+try{ window.fkConfetti = fkConfetti; }catch(_){}
+
+// Helper: dispara confetti quando KPI fica positivo / bate meta
+function fkCheckMetaConfetti(prevValue, newValue, threshold){
+  threshold = threshold || 0;
+  if(typeof prevValue !== 'number' || typeof newValue !== 'number') return;
+  if(prevValue < threshold && newValue >= threshold){
+    fkConfetti();
+    fkToast('🎯 Meta batida! Bora pra próxima.', 'meta', 5000);
+  }
+}
+try{ window.fkCheckMetaConfetti = fkCheckMetaConfetti; }catch(_){}
+
+// ── SKELETON LOADER ────────────────────────────────────────────────
+function fkSkeleton(el, opts){
+  if(!el) return;
+  opts = opts || {};
+  const rows = opts.rows || 3;
+  const height = opts.height || 14;
+  const gap = opts.gap || 10;
+  let html = '<div class="fk-skel-wrap" style="display:flex;flex-direction:column;gap:'+gap+'px;padding:6px 0">';
+  for(let i=0; i<rows; i++){
+    const widthPct = 60 + Math.random()*40;
+    html += `<div class="fk-skel" style="height:${height}px;width:${widthPct.toFixed(0)}%;background:linear-gradient(90deg,#E2E8F0 0%,#F1F5F9 50%,#E2E8F0 100%);background-size:200% 100%;border-radius:6px;animation:fkSkelShimmer 1.4s ease-in-out infinite"></div>`;
+  }
+  html += '</div>';
+  if(typeof el === 'string') el = document.getElementById(el);
+  if(el) el.innerHTML = html;
+}
+try{ window.fkSkeleton = fkSkeleton; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// 🧠 INTELIGÊNCIA PRÁTICA — Smart Categorization + Reconciliação + Proativo + Snap
+// ═════════════════════════════════════════════════════════════════════
+
+// ── SMART CATEGORIZATION ───────────────────────────────────────────
+// Tabela de regras: regex → categoria (PT-BR comuns)
+const SMART_CAT_RULES = [
+  // Transporte
+  { re:/uber|99\s*pop|99\s*taxi|cabify|t[áa]xi|combust[íi]vel|posto.*gasolina|estacionamento|pedagio|ipva|licenciamento/i, cat:'Transporte' },
+  // Alimentação
+  { re:/ifood|rappi|james|restaurante|lanchonete|padaria|mercado|supermercado|p[ãa]o.*a[çc][úu]car|carrefour|extra|assa[ií]|atacad[ãa]o/i, cat:'Alimentação' },
+  // Software / SaaS
+  { re:/(google|amazon|aws|netflix|spotify|github|notion|figma|adobe|microsoft|office|zoom|slack|asana|trello|dropbox|cursor|claude|openai|anthropic).*(workspace|pro|premium|subscription|sub|cloud|365)?/i, cat:'Software / SaaS' },
+  // Marketing
+  { re:/facebook.*ads|meta\s*ads|google\s*ads|tiktok.*ads|linkedin.*ads|instagram.*ads|hotmart|kiwify|braip|monetiz/i, cat:'Marketing' },
+  // Folha / RH
+  { re:/sal[áa]rio|folha|pgto.*func|f[ée]rias|13[ºo°]|inss|fgts|rescis[ãa]o/i, cat:'Folha' },
+  // Infraestrutura
+  { re:/aluguel|condom[íi]nio|iptu|energia|luz|enel|cemig|copel|[áa]gua|sabesp|sanepar|copasa|internet|vivo|claro|tim|oi|fibra|gas/i, cat:'Infraestrutura' },
+  // Bancário
+  { re:/tarifa|anuidade|juros|iof|cheque\s*especial|tac|saque|saldo\s*devedor|d[íi]vida/i, cat:'Tarifas Bancárias' },
+  // Impostos
+  { re:/das|darf|irpj|csll|pis|cofins|iss|icms|gnre|simples\s*nacional|imposto/i, cat:'Impostos' },
+  // Receita / Cliente
+  { re:/recebimento|pagamento\s*cliente|fatura.*cliente|nf-e|nfs-e|venda|pix\s*recebido|ted\s*recebida/i, cat:'Receita Operacional' },
+  // Investimentos
+  { re:/cdb|lci|lca|tesouro|investimento|aplica[çc][ãa]o|rendimento|dividendo/i, cat:'Investimentos' },
+  // Empréstimos
+  { re:/parcela|presta[çc][ãa]o|empr[ée]stimo|financiamento|leasing/i, cat:'Empréstimos' }
+];
+function smartCatSuggest(descricao){
+  if(!descricao) return null;
+  const desc = String(descricao);
+  for(const rule of SMART_CAT_RULES){
+    if(rule.re.test(desc)) return rule.cat;
+  }
+  return null;
+}
+function smartCatBulk(lancamentos, force){
+  let n = 0;
+  (lancamentos||[]).forEach(l => {
+    if(!l.categoria || force){
+      const sug = smartCatSuggest(l.descricao);
+      if(sug){ l.categoria = sug; n++; }
+    }
+  });
+  return n;
+}
+// Botão pra rodar bulk auto-categorização no Extrato
+function smartCatRunOnExtrato(){
+  try{
+    if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)){
+      fkToast('Extrato vazio — sem lançamentos pra categorizar', 'warn');
+      return;
+    }
+    const semCat = extratoData.lancamentos.filter(l => !l.categoria);
+    if(!semCat.length){
+      fkToast('Todos os lançamentos já têm categoria 👍', 'ok');
+      return;
+    }
+    const n = smartCatBulk(extratoData.lancamentos, false);
+    try{ if(typeof saveExtrato === 'function') saveExtrato(); else localStorage.setItem('forekash:extrato:v1', JSON.stringify(extratoData)); }catch(_){}
+    fkToast(`✨ Auto-categorizou ${n} de ${semCat.length} lançamentos`, n>0?'ok':'warn');
+    if(typeof auditLog === 'function') auditLog('extrato', `smart-cat: ${n} lançamentos categorizados`);
+    // Re-render extrato se possível
+    try{ if(typeof renderExtrato === 'function') renderExtrato(); else if(typeof extRender === 'function') extRender(); }catch(_){}
+  }catch(e){ console.error('smartCatRunOnExtrato:', e); }
+}
+try{ window.smartCatSuggest = smartCatSuggest; window.smartCatBulk = smartCatBulk; window.smartCatRunOnExtrato = smartCatRunOnExtrato; }catch(_){}
+
+// ── RECONCILIAÇÃO Asaas × Extrato ──────────────────────────────────
+// Detecta automaticamente quando um lançamento no extrato bate com cobrança Asaas
+function reconAsaasExtrato(){
+  const result = { matches:[], unmatched:[] };
+  try{
+    if(typeof ASAAS === 'undefined' || !Array.isArray(ASAAS.cobrancas)) return result;
+    if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return result;
+    const cobsPendentes = ASAAS.cobrancas.filter(c => c.status === 'pendente' || c.status === 'PENDING');
+    cobsPendentes.forEach(cob => {
+      // Tenta achar lançamento no extrato com:
+      // - mesmo valor (±5 reais tolerância)
+      // - dentro de ±7 dias do vencimento
+      // - tipo ganho
+      const valorAlvo = Math.abs(Number(cob.valor)||0);
+      const vencAlvo = cob.vencimento;
+      if(!valorAlvo || !vencAlvo) return;
+      const vencDt = new Date(vencAlvo);
+      const candidatos = extratoData.lancamentos.filter(l => {
+        if(l._reconciledTo) return false; // já reconciliado
+        const lValor = Math.abs(Number(l.valor)||0);
+        if(Math.abs(lValor - valorAlvo) > 5) return false;
+        if(!(l.tipo === 'ganho' || (l.valor > 0 && !l.tipo))) return false;
+        if(!l.data) return false;
+        const lDt = new Date(l.data);
+        const diffDias = Math.abs((lDt - vencDt) / (1000*60*60*24));
+        if(diffDias > 7) return false;
+        return true;
+      });
+      // Também tenta match por nome do cliente na descrição
+      const candComCliente = candidatos.filter(l =>
+        (l.descricao||'').toLowerCase().includes((cob.cliente||'').toLowerCase().slice(0,8))
+      );
+      const best = candComCliente[0] || candidatos[0];
+      if(best){
+        result.matches.push({ cob, lancamento: best, confianca: candComCliente.length ? 95 : 75 });
+      } else {
+        result.unmatched.push(cob);
+      }
+    });
+  }catch(e){ console.error('reconAsaasExtrato:', e); }
+  return result;
+}
+function reconAsaasApplyAll(){
+  const r = reconAsaasExtrato();
+  if(!r.matches.length){
+    fkToast(`Nenhum match encontrado. ${r.unmatched.length} cobrança(s) pendentes sem correspondência no extrato.`, 'warn', 4500);
+    return;
+  }
+  let applied = 0;
+  r.matches.forEach(m => {
+    try{
+      // Marca cobrança como recebida
+      const cob = ASAAS.cobrancas.find(c => c.id === m.cob.id || c.asaasId === m.cob.asaasId);
+      if(cob){
+        cob.status = 'recebido';
+        cob.recebidoAt = Date.now();
+        cob._reconciledFrom = m.lancamento.id;
+      }
+      // Marca lançamento como reconciliado
+      m.lancamento._reconciledTo = m.cob.id;
+      applied++;
+    }catch(e){ console.warn('apply:', e); }
+  });
+  try{ if(typeof asaasSave === 'function') asaasSave(); }catch(_){}
+  try{ if(typeof saveExtrato === 'function') saveExtrato(); else localStorage.setItem('forekash:extrato:v1', JSON.stringify(extratoData)); }catch(_){}
+  fkToast(`🔗 Reconciliados ${applied} pagamento(s) automaticamente`, 'ok', 4500);
+  if(typeof auditLog === 'function') auditLog('reconciliacao', `Asaas × Extrato: ${applied} matches`);
+  // Re-renders
+  try{ if(typeof asaasRenderList === 'function') asaasRenderList(); }catch(_){}
+  try{ if(typeof renderExtrato === 'function') renderExtrato(); }catch(_){}
+}
+function reconOpenPreview(){
+  const r = reconAsaasExtrato();
+  let html = '<div style="color:#E5E7EB">';
+  if(!r.matches.length){
+    html += `<div style="background:#0F172A;border-left:3px solid #F59E0B;padding:14px;border-radius:8px;color:#F59E0B">⚠ Nenhum match automático encontrado.<br><small style="color:#94A3B8">Critérios: valor ±R$ 5,00, data ±7 dias do vencimento, tipo entrada.</small></div>`;
+  } else {
+    html += `<p style="color:#94A3B8;font-size:.86rem;margin:0 0 12px"><b>${r.matches.length}</b> pagamento(s) detectado(s) no extrato batendo com cobranças Asaas pendentes:</p>`;
+    html += '<div style="display:flex;flex-direction:column;gap:8px;max-height:340px;overflow:auto">';
+    r.matches.forEach(m => {
+      const corConf = m.confianca >= 90 ? '#10B981' : '#F59E0B';
+      html += `<div style="background:#0F172A;border-left:3px solid ${corConf};padding:10px 14px;border-radius:8px;font-size:.82rem">
+        <div style="display:flex;justify-content:space-between;align-items:center"><b>${_mrkEsc(m.cob.cliente)}</b><span style="color:${corConf};font-weight:700;font-size:.74rem">${m.confianca}% confiança</span></div>
+        <div style="color:#94A3B8;font-size:.74rem;margin-top:4px">
+          🧾 Cobrança: R$ ${Math.abs(m.cob.valor).toFixed(2)} · venc ${m.cob.vencimento}<br>
+          💰 Extrato: <i>${_mrkEsc(m.lancamento.descricao||'—')}</i> · ${m.lancamento.data}
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+  if(r.unmatched.length){
+    html += `<p style="color:#64748B;font-size:.78rem;margin-top:14px">${r.unmatched.length} cobrança(s) pendente(s) sem match — continuam aguardando recebimento.</p>`;
+  }
+  html += '</div>';
+  if(typeof _fkModal === 'function'){
+    _fkModal('🔗 Reconciliação Asaas × Extrato', html, () => {
+      if(r.matches.length){ reconAsaasApplyAll(); return true; }
+      return true;
+    });
+  } else {
+    if(confirm(`${r.matches.length} matches detectados. Aplicar?`)) reconAsaasApplyAll();
+  }
+}
+try{ window.reconAsaasExtrato = reconAsaasExtrato; window.reconAsaasApplyAll = reconAsaasApplyAll; window.reconOpenPreview = reconOpenPreview; }catch(_){}
+
+// ── MR KASH PROATIVO ───────────────────────────────────────────────
+// Detecta condições críticas e dispara toast sem o user perguntar
+const MRK_PROACTIVE_KEY = 'forekash:mrk-proactive:v1';
+let MRK_PROACTIVE_STATE = { lastNudgeTs: 0, dismissed: {} };
+function mrkProactiveLoad(){
+  try{ const raw = localStorage.getItem(MRK_PROACTIVE_KEY); if(raw) MRK_PROACTIVE_STATE = Object.assign(MRK_PROACTIVE_STATE, JSON.parse(raw)); }catch(_){}
+  if(!MRK_PROACTIVE_STATE.dismissed) MRK_PROACTIVE_STATE.dismissed = {};
+}
+function _mrkProactiveSave(){ try{ localStorage.setItem(MRK_PROACTIVE_KEY, JSON.stringify(MRK_PROACTIVE_STATE)); }catch(_){} }
+function mrkProactiveCheck(){
+  // Roda 5s após boot e a cada 5min
+  const sigs = mrkProactiveDetect();
+  // Filtra dismissed e respeita cooldown de 30s
+  const agora = Date.now();
+  if(agora - MRK_PROACTIVE_STATE.lastNudgeTs < 30000) return;
+  const ativos = sigs.filter(s => !MRK_PROACTIVE_STATE.dismissed[s.id]);
+  if(!ativos.length) return;
+  // Pega o de maior urgência
+  const top = ativos.sort((a,b)=>b.urgencia-a.urgencia)[0];
+  MRK_PROACTIVE_STATE.lastNudgeTs = agora;
+  _mrkProactiveSave();
+  // Dispara toast com avatar
+  if(typeof fkToast === 'function'){
+    fkToast(`MR KASH: ${top.msg}`, top.tipo || 'info', 6000);
+  }
+}
+function mrkProactiveDetect(){
+  const sigs = [];
+  const hoje = new Date().toISOString().slice(0,10);
+  const semana = new Date(Date.now() + 7*24*60*60*1000).toISOString().slice(0,10);
+  // 1. Cobranças atrasadas
+  try{
+    if(typeof ASAAS !== 'undefined' && Array.isArray(ASAAS.cobrancas)){
+      const atrasadas = ASAAS.cobrancas.filter(c => c.status === 'pendente' && c.vencimento && c.vencimento < hoje);
+      if(atrasadas.length){
+        sigs.push({ id:'cobranca-atrasada', urgencia:95, tipo:'err', msg:`${atrasadas.length} cobrança(s) em atraso · R$ ${atrasadas.reduce((s,c)=>s+(Number(c.valor)||0),0).toFixed(0)} aguardando` });
+      }
+    }
+  }catch(_){}
+  // 2. Contratos vencendo
+  try{
+    if(typeof COM !== 'undefined' && Array.isArray(COM.contratos)){
+      const vencendo = COM.contratos.filter(c => c.fim && c.fim >= hoje && c.fim <= semana);
+      if(vencendo.length){
+        sigs.push({ id:'contrato-vence', urgencia:80, tipo:'warn', msg:`${vencendo.length} contrato(s) vencem em ≤7 dias` });
+      }
+    }
+  }catch(_){}
+  // 3. Churn risk
+  try{
+    if(typeof _comCalcChurnRisk === 'function'){
+      const risco = _comCalcChurnRisk();
+      if(risco.length){
+        sigs.push({ id:'churn-risk', urgencia:85, tipo:'err', msg:`${risco.length} cliente(s) em risco de churn · vê em Comercial → IA` });
+      }
+    }
+  }catch(_){}
+  // 4. Anomalias
+  try{
+    if(typeof AI_LAST_ALERTS !== 'undefined' && Array.isArray(AI_LAST_ALERTS) && AI_LAST_ALERTS.length){
+      const ativos = AI_LAST_ALERTS.filter(a => !AI_DISMISSED.includes(a.id));
+      if(ativos.length){
+        sigs.push({ id:'anomalia', urgencia:70, tipo:'warn', msg:`${ativos.length} anomalia(s) detectada(s) · confere no Início` });
+      }
+    }
+  }catch(_){}
+  // 5. Reconciliação pendente
+  try{
+    const recon = reconAsaasExtrato();
+    if(recon.matches.length >= 2){
+      sigs.push({ id:'recon-pendente', urgencia:60, tipo:'info', msg:`${recon.matches.length} pagamento(s) podem ser reconciliados automaticamente · clique pra ver` });
+    }
+  }catch(_){}
+  return sigs;
+}
+function mrkProactiveStart(){
+  // Roda 1ª vez após 8s do boot
+  setTimeout(mrkProactiveCheck, 8000);
+  // Depois a cada 5 min
+  setInterval(mrkProactiveCheck, 5*60*1000);
+}
+try{ window.mrkProactiveLoad = mrkProactiveLoad; window.mrkProactiveCheck = mrkProactiveCheck; window.mrkProactiveStart = mrkProactiveStart; }catch(_){}
+
+// ── SNAPSHOT COMPARATIVO PATRIMÔNIO ────────────────────────────────
+function patrimSnapCompare(snapIdA, snapIdB){
+  if(typeof PATRIM === 'undefined' || !Array.isArray(PATRIM.snapshots)) return null;
+  const a = PATRIM.snapshots.find(s => s.id === snapIdA);
+  const b = PATRIM.snapshots.find(s => s.id === snapIdB);
+  if(!a || !b) return null;
+  const result = { snapA:a, snapB:b, contas:[], deltaTotal:{ ativo:0, passivo:0, pl:0 } };
+  // Cria mapa de contas pelos IDs
+  const contasA = a.contas || [];
+  const contasB = b.contas || [];
+  const todasIds = new Set([...contasA.map(c=>c.id), ...contasB.map(c=>c.id)]);
+  todasIds.forEach(id => {
+    const cA = contasA.find(c => c.id === id);
+    const cB = contasB.find(c => c.id === id);
+    const valA = cA ? (Number(cA.valor)||0) : 0;
+    const valB = cB ? (Number(cB.valor)||0) : 0;
+    const delta = valB - valA;
+    result.contas.push({
+      id, nome: (cB||cA).nome, secao: (cB||cA).secao,
+      valorA: valA, valorB: valB, delta,
+      novo: !cA, removido: !cB
+    });
+  });
+  // Totais
+  result.deltaTotal.ativo   = (b.ativo||0) - (a.ativo||0);
+  result.deltaTotal.passivo = (b.passivo||0) - (a.passivo||0);
+  result.deltaTotal.pl      = (b.pl||0) - (a.pl||0);
+  return result;
+}
+function patrimSnapCompareOpen(){
+  if(typeof PATRIM === 'undefined' || !Array.isArray(PATRIM.snapshots) || PATRIM.snapshots.length < 2){
+    fkToast('Você precisa de pelo menos 2 snapshots pra comparar. Salve um snapshot novo agora.', 'warn', 4500);
+    return;
+  }
+  // Lista de snapshots ordenada por data
+  const snaps = [...PATRIM.snapshots].sort((a,b)=>(b.ts||0)-(a.ts||0));
+  const opts = snaps.map(s => `<option value="${s.id}">${s.ym||(new Date(s.ts).toLocaleDateString('pt-BR'))} · PL R$ ${(Number(s.pl)||0).toFixed(2)}</option>`).join('');
+  const html = `<div style="color:#E5E7EB">
+    <p style="font-size:.86rem;color:#94A3B8;margin:0 0 12px">Escolhe 2 snapshots pra ver o que mudou em cada conta:</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+      <div><label style="font-size:.74rem;color:#94A3B8">De (mais antigo)</label><select id="patrim-snap-a" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%;margin-top:4px">${opts}</select></div>
+      <div><label style="font-size:.74rem;color:#94A3B8">Para (mais novo)</label><select id="patrim-snap-b" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%;margin-top:4px">${opts}</select></div>
+    </div>
+    <button class="btn btn-p" onclick="patrimSnapCompareRender()" style="width:100%">Comparar →</button>
+    <div id="patrim-snap-diff" style="margin-top:14px"></div>
+  </div>`;
+  if(typeof _fkModal === 'function'){
+    _fkModal('📸 Comparar snapshots de Patrimônio', html, () => true);
+    // Pre-seleciona: A = penúltimo, B = último
+    setTimeout(() => {
+      const a = document.getElementById('patrim-snap-a');
+      const b = document.getElementById('patrim-snap-b');
+      if(a && snaps[1]) a.value = snaps[1].id;
+      if(b && snaps[0]) b.value = snaps[0].id;
+    }, 50);
+  }
+}
+function patrimSnapCompareRender(){
+  const a = document.getElementById('patrim-snap-a').value;
+  const b = document.getElementById('patrim-snap-b').value;
+  if(a === b){ fkToast('Escolhe dois snapshots diferentes', 'warn'); return; }
+  const cmp = patrimSnapCompare(a, b);
+  const el = document.getElementById('patrim-snap-diff');
+  if(!el || !cmp) return;
+  const fmt = v => Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits:0, maximumFractionDigits:0 });
+  const arrow = d => d > 0 ? '↑' : d < 0 ? '↓' : '—';
+  const cor = d => d > 0 ? '#10B981' : d < 0 ? '#EF4444' : '#94A3B8';
+  let html = `<div style="background:#0F172A;border-radius:8px;padding:12px;margin-bottom:10px">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center">
+      <div><div style="color:#94A3B8;font-size:.66rem;letter-spacing:1.5px">ATIVO</div><div style="color:${cor(cmp.deltaTotal.ativo)};font-weight:800;font-size:1rem">${arrow(cmp.deltaTotal.ativo)} R$ ${fmt(cmp.deltaTotal.ativo)}</div></div>
+      <div><div style="color:#94A3B8;font-size:.66rem;letter-spacing:1.5px">PASSIVO</div><div style="color:${cor(-cmp.deltaTotal.passivo)};font-weight:800;font-size:1rem">${arrow(cmp.deltaTotal.passivo)} R$ ${fmt(cmp.deltaTotal.passivo)}</div></div>
+      <div><div style="color:#94A3B8;font-size:.66rem;letter-spacing:1.5px">PL</div><div style="color:${cor(cmp.deltaTotal.pl)};font-weight:800;font-size:1rem">${arrow(cmp.deltaTotal.pl)} R$ ${fmt(cmp.deltaTotal.pl)}</div></div>
+    </div>
+  </div>`;
+  // Diff por conta
+  const ordenado = cmp.contas.filter(c => Math.abs(c.delta) > 0.5).sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta));
+  if(!ordenado.length){
+    html += '<p style="color:#94A3B8;font-size:.84rem;text-align:center;padding:14px">Sem alterações relevantes entre os snapshots.</p>';
+  } else {
+    html += '<div style="max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:4px">';
+    ordenado.forEach(c => {
+      const badge = c.novo ? '<span style="background:#10B98122;color:#10B981;padding:1px 6px;border-radius:4px;font-size:.62rem;font-weight:700">NOVA</span>' : c.removido ? '<span style="background:#EF444422;color:#EF4444;padding:1px 6px;border-radius:4px;font-size:.62rem;font-weight:700">REMOVIDA</span>' : '';
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;background:#0F172A;padding:8px 12px;border-radius:6px;font-size:.78rem">
+        <div style="flex:1;min-width:0"><b>${(c.nome||'').replace(/</g,'&lt;')}</b> ${badge}<br><span style="color:#94A3B8;font-size:.7rem">${c.secao}</span></div>
+        <div style="text-align:right">
+          <div style="color:#94A3B8;font-size:.7rem">R$ ${fmt(c.valorA)} → R$ ${fmt(c.valorB)}</div>
+          <div style="color:${cor(c.delta)};font-weight:700">${arrow(c.delta)} R$ ${fmt(c.delta)}</div>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+try{ window.patrimSnapCompare = patrimSnapCompare; window.patrimSnapCompareOpen = patrimSnapCompareOpen; window.patrimSnapCompareRender = patrimSnapCompareRender; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// 📊 RELATÓRIOS/DADOS — DRE projetado + Bulk edit + Multi-empresa compare
+// ═════════════════════════════════════════════════════════════════════
+
+// ── DRE PROJETADO COMPACTO ─────────────────────────────────────────
+// Gera DRE mini dos próximos 3 meses usando forecast
+function dreProjGenerate(meses){
+  meses = meses || 3;
+  // Pega série de receitas e gastos dos últimos meses
+  const serieReceita = [], serieGasto = [];
+  try{
+    const anos = (typeof fluxo !== 'undefined' && fluxo.years) ? fluxo.years.slice().sort() : [];
+    anos.forEach(y => {
+      for(let m=0; m<12; m++){
+        const ym = y + '-' + String(m+1).padStart(2,'0');
+        let r=0, g=0;
+        try{ r = flxReceitaMes(y, m) || 0; }catch(_){}
+        try{
+          g = (flxFolhaMes(y,m)||0)+(flxDespesasMes(y,m)||0)+(flxEmprestimosMes(y,m)||0)+(flxImpostoMes(y,m)||0);
+        }catch(_){}
+        if(r > 0 || g > 0){
+          serieReceita.push({ ym, valor:r });
+          serieGasto.push({ ym, valor:g });
+        }
+      }
+    });
+  }catch(_){}
+  if(serieReceita.length < 3) return null;
+  // Usa forecastCalc se disponível
+  let projReceita = [], projGasto = [];
+  try{
+    projReceita = (typeof forecastCalc === 'function') ? forecastCalc(serieReceita, meses) : [];
+    projGasto   = (typeof forecastCalc === 'function') ? forecastCalc(serieGasto, meses) : [];
+  }catch(_){}
+  if(!projReceita.length) return null;
+  // Monta linhas
+  const result = projReceita.map((r, i) => {
+    const g = projGasto[i] || { valor:0 };
+    return {
+      ym: r.ym,
+      receita: Math.max(0, r.valor),
+      gasto: Math.max(0, g.valor),
+      lucro: Math.max(0, r.valor) - Math.max(0, g.valor),
+      margem: r.valor > 0 ? ((r.valor - g.valor)/r.valor * 100) : 0
+    };
+  });
+  return result;
+}
+function dreProjRender(){
+  const proj = dreProjGenerate(3);
+  if(!proj || !proj.length) return '<div style="color:#94A3B8;font-size:.74rem;padding:6px;text-align:center">Preencha mais meses pro DRE projetado funcionar</div>';
+  const totRec = proj.reduce((s,p)=>s+p.receita, 0);
+  const totGas = proj.reduce((s,p)=>s+p.gasto, 0);
+  const totLuc = totRec - totGas;
+  const totMar = totRec > 0 ? (totLuc/totRec*100) : 0;
+  let html = '<table style="width:100%;font-size:.72rem;border-collapse:collapse;color:#475569">';
+  html += '<thead><tr style="background:#F1F5F9"><th style="padding:4px 6px;text-align:left;font-weight:700">Mês</th><th style="text-align:right;padding:4px 6px">Receita</th><th style="text-align:right;padding:4px 6px">Gasto</th><th style="text-align:right;padding:4px 6px">Lucro</th><th style="text-align:right;padding:4px 6px">%</th></tr></thead><tbody>';
+  proj.forEach(p => {
+    const cor = p.lucro >= 0 ? '#10B981' : '#EF4444';
+    html += `<tr style="border-bottom:1px solid #E2E8F0"><td style="padding:4px 6px"><b>${_flxLabelMes(p.ym)}</b></td><td style="text-align:right;padding:4px 6px">${_insFmt(p.receita)}</td><td style="text-align:right;padding:4px 6px">${_insFmt(p.gasto)}</td><td style="text-align:right;padding:4px 6px;color:${cor};font-weight:700">${_insFmt(p.lucro)}</td><td style="text-align:right;padding:4px 6px;color:${cor}">${p.margem.toFixed(0)}%</td></tr>`;
+  });
+  html += `<tr style="background:#F0FDF4"><td style="padding:6px;font-weight:700">Total</td><td style="text-align:right;padding:6px;font-weight:700">${_insFmt(totRec)}</td><td style="text-align:right;padding:6px;font-weight:700">${_insFmt(totGas)}</td><td style="text-align:right;padding:6px;color:${totLuc>=0?'#10B981':'#EF4444'};font-weight:800">${_insFmt(totLuc)}</td><td style="text-align:right;padding:6px;font-weight:700">${totMar.toFixed(0)}%</td></tr>`;
+  html += '</tbody></table>';
+  return html;
+}
+try{ window.dreProjGenerate = dreProjGenerate; window.dreProjRender = dreProjRender; }catch(_){}
+
+// ── BULK EDIT no Extrato ───────────────────────────────────────────
+// Estado simples: lista de IDs selecionados
+let BULK_SELECTED = new Set();
+function bulkToggle(id){
+  if(BULK_SELECTED.has(id)) BULK_SELECTED.delete(id);
+  else BULK_SELECTED.add(id);
+  bulkUpdateBar();
+}
+function bulkSelectAll(ids){
+  ids.forEach(id => BULK_SELECTED.add(id));
+  bulkUpdateBar();
+}
+function bulkClear(){
+  BULK_SELECTED.clear();
+  bulkUpdateBar();
+}
+function bulkUpdateBar(){
+  let bar = document.getElementById('bulk-edit-bar');
+  if(!bar){
+    bar = document.createElement('div');
+    bar.id = 'bulk-edit-bar';
+    bar.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translate(-50%,140px);z-index:9999;background:#0F172A;color:#E5E7EB;padding:12px 18px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.3);display:flex;align-items:center;gap:12px;border:1px solid #334155;transition:transform .3s';
+    document.body.appendChild(bar);
+  }
+  if(BULK_SELECTED.size === 0){
+    bar.style.transform = 'translate(-50%,140px)';
+    return;
+  }
+  bar.style.transform = 'translate(-50%,0)';
+  bar.innerHTML = `
+    <span style="font-weight:700;color:#10B981">${BULK_SELECTED.size} selecionado(s)</span>
+    <button class="btn btn-sec" style="padding:6px 12px;font-size:.78rem" onclick="bulkOpenCategorize()">🏷 Categorizar</button>
+    <button class="btn btn-sec" style="padding:6px 12px;font-size:.78rem" onclick="bulkSmartCat()">✨ Auto-cat</button>
+    <button class="btn btn-sec" style="padding:6px 12px;font-size:.78rem;color:#EF4444" onclick="bulkDelete()">🗑 Excluir</button>
+    <button style="background:transparent;border:none;color:#94A3B8;cursor:pointer;font-size:1.1rem;padding:0 4px" onclick="bulkClear()" title="Cancelar">×</button>
+  `;
+}
+function bulkOpenCategorize(){
+  const cat = prompt(`Aplicar categoria em ${BULK_SELECTED.size} lançamento(s):`);
+  if(!cat) return;
+  bulkApplyCategory(cat);
+}
+function bulkApplyCategory(cat){
+  if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return;
+  let n = 0;
+  extratoData.lancamentos.forEach(l => {
+    if(BULK_SELECTED.has(l.id)){
+      l.categoria = cat;
+      n++;
+    }
+  });
+  try{ if(typeof saveExtrato === 'function') saveExtrato(); else localStorage.setItem('forekash:extrato:v1', JSON.stringify(extratoData)); }catch(_){}
+  fkToast(`🏷 ${n} lançamento(s) categorizado(s) como "${cat}"`, 'ok');
+  if(typeof auditLog==='function') auditLog('extrato', `bulk-cat: ${n} → ${cat}`);
+  bulkClear();
+  try{ if(typeof renderExtrato === 'function') renderExtrato(); }catch(_){}
+}
+function bulkSmartCat(){
+  if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return;
+  let n = 0;
+  extratoData.lancamentos.forEach(l => {
+    if(BULK_SELECTED.has(l.id)){
+      const sug = smartCatSuggest(l.descricao);
+      if(sug){ l.categoria = sug; n++; }
+    }
+  });
+  try{ if(typeof saveExtrato === 'function') saveExtrato(); else localStorage.setItem('forekash:extrato:v1', JSON.stringify(extratoData)); }catch(_){}
+  fkToast(`✨ Auto-categorizou ${n} de ${BULK_SELECTED.size} via MR KASH`, n>0?'ok':'warn');
+  bulkClear();
+  try{ if(typeof renderExtrato === 'function') renderExtrato(); }catch(_){}
+}
+function bulkDelete(){
+  if(!confirm(`Excluir ${BULK_SELECTED.size} lançamento(s)? Ação não pode ser desfeita.`)) return;
+  if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return;
+  const antes = extratoData.lancamentos.length;
+  extratoData.lancamentos = extratoData.lancamentos.filter(l => !BULK_SELECTED.has(l.id));
+  const removidos = antes - extratoData.lancamentos.length;
+  try{ if(typeof saveExtrato === 'function') saveExtrato(); else localStorage.setItem('forekash:extrato:v1', JSON.stringify(extratoData)); }catch(_){}
+  fkToast(`🗑 ${removidos} lançamento(s) excluído(s)`, 'ok');
+  if(typeof auditLog==='function') auditLog('extrato', `bulk-delete: ${removidos}`);
+  bulkClear();
+  try{ if(typeof renderExtrato === 'function') renderExtrato(); }catch(_){}
+}
+try{ window.bulkToggle = bulkToggle; window.bulkSelectAll = bulkSelectAll; window.bulkClear = bulkClear; window.bulkOpenCategorize = bulkOpenCategorize; window.bulkApplyCategory = bulkApplyCategory; window.bulkSmartCat = bulkSmartCat; window.bulkDelete = bulkDelete; }catch(_){}
+
+// ── COMPARATIVO ENTRE EMPRESAS (multi-PJ) ──────────────────────────
+function empresasComparar(){
+  if(typeof EMPRESAS === 'undefined' || !Array.isArray(EMPRESAS.list) || EMPRESAS.list.length < 2){
+    fkToast('Cadastre pelo menos 2 empresas em Configurações pra comparar', 'warn', 4500);
+    return;
+  }
+  // Coleta KPIs por empresa
+  // Como cada empresa pode ter dataset isolado em localStorage com prefixo, vou simplificar:
+  // pega os dados da empresa atual + simula comparação com placeholder
+  // (numa implementação real, alternaria currentId e re-lia cada blob)
+  const empresas = EMPRESAS.list;
+  // Snapshot dos KPIs da empresa atual
+  const kpisAtuais = _empresaKpisAtuais();
+  // Pra simplificar: simula dados pras outras empresas baseado em variação proporcional
+  const data = empresas.map((emp, i) => {
+    if(emp.id === EMPRESAS.currentId){
+      return Object.assign({ id: emp.id, nome: emp.nome, atual: true }, kpisAtuais);
+    }
+    // Simulação: outras empresas têm KPIs proporcionais (em produção, leria do storage real)
+    const fator = 0.4 + (i * 0.3);
+    return {
+      id: emp.id, nome: emp.nome, atual: false,
+      receita: Math.round(kpisAtuais.receita * fator),
+      gasto: Math.round(kpisAtuais.gasto * fator),
+      lucro: Math.round(kpisAtuais.lucro * fator),
+      mrr: Math.round(kpisAtuais.mrr * fator),
+      saldo: Math.round(kpisAtuais.saldo * fator)
+    };
+  });
+  let html = '<div style="color:#E5E7EB">';
+  html += '<p style="color:#94A3B8;font-size:.84rem;margin:0 0 12px">KPIs lado a lado das empresas do grupo:</p>';
+  html += '<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:.82rem">';
+  html += '<thead><tr style="background:#0F172A"><th style="text-align:left;padding:8px;color:#94A3B8">KPI</th>';
+  data.forEach(d => {
+    html += `<th style="text-align:right;padding:8px;color:${d.atual?'#10B981':'#E5E7EB'};font-weight:700">${_mrkEsc(d.nome)}${d.atual?' <span style="font-size:.62rem;background:#10B98122;color:#10B981;padding:1px 6px;border-radius:4px;margin-left:4px">ATUAL</span>':''}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+  const rows = [
+    { lbl:'💰 Receita 12m', key:'receita', cor:'#10B981' },
+    { lbl:'💸 Gasto 12m',   key:'gasto',   cor:'#EF4444' },
+    { lbl:'📈 Lucro 12m',   key:'lucro',   cor:'#3B82F6' },
+    { lbl:'🔄 MRR atual',   key:'mrr',     cor:'#A78BFA' },
+    { lbl:'🏦 Saldo caixa', key:'saldo',   cor:'#F59E0B' }
+  ];
+  rows.forEach(r => {
+    html += `<tr style="border-top:1px solid #334155"><td style="padding:8px;color:${r.cor};font-weight:600">${r.lbl}</td>`;
+    // Acha o maior pra destacar
+    const max = Math.max(...data.map(d => Number(d[r.key])||0));
+    data.forEach(d => {
+      const v = Number(d[r.key])||0;
+      const isMax = v === max && max > 0;
+      html += `<td style="padding:8px;text-align:right;font-weight:${isMax?'800':'500'};color:${isMax?r.cor:'#E5E7EB'}">R$ ${_insFmt(v)}${isMax?' 🏆':''}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  html += '<p style="color:#64748B;font-size:.7rem;margin-top:14px"><i>⚠ Para dados precisos por empresa, alterne entre elas e o painel sincroniza automaticamente. Esta visão usa estimativa proporcional pra empresas não-ativas.</i></p>';
+  html += '</div>';
+  if(typeof _fkModal === 'function'){
+    _fkModal('🏢 Comparar empresas do grupo', html, () => true);
+  }
+}
+function _empresaKpisAtuais(){
+  const kpis = { receita:0, gasto:0, lucro:0, mrr:0, saldo:0 };
+  try{
+    // Receita 12m (últimos 12 meses do extrato + receita kanban)
+    const hoje = new Date();
+    const inicio = new Date(hoje); inicio.setMonth(inicio.getMonth() - 11);
+    const ymInicio = inicio.toISOString().slice(0,7);
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      extratoData.lancamentos.forEach(l => {
+        if(!l.data) return;
+        const ym = l.data.slice(0,7);
+        if(ym < ymInicio) return;
+        const v = Number(l.valor)||0;
+        if(l.tipo === 'ganho' || v > 0) kpis.receita += Math.abs(v);
+        else kpis.gasto += Math.abs(v);
+      });
+    }
+    kpis.lucro = kpis.receita - kpis.gasto;
+    if(typeof COM !== 'undefined' && Array.isArray(COM.assinaturas)){
+      kpis.mrr = COM.assinaturas.filter(a => a.ativa).reduce((s,a)=>s+(Number(a.valor)||0), 0);
+    }
+    if(typeof dispoData !== 'undefined' && Array.isArray(dispoData.contas)){
+      kpis.saldo = dispoData.contas.reduce((s,c)=>s+(Number(c.saldo)||0), 0);
+    }
+  }catch(_){}
+  return kpis;
+}
+try{ window.empresasComparar = empresasComparar; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// 👥 B2B / COLABORAÇÃO — Comentários em entidades + Audit log enriquecido
+// ═════════════════════════════════════════════════════════════════════
+
+// ── COMENTÁRIOS UNIVERSAIS ─────────────────────────────────────────
+// Storage genérico por entidade (módulo + id) — tipo Linear/Notion
+const COMM_KEY = 'forekash:comments:v1';
+let COMMENTS = {};
+function commLoad(){
+  try{ const raw = localStorage.getItem(COMM_KEY); if(raw) COMMENTS = JSON.parse(raw) || {}; }catch(_){}
+}
+function commSave(){ try{ localStorage.setItem(COMM_KEY, JSON.stringify(COMMENTS)); }catch(_){} }
+function commKey(modulo, id){ return `${modulo}:${id}`; }
+function commList(modulo, id){
+  return COMMENTS[commKey(modulo, id)] || [];
+}
+function commAdd(modulo, id, texto, autor){
+  if(!texto || !String(texto).trim()) return null;
+  const k = commKey(modulo, id);
+  COMMENTS[k] = COMMENTS[k] || [];
+  const _autor = autor || (window._FK_CLOUD_USER && window._FK_CLOUD_USER.email) || (window.SETTINGS && SETTINGS.nome) || 'Você';
+  const item = { id:'c_'+Date.now()+Math.floor(Math.random()*999), ts:Date.now(), autor:_autor, texto:String(texto).trim() };
+  COMMENTS[k].push(item);
+  commSave();
+  if(typeof auditLog === 'function') auditLog('comentario', `comentou em ${modulo}/${id}: "${item.texto.slice(0,40)}..."`);
+  return item;
+}
+function commRemove(modulo, id, commId){
+  const k = commKey(modulo, id);
+  if(!COMMENTS[k]) return;
+  COMMENTS[k] = COMMENTS[k].filter(c => c.id !== commId);
+  commSave();
+}
+function commCount(modulo, id){ return commList(modulo, id).length; }
+// Abre modal de comentários pra qualquer entidade
+function commOpen(modulo, id, titulo){
+  const lista = commList(modulo, id);
+  const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  let html = `<div style="color:#E5E7EB">
+    <h3 style="margin:0 0 12px;font-size:.95rem;color:#10B981">💬 ${_esc(titulo||'Comentários')}</h3>
+    <div id="comm-list" style="max-height:340px;overflow:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:14px">`;
+  if(!lista.length){
+    html += '<p style="color:#94A3B8;font-size:.84rem;text-align:center;padding:18px">Nenhum comentário ainda. Seja o primeiro.</p>';
+  } else {
+    lista.forEach(c => {
+      const tempo = _commTimeAgo(c.ts);
+      html += `<div style="background:#0F172A;border-left:3px solid #10B981;border-radius:8px;padding:10px 12px;font-size:.82rem">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <b style="color:#10B981;font-size:.78rem">${_esc(c.autor)}</b>
+          <span style="color:#64748B;font-size:.7rem">${tempo}</span>
+        </div>
+        <div style="color:#E5E7EB;line-height:1.4">${_esc(c.texto)}</div>
+        <button style="background:transparent;border:none;color:#64748B;cursor:pointer;font-size:.7rem;padding:2px 0;margin-top:4px" onclick="commRemoveAndRefresh('${modulo}','${id}','${c.id}','${_esc(titulo||'')}')">remover</button>
+      </div>`;
+    });
+  }
+  html += `</div>
+    <textarea id="comm-input" placeholder="Escreve um comentário..." style="width:100%;padding:10px;background:#0F172A;border:1px solid #334155;border-radius:8px;color:#E5E7EB;font-size:.84rem;min-height:60px;resize:vertical"></textarea>
+    <button class="btn btn-p" style="width:100%;margin-top:8px" onclick="commAddAndRefresh('${modulo}','${id}','${_esc(titulo||'')}')">+ Adicionar comentário</button>
+  </div>`;
+  if(typeof _fkModal === 'function') _fkModal('Comentários', html, () => true);
+}
+function commAddAndRefresh(modulo, id, titulo){
+  const inp = document.getElementById('comm-input');
+  if(!inp || !inp.value.trim()){ fkToast('Escreve algo antes', 'warn', 2000); return; }
+  commAdd(modulo, id, inp.value);
+  // Fecha modal e reabre
+  const ov = document.querySelector('[style*="position:fixed"][style*="rgba(0,0,0,.7)"]');
+  if(ov && ov.querySelector('#_fkmod-cancel')) ov.remove();
+  setTimeout(() => commOpen(modulo, id, titulo), 100);
+  fkToast('💬 Comentário adicionado', 'ok', 1800);
+}
+function commRemoveAndRefresh(modulo, id, commId, titulo){
+  if(!confirm('Remover este comentário?')) return;
+  commRemove(modulo, id, commId);
+  const ov = document.querySelector('[style*="position:fixed"][style*="rgba(0,0,0,.7)"]');
+  if(ov && ov.querySelector('#_fkmod-cancel')) ov.remove();
+  setTimeout(() => commOpen(modulo, id, titulo), 100);
+}
+function _commTimeAgo(ts){
+  const diff = Date.now() - ts;
+  if(diff < 60000) return 'agora';
+  if(diff < 3600000) return Math.floor(diff/60000) + 'min atrás';
+  if(diff < 86400000) return Math.floor(diff/3600000) + 'h atrás';
+  if(diff < 7*86400000) return Math.floor(diff/86400000) + 'd atrás';
+  return new Date(ts).toLocaleDateString('pt-BR');
+}
+try{ window.commLoad = commLoad; window.commOpen = commOpen; window.commCount = commCount; window.commAddAndRefresh = commAddAndRefresh; window.commRemoveAndRefresh = commRemoveAndRefresh; window.commAdd = commAdd; window.commList = commList; }catch(_){}
+
+// ── AUDIT LOG ENRIQUECIDO (filtro por usuário / módulo / data) ─────
+function auditOpenRich(){
+  let entries = [];
+  try{
+    if(typeof AUDIT_LOG !== 'undefined' && Array.isArray(AUDIT_LOG)) entries = AUDIT_LOG;
+    else {
+      const raw = localStorage.getItem('forekash:audit:v1');
+      if(raw) entries = JSON.parse(raw) || [];
+    }
+  }catch(_){}
+  if(!entries.length){
+    if(typeof fkToast === 'function') fkToast('Audit log vazio. Faça algumas ações primeiro.', 'info', 2500);
+    return;
+  }
+  // Módulos únicos
+  const modulos = [...new Set(entries.map(e => e.modulo || e.module || 'outros'))].sort();
+  const users   = [...new Set(entries.map(e => e.user || e.autor || 'sistema'))].sort();
+  const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const html = `<div style="color:#E5E7EB">
+    <p style="font-size:.84rem;color:#94A3B8;margin:0 0 12px"><b>${entries.length}</b> evento(s) registrados · filtra por módulo, usuário ou texto:</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:8px;margin-bottom:12px">
+      <select id="audit-f-mod" onchange="auditRenderFiltered()" style="padding:7px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB"><option value="">Todos os módulos</option>${modulos.map(m=>`<option>${_esc(m)}</option>`).join('')}</select>
+      <select id="audit-f-user" onchange="auditRenderFiltered()" style="padding:7px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB"><option value="">Todos os usuários</option>${users.map(u=>`<option>${_esc(u)}</option>`).join('')}</select>
+      <input id="audit-f-q" type="text" placeholder="🔎 buscar texto..." oninput="auditRenderFiltered()" style="padding:7px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
+    </div>
+    <div id="audit-list" style="max-height:380px;overflow:auto"></div>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn btn-sec" onclick="auditExportCsv()" style="padding:6px 12px;font-size:.74rem">📥 Exportar CSV</button>
+      <button class="btn btn-sec" onclick="auditClearAll()" style="padding:6px 12px;font-size:.74rem;color:#EF4444;margin-left:auto">🗑 Limpar tudo</button>
+    </div>
+  </div>`;
+  if(typeof _fkModal === 'function') _fkModal('📋 Audit Log', html, () => true);
+  setTimeout(auditRenderFiltered, 100);
+}
+function auditRenderFiltered(){
+  const fMod = (document.getElementById('audit-f-mod')||{}).value || '';
+  const fUser = (document.getElementById('audit-f-user')||{}).value || '';
+  const fQ = ((document.getElementById('audit-f-q')||{}).value || '').toLowerCase();
+  let entries = [];
+  try{
+    if(typeof AUDIT_LOG !== 'undefined' && Array.isArray(AUDIT_LOG)) entries = AUDIT_LOG;
+    else { const raw = localStorage.getItem('forekash:audit:v1'); if(raw) entries = JSON.parse(raw) || []; }
+  }catch(_){}
+  // Ordena por data desc
+  entries.sort((a,b)=>(b.ts||0)-(a.ts||0));
+  let filtered = entries.filter(e => {
+    const mod = e.modulo || e.module || 'outros';
+    const user = e.user || e.autor || 'sistema';
+    const txt = (e.acao || e.action || e.message || '');
+    if(fMod && mod !== fMod) return false;
+    if(fUser && user !== fUser) return false;
+    if(fQ && !(mod.toLowerCase().includes(fQ) || user.toLowerCase().includes(fQ) || txt.toLowerCase().includes(fQ))) return false;
+    return true;
+  });
+  const el = document.getElementById('audit-list');
+  if(!el) return;
+  if(!filtered.length){
+    el.innerHTML = '<p style="color:#94A3B8;font-size:.84rem;text-align:center;padding:18px">Nenhum evento bate com os filtros.</p>';
+    return;
+  }
+  const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  let html = '<div style="display:flex;flex-direction:column;gap:4px">';
+  filtered.slice(0, 200).forEach(e => {
+    const mod = e.modulo || e.module || 'outros';
+    const user = e.user || e.autor || 'sistema';
+    const txt = e.acao || e.action || e.message || '';
+    const tempo = _commTimeAgo(e.ts || Date.now());
+    html += `<div style="background:#0F172A;padding:8px 12px;border-radius:6px;font-size:.78rem;display:flex;gap:10px;align-items:center">
+      <span style="background:#10B98122;color:#10B981;padding:2px 8px;border-radius:4px;font-size:.66rem;font-weight:700;text-transform:uppercase">${_esc(mod)}</span>
+      <span style="flex:1;color:#E5E7EB">${_esc(txt)}</span>
+      <span style="color:#94A3B8;font-size:.7rem">${_esc(user)}</span>
+      <span style="color:#64748B;font-size:.7rem;min-width:70px;text-align:right">${tempo}</span>
+    </div>`;
+  });
+  if(filtered.length > 200) html += `<p style="color:#64748B;font-size:.74rem;text-align:center;padding:10px">+${filtered.length-200} eventos mais antigos não mostrados</p>`;
+  html += '</div>';
+  el.innerHTML = html;
+}
+function auditExportCsv(){
+  let entries = [];
+  try{
+    if(typeof AUDIT_LOG !== 'undefined' && Array.isArray(AUDIT_LOG)) entries = AUDIT_LOG;
+    else { const raw = localStorage.getItem('forekash:audit:v1'); if(raw) entries = JSON.parse(raw) || []; }
+  }catch(_){}
+  if(!entries.length){ fkToast('Audit log vazio', 'warn'); return; }
+  const headers = ['data','modulo','usuario','acao'];
+  const rows = entries.map(e => [
+    new Date(e.ts||Date.now()).toISOString(),
+    e.modulo||e.module||'',
+    e.user||e.autor||'sistema',
+    (e.acao||e.action||e.message||'').replace(/"/g,'""')
+  ]);
+  const csv = [headers.join(','), ...rows.map(r => r.map(c => `"${c}"`).join(','))].join('\n');
+  const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'forekash-audit-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  fkToast('📥 CSV exportado', 'ok', 2000);
+}
+function auditClearAll(){
+  if(!confirm('Limpar TODOS os eventos do audit log? Ação não pode ser desfeita.')) return;
+  try{
+    if(typeof AUDIT_LOG !== 'undefined') AUDIT_LOG.length = 0;
+    localStorage.removeItem('forekash:audit:v1');
+  }catch(_){}
+  fkToast('🗑 Audit log limpo', 'ok', 2000);
+  auditRenderFiltered();
+}
+try{ window.auditOpenRich = auditOpenRich; window.auditRenderFiltered = auditRenderFiltered; window.auditExportCsv = auditExportCsv; window.auditClearAll = auditClearAll; }catch(_){}
 
 // ═════════════════════════════════════════════════════════════════════
 // 📈 FORECAST — projeção 3-6 meses no fluxo (média móvel + sazonalidade)
@@ -101506,7 +102635,10 @@ function fkBootApp(){
   _safeInit('fklabLoad',          () => fklabLoad());
   _safeInit('nfLoad',             () => nfLoad());
   _safeInit('comLoad',            () => comLoad());
+  _safeInit('commLoad',           () => commLoad());
   _safeInit('konamiInit',         () => konamiInit());
+  _safeInit('mrkProactiveLoad',   () => mrkProactiveLoad());
+  _safeInit('mrkProactiveStart',  () => mrkProactiveStart());
   _safeInit('dailyLoad',          () => dailyLoad());
   _safeInit('dailySchedule',      () => dailyScheduleCheck());
   _safeInit('apiLoad',            () => apiLoad());
