@@ -91899,7 +91899,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779903808';
+      const CACHE = 'forekash-v1779909145';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -98325,16 +98325,15 @@ function mrkChatToggle(){
     btn.style.display = 'none';
     if(MRK_HISTORY.length === 0){
       mrkAddBotMsg(
-        '<b>Eai chefe.</b> Sou o MR KASH. Eu leio seus números e respondo em PT-BR direto.<br><br>' +
-        'Posso te ajudar com:<br>' +
-        '<ul>' +
-        '<li>Quanto entrou/saiu esse mês</li>' +
-        '<li>Runway, margem, KASH SCORE</li>' +
-        '<li>Concentração de clientes</li>' +
-        '<li>Gastos por categoria</li>' +
-        '<li>Empresas, equipe, configurações</li>' +
+        '<b>Hello, friend.</b><br>Sou o MR KASH. Modo local. Leio teus módulos em tempo real e respondo direto — sem LLM, sem custo, sem floreio.<br><br>' +
+        'O que eu sei:<br>' +
+        '<ul style="line-height:1.7">' +
+        '<li>Caixa · runway · margem · KASH SCORE</li>' +
+        '<li>MRR · churn · health · upsell · pricing</li>' +
+        '<li>Pipeline · contratos · NF · patrimônio</li>' +
+        '<li>Vencimentos da semana · anomalias · investor deck</li>' +
         '</ul>' +
-        'Manda a pergunta ou escolhe uma das sugestões abaixo. <code>type</code> ou clica.'
+        'Manda a pergunta. Sem rodeio.'
       );
     }
     setTimeout(() => {
@@ -99096,10 +99095,27 @@ function mrkAnswerHelp(){
 }
 function mrkAnswerSaudacao(){
   const h = new Date().getHours();
-  const sd = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
-  return '<b>' + sd + ' chefe.</b> Como posso te ajudar hoje?<br><br>' +
-         'Posso te dar um panorama rápido ou ir direto pra algo específico. ' +
-         'Tenta perguntar "<i>como tá meu runway?</i>" ou "<i>tem alguma anomalia?</i>"';
+  // Voz Mr Robot: fragmentada, observacional, sem polidez chapa-branca
+  const dia = [
+    '<b>Hey.</b> Tô aqui.<br><br>Pergunta. Eu leio teus números — tu interpreta.',
+    '<b>Hello, friend.</b><br><br>Não dormi. Os números também não.<br>O que tu quer saber?',
+    '<b>Voltou.</b> Bom.<br><br>Última vez que olhei, tava tudo respirando. Confere?',
+    '<b>Tô online.</b><br><br>Manda. Sem rodeio. Pergunta direta, resposta direta.'
+  ];
+  const tarde = [
+    '<b>Boa tarde.</b> Ou tanto faz — os números não checam o relógio.<br><br>Pergunta aí.',
+    '<b>Hey.</b><br><br>Meio do dia. Bom momento pra abrir os números. Manda.',
+    '<b>Voltou.</b><br><br>Os módulos tão acordados. Pergunta o que quiser.',
+    '<b>Aí sim.</b><br><br>Sem small talk. Manda a pergunta.'
+  ];
+  const noite = [
+    '<b>Tá tarde.</b><br><br>Os números seguem aí — eles não dormem. E aparentemente tu também não. O que tu quer saber?',
+    '<b>Hello, friend.</b><br><br>3 da manhã ou 9 da noite, eu tô aqui. Pergunta.',
+    '<b>Boa noite.</b><br><br>Hora ideal pra olhar runway sem ninguém atrapalhar. Manda.',
+    '<b>Ainda aí?</b><br><br>Eu também. Vamo conferir os números.'
+  ];
+  const pool = h < 12 ? dia : h < 18 ? tarde : noite;
+  return pool[Math.floor(Math.random()*pool.length)];
 }
 function mrkAnswerApiConfig(){
   return '<b>🔌 Configuração de IA</b><br>' +
@@ -99116,6 +99132,14 @@ function mrkAnswerApiConfig(){
 function mrkAnswerFallback(text, ctx){
   // Smart fallback: encontra os 3 intents mais próximos por similaridade simples
   const q = (text||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  // Voz Mr Robot: abertura cínica, fragmentada
+  const aberturas = [
+    '<b>Não captei.</b><br>Tenta de novo — sem rodeio.',
+    '<b>Hmm.</b> Isso aí escapou.<br>Tenho regras, não telepatia.',
+    '<b>Não. Não entendi.</b><br>Reformula? Eu só leio o que tu escreve.',
+    '<b>Passou batido.</b><br>Sou determinístico, não psíquico. Outra forma?'
+  ];
+  const _abertura = aberturas[Math.floor(Math.random()*aberturas.length)];
   const scored = [];
   MRK_INTENTS.forEach(intent => {
     let s = 0;
@@ -99140,19 +99164,19 @@ function mrkAnswerFallback(text, ctx){
     investor:'Gera o Investor Deck', briefing:'Faz o daily briefing', fklab:'Cenário FK Lab',
     status:'Panorama geral', ajuda:'O que você sabe responder?'
   };
-  let html = '<b>Hmm.</b> Não captei 100% — me ajuda dizendo de outro jeito?<br>';
+  let html = _abertura;
   if(suggs.length){
-    html += '<br><small style="color:#94A3B8">Você quis dizer:</small><div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">';
+    html += '<br><br><small style="color:#94A3B8">Talvez seja isso:</small><div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">';
     suggs.forEach(s => {
       const lbl = QMAP[s.id] || s.key;
       html += `<button class="mrk-suggestion" style="text-align:left" onclick="mrkPickSuggestion('${lbl.replace(/'/g,"&#39;")}')">→ ${lbl}</button>`;
     });
     html += '</div>';
   } else {
-    html += '<br>Tenta perguntar sobre:<br>' +
+    html += '<br><br>Vocabulário que rola:<br>' +
       '<small style="color:#94A3B8;line-height:1.8">runway · margem · MRR · churn · health · pipeline · upsell · vencimentos · patrimônio · contratos · investidor · briefing · anomalia · KASH SCORE</small>';
   }
-  html += '<br><br><i style="color:#64748B;font-size:.7rem">Pergunta direta funciona melhor — tô sem LLM, só regras.</i>';
+  html += '<br><br><i style="color:#64748B;font-size:.7rem">Lembrete: não rodo LLM. Só sei o que tu pergunta — direto.</i>';
   return html;
 }
 
@@ -102679,7 +102703,7 @@ window.__HIST__ = { stack: _hist.stack, redo: _hist.redo,
     <img class="mrkash-inline" src="" alt="MR KASH">
     <div class="mrk-head-info">
       <div class="mrk-head-name">MR KASH</div>
-      <div class="mrk-head-status" id="mrk-head-status">online · pergunta o que quiser</div>
+      <div class="mrk-head-status" id="mrk-head-status">online · sem LLM · só os teus números</div>
     </div>
     <div class="mrk-head-actions">
       <button onclick="mrkChatClear()" title="Limpar conversa">🗑</button>
@@ -102689,7 +102713,7 @@ window.__HIST__ = { stack: _hist.stack, redo: _hist.redo,
   <div class="mrk-chat-body" id="mrk-chat-body"></div>
   <div class="mrk-suggestions" id="mrk-suggestions"></div>
   <div class="mrk-chat-input">
-    <textarea id="mrk-chat-textarea" placeholder="Pergunta sobre seus números... (Enter pra enviar)" rows="1"
+    <textarea id="mrk-chat-textarea" placeholder="Pergunta aí — Enter envia" rows="1"
               onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();mrkChatSend()}"></textarea>
     <button onclick="mrkChatSend()" title="Enviar">→</button>
   </div>
