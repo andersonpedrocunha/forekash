@@ -92187,7 +92187,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779921526';
+      const CACHE = 'forekash-v1779921883';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -97538,28 +97538,41 @@ function mrkProactiveLoad(){
   if(!MRK_PROACTIVE_STATE.dismissed) MRK_PROACTIVE_STATE.dismissed = {};
 }
 function _mrkProactiveSave(){ try{ localStorage.setItem(MRK_PROACTIVE_KEY, JSON.stringify(MRK_PROACTIVE_STATE)); }catch(_){} }
+// Cooldowns generosos pra não irritar
+const _MRK_COOLDOWN_GLOBAL = 30 * 60 * 1000;   // 30 min entre QUALQUER nudge
+const _MRK_COOLDOWN_PER_ID = 6  * 60 * 60 * 1000; // 6 horas pro mesmo signal repetir
 function mrkProactiveCheck(firstRun){
   try{
-    console.log('[MR KASH proativo] check rodando · firstRun=', firstRun);
     const sigs = mrkProactiveDetect();
     const agora = Date.now();
-    // Respeita cooldown EXCETO no firstRun
-    if(!firstRun && agora - MRK_PROACTIVE_STATE.lastNudgeTs < 30000){
-      console.log('[MR KASH proativo] cooldown ativo, pulando');
+    // Cooldown global (exceto firstRun)
+    if(!firstRun && agora - MRK_PROACTIVE_STATE.lastNudgeTs < _MRK_COOLDOWN_GLOBAL){
       return;
     }
-    // firstRun ignora dismissed também
-    const ativos = firstRun ? sigs : sigs.filter(s => !MRK_PROACTIVE_STATE.dismissed[s.id]);
+    // Garante estrutura pra cooldown per-id
+    if(!MRK_PROACTIVE_STATE.lastByid) MRK_PROACTIVE_STATE.lastByid = {};
+    // Filtra: ignora dismissed E ignora se o mesmo id foi disparado < 6h atrás
+    const ativos = sigs.filter(s => {
+      if(MRK_PROACTIVE_STATE.dismissed[s.id]) return false;
+      const lastForId = MRK_PROACTIVE_STATE.lastByid[s.id] || 0;
+      if(agora - lastForId < _MRK_COOLDOWN_PER_ID) return false;
+      return true;
+    });
     let top;
     if(ativos.length){
       top = ativos.sort((a,b)=>b.urgencia-a.urgencia)[0];
     } else if(firstRun){
-      top = mrkProactiveGreeting();
+      // No firstRun, se nada novo a disparar, mostra greeting MAS só se nunca mostrou
+      // ou se a última greeting foi > 12h atrás
+      const lastGreet = MRK_PROACTIVE_STATE.lastByid['greeting'] || 0;
+      if(agora - lastGreet >= 12 * 60 * 60 * 1000){
+        top = mrkProactiveGreeting();
+      }
     }
-    if(!top){ console.log('[MR KASH proativo] nada a disparar'); return; }
+    if(!top) return;
     MRK_PROACTIVE_STATE.lastNudgeTs = agora;
+    MRK_PROACTIVE_STATE.lastByid[top.id] = agora;
     _mrkProactiveSave();
-    console.log('[MR KASH proativo] disparando toast:', top.msg);
     _mrkProactiveShow(top);
   }catch(e){
     console.error('[MR KASH proativo] erro:', e);
@@ -97663,19 +97676,12 @@ function mrkProactiveDetect(){
 }
 function mrkProactiveStart(){
   // Idempotente: se já bootou (via _safeInit OU autoboot), ignora
-  if(window._mrkProactiveBooted){
-    console.log('[MR KASH proativo] já bootado, pulando duplicata');
-    return;
-  }
+  if(window._mrkProactiveBooted) return;
   window._mrkProactiveBooted = true;
-  console.log('[MR KASH proativo] mrkProactiveStart() chamado');
   // Roda 1ª vez após 8s do boot (firstRun=true: dispara mesmo sem sinal crítico)
-  setTimeout(() => {
-    console.log('[MR KASH proativo] disparando firstRun após 8s');
-    mrkProactiveCheck(true);
-  }, 8000);
-  // Depois a cada 5 min (só dispara se tiver sinal crítico + cooldown 30s)
-  setInterval(() => mrkProactiveCheck(false), 5*60*1000);
+  setTimeout(() => mrkProactiveCheck(true), 8000);
+  // Depois checa a cada 30 min (e cooldown global de 30min + per-id de 6h limitam ainda mais)
+  setInterval(() => mrkProactiveCheck(false), 30 * 60 * 1000);
 }
 try{ window.mrkProactiveLoad = mrkProactiveLoad; window.mrkProactiveCheck = mrkProactiveCheck; window.mrkProactiveStart = mrkProactiveStart; window._mrkProactiveShow = _mrkProactiveShow; }catch(_){}
 
