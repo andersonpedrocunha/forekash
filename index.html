@@ -19633,34 +19633,38 @@
         <p class="pg-sub">Hub comercial completo: assinaturas recorrentes, comissões de vendedores, recibos avulsos e gestão de contratos com alertas de vencimento. Tudo num só lugar.</p>
 
         <div class="tabs" style="margin-bottom:14px">
-          <button class="tab-btn active" id="com-tab-rec-btn" onclick="comSwitchTab('rec',this)">🔄&nbsp; Cobrança Recorrente</button>
-          <button class="tab-btn" id="com-tab-com-btn" onclick="comSwitchTab('com',this)">💼&nbsp; Comissões</button>
+          <button class="tab-btn active" id="com-tab-rec-btn"  onclick="comSwitchTab('rec',this)">🔄&nbsp; Cobrança Recorrente</button>
+          <button class="tab-btn" id="com-tab-pipe-btn" onclick="comSwitchTab('pipe',this)">🎯&nbsp; Pipeline</button>
           <button class="tab-btn" id="com-tab-rec2-btn" onclick="comSwitchTab('rec2',this)">🧾&nbsp; Recibos</button>
           <button class="tab-btn" id="com-tab-cont-btn" onclick="comSwitchTab('cont',this)">📄&nbsp; Contratos</button>
+          <button class="tab-btn" id="com-tab-ia-btn"   onclick="comSwitchTab('ia',this)" style="background:linear-gradient(135deg,#10B981,#059669);color:#fff">🤖&nbsp; IA Insights</button>
         </div>
 
         <div id="com-tab-rec" class="tab-pane active">
           <div class="com-toolbar">
             <button class="btn btn-p" onclick="comRecOpen()">+ Nova assinatura recorrente</button>
             <button class="btn btn-sec" onclick="comRecGenerateNow()">⚡ Gerar cobranças do mês</button>
+            <button class="btn btn-sec" onclick="comRecReajusteRun()" title="Aplica reajuste anual (IPCA/IGPM)">📈 Reajuste anual</button>
             <div style="flex:1"></div>
-            <small style="color:#94A3B8;font-size:.74rem;align-self:center">Cobranças mensais geradas automaticamente no dia configurado</small>
+            <small style="color:#94A3B8;font-size:.74rem;align-self:center">Cada assinatura gera previsões no Kanban Receita · auto-emite NF · histórico de upgrades</small>
           </div>
           <div id="com-rec-list"></div>
         </div>
 
-        <div id="com-tab-com" class="tab-pane" style="display:none">
+        <div id="com-tab-pipe" class="tab-pane" style="display:none">
           <div class="com-toolbar">
-            <button class="btn btn-p" onclick="comComOpenRule()">+ Nova regra de comissão</button>
-            <button class="btn btn-sec" onclick="comComRecalcular()">🔄 Recalcular comissões do mês</button>
+            <button class="btn btn-p" onclick="comPipeOpen()">+ Nova proposta</button>
+            <div style="flex:1"></div>
+            <small style="color:#94A3B8;font-size:.74rem;align-self:center">Funil: Lead → Proposta → Negociação → Ganhou (vira assinatura) / Perdeu</small>
           </div>
-          <div id="com-com-list"></div>
+          <div class="com-pipe-kpis" id="com-pipe-kpis"></div>
+          <div id="com-pipe-board"></div>
         </div>
 
         <div id="com-tab-rec2" class="tab-pane" style="display:none">
           <div class="com-toolbar">
             <button class="btn btn-p" onclick="comReciboOpen()">+ Emitir recibo</button>
-            <small style="color:#94A3B8;font-size:.74rem;align-self:center;margin-left:auto">Recibos simples · sem NF · pra autônomos, freelancer, contrato de aluguel, etc.</small>
+            <small style="color:#94A3B8;font-size:.74rem;align-self:center;margin-left:auto">Recibos simples · sem NF · vincula com lançamento Receita</small>
           </div>
           <div id="com-rec2-list"></div>
         </div>
@@ -19668,9 +19672,14 @@
         <div id="com-tab-cont" class="tab-pane" style="display:none">
           <div class="com-toolbar">
             <button class="btn btn-p" onclick="comContratoOpen()">+ Novo contrato</button>
+            <button class="btn btn-sec" onclick="comContRenewCheck()" title="Renova contratos vencidos/a vencer">🔄 Verificar renovações</button>
           </div>
           <div class="com-cont-kpis" id="com-cont-kpis"></div>
           <div id="com-cont-list"></div>
+        </div>
+
+        <div id="com-tab-ia" class="tab-pane" style="display:none">
+          <div id="com-ia-content"></div>
         </div>
       </div>
 
@@ -91890,7 +91899,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779898219';
+      const CACHE = 'forekash-v1779902976';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -94341,34 +94350,46 @@ function _nfEsc(s){
 
 
 // ═══════════════════════════════════════════════════════════════════
-//  COMERCIAL · Hub completo (Lote 3)
-//  · Cobrança recorrente (assinaturas mensais)
-//  · Comissões de vendedores (engine de regras)
-//  · Recibos avulsos (sem NF)
-//  · Contratos (gestão + vencimentos)
+//  COMERCIAL v2 · Hub comercial completo (Lote 3 + Comercial v2)
+//  · Cobrança recorrente (assinaturas) com integração Receita+NF+Asaas
+//  · Pipeline (propostas: lead → ganhou/perdeu)
+//  · Recibos avulsos (vincula com Receita)
+//  · Contratos (gestão + renovação automática)
+//  · IA Insights: MRR Movements + Cohort + Churn + Health + Upsell + Pricing
 // ═══════════════════════════════════════════════════════════════════
-const COM_KEY = 'forekash:comercial:v1';
+const COM_KEY = 'forekash:comercial:v2';
 let COM = {
-  assinaturas: [],   // {id, cliente, valor, diaVenc, descricao, ativa, ultimaGer, hist:[{ym,cobrId,vinc}]}
-  comissoes:   [],   // {id, vendedor, tipo:'percent'|'fixo', valor, base:'receita'|'lucro', criadoEm}
-  comissoesCalc:[],  // {id, ym, vendedor, baseValor, comissao}
-  recibos:     [],   // {id, numero, cliente, valor, descricao, data, pagador, prestador}
-  contratos:   [],   // {id, titulo, contraparte, tipo, valor, inicio, fim, status, obs, alertaDias}
+  assinaturas: [],   // {id, cliente, valor, diaVenc, descricao, ativa, ultimaGer, criadoEm, autoEmitNF, reajusteIdx, reajusteMes, hist:[{ym,cobrId,vinc,valor}], changes:[{ts,from,to,motivo}], receitaLinks:[{year,mAbbr}]}
+  propostas:   [],   // {id, cliente, valorEstimado, estagio:'lead'|'proposta'|'negociacao'|'ganhou'|'perdeu', vendedor, descricao, criadoEm, atualizadoEm, assinaturaId}
+  recibos:     [],   // {id, numero, cliente, valor, descricao, data, pagador, prestador, receitaLink:{year,clientId,mAbbr}}
+  contratos:   [],   // {id, titulo, contraparte, tipo, valor, inicio, fim, status, obs, alertaDias, assinaturaId, renovaAuto, indexador}
   nextId: 1,
   curTab: 'rec'
 };
 function comLoad(){
   try{ const raw = localStorage.getItem(COM_KEY); if(raw) COM = Object.assign(COM, JSON.parse(raw)); }catch(_){}
-  if(!Array.isArray(COM.assinaturas))   COM.assinaturas   = [];
-  if(!Array.isArray(COM.comissoes))     COM.comissoes     = [];
-  if(!Array.isArray(COM.comissoesCalc)) COM.comissoesCalc = [];
-  if(!Array.isArray(COM.recibos))       COM.recibos       = [];
-  if(!Array.isArray(COM.contratos))     COM.contratos     = [];
-  if(typeof COM.nextId !== 'number')    COM.nextId        = 1;
+  // Migra do v1 se existir
+  try{
+    const oldRaw = localStorage.getItem('forekash:comercial:v1');
+    if(oldRaw && !COM._migratedV1){
+      const old = JSON.parse(oldRaw);
+      if(Array.isArray(old.assinaturas) && !COM.assinaturas.length) COM.assinaturas = old.assinaturas;
+      if(Array.isArray(old.recibos)     && !COM.recibos.length)     COM.recibos     = old.recibos;
+      if(Array.isArray(old.contratos)   && !COM.contratos.length)   COM.contratos   = old.contratos;
+      COM._migratedV1 = true;
+    }
+  }catch(_){}
+  if(!Array.isArray(COM.assinaturas)) COM.assinaturas = [];
+  if(!Array.isArray(COM.propostas))   COM.propostas   = [];
+  if(!Array.isArray(COM.recibos))     COM.recibos     = [];
+  if(!Array.isArray(COM.contratos))   COM.contratos   = [];
+  if(typeof COM.nextId !== 'number')  COM.nextId      = 1;
 }
 function comSave(){ try{ localStorage.setItem(COM_KEY, JSON.stringify(COM)); }catch(_){} }
 function _comEsc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 function _comId(){ return COM.nextId++; }
+function _comFmtBRL(v){ try{ return fmtBRL(v); }catch(_){ return 'R$ '+(Number(v)||0).toFixed(2); } }
+const _COM_MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 
 // ── Render dispatcher ─────────────────────────────────────────────
 function comRender(){
@@ -94377,20 +94398,21 @@ function comRender(){
 function comSwitchTab(tab, btn){
   COM.curTab = tab;
   comSave();
-  ['rec','com','rec2','cont'].forEach(t => {
+  ['rec','pipe','rec2','cont','ia'].forEach(t => {
     const pane = document.getElementById('com-tab-'+t);
     const b    = document.getElementById('com-tab-'+t+'-btn');
     if(pane){ pane.style.display = (t===tab) ? '' : 'none'; pane.classList.toggle('active', t===tab); }
     if(b){ b.classList.toggle('active', t===tab); }
   });
   if(tab==='rec')   comRecListRender();
-  if(tab==='com')   comComListRender();
+  if(tab==='pipe')  comPipeRender();
   if(tab==='rec2')  comReciboListRender();
   if(tab==='cont')  comContListRender();
+  if(tab==='ia')    comIaRender();
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  TAB 1: COBRANÇA RECORRENTE
+//  TAB 1: COBRANÇA RECORRENTE (com integrações T1+T2)
 // ═══════════════════════════════════════════════════════════════════
 function comRecListRender(){
   const el = document.getElementById('com-rec-list');
@@ -94398,8 +94420,8 @@ function comRecListRender(){
   if(!COM.assinaturas.length){
     el.innerHTML = `<div class="com-empty"><div style="font-size:48px">🔄</div>
       <h3>Nenhuma assinatura recorrente ainda</h3>
-      <p>Crie uma assinatura pra gerar cobranças automáticas todo mês no dia configurado.<br>
-      Exemplo: cliente paga R$ 350/mês — Forekash gera o lançamento + boleto Asaas no dia 5 todo mês.</p>
+      <p>Cada assinatura gera <b>12 previsões no Kanban Receita</b>, dispara boletos via Asaas, e pode auto-emitir NFS-e quando o cliente paga.<br>
+      Exemplo: cliente paga R$ 350/mês — Forekash gera lançamentos no dia 5 todo mês + emite a nota.</p>
       <button class="btn btn-p" onclick="comRecOpen()" style="margin-top:14px">+ Criar primeira assinatura</button></div>`;
     return;
   }
@@ -94409,10 +94431,10 @@ function comRecListRender(){
   const hoje = new Date();
   const ym = hoje.toISOString().slice(0,7);
   const geradasMes = COM.assinaturas.reduce((s,a) => s + ((a.hist||[]).filter(h => h.ym===ym).length), 0);
-  let html = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px">
+  let html = `<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px">
     <div class="com-kpi"><div class="com-kpi-lbl">ASSINATURAS ATIVAS</div><div class="com-kpi-val">${ativas}</div></div>
-    <div class="com-kpi"><div class="com-kpi-lbl">MRR</div><div class="com-kpi-val">${fmtBRL(mrr)}</div></div>
-    <div class="com-kpi"><div class="com-kpi-lbl">ARR (projeção)</div><div class="com-kpi-val">${fmtBRL(arr)}</div></div>
+    <div class="com-kpi"><div class="com-kpi-lbl">MRR</div><div class="com-kpi-val">${_comFmtBRL(mrr)}</div></div>
+    <div class="com-kpi"><div class="com-kpi-lbl">ARR (projeção)</div><div class="com-kpi-val">${_comFmtBRL(arr)}</div></div>
     <div class="com-kpi"><div class="com-kpi-lbl">GERADAS ESTE MÊS</div><div class="com-kpi-val">${geradasMes}</div></div>
   </div>`;
   html += '<div style="display:flex;flex-direction:column;gap:10px">';
@@ -94422,20 +94444,27 @@ function comRecListRender(){
     const statusBadge = a.ativa
       ? '<span style="background:#10B98122;color:#10B981;padding:2px 8px;border-radius:6px;font-size:.7rem;font-weight:700">ATIVA</span>'
       : '<span style="background:#64748B22;color:#94A3B8;padding:2px 8px;border-radius:6px;font-size:.7rem;font-weight:700">PAUSADA</span>';
+    const nfBadge = a.autoEmitNF
+      ? '<span style="background:#7C3AED22;color:#A78BFA;padding:2px 8px;border-radius:6px;font-size:.66rem;font-weight:700;margin-left:4px">⚡ AUTO-NF</span>' : '';
+    const upgrades = ((a.changes||[]).length);
+    const health = _comHealthForAssinatura(a);
+    const healthBadge = health.color ? `<span title="${health.label}" style="background:${health.color}22;color:${health.color};padding:2px 8px;border-radius:6px;font-size:.66rem;font-weight:700;margin-left:4px">${health.emoji} ${health.label}</span>` : '';
     html += `<div class="com-card">
       <div class="com-card-ico rec">🔄</div>
-      <div style="flex:1">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
           <strong style="font-size:.95rem">${_comEsc(a.cliente)}</strong>
-          ${statusBadge}
+          ${statusBadge}${nfBadge}${healthBadge}
         </div>
-        <div style="color:#94A3B8;font-size:.78rem">${_comEsc(a.descricao||'Assinatura mensal')} · dia ${a.diaVenc} · ${totalGer} cobrança(s) geradas · última: ${ultMs}</div>
+        <div style="color:#94A3B8;font-size:.78rem">${_comEsc(a.descricao||'Assinatura mensal')} · dia ${a.diaVenc} · ${totalGer} gerada(s) · última: ${ultMs}${upgrades?' · '+upgrades+' upgrade(s)':''}</div>
       </div>
       <div style="text-align:right">
-        <div style="font-weight:700;color:#10B981;font-size:1rem">${fmtBRL(a.valor)}/mês</div>
-        <div style="display:flex;gap:4px;margin-top:6px;justify-content:flex-end">
-          <button class="btn btn-sec" style="padding:4px 10px;font-size:.72rem" onclick="comRecToggle(${a.id})">${a.ativa?'⏸ Pausar':'▶️ Ativar'}</button>
-          <button class="btn btn-sec" style="padding:4px 10px;font-size:.72rem" onclick="comRecRemove(${a.id})">🗑️</button>
+        <div style="font-weight:700;color:#10B981;font-size:1rem">${_comFmtBRL(a.valor)}/mês</div>
+        <div style="display:flex;gap:4px;margin-top:6px;justify-content:flex-end;flex-wrap:wrap">
+          <button class="btn btn-sec" style="padding:4px 10px;font-size:.7rem" onclick="comRecUpgrade(${a.id})" title="Mudar valor (registra histórico)">↕ Up/Down</button>
+          <button class="btn btn-sec" style="padding:4px 10px;font-size:.7rem" onclick="comRecHistOpen(${a.id})">📊 Histórico</button>
+          <button class="btn btn-sec" style="padding:4px 10px;font-size:.7rem" onclick="comRecToggle(${a.id})">${a.ativa?'⏸':'▶️'}</button>
+          <button class="btn btn-sec" style="padding:4px 10px;font-size:.7rem" onclick="comRecRemove(${a.id})">🗑️</button>
         </div>
       </div>
     </div>`;
@@ -94450,64 +94479,197 @@ function comRecOpen(){
     <label>Cliente</label>
     <input list="com-rec-cli-list" id="com-rec-cli" placeholder="Nome do cliente" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
     <datalist id="com-rec-cli-list">${opts}</datalist>
-    <label>Valor mensal</label>
-    <input type="number" step="0.01" id="com-rec-val" placeholder="350.00" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
-    <label>Dia do vencimento</label>
-    <input type="number" min="1" max="28" value="5" id="com-rec-dia" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><label>Valor mensal</label><input type="number" step="0.01" id="com-rec-val" placeholder="350.00" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%"></div>
+      <div><label>Dia do vencimento</label><input type="number" min="1" max="28" value="5" id="com-rec-dia" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%"></div>
+    </div>
     <label>Descrição (opcional)</label>
     <input type="text" id="com-rec-desc" placeholder="Mensalidade SaaS" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><label>Reajuste anual</label><select id="com-rec-rea" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%"><option value="">Sem reajuste</option><option value="ipca">IPCA (~4%)</option><option value="igpm">IGPM (~6%)</option><option value="fixo5">Fixo 5%</option><option value="fixo10">Fixo 10%</option></select></div>
+      <div><label>Mês do reajuste</label><select id="com-rec-rea-mes" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%">${_COM_MESES.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('')}</select></div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;color:#A78BFA;font-size:.84rem">
+      <input type="checkbox" id="com-rec-nf"> ⚡ Auto-emitir NFS-e quando cliente pagar
+    </label>
+    <label style="display:flex;align-items:center;gap:8px;color:#10B981;font-size:.84rem">
+      <input type="checkbox" id="com-rec-recv" checked> 📅 Gerar 12 previsões no Kanban Receita
+    </label>
   </div>`;
   _fkModal('🔄 Nova assinatura recorrente', html, ()=>{
     const cliente = (document.getElementById('com-rec-cli').value||'').trim();
     const valor   = parseFloat(document.getElementById('com-rec-val').value)||0;
     const dia     = Math.max(1, Math.min(28, parseInt(document.getElementById('com-rec-dia').value)||5));
     const desc    = (document.getElementById('com-rec-desc').value||'').trim();
+    const reaIdx  = document.getElementById('com-rec-rea').value;
+    const reaMes  = parseInt(document.getElementById('com-rec-rea-mes').value)||1;
+    const autoNF  = document.getElementById('com-rec-nf').checked;
+    const genRecv = document.getElementById('com-rec-recv').checked;
     if(!cliente){ alert('Cliente obrigatório'); return false; }
     if(valor<=0){ alert('Valor inválido'); return false; }
-    COM.assinaturas.push({ id:_comId(), cliente, valor, diaVenc:dia, descricao:desc, ativa:true, ultimaGer:null, hist:[] });
+    const assinatura = {
+      id:_comId(), cliente, valor, diaVenc:dia, descricao:desc, ativa:true,
+      ultimaGer:null, hist:[], changes:[], receitaLinks:[],
+      criadoEm:Date.now(), autoEmitNF:autoNF,
+      reajusteIdx:reaIdx||null, reajusteMes:reaMes
+    };
+    COM.assinaturas.push(assinatura);
+    if(genRecv) comRecGerarPrevisoesReceita(assinatura);
     comSave();
     comRecListRender();
-    if(typeof notifPush==='function') notifPush({titulo:'Assinatura criada', msg:`${cliente} · ${fmtBRL(valor)}/mês`});
+    if(typeof notifPush==='function') notifPush({titulo:'Assinatura criada', msg:`${cliente} · ${_comFmtBRL(valor)}/mês${genRecv?' · 12 previsões em Receita':''}`});
     if(typeof auditLog==='function')  auditLog('comercial', 'criou assinatura recorrente: '+cliente);
     return true;
   });
+}
+// T1: Gera 12 previsões no Kanban Receita (ano corrente)
+function comRecGerarPrevisoesReceita(assinatura){
+  try{
+    if(typeof receita === 'undefined' || !receita) return;
+    const year = new Date().getFullYear();
+    receita.years = receita.years || {};
+    receita.years[year] = receita.years[year] || { clients:[] };
+    // Acha ou cria cliente
+    receita.years[year].clients = receita.years[year].clients || [];
+    let cli = receita.years[year].clients.find(c => c.nome && c.nome.toLowerCase().trim()===assinatura.cliente.toLowerCase().trim());
+    if(!cli){
+      const cliBase = (receita.clientes||[]).find(c => c.nome && c.nome.toLowerCase().trim()===assinatura.cliente.toLowerCase().trim());
+      cli = { id:cliBase ? cliBase.id : ('cli_'+Date.now()), nome:assinatura.cliente, meses:{} };
+      receita.years[year].clients.push(cli);
+    }
+    cli.meses = cli.meses || {};
+    const links = [];
+    _COM_MESES.forEach((m, idx) => {
+      const venc = new Date(year, idx, assinatura.diaVenc).toISOString().slice(0,10);
+      const valor = comRecValorParaMes(assinatura, idx+1);
+      const existing = cli.meses[m] || {};
+      // Só sobrescreve se não tinha valor ou tinha valor zerado
+      if(!existing.valor || existing.valor === 0){
+        cli.meses[m] = {
+          valor:valor,
+          dataVencimento:venc,
+          origem:'assinatura',
+          assinaturaId:assinatura.id,
+          status:'previsto'
+        };
+        links.push({ year, mAbbr:m, clientId:cli.id });
+      }
+    });
+    assinatura.receitaLinks = (assinatura.receitaLinks||[]).concat(links);
+    // Persiste receita
+    try{
+      if(typeof receitaSave === 'function') receitaSave();
+      else if(typeof saveReceita === 'function') saveReceita();
+      else localStorage.setItem('forekash:receita:v1', JSON.stringify(receita));
+    }catch(_){}
+    // Re-render kanban se aberto
+    try{ if(typeof renderReceita === 'function') renderReceita(); }catch(_){}
+  }catch(e){ console.warn('comRecGerarPrevisoesReceita:', e); }
+}
+// Calcula valor pra um mês considerando reajuste
+function comRecValorParaMes(a, mes1to12){
+  if(!a.reajusteIdx) return a.valor;
+  // Se mês>=reajusteMes, aplica reajuste
+  const pct = a.reajusteIdx==='ipca'?4:a.reajusteIdx==='igpm'?6:a.reajusteIdx==='fixo5'?5:a.reajusteIdx==='fixo10'?10:0;
+  if(mes1to12 >= a.reajusteMes && pct>0){
+    return Math.round(a.valor * (1 + pct/100) * 100) / 100;
+  }
+  return a.valor;
 }
 function comRecToggle(id){
   const a = COM.assinaturas.find(x => x.id===id); if(!a) return;
   a.ativa = !a.ativa; comSave(); comRecListRender();
 }
 function comRecRemove(id){
-  if(!confirm('Remover esta assinatura? Cobranças já geradas permanecem.')) return;
+  if(!confirm('Remover esta assinatura? Cobranças e previsões já geradas permanecem.')) return;
   COM.assinaturas = COM.assinaturas.filter(x => x.id!==id); comSave(); comRecListRender();
+}
+// T2: Upgrade/Downgrade com histórico
+function comRecUpgrade(id){
+  const a = COM.assinaturas.find(x => x.id===id); if(!a) return;
+  const novoStr = prompt(`Cliente ${a.cliente}\nValor atual: ${_comFmtBRL(a.valor)}\n\nNovo valor:`, a.valor);
+  if(novoStr === null) return;
+  const novo = parseFloat(novoStr); if(isNaN(novo)||novo<=0){ alert('Valor inválido'); return; }
+  if(novo === a.valor){ alert('Valor não mudou.'); return; }
+  const motivo = prompt('Motivo (upgrade/downgrade/negociação)?', novo > a.valor ? 'Upgrade contratado' : 'Renegociação') || '';
+  a.changes = a.changes || [];
+  a.changes.push({ ts:Date.now(), from:a.valor, to:novo, motivo, delta:novo-a.valor });
+  a.valor = novo;
+  comSave();
+  comRecListRender();
+  if(typeof notifPush==='function') notifPush({titulo:novo>a.changes[a.changes.length-1].from?'⬆ Upgrade':'⬇ Downgrade', msg:`${a.cliente} → ${_comFmtBRL(novo)}/mês`});
+  if(typeof auditLog==='function') auditLog('comercial', `mudou valor da assinatura ${a.cliente}: ${motivo}`);
+}
+function comRecHistOpen(id){
+  const a = COM.assinaturas.find(x => x.id===id); if(!a) return;
+  let html = `<div style="color:#E5E7EB">
+    <h3 style="color:#10B981;margin:0 0 12px;font-size:1rem">${_comEsc(a.cliente)}</h3>
+    <p style="color:#94A3B8;font-size:.84rem;margin:0 0 14px">Criada em ${new Date(a.criadoEm||Date.now()).toLocaleDateString('pt-BR')} · valor atual ${_comFmtBRL(a.valor)}</p>`;
+  // MRR Movements desta assinatura
+  if(a.changes && a.changes.length){
+    html += '<h4 style="font-size:.84rem;color:#10B981;margin:14px 0 8px">📈 Mudanças de valor</h4>';
+    html += '<div style="display:flex;flex-direction:column;gap:6px">';
+    a.changes.forEach(c => {
+      const isUp = c.to > c.from;
+      html += `<div style="display:flex;justify-content:space-between;background:#0F172A;padding:8px 12px;border-radius:6px;font-size:.8rem">
+        <span style="color:#94A3B8">${new Date(c.ts).toLocaleDateString('pt-BR')}</span>
+        <span>${_comFmtBRL(c.from)} → <b style="color:${isUp?'#10B981':'#F59E0B'}">${_comFmtBRL(c.to)}</b> <span style="color:${isUp?'#10B981':'#F59E0B'}">(${isUp?'+':''}${_comFmtBRL(c.delta)})</span></span>
+        <span style="color:#64748B">${_comEsc(c.motivo||'')}</span>
+      </div>`;
+    });
+    html += '</div>';
+  }
+  // Histórico de gerações
+  if(a.hist && a.hist.length){
+    html += '<h4 style="font-size:.84rem;color:#10B981;margin:14px 0 8px">🧾 Cobranças geradas</h4>';
+    html += '<div style="max-height:200px;overflow:auto;display:flex;flex-direction:column;gap:4px">';
+    [...a.hist].reverse().forEach(h => {
+      html += `<div style="display:flex;justify-content:space-between;background:#0F172A;padding:6px 12px;border-radius:6px;font-size:.78rem">
+        <span>${h.ym}</span><span>${_comEsc(h.cobrId||'—')}</span><span>${h.valor ? _comFmtBRL(h.valor) : '—'}</span>
+      </div>`;
+    });
+    html += '</div>';
+  }
+  if((!a.changes || !a.changes.length) && (!a.hist || !a.hist.length)){
+    html += '<p style="color:#64748B;font-size:.84rem;text-align:center;padding:30px">Sem histórico ainda. Gere cobranças ou faça upgrade pra começar.</p>';
+  }
+  html += '</div>';
+  // Modal sem botão salvar
+  _fkModalInfo('📊 Histórico · '+a.cliente, html);
 }
 function comRecGenerateNow(){
   const hoje = new Date();
   const ym   = hoje.toISOString().slice(0,7);
-  let gerados = 0, ignorados = 0;
+  const mes  = hoje.getMonth() + 1;
+  let gerados = 0, ignorados = 0, nfEmitidas = 0;
   COM.assinaturas.forEach(a => {
     if(!a.ativa) return;
     const jaGer = (a.hist||[]).some(h => h.ym===ym);
     if(jaGer){ ignorados++; return; }
     const venc = new Date(hoje.getFullYear(), hoje.getMonth(), a.diaVenc);
     const vencStr = venc.toISOString().slice(0,10);
+    const valorMes = comRecValorParaMes(a, mes);
     // Gera no Asaas (mock) + registra no histórico
     let cobrId = null;
     if(typeof ASAAS !== 'undefined' && Array.isArray(ASAAS.cobrancas)){
       cobrId = 'rec_'+a.id+'_'+ym;
       ASAAS.cobrancas.push({
+        id: Date.now()+Math.random(),
         asaasId: cobrId,
         cliente: a.cliente,
-        valor:   a.valor,
+        valor:   valorMes,
         vencimento: vencStr,
-        status: 'PENDING',
+        status: 'pendente',
         descricao: a.descricao || 'Assinatura mensal',
         origem: 'recorrencia',
+        assinaturaId: a.id,
+        autoEmitNF: !!a.autoEmitNF,
         ts: Date.now()
       });
       if(typeof asaasSave==='function') asaasSave();
     }
     a.hist = a.hist || [];
-    a.hist.push({ ym, cobrId, vinc:vencStr });
+    a.hist.push({ ym, cobrId, vinc:vencStr, valor:valorMes });
     a.ultimaGer = vencStr;
     gerados++;
   });
@@ -94517,132 +94679,204 @@ function comRecGenerateNow(){
   if(typeof notifPush==='function' && gerados>0) notifPush({titulo:'Cobranças recorrentes', msg:`${gerados} novas geradas em ${ym}`});
   if(typeof auditLog==='function')  auditLog('comercial', `gerou ${gerados} cobranças recorrentes em ${ym}`);
 }
-
-// ═══════════════════════════════════════════════════════════════════
-//  TAB 2: COMISSÕES
-// ═══════════════════════════════════════════════════════════════════
-function comComListRender(){
-  const el = document.getElementById('com-com-list');
-  if(!el) return;
-  if(!COM.comissoes.length){
-    el.innerHTML = `<div class="com-empty"><div style="font-size:48px">💼</div>
-      <h3>Nenhuma regra de comissão ainda</h3>
-      <p>Crie regras pra cada vendedor — % sobre receita, % sobre lucro, ou valor fixo.<br>
-      Forekash calcula automático no fim do mês baseado no que entrou.</p>
-      <button class="btn btn-p" onclick="comComOpenRule()" style="margin-top:14px">+ Criar primeira regra</button></div>`;
-    return;
-  }
-  const ym = new Date().toISOString().slice(0,7);
-  const calcMes = COM.comissoesCalc.filter(c => c.ym===ym);
-  const totalMes = calcMes.reduce((s,c) => s+(Number(c.comissao)||0), 0);
-  let html = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px">
-    <div class="com-kpi"><div class="com-kpi-lbl">REGRAS ATIVAS</div><div class="com-kpi-val">${COM.comissoes.length}</div></div>
-    <div class="com-kpi"><div class="com-kpi-lbl">CALCULADO ${ym}</div><div class="com-kpi-val">${fmtBRL(totalMes)}</div></div>
-    <div class="com-kpi"><div class="com-kpi-lbl">VENDEDORES</div><div class="com-kpi-val">${new Set(COM.comissoes.map(c=>c.vendedor)).size}</div></div>
-  </div>`;
-  html += '<h3 style="font-size:.85rem;margin:14px 0 8px;color:#94A3B8">Regras configuradas</h3>';
-  html += '<div style="display:flex;flex-direction:column;gap:10px">';
-  COM.comissoes.forEach(r => {
-    const sufixo = r.tipo==='percent' ? `${r.valor}% sobre ${r.base==='lucro'?'lucro':'receita'}` : `${fmtBRL(r.valor)} fixo/venda`;
-    html += `<div class="com-card">
-      <div class="com-card-ico com">💼</div>
-      <div style="flex:1">
-        <strong>${_comEsc(r.vendedor)}</strong>
-        <div style="color:#94A3B8;font-size:.78rem">${sufixo}</div>
-      </div>
-      <button class="btn btn-sec" style="padding:4px 10px;font-size:.72rem" onclick="comComRemove(${r.id})">🗑️</button>
+// T2: Reajuste anual em massa
+function comRecReajusteRun(){
+  const elegiveis = COM.assinaturas.filter(a => a.ativa && a.reajusteIdx);
+  if(!elegiveis.length){ alert('Nenhuma assinatura tem reajuste configurado. Configure em cada assinatura (campo "Reajuste anual").'); return; }
+  let html = `<div style="color:#E5E7EB">
+    <p style="font-size:.86rem;margin:0 0 12px">Aplicar reajuste agora em <b>${elegiveis.length}</b> assinatura(s)?</p>
+    <div style="background:#0F172A;border-radius:8px;padding:14px;max-height:300px;overflow:auto">`;
+  elegiveis.forEach(a => {
+    const pct = a.reajusteIdx==='ipca'?4:a.reajusteIdx==='igpm'?6:a.reajusteIdx==='fixo5'?5:a.reajusteIdx==='fixo10'?10:0;
+    const novo = Math.round(a.valor*(1+pct/100)*100)/100;
+    html += `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #334155;font-size:.8rem">
+      <span>${_comEsc(a.cliente)}</span>
+      <span style="color:#94A3B8">${a.reajusteIdx.toUpperCase()} · +${pct}%</span>
+      <span>${_comFmtBRL(a.valor)} → <b style="color:#10B981">${_comFmtBRL(novo)}</b></span>
     </div>`;
   });
-  html += '</div>';
-  if(calcMes.length){
-    html += `<h3 style="font-size:.85rem;margin:18px 0 8px;color:#94A3B8">Comissões calculadas em ${ym}</h3>`;
-    html += '<div style="display:flex;flex-direction:column;gap:8px">';
-    calcMes.forEach(c => {
-      html += `<div class="com-card" style="padding:10px 14px">
-        <div class="com-card-ico com">💰</div>
-        <div style="flex:1">
-          <strong>${_comEsc(c.vendedor)}</strong>
-          <div style="color:#94A3B8;font-size:.74rem">Base: ${fmtBRL(c.baseValor)}</div>
-        </div>
-        <div style="font-weight:700;color:#10B981">${fmtBRL(c.comissao)}</div>
-      </div>`;
+  html += '</div></div>';
+  _fkModal('📈 Reajuste anual', html, () => {
+    elegiveis.forEach(a => {
+      const pct = a.reajusteIdx==='ipca'?4:a.reajusteIdx==='igpm'?6:a.reajusteIdx==='fixo5'?5:a.reajusteIdx==='fixo10'?10:0;
+      const novo = Math.round(a.valor*(1+pct/100)*100)/100;
+      a.changes = a.changes || [];
+      a.changes.push({ ts:Date.now(), from:a.valor, to:novo, motivo:`Reajuste anual ${a.reajusteIdx.toUpperCase()} (+${pct}%)`, delta:novo-a.valor });
+      a.valor = novo;
     });
-    html += '</div>';
-  }
-  el.innerHTML = html;
-}
-function comComOpenRule(){
-  const vendedores = (typeof vendData !== 'undefined' && vendData.list) ? vendData.list : [];
-  const opts = vendedores.map(v => `<option value="${_comEsc(v.nome)}">${_comEsc(v.nome)}</option>`).join('');
-  const html = `<div style="display:flex;flex-direction:column;gap:12px">
-    <label>Vendedor</label>
-    <input list="com-com-vend-list" id="com-com-vend" placeholder="Nome do vendedor" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
-    <datalist id="com-com-vend-list">${opts}</datalist>
-    <label>Tipo</label>
-    <select id="com-com-tipo" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
-      <option value="percent">Percentual</option>
-      <option value="fixo">Valor fixo por venda</option>
-    </select>
-    <label>Valor (% ou R$)</label>
-    <input type="number" step="0.01" id="com-com-val" placeholder="5" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
-    <label>Base de cálculo (se percentual)</label>
-    <select id="com-com-base" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
-      <option value="receita">Receita bruta</option>
-      <option value="lucro">Lucro líquido</option>
-    </select>
-  </div>`;
-  _fkModal('💼 Nova regra de comissão', html, ()=>{
-    const vendedor = (document.getElementById('com-com-vend').value||'').trim();
-    const tipo     = document.getElementById('com-com-tipo').value;
-    const valor    = parseFloat(document.getElementById('com-com-val').value)||0;
-    const base     = document.getElementById('com-com-base').value;
-    if(!vendedor){ alert('Vendedor obrigatório'); return false; }
-    if(valor<=0){ alert('Valor inválido'); return false; }
-    COM.comissoes.push({ id:_comId(), vendedor, tipo, valor, base, criadoEm:Date.now() });
-    comSave(); comComListRender();
-    if(typeof auditLog==='function') auditLog('comercial', 'criou regra de comissão: '+vendedor);
+    comSave();
+    comRecListRender();
+    if(typeof notifPush==='function') notifPush({titulo:'📈 Reajuste aplicado', msg:`${elegiveis.length} assinaturas reajustadas`});
+    if(typeof auditLog==='function') auditLog('comercial', `aplicou reajuste anual em ${elegiveis.length} assinaturas`);
     return true;
   });
 }
-function comComRemove(id){
-  if(!confirm('Remover regra?')) return;
-  COM.comissoes = COM.comissoes.filter(x => x.id!==id);
-  comSave(); comComListRender();
-}
-function comComRecalcular(){
-  const ym = new Date().toISOString().slice(0,7);
-  // Remove cálculos antigos do mês
-  COM.comissoesCalc = COM.comissoesCalc.filter(c => c.ym!==ym);
-  // Receita do mês (aproximação: tudo do Asaas confirmed + receita.years)
-  let receitaMes = 0;
+
+// Hook chamado por asaasMarkPaid: emite NF automaticamente se assinatura tem autoEmitNF
+function comOnPaymentReceived(cob){
   try{
-    if(typeof ASAAS !== 'undefined' && Array.isArray(ASAAS.cobrancas)){
-      ASAAS.cobrancas.forEach(c => {
-        if(c.status==='CONFIRMED' && c.vencimento && c.vencimento.slice(0,7)===ym){
-          receitaMes += Number(c.valor)||0;
-        }
-      });
-    }
-  }catch(_){}
-  // Distribui receita igualmente entre vendedores (modelo simples — usuário pode refinar)
-  const vendUnicos = [...new Set(COM.comissoes.map(c => c.vendedor))];
-  const receitaPorVend = vendUnicos.length ? (receitaMes / vendUnicos.length) : 0;
-  COM.comissoes.forEach(r => {
-    let baseVal = receitaPorVend;
-    if(r.base==='lucro') baseVal = baseVal * 0.25; // estimativa de margem
-    let comissao = 0;
-    if(r.tipo==='percent') comissao = baseVal * (r.valor/100);
-    else                   comissao = r.valor; // por venda — usa 1 venda mock
-    COM.comissoesCalc.push({ id:_comId(), ym, vendedor:r.vendedor, baseValor:baseVal, comissao });
+    if(!cob || !cob.assinaturaId) return;
+    const a = COM.assinaturas.find(x => x.id === cob.assinaturaId);
+    if(!a || !a.autoEmitNF) return;
+    if(typeof NF === 'undefined' || !Array.isArray(NF.notas)) return;
+    const ja = NF.notas.find(n => n.asaasId === cob.asaasId);
+    if(ja) return;
+    const num = (NF.notas.length ? Math.max(...NF.notas.map(n => Number(n.numero)||0)) : 0) + 1;
+    NF.notas.push({
+      id: 'nf_'+Date.now(),
+      numero: num,
+      status: 'autorizada',
+      cliente: a.cliente,
+      cnpj: '',
+      email: '',
+      valor: cob.valor,
+      descricao: a.descricao || 'Mensalidade',
+      dataEmissao: new Date().toISOString(),
+      dataAutorizada: new Date().toISOString(),
+      codigoVerificacao: 'AUTO'+Date.now().toString(36).toUpperCase(),
+      asaasId: cob.asaasId,
+      origem: 'auto-recorrencia'
+    });
+    if(typeof nfSave === 'function') nfSave();
+    if(typeof notifPush === 'function') notifPush({titulo:'⚡ NFS-e emitida (auto)', msg:`${a.cliente} · ${_comFmtBRL(cob.valor)}`});
+    if(typeof auditLog === 'function') auditLog('comercial', `auto-emitiu NFS-e #${num} pra ${a.cliente}`);
+  }catch(e){ console.warn('comOnPaymentReceived:', e); }
+}
+try{ window.comOnPaymentReceived = comOnPaymentReceived; }catch(_){}
+
+// ═══════════════════════════════════════════════════════════════════
+//  TAB 2: PIPELINE (propostas comerciais)
+// ═══════════════════════════════════════════════════════════════════
+const COM_PIPE_ESTAGIOS = [
+  { key:'lead',       label:'🌱 Lead',       color:'#94A3B8' },
+  { key:'proposta',   label:'📝 Proposta',   color:'#3B82F6' },
+  { key:'negociacao', label:'💬 Negociação', color:'#F59E0B' },
+  { key:'ganhou',     label:'✅ Ganhou',     color:'#10B981' },
+  { key:'perdeu',     label:'❌ Perdeu',     color:'#EF4444' }
+];
+function comPipeRender(){
+  const kpiEl = document.getElementById('com-pipe-kpis');
+  const el = document.getElementById('com-pipe-board');
+  if(!el) return;
+  const total = COM.propostas.length;
+  const valorTotal = COM.propostas.reduce((s,p) => s + (Number(p.valorEstimado)||0), 0);
+  const ganhou = COM.propostas.filter(p => p.estagio==='ganhou').length;
+  const taxaConv = total > 0 ? (ganhou / total * 100) : 0;
+  if(kpiEl){
+    kpiEl.innerHTML = `<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px">
+      <div class="com-kpi"><div class="com-kpi-lbl">PROPOSTAS</div><div class="com-kpi-val">${total}</div></div>
+      <div class="com-kpi"><div class="com-kpi-lbl">VALOR ESTIMADO</div><div class="com-kpi-val">${_comFmtBRL(valorTotal)}</div></div>
+      <div class="com-kpi"><div class="com-kpi-lbl">GANHAS</div><div class="com-kpi-val" style="color:#10B981">${ganhou}</div></div>
+      <div class="com-kpi"><div class="com-kpi-lbl">TAXA CONVERSÃO</div><div class="com-kpi-val">${taxaConv.toFixed(1)}%</div></div>
+    </div>`;
+  }
+  if(!total){
+    el.innerHTML = `<div class="com-empty"><div style="font-size:48px">🎯</div>
+      <h3>Pipeline vazia</h3>
+      <p>Cadastre leads e propostas pra acompanhar o funil de vendas até virarem assinatura.<br>
+      Funil: <b>Lead → Proposta → Negociação → Ganhou (vira assinatura recorrente)</b></p>
+      <button class="btn btn-p" onclick="comPipeOpen()" style="margin-top:14px">+ Criar primeira proposta</button></div>`;
+    return;
+  }
+  // Board kanban
+  let html = '<div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px">';
+  COM_PIPE_ESTAGIOS.forEach(est => {
+    const items = COM.propostas.filter(p => p.estagio === est.key);
+    const subtotal = items.reduce((s,p) => s + (Number(p.valorEstimado)||0), 0);
+    html += `<div style="background:#0F172A;border-radius:10px;padding:10px;border-top:3px solid ${est.color};min-height:240px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <strong style="font-size:.78rem;color:${est.color}">${est.label}</strong>
+        <span style="background:${est.color}22;color:${est.color};padding:2px 7px;border-radius:8px;font-size:.66rem;font-weight:700">${items.length}</span>
+      </div>
+      <div style="color:#94A3B8;font-size:.7rem;margin-bottom:8px">${_comFmtBRL(subtotal)}</div>
+      <div style="display:flex;flex-direction:column;gap:6px">`;
+    items.forEach(p => {
+      html += `<div style="background:#1E293B;border-radius:8px;padding:8px 10px;cursor:pointer" onclick="comPipeEdit(${p.id})">
+        <div style="font-weight:700;font-size:.8rem;color:#E5E7EB;word-break:break-word">${_comEsc(p.cliente)}</div>
+        <div style="color:#10B981;font-size:.78rem;margin-top:2px">${_comFmtBRL(p.valorEstimado)}</div>
+        ${p.vendedor?`<div style="color:#94A3B8;font-size:.66rem;margin-top:2px">👤 ${_comEsc(p.vendedor)}</div>`:''}
+      </div>`;
+    });
+    html += `</div></div>`;
   });
-  comSave(); comComListRender();
-  const total = COM.comissoesCalc.filter(c => c.ym===ym).reduce((s,c) => s+c.comissao, 0);
-  alert(`✅ Comissões recalculadas em ${ym}\nTotal: ${fmtBRL(total)}`);
-  if(typeof auditLog==='function') auditLog('comercial', `recalculou comissões ${ym}: ${fmtBRL(total)}`);
+  html += '</div>';
+  el.innerHTML = html;
+}
+function comPipeOpen(){
+  const clientes = (typeof receita !== 'undefined' && receita.clientes) ? receita.clientes : [];
+  const cliOpts = clientes.map(c => `<option value="${_comEsc(c.nome)}">${_comEsc(c.nome)}</option>`).join('');
+  const vendedores = (typeof vendData !== 'undefined' && vendData.list) ? vendData.list : [];
+  const venOpts = vendedores.map(v => `<option value="${_comEsc(v.nome)}">${_comEsc(v.nome)}</option>`).join('');
+  const html = `<div style="display:flex;flex-direction:column;gap:12px">
+    <label>Cliente / Lead</label>
+    <input list="com-pipe-cli-list" id="com-pipe-cli" placeholder="Nome do prospect" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
+    <datalist id="com-pipe-cli-list">${cliOpts}</datalist>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><label>Valor estimado/mês</label><input type="number" step="0.01" id="com-pipe-val" placeholder="500.00" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%"></div>
+      <div><label>Estágio</label><select id="com-pipe-est" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%">${COM_PIPE_ESTAGIOS.map(e=>`<option value="${e.key}">${e.label}</option>`).join('')}</select></div>
+    </div>
+    <label>Vendedor responsável (opcional)</label>
+    <input list="com-pipe-vend-list" id="com-pipe-vend" placeholder="Nome do vendedor" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
+    <datalist id="com-pipe-vend-list">${venOpts}</datalist>
+    <label>Notas</label>
+    <textarea id="com-pipe-desc" placeholder="Histórico da conversa, próximos passos..." style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;min-height:60px"></textarea>
+  </div>`;
+  _fkModal('🎯 Nova proposta', html, () => {
+    const cliente = (document.getElementById('com-pipe-cli').value||'').trim();
+    const valor   = parseFloat(document.getElementById('com-pipe-val').value)||0;
+    const estagio = document.getElementById('com-pipe-est').value;
+    const vendedor = (document.getElementById('com-pipe-vend').value||'').trim();
+    const desc = (document.getElementById('com-pipe-desc').value||'').trim();
+    if(!cliente){ alert('Cliente obrigatório'); return false; }
+    COM.propostas.push({ id:_comId(), cliente, valorEstimado:valor, estagio, vendedor, descricao:desc, criadoEm:Date.now(), atualizadoEm:Date.now() });
+    comSave(); comPipeRender();
+    if(typeof auditLog==='function') auditLog('comercial', 'criou proposta: '+cliente);
+    return true;
+  });
+}
+function comPipeEdit(id){
+  const p = COM.propostas.find(x => x.id===id); if(!p) return;
+  const estOpts = COM_PIPE_ESTAGIOS.map(e => `<option value="${e.key}" ${p.estagio===e.key?'selected':''}>${e.label}</option>`).join('');
+  const html = `<div style="display:flex;flex-direction:column;gap:12px">
+    <div style="background:#0F172A;padding:10px 14px;border-radius:6px;font-size:.84rem"><b>${_comEsc(p.cliente)}</b> · ${_comFmtBRL(p.valorEstimado)}</div>
+    <label>Mudar estágio</label>
+    <select id="com-pipe-edit-est" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">${estOpts}</select>
+    <label>Notas</label>
+    <textarea id="com-pipe-edit-desc" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;min-height:80px">${_comEsc(p.descricao||'')}</textarea>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-sec" style="flex:1;color:#EF4444" onclick="comPipeRemove(${p.id})">🗑 Excluir proposta</button>
+    </div>
+  </div>`;
+  _fkModal('Editar proposta', html, () => {
+    const novoEst = document.getElementById('com-pipe-edit-est').value;
+    p.descricao = (document.getElementById('com-pipe-edit-desc').value||'').trim();
+    p.atualizadoEm = Date.now();
+    if(novoEst === 'ganhou' && p.estagio !== 'ganhou'){
+      // Converte em assinatura
+      if(confirm(`Converter "${p.cliente}" em assinatura recorrente de ${_comFmtBRL(p.valorEstimado)}/mês?`)){
+        const ass = { id:_comId(), cliente:p.cliente, valor:p.valorEstimado, diaVenc:5, descricao:p.descricao||'Assinatura mensal', ativa:true, ultimaGer:null, hist:[], changes:[], receitaLinks:[], criadoEm:Date.now(), autoEmitNF:false, reajusteIdx:null, reajusteMes:1 };
+        COM.assinaturas.push(ass);
+        comRecGerarPrevisoesReceita(ass);
+        p.assinaturaId = ass.id;
+        if(typeof notifPush==='function') notifPush({titulo:'🎉 Proposta convertida!', msg:`${p.cliente} virou assinatura`});
+      }
+    }
+    p.estagio = novoEst;
+    comSave(); comPipeRender();
+    return true;
+  });
+}
+function comPipeRemove(id){
+  if(!confirm('Remover proposta? Ação não pode ser desfeita.')) return;
+  COM.propostas = COM.propostas.filter(x => x.id!==id);
+  comSave(); comPipeRender();
+  // fecha modal aberto
+  const ov = document.querySelector('[style*="position:fixed"][style*="rgba(0,0,0,.7)"]');
+  if(ov && ov.querySelector('#_fkmod-cancel')) ov.remove();
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  TAB 3: RECIBOS
+//  TAB 3: RECIBOS (com integração Receita)
 // ═══════════════════════════════════════════════════════════════════
 function comReciboListRender(){
   const el = document.getElementById('com-rec2-list');
@@ -94650,29 +94884,33 @@ function comReciboListRender(){
   if(!COM.recibos.length){
     el.innerHTML = `<div class="com-empty"><div style="font-size:48px">🧾</div>
       <h3>Nenhum recibo emitido ainda</h3>
-      <p>Recibos avulsos (sem NF) — pra autônomos, freelancer, contrato de aluguel, prestação eventual.<br>
+      <p>Recibos avulsos (sem NF) — vinculam ao lançamento de Receita se você quiser marcar como pago.<br>
       Numeração sequencial automática.</p>
       <button class="btn btn-p" onclick="comReciboOpen()" style="margin-top:14px">+ Emitir primeiro recibo</button></div>`;
     return;
   }
   const total = COM.recibos.reduce((s,r) => s+(Number(r.valor)||0), 0);
-  let html = `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:18px">
+  let html = `<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:18px">
     <div class="com-kpi"><div class="com-kpi-lbl">TOTAL EMITIDOS</div><div class="com-kpi-val">${COM.recibos.length}</div></div>
-    <div class="com-kpi"><div class="com-kpi-lbl">VALOR TOTAL</div><div class="com-kpi-val">${fmtBRL(total)}</div></div>
+    <div class="com-kpi"><div class="com-kpi-lbl">VALOR TOTAL</div><div class="com-kpi-val">${_comFmtBRL(total)}</div></div>
   </div>`;
   html += '<div style="display:flex;flex-direction:column;gap:10px">';
   [...COM.recibos].reverse().forEach(r => {
+    const vincBadge = r.receitaLink
+      ? '<span style="background:#10B98122;color:#10B981;padding:2px 8px;border-radius:6px;font-size:.66rem;font-weight:700">✓ vinc. Receita</span>'
+      : '';
     html += `<div class="com-card">
       <div class="com-card-ico rec2">🧾</div>
-      <div style="flex:1">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
           <strong>Recibo #${String(r.numero).padStart(4,'0')}</strong>
           <span style="color:#94A3B8;font-size:.74rem">${_comEsc(r.data)}</span>
+          ${vincBadge}
         </div>
         <div style="color:#94A3B8;font-size:.78rem">${_comEsc(r.cliente)} · ${_comEsc(r.descricao||'—')}</div>
       </div>
       <div style="text-align:right">
-        <div style="font-weight:700;color:#10B981">${fmtBRL(r.valor)}</div>
+        <div style="font-weight:700;color:#10B981">${_comFmtBRL(r.valor)}</div>
         <div style="display:flex;gap:4px;margin-top:6px;justify-content:flex-end">
           <button class="btn btn-sec" style="padding:4px 10px;font-size:.72rem" onclick="comReciboPrint(${r.id})">🖨 Imprimir</button>
           <button class="btn btn-sec" style="padding:4px 10px;font-size:.72rem" onclick="comReciboRemove(${r.id})">🗑️</button>
@@ -94686,6 +94924,8 @@ function comReciboListRender(){
 function comReciboOpen(){
   const proxNum = COM.recibos.length ? Math.max(...COM.recibos.map(r=>Number(r.numero)||0))+1 : 1;
   const hoje = new Date().toISOString().slice(0,10);
+  const clientes = (typeof receita !== 'undefined' && receita.clientes) ? receita.clientes : [];
+  const cliOpts = clientes.map(c => `<option value="${_comEsc(c.nome)}">${_comEsc(c.nome)}</option>`).join('');
   const html = `<div style="display:flex;flex-direction:column;gap:12px">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div><label>Número</label>
@@ -94694,11 +94934,15 @@ function comReciboOpen(){
         <input type="date" id="com-rcb-data" value="${hoje}" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%"></div>
     </div>
     <label>Pagador (quem pagou)</label>
-    <input type="text" id="com-rcb-cli" placeholder="Nome ou CPF/CNPJ" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
+    <input list="com-rcb-cli-list" id="com-rcb-cli" placeholder="Nome ou CPF/CNPJ" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
+    <datalist id="com-rcb-cli-list">${cliOpts}</datalist>
     <label>Valor</label>
     <input type="number" step="0.01" id="com-rcb-val" placeholder="500.00" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
     <label>Referente a</label>
     <input type="text" id="com-rcb-desc" placeholder="Prestação de serviço — consultoria" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
+    <label style="display:flex;align-items:center;gap:8px;color:#10B981;font-size:.84rem">
+      <input type="checkbox" id="com-rcb-vinc" checked> ✓ Vincular a lançamento de Receita do mês atual (cria se não existir)
+    </label>
   </div>`;
   _fkModal('🧾 Emitir recibo', html, ()=>{
     const numero  = parseInt(document.getElementById('com-rcb-num').value)||proxNum;
@@ -94706,19 +94950,42 @@ function comReciboOpen(){
     const cliente = (document.getElementById('com-rcb-cli').value||'').trim();
     const valor   = parseFloat(document.getElementById('com-rcb-val').value)||0;
     const desc    = (document.getElementById('com-rcb-desc').value||'').trim();
+    const vinc    = document.getElementById('com-rcb-vinc').checked;
     if(!cliente){ alert('Pagador obrigatório'); return false; }
     if(valor<=0){ alert('Valor inválido'); return false; }
     const prestador = (typeof EMPRESAS!=='undefined' && EMPRESAS.list && EMPRESAS.list[0]) ? EMPRESAS.list[0].nome : 'Forekash';
-    COM.recibos.push({ id:_comId(), numero, cliente, valor, descricao:desc, data, pagador:cliente, prestador });
-    comSave(); comReciboListRender();
-    if(typeof auditLog==='function') auditLog('comercial', `emitiu recibo #${numero}: ${cliente} · ${fmtBRL(valor)}`);
+    const recibo = { id:_comId(), numero, cliente, valor, descricao:desc, data, pagador:cliente, prestador };
+    if(vinc){
+      try{
+        const dt = new Date(data);
+        const year = dt.getFullYear();
+        const mAbbr = _COM_MESES[dt.getMonth()];
+        if(typeof receita !== 'undefined' && receita){
+          receita.years = receita.years || {};
+          receita.years[year] = receita.years[year] || { clients:[] };
+          receita.years[year].clients = receita.years[year].clients || [];
+          let cli = receita.years[year].clients.find(c => c.nome && c.nome.toLowerCase().trim()===cliente.toLowerCase().trim());
+          if(!cli){ cli = { id:'cli_'+Date.now(), nome:cliente, meses:{} }; receita.years[year].clients.push(cli); }
+          cli.meses = cli.meses || {};
+          cli.meses[mAbbr] = {
+            valor, dataVencimento:data, status:'recebido', origem:'recibo', reciboId:recibo.id, reciboNum:numero
+          };
+          recibo.receitaLink = { year, clientId:cli.id, mAbbr };
+          try{ if(typeof receitaSave==='function') receitaSave(); else if(typeof saveReceita==='function') saveReceita(); else localStorage.setItem('forekash:receita:v1', JSON.stringify(receita)); }catch(_){}
+          try{ if(typeof renderReceita==='function') renderReceita(); }catch(_){}
+        }
+      }catch(e){ console.warn('vinc recibo→receita:',e); }
+    }
+    COM.recibos.push(recibo);
+    comSave();
+    comReciboListRender();
+    if(typeof auditLog==='function') auditLog('comercial', `emitiu recibo #${numero}: ${cliente} · ${_comFmtBRL(valor)}${vinc?' · vinc. Receita':''}`);
     return true;
   });
 }
 function comReciboPrint(id){
   const r = COM.recibos.find(x => x.id===id); if(!r) return;
-  // Valor por extenso simplificado
-  const valorBRL = fmtBRL(r.valor);
+  const valorBRL = _comFmtBRL(r.valor);
   const w = window.open('', '_blank', 'width=720,height=900');
   w.document.write(`<!doctype html><html><head><title>Recibo #${r.numero}</title>
     <style>
@@ -94753,13 +95020,12 @@ function comReciboRemove(id){
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  TAB 4: CONTRATOS
+//  TAB 4: CONTRATOS (com vínculo assinatura + renovação automática)
 // ═══════════════════════════════════════════════════════════════════
 function comContListRender(){
   const el = document.getElementById('com-cont-list');
   if(!el) return;
   const hoje = new Date();
-  // Status dinâmico
   COM.contratos.forEach(c => {
     if(!c.fim){ c.status = 'sem-vencimento'; return; }
     const fim = new Date(c.fim);
@@ -94769,31 +95035,29 @@ function comContListRender(){
     else                c.status = 'ativo';
     c.diasRestantes = diff;
   });
-  // KPIs
   const ativos    = COM.contratos.filter(c => c.status==='ativo').length;
   const breve     = COM.contratos.filter(c => c.status==='vence-em-breve').length;
   const vencidos  = COM.contratos.filter(c => c.status==='vencido').length;
   const totalVal  = COM.contratos.reduce((s,c) => s+(Number(c.valor)||0), 0);
   const kpiEl = document.getElementById('com-cont-kpis');
   if(kpiEl){
-    kpiEl.innerHTML = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px">
+    kpiEl.innerHTML = `<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px">
       <div class="com-kpi"><div class="com-kpi-lbl">ATIVOS</div><div class="com-kpi-val" style="color:#10B981">${ativos}</div></div>
       <div class="com-kpi"><div class="com-kpi-lbl">VENCEM EM BREVE</div><div class="com-kpi-val" style="color:#F59E0B">${breve}</div></div>
       <div class="com-kpi"><div class="com-kpi-lbl">VENCIDOS</div><div class="com-kpi-val" style="color:#EF4444">${vencidos}</div></div>
-      <div class="com-kpi"><div class="com-kpi-lbl">VALOR TOTAL</div><div class="com-kpi-val">${fmtBRL(totalVal)}</div></div>
+      <div class="com-kpi"><div class="com-kpi-lbl">VALOR TOTAL</div><div class="com-kpi-val">${_comFmtBRL(totalVal)}</div></div>
     </div>`;
   }
   if(!COM.contratos.length){
     el.innerHTML = `<div class="com-empty"><div style="font-size:48px">📄</div>
       <h3>Nenhum contrato cadastrado</h3>
-      <p>Registre contratos com contrapartes (clientes, fornecedores, locadores).<br>
-      Forekash avisa antes do vencimento conforme dias configurados.</p>
+      <p>Registre contratos com contrapartes — vincule à assinatura recorrente pra ter source-of-truth do valor.<br>
+      Forekash avisa antes do vencimento conforme dias configurados, e pode renovar automaticamente.</p>
       <button class="btn btn-p" onclick="comContratoOpen()" style="margin-top:14px">+ Criar primeiro contrato</button></div>`;
     return;
   }
   const statusColor = { 'ativo':'#10B981', 'vence-em-breve':'#F59E0B', 'vencido':'#EF4444', 'sem-vencimento':'#94A3B8' };
   const statusLbl   = { 'ativo':'ATIVO', 'vence-em-breve':'VENCE EM BREVE', 'vencido':'VENCIDO', 'sem-vencimento':'SEM VENC.' };
-  // Ordena: vencidos -> em breve -> ativos
   const ordered = [...COM.contratos].sort((a,b) => {
     const ord = {'vencido':0,'vence-em-breve':1,'ativo':2,'sem-vencimento':3};
     return (ord[a.status]||9) - (ord[b.status]||9);
@@ -94804,18 +95068,24 @@ function comContListRender(){
     const diasInfo = c.fim
       ? (c.diasRestantes < 0 ? `venceu há ${Math.abs(c.diasRestantes)} dias` : `${c.diasRestantes} dias restantes`)
       : 'sem prazo definido';
+    const vincAss = c.assinaturaId ? (COM.assinaturas.find(a => a.id===c.assinaturaId)||{}).cliente : null;
+    const vincBadge = vincAss
+      ? `<span style="background:#10B98122;color:#10B981;padding:2px 8px;border-radius:6px;font-size:.66rem;font-weight:700;margin-left:4px">🔗 ${_comEsc(vincAss)}</span>` : '';
+    const renBadge = c.renovaAuto
+      ? '<span style="background:#7C3AED22;color:#A78BFA;padding:2px 8px;border-radius:6px;font-size:.66rem;font-weight:700;margin-left:4px">🔄 RENOVA AUTO</span>' : '';
     html += `<div class="com-card" style="border-left:3px solid ${cor}">
       <div class="com-card-ico cont">📄</div>
-      <div style="flex:1">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
           <strong>${_comEsc(c.titulo)}</strong>
           <span style="background:${cor}22;color:${cor};padding:2px 8px;border-radius:6px;font-size:.66rem;font-weight:700">${statusLbl[c.status]||'—'}</span>
+          ${vincBadge}${renBadge}
         </div>
         <div style="color:#94A3B8;font-size:.78rem">${_comEsc(c.contraparte)} · ${_comEsc(c.tipo)} · ${_comEsc(c.inicio||'?')} → ${_comEsc(c.fim||'∞')} · ${diasInfo}</div>
         ${c.obs?`<div style="color:#64748B;font-size:.72rem;margin-top:4px">${_comEsc(c.obs)}</div>`:''}
       </div>
       <div style="text-align:right">
-        <div style="font-weight:700;color:#10B981">${fmtBRL(c.valor)}</div>
+        <div style="font-weight:700;color:#10B981">${_comFmtBRL(c.valor)}</div>
         <button class="btn btn-sec" style="padding:4px 10px;font-size:.72rem;margin-top:6px" onclick="comContRemove(${c.id})">🗑️</button>
       </div>
     </div>`;
@@ -94825,28 +95095,39 @@ function comContListRender(){
 }
 function comContratoOpen(){
   const hoje = new Date().toISOString().slice(0,10);
+  const ass1ano = new Date(); ass1ano.setFullYear(ass1ano.getFullYear()+1);
+  const assOpts = '<option value="">Nenhuma</option>' + COM.assinaturas.map(a => `<option value="${a.id}">${_comEsc(a.cliente)} · ${_comFmtBRL(a.valor)}/mês</option>`).join('');
   const html = `<div style="display:flex;flex-direction:column;gap:12px">
     <label>Título do contrato</label>
     <input type="text" id="com-cnt-tit" placeholder="Contrato de prestação de serviços" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
     <label>Contraparte</label>
     <input type="text" id="com-cnt-cpt" placeholder="Cliente/Fornecedor/Locador" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
-    <label>Tipo</label>
-    <select id="com-cnt-tipo" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
-      <option value="Prestação de serviços">Prestação de serviços</option>
-      <option value="Aluguel">Aluguel</option>
-      <option value="Fornecimento">Fornecimento</option>
-      <option value="SaaS">SaaS</option>
-      <option value="Trabalhista">Trabalhista</option>
-      <option value="Outros">Outros</option>
-    </select>
-    <label>Valor (R$)</label>
-    <input type="number" step="0.01" id="com-cnt-val" placeholder="1500.00" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><label>Tipo</label>
+        <select id="com-cnt-tipo" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%">
+          <option value="Prestação de serviços">Prestação de serviços</option>
+          <option value="Aluguel">Aluguel</option>
+          <option value="Fornecimento">Fornecimento</option>
+          <option value="SaaS">SaaS</option>
+          <option value="Trabalhista">Trabalhista</option>
+          <option value="Outros">Outros</option>
+        </select>
+      </div>
+      <div><label>Valor (R$)</label>
+        <input type="number" step="0.01" id="com-cnt-val" placeholder="1500.00" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%">
+      </div>
+    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div><label>Início</label><input type="date" id="com-cnt-ini" value="${hoje}" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%"></div>
-      <div><label>Fim</label><input type="date" id="com-cnt-fim" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%"></div>
+      <div><label>Fim</label><input type="date" id="com-cnt-fim" value="${ass1ano.toISOString().slice(0,10)}" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%"></div>
     </div>
     <label>Alertar X dias antes do vencimento</label>
     <input type="number" id="com-cnt-alt" value="30" min="1" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
+    <label>Vincular a assinatura recorrente (opcional)</label>
+    <select id="com-cnt-ass" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">${assOpts}</select>
+    <label style="display:flex;align-items:center;gap:8px;color:#A78BFA;font-size:.84rem">
+      <input type="checkbox" id="com-cnt-ren"> 🔄 Renovar automaticamente ao vencer (cria novo contrato)
+    </label>
     <label>Observações</label>
     <textarea id="com-cnt-obs" placeholder="Cláusulas relevantes, links pra arquivo, etc." style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;min-height:60px"></textarea>
   </div>`;
@@ -94858,13 +95139,16 @@ function comContratoOpen(){
     const inicio = document.getElementById('com-cnt-ini').value;
     const fim    = document.getElementById('com-cnt-fim').value;
     const alt    = parseInt(document.getElementById('com-cnt-alt').value)||30;
+    const assId  = document.getElementById('com-cnt-ass').value;
+    const ren    = document.getElementById('com-cnt-ren').checked;
     const obs    = (document.getElementById('com-cnt-obs').value||'').trim();
     if(!titulo){ alert('Título obrigatório'); return false; }
     if(!cpt){ alert('Contraparte obrigatória'); return false; }
-    COM.contratos.push({ id:_comId(), titulo, contraparte:cpt, tipo, valor, inicio, fim, status:'ativo', obs, alertaDias:alt });
+    const contrato = { id:_comId(), titulo, contraparte:cpt, tipo, valor, inicio, fim, status:'ativo', obs, alertaDias:alt, assinaturaId:assId?parseInt(assId):null, renovaAuto:ren };
+    COM.contratos.push(contrato);
     comSave(); comContListRender();
     if(typeof auditLog==='function') auditLog('comercial', `criou contrato: ${titulo} · ${cpt}`);
-    if(typeof notifPush==='function') notifPush({titulo:'Contrato criado', msg:`${titulo} · ${fmtBRL(valor)}`});
+    if(typeof notifPush==='function') notifPush({titulo:'Contrato criado', msg:`${titulo} · ${_comFmtBRL(valor)}`});
     return true;
   });
 }
@@ -94872,13 +95156,335 @@ function comContRemove(id){
   if(!confirm('Remover este contrato?')) return;
   COM.contratos = COM.contratos.filter(x => x.id!==id); comSave(); comContListRender();
 }
+// T2: Renovação automática
+function comContRenewCheck(){
+  const hoje = new Date();
+  const elegiveis = COM.contratos.filter(c => c.renovaAuto && c.fim && new Date(c.fim) < new Date(hoje.getTime() + 30*24*60*60*1000) && !c._renewed);
+  if(!elegiveis.length){ alert('Nenhum contrato elegível pra renovação automática neste momento.\n\nCritérios: vence em 30 dias OU vencido + flag "Renovar automaticamente" marcada.'); return; }
+  if(!confirm(`Renovar ${elegiveis.length} contrato(s) automaticamente? Cria novo contrato com +1 ano de vigência.`)) return;
+  elegiveis.forEach(c => {
+    const novoIni = c.fim;
+    const novoFim = new Date(new Date(c.fim).getTime() + 365*24*60*60*1000).toISOString().slice(0,10);
+    COM.contratos.push({
+      id:_comId(),
+      titulo:c.titulo + ' (renovação ' + new Date().getFullYear() + ')',
+      contraparte:c.contraparte, tipo:c.tipo, valor:c.valor,
+      inicio:novoIni, fim:novoFim, status:'ativo',
+      obs:'Renovação automática de contrato anterior · ID '+c.id,
+      alertaDias:c.alertaDias, assinaturaId:c.assinaturaId, renovaAuto:c.renovaAuto
+    });
+    c._renewed = true;
+  });
+  comSave(); comContListRender();
+  if(typeof notifPush==='function') notifPush({titulo:'🔄 Renovação automática', msg:`${elegiveis.length} contratos renovados`});
+  if(typeof auditLog==='function') auditLog('comercial', `renovou ${elegiveis.length} contratos automaticamente`);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  TAB 5: IA INSIGHTS (TIER 3)
+//  · MRR Movements (new/expansion/churn/contraction)
+//  · Cohort Analysis
+//  · Churn Predictor (assinaturas em risco)
+//  · Customer Health Score
+//  · Upsell Suggestions
+//  · Pricing Simulator (what-if)
+// ═══════════════════════════════════════════════════════════════════
+function comIaRender(){
+  const el = document.getElementById('com-ia-content');
+  if(!el) return;
+  if(!COM.assinaturas.length){
+    el.innerHTML = `<div class="com-empty"><div style="font-size:48px">🤖</div>
+      <h3>MR KASH precisa de dados pra analisar</h3>
+      <p>Cadastre assinaturas recorrentes pra MR KASH começar a calcular Churn Predictor, Health Score, Upsell Suggestions e Pricing Simulator.</p>
+      <button class="btn btn-p" onclick="comSwitchTab('rec')" style="margin-top:14px">→ Ir pra Recorrência</button></div>`;
+    return;
+  }
+  // MRR Movements (mês atual vs mês anterior)
+  const movs = _comCalcMRRMovements();
+  const cohorts = _comCalcCohorts();
+  const risco = _comCalcChurnRisk();
+  const upsells = _comCalcUpsells();
+  const health = _comCalcHealthScores();
+
+  let html = '';
+  // SEÇÃO 1: MRR MOVEMENTS
+  html += `<h2 style="font-size:1rem;color:#10B981;margin:0 0 12px;letter-spacing:-.3px">📊 MRR Movements · ${movs.ymAtual}</h2>`;
+  html += `<div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:24px">
+    <div style="background:#0F172A;padding:14px;border-radius:10px;border-top:3px solid #10B981;min-width:0">
+      <div style="color:#10B981;font-size:.66rem;letter-spacing:1.5px;font-weight:700">NEW MRR</div>
+      <div style="font-size:1.15rem;color:#fff;font-weight:700;margin-top:4px;word-break:break-word">${_comFmtBRL(movs.newMrr)}</div>
+      <div style="color:#94A3B8;font-size:.68rem">${movs.newCount} novas</div>
+    </div>
+    <div style="background:#0F172A;padding:14px;border-radius:10px;border-top:3px solid #3B82F6;min-width:0">
+      <div style="color:#3B82F6;font-size:.66rem;letter-spacing:1.5px;font-weight:700">EXPANSION</div>
+      <div style="font-size:1.15rem;color:#fff;font-weight:700;margin-top:4px;word-break:break-word">${_comFmtBRL(movs.expansion)}</div>
+      <div style="color:#94A3B8;font-size:.68rem">${movs.expansionCount} upgrades</div>
+    </div>
+    <div style="background:#0F172A;padding:14px;border-radius:10px;border-top:3px solid #F59E0B;min-width:0">
+      <div style="color:#F59E0B;font-size:.66rem;letter-spacing:1.5px;font-weight:700">CONTRACTION</div>
+      <div style="font-size:1.15rem;color:#fff;font-weight:700;margin-top:4px;word-break:break-word">${_comFmtBRL(movs.contraction)}</div>
+      <div style="color:#94A3B8;font-size:.68rem">${movs.contractionCount} downgrades</div>
+    </div>
+    <div style="background:#0F172A;padding:14px;border-radius:10px;border-top:3px solid #EF4444;min-width:0">
+      <div style="color:#EF4444;font-size:.66rem;letter-spacing:1.5px;font-weight:700">CHURN</div>
+      <div style="font-size:1.15rem;color:#fff;font-weight:700;margin-top:4px;word-break:break-word">${_comFmtBRL(movs.churn)}</div>
+      <div style="color:#94A3B8;font-size:.68rem">${movs.churnCount} canceladas</div>
+    </div>
+    <div style="background:linear-gradient(135deg,#0F172A,#1E293B);padding:14px;border-radius:10px;border-top:3px solid #10B981;min-width:0">
+      <div style="color:#10B981;font-size:.66rem;letter-spacing:1.5px;font-weight:700">NET MRR</div>
+      <div style="font-size:1.15rem;color:${movs.net>=0?'#10B981':'#EF4444'};font-weight:700;margin-top:4px;word-break:break-word">${movs.net>=0?'+':''}${_comFmtBRL(movs.net)}</div>
+      <div style="color:#94A3B8;font-size:.68rem">total atual ${_comFmtBRL(movs.totalAtual)}</div>
+    </div>
+  </div>`;
+
+  // SEÇÃO 2: CHURN PREDICTOR
+  html += `<h2 style="font-size:1rem;color:#EF4444;margin:24px 0 12px;letter-spacing:-.3px">🚨 Churn Predictor · assinaturas em risco</h2>`;
+  if(!risco.length){
+    html += `<div style="background:#0F172A;padding:14px;border-radius:8px;color:#10B981;font-size:.84rem;margin-bottom:24px">✅ Nenhuma assinatura em risco detectado. Tudo saudável.</div>`;
+  } else {
+    html += '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:24px">';
+    risco.forEach(r => {
+      html += `<div style="background:#0F172A;border-left:3px solid #EF4444;padding:12px 16px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
+          <strong style="color:#EF4444;font-size:.88rem">${_comEsc(r.cliente)}</strong>
+          <div style="color:#94A3B8;font-size:.74rem;margin-top:2px">${_comEsc(r.razoes.join(' · '))}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="color:#EF4444;font-weight:700;font-size:.9rem">${r.score}% risco</div>
+          <div style="color:#94A3B8;font-size:.7rem">${_comFmtBRL(r.valor)}/mês em jogo</div>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  // SEÇÃO 3: CUSTOMER HEALTH SCORE (top 10)
+  html += `<h2 style="font-size:1rem;color:#3B82F6;margin:24px 0 12px;letter-spacing:-.3px">💚 Customer Health Score</h2>`;
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:24px">';
+  health.slice(0,12).forEach(h => {
+    html += `<div style="background:#0F172A;padding:12px;border-radius:8px;border-top:3px solid ${h.color}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <strong style="font-size:.82rem;color:#E5E7EB;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_comEsc(h.cliente)}</strong>
+        <span style="color:${h.color};font-weight:800;font-size:.96rem;margin-left:8px">${h.score}</span>
+      </div>
+      <div style="color:#94A3B8;font-size:.7rem">${h.emoji} ${h.label}</div>
+    </div>`;
+  });
+  html += '</div>';
+
+  // SEÇÃO 4: UPSELL SUGGESTIONS
+  html += `<h2 style="font-size:1rem;color:#10B981;margin:24px 0 12px;letter-spacing:-.3px">⬆ Upsell Suggestions</h2>`;
+  if(!upsells.length){
+    html += `<div style="background:#0F172A;padding:14px;border-radius:8px;color:#94A3B8;font-size:.84rem;margin-bottom:24px">Nenhuma sugestão no momento. Clientes precisam de pelo menos 6 meses de histórico.</div>`;
+  } else {
+    html += '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:24px">';
+    upsells.forEach(u => {
+      html += `<div style="background:#0F172A;border-left:3px solid #10B981;padding:12px 16px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
+          <strong style="color:#10B981;font-size:.88rem">${_comEsc(u.cliente)}</strong>
+          <div style="color:#94A3B8;font-size:.74rem;margin-top:2px">${_comEsc(u.razao)}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="color:#10B981;font-weight:700;font-size:.9rem">${_comFmtBRL(u.atual)} → ${_comFmtBRL(u.sugestao)}</div>
+          <div style="color:#94A3B8;font-size:.7rem">+${_comFmtBRL(u.sugestao-u.atual)}/mês potencial</div>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  // SEÇÃO 5: COHORT ANALYSIS
+  html += `<h2 style="font-size:1rem;color:#A78BFA;margin:24px 0 12px;letter-spacing:-.3px">📅 Cohort Analysis · clientes por mês de entrada</h2>`;
+  if(!cohorts.length){
+    html += `<div style="background:#0F172A;padding:14px;border-radius:8px;color:#94A3B8;font-size:.84rem;margin-bottom:24px">Sem dados suficientes pra cohort. Crie mais assinaturas em meses diferentes.</div>`;
+  } else {
+    html += '<div style="background:#0F172A;padding:14px;border-radius:10px;margin-bottom:24px;overflow-x:auto">';
+    html += '<table style="width:100%;font-size:.78rem;color:#E5E7EB;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:6px 10px;color:#94A3B8;font-weight:700">Cohort</th><th style="text-align:right;padding:6px 10px;color:#94A3B8;font-weight:700">Clientes</th><th style="text-align:right;padding:6px 10px;color:#94A3B8;font-weight:700">Ainda ativos</th><th style="text-align:right;padding:6px 10px;color:#94A3B8;font-weight:700">Retenção</th><th style="text-align:right;padding:6px 10px;color:#94A3B8;font-weight:700">MRR</th></tr></thead><tbody>';
+    cohorts.forEach(c => {
+      const ret = c.total > 0 ? (c.ativos/c.total*100) : 0;
+      html += `<tr style="border-top:1px solid #334155"><td style="padding:6px 10px">${c.ym}</td><td style="text-align:right;padding:6px 10px">${c.total}</td><td style="text-align:right;padding:6px 10px;color:#10B981">${c.ativos}</td><td style="text-align:right;padding:6px 10px;color:${ret>=80?'#10B981':ret>=50?'#F59E0B':'#EF4444'};font-weight:700">${ret.toFixed(0)}%</td><td style="text-align:right;padding:6px 10px">${_comFmtBRL(c.mrr)}</td></tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // SEÇÃO 6: PRICING SIMULATOR
+  html += `<h2 style="font-size:1rem;color:#F59E0B;margin:24px 0 12px;letter-spacing:-.3px">💰 Pricing Simulator · what-if</h2>`;
+  html += `<div style="background:#0F172A;padding:18px;border-radius:10px;margin-bottom:24px">
+    <p style="color:#94A3B8;font-size:.84rem;margin:0 0 12px">Simula reajuste geral em todas as assinaturas ativas. Calcula novo MRR + ARR + estimativa de churn por sensibilidade ao preço.</p>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <label style="color:#E5E7EB;font-size:.84rem">Reajuste:</label>
+      <input type="range" id="com-pricing-slider" min="-20" max="50" value="10" step="1" style="flex:1;min-width:160px" oninput="comPricingSimUpdate()">
+      <span id="com-pricing-val" style="color:#10B981;font-weight:700;min-width:60px;text-align:right">+10%</span>
+    </div>
+    <div id="com-pricing-result" style="margin-top:14px"></div>
+  </div>`;
+
+  el.innerHTML = html;
+  setTimeout(comPricingSimUpdate, 50);
+}
+
+// === Helpers IA ===
+function _comCalcMRRMovements(){
+  const ymAtual = new Date().toISOString().slice(0,7);
+  const inicioMes = new Date(); inicioMes.setDate(1); inicioMes.setHours(0,0,0,0);
+  const tsInicio = inicioMes.getTime();
+  let newMrr=0, newCount=0, expansion=0, expansionCount=0, contraction=0, contractionCount=0, churn=0, churnCount=0;
+  COM.assinaturas.forEach(a => {
+    if(a.criadoEm && a.criadoEm >= tsInicio && a.ativa){
+      newMrr += a.valor || 0; newCount++;
+    }
+    (a.changes||[]).forEach(c => {
+      if(c.ts < tsInicio) return;
+      if(c.delta > 0){ expansion += c.delta; expansionCount++; }
+      else if(c.delta < 0){ contraction += Math.abs(c.delta); contractionCount++; }
+    });
+    if(!a.ativa && a.criadoEm && a.criadoEm < tsInicio){
+      // assume churn neste mês
+      churn += a.valor || 0; churnCount++;
+    }
+  });
+  const totalAtual = COM.assinaturas.filter(a => a.ativa).reduce((s,a) => s+(a.valor||0), 0);
+  const net = newMrr + expansion - contraction - churn;
+  return { ymAtual, newMrr, newCount, expansion, expansionCount, contraction, contractionCount, churn, churnCount, net, totalAtual };
+}
+function _comCalcCohorts(){
+  const map = {};
+  COM.assinaturas.forEach(a => {
+    const ts = a.criadoEm || Date.now();
+    const ym = new Date(ts).toISOString().slice(0,7);
+    if(!map[ym]) map[ym] = { ym, total:0, ativos:0, mrr:0 };
+    map[ym].total++;
+    if(a.ativa){ map[ym].ativos++; map[ym].mrr += a.valor || 0; }
+  });
+  return Object.values(map).sort((a,b) => a.ym.localeCompare(b.ym));
+}
+function _comCalcChurnRisk(){
+  const risco = [];
+  COM.assinaturas.forEach(a => {
+    if(!a.ativa) return;
+    const razoes = [];
+    let score = 0;
+    // Sinal 1: cobrança atrasada (status pendente após vencimento)
+    try{
+      if(typeof ASAAS !== 'undefined' && Array.isArray(ASAAS.cobrancas)){
+        const hoje = new Date().toISOString().slice(0,10);
+        const atrasadas = ASAAS.cobrancas.filter(c => c.assinaturaId===a.id && c.status==='pendente' && c.vencimento && c.vencimento < hoje);
+        if(atrasadas.length >= 1){ razoes.push(atrasadas.length+' cobrança(s) atrasada(s)'); score += 35*atrasadas.length; }
+      }
+    }catch(_){}
+    // Sinal 2: downgrade recente
+    const downRecente = (a.changes||[]).find(c => c.delta < 0 && c.ts > Date.now() - 90*24*60*60*1000);
+    if(downRecente){ razoes.push('downgrade recente'); score += 25; }
+    // Sinal 3: nenhuma cobrança gerada nos últimos 2 meses
+    const histRecente = (a.hist||[]).filter(h => {
+      try{ return new Date(h.vinc).getTime() > Date.now() - 60*24*60*60*1000; }catch(_){ return false; }
+    });
+    if(!histRecente.length && (a.hist||[]).length > 0){ razoes.push('sem cobrança há 60+ dias'); score += 20; }
+    // Sinal 4: assinatura muito antiga sem upgrades
+    if(a.criadoEm && a.criadoEm < Date.now() - 365*24*60*60*1000 && !(a.changes||[]).some(c=>c.delta>0)){
+      razoes.push('1+ ano sem upgrade');
+      score += 10;
+    }
+    if(score >= 25 && razoes.length){
+      risco.push({ cliente:a.cliente, valor:a.valor, score:Math.min(100,score), razoes });
+    }
+  });
+  return risco.sort((a,b) => b.score - a.score);
+}
+function _comCalcUpsells(){
+  const result = [];
+  COM.assinaturas.forEach(a => {
+    if(!a.ativa) return;
+    const meses = (a.hist||[]).length;
+    if(meses < 6) return;
+    const upgrades = (a.changes||[]).filter(c => c.delta > 0).length;
+    if(upgrades > 0) return; // já fez upgrade, não sugere
+    const pagouAtrasado = false; // sem sinal de atraso = bom pagador
+    // Sugere +20% pra clientes antigos sem upgrade
+    const sugestao = Math.round(a.valor * 1.2 * 100) / 100;
+    const razao = `${meses} meses pagando em dia, sem upgrade. Cliente fiel — momento ideal pra reajustar.`;
+    result.push({ cliente:a.cliente, atual:a.valor, sugestao, razao });
+  });
+  return result.sort((a,b) => (b.sugestao-b.atual) - (a.sugestao-a.atual)).slice(0, 8);
+}
+function _comCalcHealthScores(){
+  const result = [];
+  COM.assinaturas.forEach(a => {
+    let score = 50;
+    const razoes = [];
+    if(a.ativa) score += 20;
+    // upgrades
+    const upgrades = (a.changes||[]).filter(c => c.delta > 0).length;
+    score += upgrades * 8;
+    // pagamentos em dia
+    const hist = (a.hist||[]).length;
+    score += Math.min(20, hist);
+    // atrasadas
+    try{
+      if(typeof ASAAS !== 'undefined' && Array.isArray(ASAAS.cobrancas)){
+        const hoje = new Date().toISOString().slice(0,10);
+        const atrasadas = ASAAS.cobrancas.filter(c => c.assinaturaId===a.id && c.status==='pendente' && c.vencimento && c.vencimento < hoje);
+        score -= atrasadas.length * 20;
+      }
+    }catch(_){}
+    score = Math.max(0, Math.min(100, score));
+    let color, label, emoji;
+    if(score >= 75){ color='#10B981'; label='Saudável'; emoji='💚'; }
+    else if(score >= 50){ color='#F59E0B'; label='Atenção'; emoji='💛'; }
+    else { color='#EF4444'; label='Em risco'; emoji='❤️'; }
+    result.push({ cliente:a.cliente, score, color, label, emoji });
+  });
+  return result.sort((a,b) => b.score - a.score);
+}
+function _comHealthForAssinatura(a){
+  const all = _comCalcHealthScores();
+  return all.find(x => x.cliente === a.cliente) || {};
+}
+function comPricingSimUpdate(){
+  const slider = document.getElementById('com-pricing-slider');
+  const valEl  = document.getElementById('com-pricing-val');
+  const resEl  = document.getElementById('com-pricing-result');
+  if(!slider || !resEl) return;
+  const pct = parseInt(slider.value)||0;
+  if(valEl) valEl.textContent = (pct>=0?'+':'')+pct+'%';
+  if(valEl) valEl.style.color = pct>=0?'#10B981':'#F59E0B';
+  const mrrAtual = COM.assinaturas.filter(a => a.ativa).reduce((s,a) => s+(a.valor||0), 0);
+  const novoMrr = mrrAtual * (1 + pct/100);
+  // Sensibilidade: cada +5% reajuste = +2% probabilidade de churn (estimativa simplista)
+  const churnEstPct = Math.max(0, pct * 0.4);
+  const churnEstValor = mrrAtual * (churnEstPct/100);
+  const mrrLiquido = novoMrr - churnEstValor;
+  const deltaArr = (mrrLiquido - mrrAtual) * 12;
+  resEl.innerHTML = `<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:6px">
+    <div style="background:#1E293B;padding:12px;border-radius:8px;min-width:0"><div style="color:#94A3B8;font-size:.66rem;letter-spacing:1.5px;font-weight:700">MRR ATUAL</div><div style="font-size:1.1rem;color:#fff;font-weight:700;margin-top:4px;word-break:break-word">${_comFmtBRL(mrrAtual)}</div></div>
+    <div style="background:#1E293B;padding:12px;border-radius:8px;min-width:0"><div style="color:#10B981;font-size:.66rem;letter-spacing:1.5px;font-weight:700">MRR PÓS-REAJUSTE</div><div style="font-size:1.1rem;color:#10B981;font-weight:700;margin-top:4px;word-break:break-word">${_comFmtBRL(novoMrr)}</div></div>
+    <div style="background:#1E293B;padding:12px;border-radius:8px;min-width:0"><div style="color:#EF4444;font-size:.66rem;letter-spacing:1.5px;font-weight:700">CHURN ESTIMADO</div><div style="font-size:1.1rem;color:#EF4444;font-weight:700;margin-top:4px;word-break:break-word">-${_comFmtBRL(churnEstValor)}</div><div style="color:#94A3B8;font-size:.66rem">~${churnEstPct.toFixed(1)}% saem</div></div>
+    <div style="background:linear-gradient(135deg,#10B98144,#10B98122);padding:12px;border-radius:8px;border:1px solid #10B981;min-width:0"><div style="color:#10B981;font-size:.66rem;letter-spacing:1.5px;font-weight:700">ARR ADICIONAL</div><div style="font-size:1.1rem;color:#fff;font-weight:700;margin-top:4px;word-break:break-word">${deltaArr>=0?'+':''}${_comFmtBRL(deltaArr)}/ano</div></div>
+  </div>
+  <p style="color:#94A3B8;font-size:.74rem;margin:14px 0 0;text-align:center">⚠ Modelo simplista — sensibilidade real ao preço depende do segmento e elasticidade do mercado.</p>`;
+}
+
+// ── Modal info-only (sem botão Salvar) ───────────────────────────
+function _fkModalInfo(title, html){
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  ov.innerHTML = `<div style="background:#1E293B;border:1px solid #334155;border-radius:10px;max-width:600px;width:100%;max-height:90vh;overflow:auto;padding:20px;color:#E5E7EB">
+    <h2 style="margin:0 0 16px;font-size:1.05rem">${title}</h2>
+    <div>${html}</div>
+    <div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end">
+      <button class="btn btn-p" id="_fkmi-close">Fechar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('#_fkmi-close').onclick = () => ov.remove();
+}
 
 // ── Modal genérico interno (fallback se _fkModal não existir) ────
 if(typeof _fkModal !== 'function'){
   window._fkModal = function(title, html, onSave){
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
-    ov.innerHTML = `<div style="background:#1E293B;border:1px solid #334155;border-radius:10px;max-width:500px;width:100%;max-height:90vh;overflow:auto;padding:20px;color:#E5E7EB">
+    ov.innerHTML = `<div style="background:#1E293B;border:1px solid #334155;border-radius:10px;max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:20px;color:#E5E7EB">
       <h2 style="margin:0 0 16px;font-size:1.05rem">${title}</h2>
       <div id="_fkmod-body">${html}</div>
       <div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end">
@@ -94893,7 +95499,6 @@ if(typeof _fkModal !== 'function'){
     };
   };
 }
-
 
 // ═══════════════════════════════════════════════════════════════════
 //  PATRIMÔNIO · Balanço Patrimonial Real + Modo Simulação
@@ -97589,6 +98194,30 @@ async function asaasMarkPaid(id){
   if(typeof fkFireWebhook === 'function'){
     fkFireWebhook('payment.received', { cobranca_id:cb.id, cliente:cb.cliente, valor:cb.valor, ts:Date.now() });
   }
+  // Comercial v2: auto-emite NF se assinatura tinha autoEmitNF
+  if(typeof comOnPaymentReceived === 'function'){
+    try{ comOnPaymentReceived(cb); }catch(e){ console.warn('comOnPaymentReceived:', e); }
+  }
+  // Atualiza status no Kanban Receita se origem='assinatura'
+  try{
+    if(cb.assinaturaId && typeof COM !== 'undefined' && Array.isArray(COM.assinaturas)){
+      const ass = COM.assinaturas.find(a => a.id === cb.assinaturaId);
+      if(ass && typeof receita !== 'undefined' && receita.years && cb.vencimento){
+        const dt = new Date(cb.vencimento);
+        const y = dt.getFullYear();
+        const m = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][dt.getMonth()];
+        const yr = receita.years[y];
+        if(yr && yr.clients){
+          const cli = yr.clients.find(c => c.nome && c.nome.toLowerCase().trim()===ass.cliente.toLowerCase().trim());
+          if(cli && cli.meses && cli.meses[m]){
+            cli.meses[m].status = 'recebido';
+            try{ if(typeof receitaSave==='function') receitaSave(); else if(typeof saveReceita==='function') saveReceita(); else localStorage.setItem('forekash:receita:v1', JSON.stringify(receita)); }catch(_){}
+            try{ if(typeof renderReceita==='function') renderReceita(); }catch(_){}
+          }
+        }
+      }
+    }
+  }catch(e){ console.warn('marca receita recebido:', e); }
 }
 
 async function asaasCancel(id){
