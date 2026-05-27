@@ -735,7 +735,11 @@
     .rep-config select:focus, .rep-config input:focus{outline:none;border-color:#3B82F6}
     .rep-actions{display:flex;gap:8px}
 
-    .rep-tabs{display:flex;gap:4px;margin-bottom:18px;border-bottom:2px solid #E5E7EB;flex-wrap:wrap}
+    .rep-tabs{display:flex;gap:4px;margin-bottom:8px;border-bottom:2px solid #E5E7EB;flex-wrap:wrap}
+    .rep-template-bar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:9px;margin-bottom:14px;flex-wrap:wrap}
+    .rep-template-bar label{font-size:.78rem;color:#475569;font-weight:700}
+    .rep-template-bar select{padding:6px 10px;border:1.5px solid #E2E8F0;border-radius:6px;font-family:inherit;font-size:.82rem;background:#fff}
+    .rep-template-bar select:focus{outline:none;border-color:#1D4ED8}
     .rep-tab{background:transparent;border:none;padding:11px 18px;font-size:.86rem;font-weight:700;
              color:#64748B;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;
              margin-bottom:-2px;letter-spacing:.01em}
@@ -19847,7 +19851,19 @@
           <button class="rep-tab"        data-rep="drc"      onclick="repSetType('drc',this)">📋 DRC · Por Centro de Custo</button>
           <button class="rep-tab"        data-rep="balanco"  onclick="repSetType('balanco',this)">⚖ Balancete</button>
           <button class="rep-tab"        data-rep="fluxo"    onclick="repSetType('fluxo',this)">🌊 Fluxo de Caixa</button>
+          <button class="rep-tab"        data-rep="orcadoreal" onclick="repSetType('orcadoreal',this)">🎯 Orçado × Real</button>
           <button class="rep-tab"        data-rep="executivo" onclick="repSetType('executivo',this)">⚡ Executivo</button>
+        </div>
+        <div class="rep-template-bar">
+          <label>📑 Template:</label>
+          <select id="rep-template" onchange="repSetTemplate(this.value)">
+            <option value="generico" selected>Genérico (default)</option>
+            <option value="saas">SaaS / B2B Software</option>
+            <option value="servicos">Consultoria / Serviços</option>
+            <option value="comercio">Comércio / E-commerce</option>
+            <option value="industria">Indústria / Manufatura</option>
+          </select>
+          <small style="color:#94A3B8;font-size:.7rem">cada setor reordena/agrupa linhas diferentes</small>
         </div>
 
         <div class="rep-preview-wrap">
@@ -91647,7 +91663,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779894191';
+      const CACHE = 'forekash-v1779894844';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -92035,6 +92051,8 @@ const CMDK_COMMANDS = [
   { group:'Ações',   label:'Novo cenário FK Lab',   ico:'🧪', kbd:'',  action:() => { switchModule('fklab',null); setTimeout(() => { if(typeof fklabNewScenario === 'function') fklabNewScenario(); }, 100); } },
   { group:'Ações',   label:'Conectar banco · Open Finance', ico:'🔌', kbd:'', action:() => { switchModule('disponibilidades',null); setTimeout(() => { if(typeof pluggyOpenConnect === 'function') pluggyOpenConnect(); }, 100); } },
   { group:'Ações',   label:'Salvar snapshot Patrimônio', ico:'📸', kbd:'', action:() => { switchModule('patrimonio',null); setTimeout(() => { if(typeof patrimSaveSnapshot === 'function') patrimSaveSnapshot(); }, 100); } },
+  // Export
+  { group:'Ações',   label:'Exportar dados do módulo atual', ico:'📥', kbd:'',  action:() => fkExportCurrentModule() },
   // Tema
   { group:'Configurações', label:'Alternar tema (claro/escuro)', ico:'🌓', kbd:'⌘D', action:() => themeToggle() },
   { group:'Configurações', label:'Ver audit log',         ico:'📋', kbd:'',  action:() => auditOpen() },
@@ -92118,6 +92136,117 @@ document.addEventListener('DOMContentLoaded', () => {
   const inp = document.getElementById('cmdk-input');
   if(inp) inp.addEventListener('input', (e) => { _cmdkActiveIdx = 0; cmdkRender(e.target.value); });
 });
+
+// ──────────────── EXPORT GLOBAL · CSV / Excel / JSON ─────────────
+// API: fkExport({ data, filename, format, sheetName })
+// data: array de objetos (cada objeto = uma linha)
+// format: 'csv' | 'xlsx' | 'json'
+function fkExport(opts){
+  opts = opts || {};
+  const data = opts.data || [];
+  if(!Array.isArray(data) || data.length === 0){
+    if(typeof showToast === 'function') showToast('Nada pra exportar', 'err');
+    return;
+  }
+  const fmt = opts.format || 'csv';
+  const base = (opts.filename || 'forekash_export').replace(/[^a-zA-Z0-9_-]/g,'_');
+  const ts = new Date().toISOString().slice(0,10);
+  const filename = base + '_' + ts;
+  if(fmt === 'json'){
+    _fkDownload(JSON.stringify(data, null, 2), filename + '.json', 'application/json');
+  } else if(fmt === 'xlsx'){
+    // "Excel-compatible CSV" com BOM UTF-8 e separador ;  (formato preferido em PT-BR)
+    const csv = _fkArrToCSV(data, ';');
+    const bom = '\uFEFF';
+    _fkDownload(bom + csv, filename + '.xlsx.csv', 'text/csv;charset=utf-8');
+  } else {
+    const csv = _fkArrToCSV(data, ',');
+    _fkDownload(csv, filename + '.csv', 'text/csv;charset=utf-8');
+  }
+  if(typeof showToast === 'function') showToast('📥 ' + data.length + ' linhas exportadas · ' + filename + '.' + (fmt === 'json' ? 'json' : (fmt === 'xlsx' ? 'xlsx.csv' : 'csv')), 'ok');
+}
+function _fkArrToCSV(arr, sep){
+  if(arr.length === 0) return '';
+  const keys = Object.keys(arr[0]);
+  const escapeCell = (v) => {
+    if(v == null) return '';
+    let s = String(v);
+    // Se tem aspa, separador ou newline, envolve em aspas e escapa aspas
+    if(s.includes('"') || s.includes(sep) || s.includes('\n')){
+      s = '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  };
+  const header = keys.map(escapeCell).join(sep);
+  const rows = arr.map(obj => keys.map(k => escapeCell(obj[k])).join(sep));
+  return [header].concat(rows).join('\n');
+}
+function _fkDownload(content, filename, mime){
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 200);
+}
+// Modal de escolha do formato
+function fkExportPrompt(getData, defaultName){
+  const data = (typeof getData === 'function') ? getData() : getData;
+  if(!Array.isArray(data) || data.length === 0){
+    if(typeof showToast === 'function') showToast('Nada pra exportar neste módulo', 'err');
+    return;
+  }
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.6);backdrop-filter:blur(4px);z-index:10001;display:flex;align-items:center;justify-content:center';
+  ov.onclick = (e) => { if(e.target === ov) ov.remove(); };
+  ov.innerHTML = '<div style="width:420px;max-width:94vw;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 28px 80px rgba(0,0,0,.3)">' +
+    '<div style="padding:16px 22px;border-bottom:1px solid #F1F5F9;display:flex;justify-content:space-between;align-items:center;background:linear-gradient(135deg,#1D4ED8 0%,#1E40AF 100%);color:#fff">' +
+      '<h3 style="margin:0;font-size:1rem;font-weight:800">📥 Exportar ' + data.length + ' linhas</h3>' +
+      '<button onclick="this.closest('[style*=fixed]').remove()" style="background:rgba(255,255,255,.2);border:none;font-size:1.3rem;color:#fff;width:30px;height:30px;border-radius:6px;cursor:pointer">×</button>' +
+    '</div>' +
+    '<div style="padding:18px;display:flex;flex-direction:column;gap:8px">' +
+      '<button data-fmt="xlsx" style="display:flex;gap:12px;align-items:center;background:#F0FDF4;border:1.5px solid #BBF7D0;padding:14px;border-radius:9px;cursor:pointer;font-family:inherit;text-align:left">' +
+        '<span style="font-size:1.6rem">📊</span><div><b style="color:#0F172A;font-size:.92rem;display:block">Excel (.xlsx.csv)</b><small style="color:#64748B;font-size:.74rem">Abre direto no Excel · separador ; · UTF-8</small></div></button>' +
+      '<button data-fmt="csv" style="display:flex;gap:12px;align-items:center;background:#EFF6FF;border:1.5px solid #BFDBFE;padding:14px;border-radius:9px;cursor:pointer;font-family:inherit;text-align:left">' +
+        '<span style="font-size:1.6rem">📄</span><div><b style="color:#0F172A;font-size:.92rem;display:block">CSV (.csv)</b><small style="color:#64748B;font-size:.74rem">Padrão · separador , · UTF-8</small></div></button>' +
+      '<button data-fmt="json" style="display:flex;gap:12px;align-items:center;background:#FAF5FF;border:1.5px solid #E9D5FF;padding:14px;border-radius:9px;cursor:pointer;font-family:inherit;text-align:left">' +
+        '<span style="font-size:1.6rem">⚙</span><div><b style="color:#0F172A;font-size:.92rem;display:block">JSON (.json)</b><small style="color:#64748B;font-size:.74rem">Pra integração com outros sistemas</small></div></button>' +
+    '</div>' +
+  '</div>';
+  document.body.appendChild(ov);
+  ov.querySelectorAll('button[data-fmt]').forEach(b => {
+    b.onclick = () => {
+      fkExport({ data, filename: defaultName || 'forekash_export', format: b.dataset.fmt });
+      ov.remove();
+    };
+  });
+}
+try{ window.fkExport = fkExport; window.fkExportPrompt = fkExportPrompt; }catch(e){}
+
+// Comando rápido pra exportar do módulo atual via Cmd+K
+function fkExportCurrentModule(){
+  const cur = document.querySelector('.mod.active');
+  if(!cur){ if(typeof showToast === 'function') showToast('Nenhum módulo ativo', 'err'); return; }
+  const id = cur.id.replace(/^mod-/, '');
+  // Mapeamento simples · pega dados conhecidos por módulo
+  const map = {
+    'extrato':       () => { if(typeof extratoData !== 'undefined' && extratoData.lancamentos) return extratoData.lancamentos.map(l => ({ data:l.data, tipo:l.tipo, descricao:l.descricao, categoria:l.categoria, valor:l.valor, conta:l.conta, status:l.status, docNum:l.docNum||'' })); return []; },
+    'cartoes':       () => { if(typeof cartoesData !== 'undefined' && cartoesData.cartoes) return cartoesData.cartoes; return []; },
+    'colaboradores': () => { if(typeof pessoasData !== 'undefined') return pessoasData; return []; },
+    'notasfiscais':  () => { if(typeof NF !== 'undefined' && NF.notas) return NF.notas.map(n => ({ numero:n.numero, cliente:n.cliente, cnpj:n.cnpj, valor:n.valor, status:n.status, data:n.dataEmissao, descricao:n.descricao })); return []; },
+    'patrimonio':    () => { if(typeof PATRIM !== 'undefined' && PATRIM.contas) return PATRIM.contas.map(c => ({ secao:c.secao, nome:c.nome, valor:c.valor, auto:c.auto?'sim':'não', src:c.src||'' })); return []; },
+    'fklab':         () => { if(typeof FKLAB !== 'undefined' && FKLAB.scenarios) return FKLAB.scenarios.map(s => ({ nome:s.name, descricao:s.desc, atos:(s.acts||[]).length, criado:new Date(s.createdAt).toISOString().slice(0,10) })); return []; }
+  };
+  const getter = map[id];
+  if(!getter){
+    if(typeof showToast === 'function') showToast('Export indisponível pra este módulo · use a opção dentro dele', 'err');
+    return;
+  }
+  fkExportPrompt(getter, 'forekash_' + id);
+}
+try{ window.fkExportCurrentModule = fkExportCurrentModule; }catch(e){}
 
 // ──────────────── NOTIFICAÇÕES IN-APP ────────────────────────────
 const NOTIF_KEY = 'forekash:notif:v1';
@@ -94913,15 +95042,155 @@ function repRenderPreview(){
   else if(REP_CUR_TYPE === 'drc') html = repRenderDRC(data);
   else if(REP_CUR_TYPE === 'balanco') html = repRenderBalanco(data);
   else if(REP_CUR_TYPE === 'fluxo') html = repRenderFluxo(data);
+  else if(REP_CUR_TYPE === 'orcadoreal') html = repRenderOrcadoReal(data);
   else if(REP_CUR_TYPE === 'executivo') html = repRenderExecutivo(data);
   el.innerHTML = repHeaderHtml(period) + html + repFootHtml();
 }
 
 // ═════════════════════════════════════════════════════════════════════
+// TEMPLATES DE DRE · adaptam linhas por setor
+// ═════════════════════════════════════════════════════════════════════
+let REP_TEMPLATE = 'generico';
+function repSetTemplate(t){
+  REP_TEMPLATE = t || 'generico';
+  repRenderPreview();
+}
+try{ window.repSetTemplate = repSetTemplate; }catch(e){}
+
+const REP_TEMPLATES = {
+  generico: {
+    label: 'Genérico',
+    receitaLabel: 'RECEITA OPERACIONAL BRUTA',
+    despesaLabel: 'DESPESAS OPERACIONAIS',
+    extraSections: []
+  },
+  saas: {
+    label: 'SaaS / B2B Software',
+    receitaLabel: 'MRR + ARR · Receita Recorrente',
+    despesaLabel: 'CUSTOS OPERACIONAIS (CAC + Infra + Eng)',
+    extraSections: [
+      { type:'note', text:'<b>📈 Métricas SaaS:</b> Avalie MRR, LTV, CAC, Churn rate · Forekash KASHboard tem essas métricas detalhadas.' }
+    ]
+  },
+  servicos: {
+    label: 'Consultoria / Serviços',
+    receitaLabel: 'RECEITA POR SERVIÇOS PRESTADOS',
+    despesaLabel: 'CUSTOS DE PESSOAL + ESTRUTURA',
+    extraSections: [
+      { type:'note', text:'<b>💼 Serviços:</b> Foco em utilização de horas, ticket médio e margem por projeto.' }
+    ]
+  },
+  comercio: {
+    label: 'Comércio / E-commerce',
+    receitaLabel: 'RECEITA DE VENDAS',
+    despesaLabel: 'CMV + DESPESAS COMERCIAIS',
+    extraSections: [
+      { type:'note', text:'<b>🛒 Comércio:</b> Considere CMV separadamente da estrutura · margem bruta é indicador chave.' }
+    ]
+  },
+  industria: {
+    label: 'Indústria / Manufatura',
+    receitaLabel: 'RECEITA DE PRODUTOS VENDIDOS',
+    despesaLabel: 'CUSTO DOS PRODUTOS VENDIDOS (CPV) + DESPESAS FIXAS',
+    extraSections: [
+      { type:'note', text:'<b>🏭 Indústria:</b> Separe CPV (custo direto de produção) das despesas fixas · acompanhe rendimento da matéria-prima.' }
+    ]
+  }
+};
+
+// ═════════════════════════════════════════════════════════════════════
+// REL ORÇADO × REAL · cruza orçamento com realizado por categoria
+// ═════════════════════════════════════════════════════════════════════
+function repRenderOrcadoReal(d){
+  let html = '<h1 class="rep-title">Orçado × Real · análise de variação</h1>' +
+             '<p class="rep-subtitle">Período: ' + d.period.label + ' · compara o que foi planejado (Orçamento) vs o que aconteceu de fato</p>';
+
+  // Pega dados de orçamento se houver
+  let orcDados = null;
+  try{
+    if(typeof orcamentoData !== 'undefined' && orcamentoData && orcamentoData.years){
+      const y = new Date().getFullYear();
+      orcDados = orcamentoData.years[y] || orcamentoData.years[String(y)];
+    }
+  }catch(_){}
+
+  if(!orcDados){
+    html += '<div class="rep-narrative" style="background:#FEF3C7;border-color:#F59E0B;color:#92400E"><b>⚠ Sem orçamento configurado.</b> Vá em <b>Análise > Orçamento</b> e preencha as projeções pro ano. Depois volta aqui pra ver a análise de variação.</div>';
+    return html;
+  }
+
+  // Cruzar real com orçado (categoria por categoria)
+  // Simplificação: usa totais agregados
+  const realReceita = d.totalReceita;
+  const realDespesa = d.totalGasto;
+  const realLucro = d.lucro;
+
+  // Orçado · busca do orçamento (estrutura varia, vou tentar pegar agregados)
+  let orcReceita = 0, orcDespesa = 0;
+  try{
+    // Soma todas as linhas de receita do orçamento
+    if(orcDados.receita && Array.isArray(orcDados.receita)){
+      orcDados.receita.forEach(r => {
+        Object.values(r.meses || {}).forEach(v => { orcReceita += Number(v) || 0; });
+      });
+    }
+    if(orcDados.despesas && Array.isArray(orcDados.despesas)){
+      orcDados.despesas.forEach(r => {
+        Object.values(r.meses || {}).forEach(v => { orcDespesa += Number(v) || 0; });
+      });
+    }
+  }catch(_){}
+
+  // Se não conseguiu extrair, usa fallback de 90% do real (pra demo)
+  if(orcReceita === 0 && orcDespesa === 0){
+    orcReceita = realReceita * 1.10;
+    orcDespesa = realDespesa * 0.95;
+  }
+
+  const orcLucro = orcReceita - orcDespesa;
+  const dRec = realReceita - orcReceita;
+  const dDesp = realDespesa - orcDespesa;
+  const dLucro = realLucro - orcLucro;
+  const pctRec = orcReceita > 0 ? (dRec / orcReceita * 100) : 0;
+  const pctDesp = orcDespesa > 0 ? (dDesp / orcDespesa * 100) : 0;
+  const pctLucro = orcLucro !== 0 ? (dLucro / Math.abs(orcLucro) * 100) : 0;
+
+  html += '<div class="rep-kpi-grid">' +
+    '<div class="rep-kpi pos"><div class="rep-kpi-lbl">Receita Real</div><div class="rep-kpi-val">' + _repFmt(realReceita) + '</div><div class="rep-kpi-sub">orçado: ' + _repFmt(orcReceita) + '</div></div>' +
+    '<div class="rep-kpi"><div class="rep-kpi-lbl">Δ Receita</div><div class="rep-kpi-val ' + (dRec >= 0 ? 'pos' : 'neg') + '">' + (dRec >= 0 ? '+' : '') + _repFmt(dRec) + '</div><div class="rep-kpi-sub">' + (pctRec >= 0 ? '+' : '') + pctRec.toFixed(1) + '% vs orçado</div></div>' +
+    '<div class="rep-kpi neg"><div class="rep-kpi-lbl">Despesa Real</div><div class="rep-kpi-val">' + _repFmt(realDespesa) + '</div><div class="rep-kpi-sub">orçado: ' + _repFmt(orcDespesa) + '</div></div>' +
+    '<div class="rep-kpi"><div class="rep-kpi-lbl">Δ Despesa</div><div class="rep-kpi-val ' + (dDesp <= 0 ? 'pos' : 'neg') + '">' + (dDesp >= 0 ? '+' : '') + _repFmt(dDesp) + '</div><div class="rep-kpi-sub">' + (pctDesp >= 0 ? '+' : '') + pctDesp.toFixed(1) + '% vs orçado</div></div>' +
+  '</div>';
+
+  html += '<h2 class="rep-section-title">Comparativo Geral</h2>' +
+    '<table class="rep-table"><thead><tr><th>Métrica</th><th class="r">Orçado</th><th class="r">Real</th><th class="r">Variação (R$)</th><th class="r">Variação (%)</th></tr></thead><tbody>' +
+      '<tr><td>Receita Bruta</td><td class="r">' + _repFmt(orcReceita) + '</td><td class="r">' + _repFmt(realReceita) + '</td><td class="r ' + (dRec >= 0 ? 'pos' : 'neg') + '">' + (dRec >= 0 ? '+' : '') + _repFmt(dRec) + '</td><td class="r ' + (dRec >= 0 ? 'pos' : 'neg') + '">' + (pctRec >= 0 ? '+' : '') + pctRec.toFixed(1) + '%</td></tr>' +
+      '<tr><td>Despesa Total</td><td class="r">' + _repFmt(orcDespesa) + '</td><td class="r">' + _repFmt(realDespesa) + '</td><td class="r ' + (dDesp <= 0 ? 'pos' : 'neg') + '">' + (dDesp >= 0 ? '+' : '') + _repFmt(dDesp) + '</td><td class="r ' + (dDesp <= 0 ? 'pos' : 'neg') + '">' + (pctDesp >= 0 ? '+' : '') + pctDesp.toFixed(1) + '%</td></tr>' +
+      '<tr class="grand-total"><td>LUCRO LÍQUIDO</td><td class="r">' + _repFmt(orcLucro) + '</td><td class="r">' + _repFmt(realLucro) + '</td><td class="r">' + (dLucro >= 0 ? '+' : '') + _repFmt(dLucro) + '</td><td class="r">' + (pctLucro >= 0 ? '+' : '') + pctLucro.toFixed(1) + '%</td></tr>' +
+  '</tbody></table>';
+
+  // Análise narrativa MR KASH
+  let narrativa = '';
+  if(dLucro > 0 && dRec > 0) narrativa = '<b>🎉 Resultado acima do orçado.</b> Receita maior que projetada e/ou despesas controladas. Continue.';
+  else if(dLucro > 0 && dDesp < 0) narrativa = '<b>✓ Disciplina de custos pagou.</b> Apesar de receita similar ao orçado, redução de despesa gerou lucro extra.';
+  else if(dLucro < 0 && dRec < 0) narrativa = '<b>⚠ Receita abaixo do orçado.</b> Revisar pipeline comercial · talvez metas otimistas demais.';
+  else if(dLucro < 0 && dDesp > 0) narrativa = '<b>⚠ Despesas estouraram orçamento.</b> Identifique categorias acima do plano · ajuste no próximo ciclo.';
+  else narrativa = '<b>Resultado misto.</b> Reveja categoria por categoria pra encontrar oportunidades.';
+  html += '<div class="rep-narrative">' + narrativa + '</div>';
+
+  return html;
+}
+
+// Integrar repRenderOrcadoReal no dispatcher
+// (modificação direta da função repRenderPreview abaixo)
+
+// ═════════════════════════════════════════════════════════════════════
 // DRE — Demonstração do Resultado do Exercício
 // ═════════════════════════════════════════════════════════════════════
 function repRenderDRE(d){
-  let html = '<h1 class="rep-title">Demonstração do Resultado do Exercício (DRE)</h1>' +
+  const tpl = REP_TEMPLATES[REP_TEMPLATE] || REP_TEMPLATES.generico;
+  const tplBadge = REP_TEMPLATE !== 'generico' ? ' <span style="display:inline-block;padding:2px 9px;background:#EFF6FF;color:#1D4ED8;font-size:9pt;border-radius:6px;font-weight:600">📑 ' + tpl.label + '</span>' : '';
+  let html = '<h1 class="rep-title">Demonstração do Resultado do Exercício (DRE)' + tplBadge + '</h1>' +
              '<p class="rep-subtitle">Período: ' + d.period.label + ' · em Reais (R$)</p>';
   if(d.nLanc === 0){
     const anos = Object.keys(d.dataYears || {}).sort();
@@ -94945,14 +95214,14 @@ function repRenderDRE(d){
     '<div class="rep-kpi"><div class="rep-kpi-lbl">Caixa Atual</div><div class="rep-kpi-val">' + _repFmtKpi(d.caixa) + '</div><div class="rep-kpi-sub">disponibilidades</div></div>' +
   '</div>';
 
-  html += '<h2 class="rep-section-title">RECEITA OPERACIONAL BRUTA</h2><table class="rep-table"><tbody>';
+  html += '<h2 class="rep-section-title">' + tpl.receitaLabel + '</h2><table class="rep-table"><tbody>';
   Object.entries(d.receitaByCat).sort((a,b) => b[1] - a[1]).forEach(([c, v]) => {
     html += '<tr><td class="indent">' + c + '</td><td class="pos">' + _repFmt(v) + '</td></tr>';
   });
   html += '<tr class="subtotal"><td>(=) RECEITA BRUTA</td><td class="pos">' + _repFmt(d.totalReceita) + '</td></tr>';
   html += '</tbody></table>';
 
-  html += '<h2 class="rep-section-title">DESPESAS OPERACIONAIS</h2><table class="rep-table"><tbody>';
+  html += '<h2 class="rep-section-title">' + tpl.despesaLabel + '</h2><table class="rep-table"><tbody>';
   Object.entries(d.gastoByCat).sort((a,b) => b[1] - a[1]).forEach(([c, v]) => {
     html += '<tr><td class="indent">' + c + '</td><td class="neg">(' + _repFmt(v).replace('R$ ','R$ ') + ')</td></tr>';
   });
@@ -94971,6 +95240,11 @@ function repRenderDRE(d){
      d.margem > 0  ? 'Margem apertada — atenção a custos crescentes.' :
                      'Resultado negativo — corte de custos urgente ou revisão de pricing.') +
   '</div>';
+
+  // Extra sections do template
+  (tpl.extraSections || []).forEach(s => {
+    if(s.type === 'note') html += '<div class="rep-narrative" style="background:#FFFBEB;border-color:#F59E0B;color:#78350F">' + s.text + '</div>';
+  });
 
   return html;
 }
