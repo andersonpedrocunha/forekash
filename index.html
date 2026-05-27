@@ -16931,6 +16931,9 @@
            ══════════════════════════════════════════════ -->
       <div class="mod" id="mod-dashboard">
 
+        <!-- ✨ Onboarding checklist · só aparece se não foi dispensado e não está 100% -->
+        <div id="onboard-card" style="display:none"></div>
+
         <!-- Empty-state CTA: aparece quando nenhum módulo tem dados -->
         <div class="home-empty" id="home-empty">
           <div class="home-empty-ico">
@@ -44460,7 +44463,10 @@ function switchModule(mod, btn){
   window.scrollTo({top:0,behavior:'instant'});
 
   // Atualiza dashboard ao abrir
-  if(mod === 'dashboard') updateDashboard();
+  if(mod === 'dashboard'){
+    updateDashboard();
+    try{ if(typeof onboardRender === 'function') onboardRender(); }catch(_){}
+  }
 
   // KASHtrack: renderiza calendário + forecast ao abrir
   if(mod === 'kashtrack'){
@@ -92187,7 +92193,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779921883';
+      const CACHE = 'forekash-v1779922853';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -92591,6 +92597,17 @@ const CMDK_COMMANDS = [
   { group:'Configurações', label:'Configurar API & Webhooks', ico:'🔌', kbd:'', action:() => { switchModule('configuracoes',null); setTimeout(() => { const el=document.getElementById('cfg-api-section'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 200); } },
   { group:'Configurações', label:'Modo Contador (White-label)', ico:'🎨', kbd:'', action:() => { switchModule('configuracoes',null); setTimeout(() => { const el=document.getElementById('cfg-wl-section'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 200); } },
   { group:'Configurações', label:'🎉 Ver novidades (What\'s New)', ico:'🎉', kbd:'', action:() => { if(typeof whatsnewOpen==='function') whatsnewOpen(); } },
+  { group:'Configurações', label:'🛡 LGPD · Privacidade', ico:'🛡', kbd:'', action:() => { if(typeof lgpdOpen==='function') lgpdOpen(); } },
+  { group:'Configurações', label:'🔐 Ativar/Gerenciar 2FA', ico:'🔐', kbd:'', action:() => { if(typeof tfaOpen==='function') tfaOpen(); } },
+  { group:'Configurações', label:'📍 Logs de acesso', ico:'📍', kbd:'', action:() => { if(typeof accessLogOpen==='function') accessLogOpen(); } },
+  { group:'Configurações', label:'🕐 Audit timeline visual', ico:'🕐', kbd:'', action:() => { if(typeof auditOpenTimeline==='function') auditOpenTimeline(); } },
+  { group:'Ações',         label:'⚙ Workflows · automação if→then', ico:'⚙', kbd:'', action:() => { if(typeof wfOpen==='function') wfOpen(); } },
+  { group:'Ações',         label:'🔁 Tarefas recorrentes (lembretes mensais)', ico:'🔁', kbd:'', action:() => { if(typeof rtaskOpen==='function') rtaskOpen(); } },
+  { group:'Ações',         label:'📧 Email parser · extrair NF/boleto de email', ico:'📧', kbd:'', action:() => { if(typeof emailParserOpen==='function') emailParserOpen(); } },
+  { group:'Ações',         label:'🇧🇷 Simulador Simples × Presumido × Real', ico:'🇧🇷', kbd:'', action:() => { if(typeof regimeSimuOpen==='function') regimeSimuOpen(); } },
+  { group:'Ações',         label:'📅 Calendário fiscal Brasil', ico:'📅', kbd:'', action:() => { if(typeof fiscalCalendarOpen==='function') fiscalCalendarOpen(); } },
+  { group:'Ações',         label:'📒 Caderno de Receita MEI', ico:'📒', kbd:'', action:() => { if(typeof meiCadernoOpen==='function') meiCadernoOpen(); } },
+  { group:'Ações',         label:'📊 Weekly Review · resumo da semana', ico:'📊', kbd:'', action:() => { if(typeof weeklyOpen==='function') weeklyOpen(); } },
   { group:'Configurações', label:'🚀 Carregar dataset DEMO SaaS', ico:'🚀', kbd:'', action:() => { if(typeof demoSaasLoad==='function') demoSaasLoad(); } },
   { group:'Configurações', label:'🔔 Ativar notificações push', ico:'🔔', kbd:'', action:() => { if(typeof webpushRequest==='function') webpushRequest(); } },
   { group:'Ações',         label:'✨ Sugestões de categoria (Smart Cat)', ico:'✨', kbd:'', action:() => { if(typeof smartCatBadgeOpen==='function') smartCatBadgeOpen(); } },
@@ -98608,6 +98625,1154 @@ function demoSaasLoad(){
 try{ window.demoSaasLoad = demoSaasLoad; }catch(_){}
 
 // ═════════════════════════════════════════════════════════════════════
+// 🎯 PACK-1 · ACABAMENTO PROFISSIONAL
+// Onboarding checklist + Weekly review + Streak + Empty states + LGPD
+// ═════════════════════════════════════════════════════════════════════
+
+// ── ONBOARDING CHECKLIST · 5 passos no Dashboard ───────────────────
+const ONBOARD_KEY = 'forekash:onboard:v1';
+function onboardLoad(){
+  try{
+    const raw = localStorage.getItem(ONBOARD_KEY);
+    if(raw) return JSON.parse(raw);
+  }catch(_){}
+  return { dismissed:false, steps:{} };
+}
+function onboardSave(state){
+  try{ localStorage.setItem(ONBOARD_KEY, JSON.stringify(state)); }catch(_){}
+}
+function onboardSteps(){
+  const s = { perfil:false, conta:false, cliente:false, receita:false, despesa:false };
+  try{
+    if(typeof SETTINGS !== 'undefined' && SETTINGS && (SETTINGS.nome || SETTINGS.empresa)) s.perfil = true;
+    if(typeof dispoData !== 'undefined' && Array.isArray(dispoData.contas) && dispoData.contas.length) s.conta = true;
+    if(typeof receita !== 'undefined' && receita && receita.clientes && receita.clientes.length) s.cliente = true;
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      const lancs = extratoData.lancamentos;
+      if(lancs.some(l => l.tipo === 'ganho' || (l.valor > 0 && !l.tipo))) s.receita = true;
+      if(lancs.some(l => l.tipo === 'gasto' || l.valor < 0)) s.despesa = true;
+    }
+  }catch(_){}
+  return s;
+}
+function onboardRender(){
+  const el = document.getElementById('onboard-card');
+  if(!el) return;
+  const state = onboardLoad();
+  if(state.dismissed){ el.style.display = 'none'; return; }
+  const s = onboardSteps();
+  const done = Object.values(s).filter(Boolean).length;
+  const total = Object.keys(s).length;
+  if(done === total){ el.style.display = 'none'; return; }
+  const pct = (done/total*100).toFixed(0);
+  const steps = [
+    { key:'perfil',   label:'Preencher perfil',           ico:'👤', mod:'configuracoes' },
+    { key:'conta',    label:'Cadastrar 1ª conta bancária', ico:'🏦', mod:'disponibilidades' },
+    { key:'cliente',  label:'Cadastrar 1º cliente',       ico:'👥', mod:'receita' },
+    { key:'receita',  label:'Lançar 1ª receita',          ico:'💰', mod:'extrato' },
+    { key:'despesa',  label:'Lançar 1ª despesa',          ico:'💸', mod:'extrato' }
+  ];
+  el.innerHTML = `<div style="background:linear-gradient(135deg,#10B98115 0%,#10B98108 100%);border:1px solid #10B98144;border-radius:12px;padding:14px 18px;margin-bottom:18px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div>
+        <h3 style="margin:0;font-size:.92rem;color:#0F172A">✨ Configure seu Forekash em ${total} passos</h3>
+        <small style="color:#64748B;font-size:.74rem">Você fez ${done} de ${total} · ${pct}% completo</small>
+      </div>
+      <button onclick="onboardDismiss()" style="background:transparent;border:none;color:#94A3B8;cursor:pointer;font-size:1.2rem;padding:2px 8px" title="Dispensar">×</button>
+    </div>
+    <div style="display:flex;gap:2px;height:6px;background:#10B98122;border-radius:3px;overflow:hidden;margin-bottom:12px">
+      <div style="width:${pct}%;background:#10B981;transition:width .4s"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px">
+      ${steps.map(st => {
+        const ok = s[st.key];
+        return `<button onclick="${ok?'':'switchModule(\''+st.mod+'\',null)'}" style="background:${ok?'#10B98122':'#fff'};border:1px solid ${ok?'#10B98144':'#E2E8F0'};border-radius:8px;padding:10px 6px;text-align:center;cursor:${ok?'default':'pointer'};opacity:${ok?'.6':'1'};transition:all .15s" ${ok?'disabled':''}>
+          <div style="font-size:18px;margin-bottom:4px">${ok?'✅':st.ico}</div>
+          <div style="font-size:.66rem;color:${ok?'#10B981':'#475569'};font-weight:600;line-height:1.2">${st.label}</div>
+        </button>`;
+      }).join('')}
+    </div>
+  </div>`;
+  el.style.display = 'block';
+}
+function onboardDismiss(){
+  const state = onboardLoad();
+  state.dismissed = true;
+  onboardSave(state);
+  const el = document.getElementById('onboard-card');
+  if(el) el.style.display = 'none';
+}
+try{ window.onboardLoad = onboardLoad; window.onboardRender = onboardRender; window.onboardDismiss = onboardDismiss; }catch(_){}
+
+// ── WEEKLY REVIEW · resumo da semana, abre 1x toda segunda ─────────
+const WEEKLY_KEY = 'forekash:weekly:lastShown';
+function weeklyMaybeShow(){
+  try{
+    const hoje = new Date();
+    if(hoje.getDay() !== 1) return;
+    const isoSegunda = hoje.toISOString().slice(0,10);
+    const last = localStorage.getItem(WEEKLY_KEY);
+    if(last === isoSegunda) return;
+    setTimeout(weeklyOpen, 3000);
+  }catch(_){}
+}
+function weeklyCollect(){
+  const hoje = new Date();
+  const seg7 = new Date(hoje.getTime() - 7 * 86400000);
+  const seg14 = new Date(hoje.getTime() - 14 * 86400000);
+  const inRange = (d, from, to) => { const t = new Date(d).getTime(); return t >= from.getTime() && t < to.getTime(); };
+  const r = { receita7:0, gasto7:0, receita14:0, gasto14:0, n7:0, n14:0 };
+  try{
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      extratoData.lancamentos.forEach(l => {
+        if(!l.data) return;
+        const v = Math.abs(Number(l.valor)||0);
+        const isGanho = l.tipo === 'ganho' || (l.valor > 0 && !l.tipo);
+        if(inRange(l.data, seg7, hoje)){
+          if(isGanho) r.receita7 += v; else r.gasto7 += v;
+          r.n7++;
+        } else if(inRange(l.data, seg14, seg7)){
+          if(isGanho) r.receita14 += v; else r.gasto14 += v;
+          r.n14++;
+        }
+      });
+    }
+  }catch(_){}
+  r.lucro7 = r.receita7 - r.gasto7;
+  r.lucro14 = r.receita14 - r.gasto14;
+  return r;
+}
+function weeklyOpen(){
+  const r = weeklyCollect();
+  const fmt = v => Math.abs(Number(v)||0).toLocaleString('pt-BR', {minimumFractionDigits:0, maximumFractionDigits:0});
+  const delta = (a, p) => p > 0 ? ((a-p)/p*100).toFixed(0) : (a > 0 ? '+100' : '0');
+  const dr = delta(r.receita7, r.receita14);
+  const dg = delta(r.gasto7, r.gasto14);
+  const dl = delta(r.lucro7, r.lucro14);
+  const setaCor = (d, invert) => {
+    const num = Number(d);
+    const positiva = num >= 0;
+    const cor = invert ? (positiva?'#EF4444':'#10B981') : (positiva?'#10B981':'#EF4444');
+    return { seta: positiva?'↑':'↓', cor };
+  };
+  const sr = setaCor(dr); const sg = setaCor(dg, true); const sl = setaCor(dl);
+  const html = `<div style="color:#E5E7EB">
+    <div style="text-align:center;margin-bottom:18px">
+      <div style="font-size:42px">📊</div>
+      <h2 style="margin:6px 0;font-size:1.2rem;color:#10B981">Semana que passou</h2>
+      <small style="color:#94A3B8">${r.n7} lançamentos · vs semana anterior</small>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+      <div style="background:#0F172A;border-left:3px solid #10B981;padding:14px;border-radius:10px;text-align:center">
+        <div style="color:#10B981;font-size:.7rem;letter-spacing:1.5px;font-weight:700">RECEITA</div>
+        <div style="font-size:1.4rem;color:#fff;font-weight:800;margin-top:4px;word-break:break-word">R$ ${fmt(r.receita7)}</div>
+        <div style="color:${sr.cor};font-weight:700;font-size:.78rem;margin-top:2px">${sr.seta} ${Math.abs(Number(dr))}%</div>
+      </div>
+      <div style="background:#0F172A;border-left:3px solid #EF4444;padding:14px;border-radius:10px;text-align:center">
+        <div style="color:#EF4444;font-size:.7rem;letter-spacing:1.5px;font-weight:700">GASTO</div>
+        <div style="font-size:1.4rem;color:#fff;font-weight:800;margin-top:4px;word-break:break-word">R$ ${fmt(r.gasto7)}</div>
+        <div style="color:${sg.cor};font-weight:700;font-size:.78rem;margin-top:2px">${sg.seta} ${Math.abs(Number(dg))}%</div>
+      </div>
+      <div style="background:#0F172A;border-left:3px solid ${r.lucro7>=0?'#10B981':'#EF4444'};padding:14px;border-radius:10px;text-align:center">
+        <div style="color:${r.lucro7>=0?'#10B981':'#EF4444'};font-size:.7rem;letter-spacing:1.5px;font-weight:700">LUCRO</div>
+        <div style="font-size:1.4rem;color:#fff;font-weight:800;margin-top:4px;word-break:break-word">R$ ${fmt(r.lucro7)}</div>
+        <div style="color:${sl.cor};font-weight:700;font-size:.78rem;margin-top:2px">${sl.seta} ${Math.abs(Number(dl))}%</div>
+      </div>
+    </div>
+    <div style="background:#0F172A;padding:14px 16px;border-radius:10px;font-size:.86rem;color:#94A3B8;line-height:1.6">
+      <b style="color:#10B981">MR KASH:</b> ${weeklyInsight(r)}
+    </div>
+  </div>`;
+  if(typeof _fkModal === 'function'){
+    _fkModal('📊 Weekly Review · ' + new Date().toLocaleDateString('pt-BR'), html, () => {
+      try{ localStorage.setItem(WEEKLY_KEY, new Date().toISOString().slice(0,10)); }catch(_){}
+      return true;
+    });
+  }
+}
+function weeklyInsight(r){
+  if(r.lucro7 > r.lucro14 && r.lucro7 > 0) return 'Semana melhor que a anterior. Replica o que funcionou.';
+  if(r.lucro7 < 0) return 'Semana no vermelho. Vale revisar o que pesou em gasto.';
+  if(r.gasto7 > r.gasto14 * 1.3) return 'Gasto subiu mais de 30%. Tem algo fora do padrão?';
+  if(r.receita7 < r.receita14 * 0.7) return 'Receita caiu 30%+. Vê pipeline de cobrança em aberto.';
+  return 'Semana estável. Sem grandes mudanças. Bora pra próxima.';
+}
+try{ window.weeklyMaybeShow = weeklyMaybeShow; window.weeklyOpen = weeklyOpen; }catch(_){}
+
+// ── STREAK COUNTER · 🔥 dias seguidos abrindo o app ────────────────
+const STREAK_KEY = 'forekash:streak:v1';
+function streakUpdate(){
+  let s = { count:0, lastDay:'' };
+  try{ const raw = localStorage.getItem(STREAK_KEY); if(raw) s = JSON.parse(raw); }catch(_){}
+  const hoje = new Date().toISOString().slice(0,10);
+  if(s.lastDay === hoje) return s;
+  const ontem = new Date(Date.now() - 86400000).toISOString().slice(0,10);
+  if(s.lastDay === ontem) s.count = (s.count||0) + 1;
+  else if(s.lastDay && s.lastDay !== hoje) s.count = 1;
+  else s.count = 1;
+  s.lastDay = hoje;
+  try{ localStorage.setItem(STREAK_KEY, JSON.stringify(s)); }catch(_){}
+  return s;
+}
+function streakRender(){
+  const s = streakUpdate();
+  if(s.count < 2) return;
+  let badge = document.getElementById('hdr-streak-badge');
+  if(!badge){
+    const anchor = document.getElementById('hdr-cmdk-btn');
+    if(!anchor) return;
+    badge = document.createElement('button');
+    badge.id = 'hdr-streak-badge';
+    badge.type = 'button';
+    badge.style.cssText = 'background:transparent;border:1px solid #F59E0B;color:#F59E0B;padding:4px 10px;border-radius:8px;font-size:.74rem;font-weight:700;cursor:default;display:inline-flex;align-items:center;gap:4px;margin-right:6px';
+    anchor.parentNode.insertBefore(badge, anchor);
+  }
+  badge.innerHTML = `🔥 <span>${s.count}d</span>`;
+  badge.title = `${s.count} dias seguidos usando o Forekash · ${s.count >= 7 ? 'Streak épico!' : s.count >= 3 ? 'Tá pegando o hábito.' : 'Bom começo.'}`;
+}
+try{ window.streakUpdate = streakUpdate; window.streakRender = streakRender; }catch(_){}
+
+// ── EMPTY STATE HELPER ────────────────────────────────────────────
+function fkEmptyState(opts){
+  const o = opts || {};
+  const ico = o.ico || '📭';
+  const titulo = o.titulo || 'Nada por aqui ainda';
+  const desc = o.desc || '';
+  const ctaLabel = o.ctaLabel || '';
+  const ctaAction = o.ctaAction || '';
+  return `<div style="padding:50px 24px;text-align:center;background:linear-gradient(135deg,#F8FAFC 0%,#fff 100%);border:1px dashed #CBD5E1;border-radius:14px;color:#475569">
+    <div style="font-size:48px;margin-bottom:12px;opacity:.7">${ico}</div>
+    <h3 style="margin:0 0 6px;font-size:1rem;color:#0F172A;font-weight:700">${titulo}</h3>
+    <p style="margin:0 0 ${ctaLabel?'16px':'0'};color:#64748B;font-size:.84rem;max-width:420px;margin-left:auto;margin-right:auto;line-height:1.5">${desc}</p>
+    ${ctaLabel ? `<button class="btn btn-p" onclick="${ctaAction}" style="padding:8px 18px">${ctaLabel}</button>` : ''}
+  </div>`;
+}
+try{ window.fkEmptyState = fkEmptyState; }catch(_){}
+
+// ── LGPD · termos + privacidade + direito ao esquecimento ──────────
+function lgpdOpen(){
+  const html = `<div style="color:#E5E7EB;font-size:.86rem;line-height:1.6">
+    <div style="text-align:center;margin-bottom:18px">
+      <div style="font-size:36px">🛡️</div>
+      <h2 style="margin:6px 0 4px;font-size:1.1rem;color:#10B981">Forekash · LGPD & Privacidade</h2>
+      <small style="color:#94A3B8">Conformidade com a Lei Geral de Proteção de Dados · Lei 13.709/2018</small>
+    </div>
+    <div style="max-height:400px;overflow:auto;padding-right:6px">
+      <h3 style="color:#10B981;font-size:.9rem;margin:12px 0 6px">📋 Quais dados coletamos</h3>
+      <ul style="margin:0;padding-left:20px;color:#94A3B8">
+        <li>Nome, e-mail e foto de perfil (que você cadastra)</li>
+        <li>Dados financeiros que VOCÊ cadastra (lançamentos, clientes, contas)</li>
+        <li>Logs de uso pra melhorar o produto (audit log)</li>
+        <li><b>NÃO coletamos</b> dados de outros apps, redes sociais, navegação fora do Forekash</li>
+      </ul>
+      <h3 style="color:#10B981;font-size:.9rem;margin:14px 0 6px">🔐 Como protegemos</h3>
+      <ul style="margin:0;padding-left:20px;color:#94A3B8">
+        <li>Modo padrão: tudo fica no SEU NAVEGADOR (localStorage) — não sai do seu dispositivo</li>
+        <li>Modo cloud (opcional): criptografia em trânsito (TLS 1.3) e em repouso (AES-256) via Supabase</li>
+        <li>Senhas com bcrypt + salt</li>
+        <li>2FA disponível (Configurações)</li>
+      </ul>
+      <h3 style="color:#10B981;font-size:.9rem;margin:14px 0 6px">✅ Seus direitos (LGPD Art. 18)</h3>
+      <ul style="margin:0;padding-left:20px;color:#94A3B8">
+        <li><b>Acesso:</b> ver todos os dados que temos sobre você</li>
+        <li><b>Correção:</b> editar qualquer informação a qualquer momento</li>
+        <li><b>Portabilidade:</b> exportar tudo em JSON/CSV/ZIP</li>
+        <li><b>Eliminação:</b> apagar conta e todos dados (direito ao esquecimento)</li>
+        <li><b>Revogação:</b> retirar consentimento a qualquer momento</li>
+      </ul>
+      <h3 style="color:#10B981;font-size:.9rem;margin:14px 0 6px">📞 Encarregado de Dados (DPO)</h3>
+      <p style="margin:0;color:#94A3B8">privacidade@forekash.com · resposta em até 15 dias úteis (Art. 19 LGPD)</p>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:18px">
+      <button class="btn btn-sec" onclick="lgpdExportAll()" style="padding:10px">📥 Exportar TODOS meus dados</button>
+      <button class="btn btn-sec" onclick="lgpdForgetMe()" style="padding:10px;color:#EF4444">🗑 Apagar conta + dados</button>
+    </div>
+  </div>`;
+  if(typeof _fkModal === 'function') _fkModal('LGPD · Privacidade', html, () => true);
+}
+function lgpdExportAll(){
+  try{
+    const data = {};
+    Object.keys(localStorage).filter(k => k.startsWith('forekash:')).forEach(k => {
+      try{ data[k] = JSON.parse(localStorage.getItem(k)); }catch(_){ data[k] = localStorage.getItem(k); }
+    });
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'forekash-meus-dados-' + new Date().toISOString().slice(0,10) + '.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    if(typeof fkToast === 'function') fkToast('📥 Arquivo JSON com todos seus dados baixado', 'ok', 4000);
+    if(typeof auditLog === 'function') auditLog('lgpd', 'exportou todos os dados (LGPD)');
+  }catch(e){
+    alert('Erro: '+e.message);
+  }
+}
+function lgpdForgetMe(){
+  if(!confirm('⚠ APAGAR CONTA + TODOS OS DADOS?\n\nIsso é irreversível. Recomendamos exportar primeiro.\n\nContinuar?')) return;
+  if(!confirm('Tem CERTEZA? Vai apagar tudo do localStorage do Forekash.')) return;
+  const keys = Object.keys(localStorage).filter(k => k.startsWith('forekash:'));
+  keys.forEach(k => localStorage.removeItem(k));
+  alert(`✅ ${keys.length} chaves apagadas. Recarregando...`);
+  setTimeout(() => location.reload(), 1500);
+}
+try{ window.lgpdOpen = lgpdOpen; window.lgpdExportAll = lgpdExportAll; window.lgpdForgetMe = lgpdForgetMe; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// 🔐 PACK-2 · ENTERPRISE (2FA + Audit timeline + Logs acesso)
+// ═════════════════════════════════════════════════════════════════════
+
+// ── 2FA · TOTP UI com QR code mock ────────────────────────────────
+const TFA_KEY = 'forekash:2fa:v1';
+let TFA_STATE = { enabled:false, secret:'', backupCodes:[] };
+function tfaLoad(){
+  try{ const raw = localStorage.getItem(TFA_KEY); if(raw) TFA_STATE = Object.assign(TFA_STATE, JSON.parse(raw)); }catch(_){}
+}
+function _tfaGenSecret(){
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'; // base32
+  let s = '';
+  for(let i=0; i<16; i++) s += chars[Math.floor(Math.random()*chars.length)];
+  return s;
+}
+function _tfaGenBackupCodes(){
+  const codes = [];
+  for(let i=0; i<8; i++){
+    let c = '';
+    for(let j=0; j<8; j++) c += Math.floor(Math.random()*10);
+    codes.push(c.slice(0,4) + '-' + c.slice(4));
+  }
+  return codes;
+}
+function tfaOpen(){
+  tfaLoad();
+  if(TFA_STATE.enabled){
+    tfaOpenManage();
+    return;
+  }
+  tfaOpenSetup();
+}
+function tfaOpenSetup(){
+  const secret = _tfaGenSecret();
+  const emp = (typeof SETTINGS !== 'undefined' && SETTINGS && SETTINGS.empresa) ? SETTINGS.empresa : 'Forekash';
+  const usr = (typeof SETTINGS !== 'undefined' && SETTINGS && SETTINGS.nome) ? SETTINGS.nome : 'user';
+  const otpUrl = `otpauth://totp/${encodeURIComponent(emp)}:${encodeURIComponent(usr)}?secret=${secret}&issuer=Forekash&digits=6&period=30`;
+  // QR code via api.qrserver.com (gratuito)
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(otpUrl)}`;
+  const html = `<div style="color:#E5E7EB">
+    <div style="text-align:center;margin-bottom:18px">
+      <div style="font-size:36px">🔐</div>
+      <h2 style="margin:6px 0;font-size:1.1rem;color:#10B981">Ativar 2FA · Two-Factor Authentication</h2>
+      <small style="color:#94A3B8">Camada extra de segurança via Google Authenticator, Authy, 1Password, etc.</small>
+    </div>
+    <div style="background:#0F172A;padding:18px;border-radius:10px;text-align:center;margin-bottom:14px">
+      <p style="color:#94A3B8;font-size:.84rem;margin:0 0 12px">1. Escaneie o QR Code com seu app de autenticação:</p>
+      <div style="background:#fff;display:inline-block;padding:10px;border-radius:8px"><img src="${qrUrl}" alt="QR Code 2FA" style="display:block;width:200px;height:200px" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"></div>
+      <div style="display:none;background:#1E293B;padding:20px;border-radius:8px;color:#94A3B8;font-size:.74rem">QR code offline · use o código manual abaixo</div>
+      <p style="color:#94A3B8;font-size:.74rem;margin:12px 0 4px">Ou digite manualmente:</p>
+      <code style="background:#1E293B;padding:6px 12px;border-radius:6px;color:#10B981;font-family:'JetBrains Mono',monospace;font-size:.86rem;letter-spacing:2px;word-break:break-all">${secret}</code>
+    </div>
+    <div style="background:#0F172A;padding:14px;border-radius:10px;margin-bottom:14px">
+      <p style="color:#94A3B8;font-size:.84rem;margin:0 0 8px">2. Digite o código de 6 dígitos gerado pelo seu app:</p>
+      <input type="text" id="tfa-code" placeholder="000000" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" style="width:100%;padding:12px 16px;background:#1E293B;border:1px solid #334155;border-radius:8px;color:#10B981;font-family:'JetBrains Mono',monospace;font-size:1.6rem;letter-spacing:8px;text-align:center;font-weight:700">
+    </div>
+    <p style="color:#64748B;font-size:.7rem;text-align:center;margin:0;font-style:italic">
+      ⚠ DEMO: validação aceita qualquer código de 6 dígitos. Em produção, o servidor valida o TOTP via lib otplib.
+    </p>
+  </div>`;
+  if(typeof _fkModal === 'function'){
+    _fkModal('🔐 Ativar 2FA', html, () => {
+      const code = (document.getElementById('tfa-code')||{}).value || '';
+      if(!/^\d{6}$/.test(code)){ alert('Código deve ter 6 dígitos'); return false; }
+      // Ativa (mock — aceita qualquer código de 6 dígitos pra demo)
+      TFA_STATE.enabled = true;
+      TFA_STATE.secret = secret;
+      TFA_STATE.backupCodes = _tfaGenBackupCodes();
+      try{ localStorage.setItem(TFA_KEY, JSON.stringify(TFA_STATE)); }catch(_){}
+      if(typeof auditLog === 'function') auditLog('seguranca', 'ativou 2FA');
+      setTimeout(tfaShowBackupCodes, 200);
+      return true;
+    });
+  }
+}
+function tfaShowBackupCodes(){
+  const html = `<div style="color:#E5E7EB">
+    <div style="text-align:center;margin-bottom:18px">
+      <div style="font-size:36px">✅</div>
+      <h2 style="margin:6px 0;font-size:1.1rem;color:#10B981">2FA ativado!</h2>
+      <small style="color:#94A3B8">Guarde estes códigos de backup em local seguro</small>
+    </div>
+    <div style="background:#FEF3C7;border-left:3px solid #F59E0B;padding:10px 14px;border-radius:6px;color:#92400E;font-size:.78rem;margin-bottom:14px">
+      ⚠ <b>Códigos de backup</b> servem se você perder acesso ao seu app autenticador. Cada um funciona 1 vez.
+    </div>
+    <div style="background:#0F172A;padding:14px;border-radius:8px;font-family:'JetBrains Mono',monospace">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        ${TFA_STATE.backupCodes.map(c => `<div style="background:#1E293B;padding:10px;border-radius:5px;color:#10B981;text-align:center;font-size:.92rem;letter-spacing:2px">${c}</div>`).join('')}
+      </div>
+    </div>
+    <button class="btn btn-p" onclick="tfaCopyBackupCodes()" style="width:100%;margin-top:12px;padding:10px">📋 Copiar todos</button>
+  </div>`;
+  if(typeof _fkModal === 'function') _fkModal('🔐 Códigos de backup', html, () => true);
+}
+function tfaCopyBackupCodes(){
+  const txt = 'Forekash · 2FA Backup Codes\n' + new Date().toLocaleString('pt-BR') + '\n\n' + TFA_STATE.backupCodes.join('\n');
+  navigator.clipboard.writeText(txt).then(() => {
+    if(typeof fkToast === 'function') fkToast('📋 Códigos copiados', 'ok', 2000);
+  });
+}
+function tfaOpenManage(){
+  const html = `<div style="color:#E5E7EB">
+    <div style="text-align:center;margin-bottom:18px">
+      <div style="font-size:36px">🔐</div>
+      <h2 style="margin:6px 0;font-size:1.1rem;color:#10B981">2FA Ativo</h2>
+      <small style="color:#94A3B8">Sua conta está protegida com autenticação de 2 fatores</small>
+    </div>
+    <div style="background:#10B98115;border:1px solid #10B98144;padding:14px;border-radius:8px;margin-bottom:12px;font-size:.84rem;color:#065F46">
+      ✓ 2FA ativado · ${TFA_STATE.backupCodes.length} códigos de backup disponíveis
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button class="btn btn-sec" onclick="tfaShowBackupCodes()" style="padding:10px;text-align:left">📋 Ver códigos de backup</button>
+      <button class="btn btn-sec" onclick="if(confirm('Regenerar códigos? Os antigos vão parar de funcionar.')){ TFA_STATE.backupCodes = _tfaGenBackupCodes(); localStorage.setItem(TFA_KEY, JSON.stringify(TFA_STATE)); tfaShowBackupCodes(); }" style="padding:10px;text-align:left">🔄 Regenerar códigos</button>
+      <button class="btn btn-sec" onclick="if(confirm('Desativar 2FA? Sua conta ficará menos segura.')){ TFA_STATE.enabled=false; TFA_STATE.secret=''; TFA_STATE.backupCodes=[]; localStorage.setItem(TFA_KEY, JSON.stringify(TFA_STATE)); if(typeof fkToast==='function') fkToast('2FA desativado', 'warn', 3000); document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove(); }" style="padding:10px;text-align:left;color:#EF4444">⚠ Desativar 2FA</button>
+    </div>
+  </div>`;
+  if(typeof _fkModal === 'function') _fkModal('🔐 Gerenciar 2FA', html, () => true);
+}
+try{ window.tfaLoad = tfaLoad; window.tfaOpen = tfaOpen; window.tfaOpenSetup = tfaOpenSetup; window.tfaShowBackupCodes = tfaShowBackupCodes; window.tfaCopyBackupCodes = tfaCopyBackupCodes; window.tfaOpenManage = tfaOpenManage; }catch(_){}
+
+// ── AUDIT TIMELINE VISUAL · linha do tempo ─────────────────────────
+function auditOpenTimeline(){
+  let entries = [];
+  try{
+    if(typeof AUDIT_LOG !== 'undefined' && Array.isArray(AUDIT_LOG)) entries = AUDIT_LOG;
+    else { const raw = localStorage.getItem('forekash:audit:v1'); if(raw) entries = JSON.parse(raw) || []; }
+  }catch(_){}
+  if(!entries.length){
+    if(typeof fkToast === 'function') fkToast('Audit log vazio', 'info', 2500);
+    return;
+  }
+  entries.sort((a,b)=>(b.ts||0)-(a.ts||0));
+  const recent = entries.slice(0, 50);
+  const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const icoOf = mod => ({
+    extrato:'💰', receita:'📈', comercial:'🔄', config:'⚙', seguranca:'🔐', lgpd:'🛡',
+    api:'🔌', whitelabel:'🎨', persona:'🎭', demo:'🚀', mrkash:'🤖', patrimonio:'⚖',
+    'easter-egg':'🎮', comentario:'💬', reconciliacao:'🔗', apresentacao:'🎤'
+  })[mod] || '📋';
+  // Agrupa por dia
+  const byDay = {};
+  recent.forEach(e => {
+    const d = new Date(e.ts || Date.now()).toLocaleDateString('pt-BR');
+    if(!byDay[d]) byDay[d] = [];
+    byDay[d].push(e);
+  });
+  let html = `<div style="color:#E5E7EB;max-height:540px;overflow:auto;padding-right:6px">`;
+  Object.entries(byDay).forEach(([dia, evts]) => {
+    html += `<div style="margin-bottom:18px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;position:sticky;top:0;background:#1E293B;padding:6px 0;z-index:1">
+        <div style="background:#10B981;color:#0F172A;padding:4px 10px;border-radius:6px;font-size:.74rem;font-weight:800;letter-spacing:.5px">${dia}</div>
+        <span style="color:#64748B;font-size:.7rem">${evts.length} evento(s)</span>
+      </div>
+      <div style="border-left:2px solid #334155;margin-left:10px;padding-left:18px">`;
+    evts.forEach(e => {
+      const tempo = new Date(e.ts || Date.now()).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+      const mod = e.modulo || e.module || 'outros';
+      const user = e.user || e.autor || 'sistema';
+      const txt = e.acao || e.action || e.message || '';
+      html += `<div style="position:relative;margin-bottom:10px">
+        <div style="position:absolute;left:-25px;top:6px;width:10px;height:10px;background:#10B981;border:2px solid #1E293B;border-radius:50%"></div>
+        <div style="background:#0F172A;border-radius:8px;padding:10px 14px;font-size:.82rem">
+          <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:3px">
+            <div style="flex:1"><span style="margin-right:6px">${icoOf(mod)}</span><b style="color:#10B981;font-size:.7rem;text-transform:uppercase;letter-spacing:.5px">${_esc(mod)}</b> <span style="color:#94A3B8;font-size:.72rem">· ${_esc(user)}</span></div>
+            <span style="color:#64748B;font-size:.7rem;flex-shrink:0">${tempo}</span>
+          </div>
+          <div style="color:#E5E7EB">${_esc(txt)}</div>
+        </div>
+      </div>`;
+    });
+    html += `</div></div>`;
+  });
+  html += '</div>';
+  if(typeof _fkModal === 'function') _fkModal('🕐 Timeline de eventos', html, () => true);
+}
+try{ window.auditOpenTimeline = auditOpenTimeline; }catch(_){}
+
+// ── LOGS DE ACESSO POR IP / DISPOSITIVO ───────────────────────────
+const ACCESS_LOG_KEY = 'forekash:access-log:v1';
+function _accessLogPush(){
+  try{
+    const log = JSON.parse(localStorage.getItem(ACCESS_LOG_KEY) || '[]');
+    log.unshift({
+      ts: Date.now(),
+      ua: navigator.userAgent.slice(0, 200),
+      platform: navigator.platform || 'unknown',
+      lang: navigator.language || 'pt-BR',
+      // Sem fetch real, IP fica "127.0.0.1" no localhost ou desconhecido
+      ip: 'detectado no servidor'
+    });
+    // Mantém últimos 30
+    localStorage.setItem(ACCESS_LOG_KEY, JSON.stringify(log.slice(0,30)));
+  }catch(_){}
+}
+function _parseUserAgent(ua){
+  let browser = 'Outro', os = 'Outro', device = '🖥 Desktop';
+  if(/iPhone|iPad/.test(ua)){ device = '📱 Mobile'; os = 'iOS'; }
+  else if(/Android/.test(ua)){ device = '📱 Mobile'; os = 'Android'; }
+  else if(/Mac OS X/.test(ua)){ os = 'macOS'; }
+  else if(/Windows/.test(ua)){ os = 'Windows'; }
+  else if(/Linux/.test(ua)){ os = 'Linux'; }
+  if(/Edg\//.test(ua)) browser = 'Edge';
+  else if(/Chrome/.test(ua)) browser = 'Chrome';
+  else if(/Firefox/.test(ua)) browser = 'Firefox';
+  else if(/Safari/.test(ua)) browser = 'Safari';
+  return { browser, os, device };
+}
+function accessLogOpen(){
+  let entries = [];
+  try{ entries = JSON.parse(localStorage.getItem(ACCESS_LOG_KEY) || '[]'); }catch(_){}
+  if(!entries.length){
+    if(typeof fkToast === 'function') fkToast('Sem logs de acesso ainda', 'info', 2500);
+    return;
+  }
+  const html = `<div style="color:#E5E7EB">
+    <p style="font-size:.82rem;color:#94A3B8;margin:0 0 14px"><b>${entries.length}</b> sessão(ões) registrada(s) · acessos recentes do seu Forekash:</p>
+    <div style="max-height:420px;overflow:auto;display:flex;flex-direction:column;gap:8px">
+      ${entries.map((e, i) => {
+        const ua = _parseUserAgent(e.ua||'');
+        const dt = new Date(e.ts || Date.now());
+        const dataStr = dt.toLocaleDateString('pt-BR') + ' às ' + dt.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+        const atual = i === 0;
+        return `<div style="background:#0F172A;border-left:3px solid ${atual?'#10B981':'#334155'};padding:12px 14px;border-radius:8px;font-size:.84rem">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+            <div style="flex:1">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                <span style="font-size:1rem">${ua.device.split(' ')[0]}</span>
+                <b>${ua.browser} · ${ua.os}</b>
+                ${atual ? '<span style="background:#10B98122;color:#10B981;padding:2px 7px;border-radius:5px;font-size:.64rem;font-weight:700;letter-spacing:.5px">SESSÃO ATUAL</span>' : ''}
+              </div>
+              <div style="color:#94A3B8;font-size:.74rem">${dataStr} · ${e.platform||'—'} · ${e.lang||''}</div>
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn btn-sec" onclick="if(confirm('Limpar logs?')){ localStorage.removeItem('${ACCESS_LOG_KEY}'); document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove(); }" style="padding:6px 12px;font-size:.74rem;color:#EF4444">🗑 Limpar histórico</button>
+    </div>
+    <p style="margin-top:14px;font-size:.7rem;color:#64748B;line-height:1.4;font-style:italic">⚠ Logs salvos localmente. Em produção cloud, IP geolocalizado vem do servidor.</p>
+  </div>`;
+  if(typeof _fkModal === 'function') _fkModal('📍 Logs de Acesso', html, () => true);
+}
+try{ window._accessLogPush = _accessLogPush; window.accessLogOpen = accessLogOpen; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// ⚙ PACK-3 · AUTOMAÇÃO (Workflow builder + Recurring tasks + Email parser)
+// ═════════════════════════════════════════════════════════════════════
+
+// ── WORKFLOW BUILDER · if X then Y ────────────────────────────────
+const WF_KEY = 'forekash:workflows:v1';
+let WORKFLOWS = [];
+function wfLoad(){
+  try{ const raw = localStorage.getItem(WF_KEY); if(raw) WORKFLOWS = JSON.parse(raw) || []; }catch(_){}
+  if(!Array.isArray(WORKFLOWS)) WORKFLOWS = [];
+}
+function wfSave(){ try{ localStorage.setItem(WF_KEY, JSON.stringify(WORKFLOWS)); }catch(_){} }
+
+const WF_TRIGGERS = [
+  { id:'cobranca-recebida', label:'Quando cobrança for recebida', ico:'💰' },
+  { id:'nf-emitida',         label:'Quando NF for emitida',         ico:'🧾' },
+  { id:'contrato-vence',     label:'Quando contrato vencer em ≤ X dias', ico:'📄' },
+  { id:'churn-detectado',    label:'Quando MR KASH detectar churn risk', ico:'🚨' },
+  { id:'anomalia',           label:'Quando MR KASH detectar anomalia', ico:'⚠' },
+  { id:'saldo-baixo',        label:'Quando caixa cair abaixo de R$ X', ico:'⏰' }
+];
+const WF_ACTIONS = [
+  { id:'notif',     label:'Mostrar notificação no app', ico:'🔔' },
+  { id:'webpush',   label:'Enviar push notification',   ico:'📱' },
+  { id:'webhook',   label:'Disparar webhook configurado', ico:'🔌' },
+  { id:'comentar',  label:'Adicionar comentário automático', ico:'💬' },
+  { id:'tag',       label:'Adicionar tag/categoria',     ico:'🏷' },
+  { id:'email',     label:'Enviar email (mock)',         ico:'📧' }
+];
+
+function wfOpen(){
+  wfLoad();
+  let html = `<div style="color:#E5E7EB">
+    <p style="font-size:.86rem;color:#94A3B8;margin:0 0 14px">Automações <b>SE → ENTÃO</b>. Cria regras pra Forekash reagir sozinho a eventos.</p>
+    <div id="wf-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px;max-height:340px;overflow:auto">${_wfListHTML()}</div>
+    <button class="btn btn-p" style="width:100%" onclick="wfOpenCreate()">+ Nova automação</button>
+  </div>`;
+  if(typeof _fkModal === 'function') _fkModal('⚙ Workflows · Automação', html, () => true);
+}
+function _wfListHTML(){
+  if(!WORKFLOWS.length) return '<p style="color:#94A3B8;font-size:.84rem;text-align:center;padding:30px">Nenhuma automação criada ainda.</p>';
+  return WORKFLOWS.map(wf => {
+    const trig = WF_TRIGGERS.find(t=>t.id===wf.trigger) || {label:wf.trigger, ico:'?'};
+    const act = WF_ACTIONS.find(a=>a.id===wf.action) || {label:wf.action, ico:'?'};
+    return `<div style="background:#0F172A;border-left:3px solid ${wf.ativo?'#10B981':'#64748B'};padding:12px 14px;border-radius:8px;display:flex;align-items:center;gap:10px;font-size:.84rem">
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+          <span style="background:#3B82F622;color:#3B82F6;padding:2px 8px;border-radius:5px;font-size:.66rem;font-weight:700">SE</span>
+          ${trig.ico} ${trig.label.replace('X', wf.triggerParam||'X')}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="background:#10B98122;color:#10B981;padding:2px 8px;border-radius:5px;font-size:.66rem;font-weight:700">ENTÃO</span>
+          ${act.ico} ${act.label}
+        </div>
+      </div>
+      <button onclick="wfToggle(${wf.id})" style="background:transparent;border:1px solid #334155;color:${wf.ativo?'#10B981':'#94A3B8'};padding:4px 10px;border-radius:6px;cursor:pointer;font-size:.72rem">${wf.ativo?'✓ ativo':'pausado'}</button>
+      <button onclick="wfRemove(${wf.id})" style="background:transparent;border:none;color:#EF4444;cursor:pointer;font-size:.86rem">🗑</button>
+    </div>`;
+  }).join('');
+}
+function wfOpenCreate(){
+  const html = `<div style="color:#E5E7EB">
+    <p style="font-size:.84rem;color:#94A3B8;margin:0 0 12px">Configure uma regra <b>SE → ENTÃO</b>:</p>
+    <label style="font-size:.78rem;color:#94A3B8;font-weight:600">🟦 SE (gatilho)</label>
+    <select id="wf-trigger" style="width:100%;padding:10px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;margin:6px 0 4px">${WF_TRIGGERS.map(t=>`<option value="${t.id}">${t.ico} ${t.label}</option>`).join('')}</select>
+    <input type="text" id="wf-trigger-param" placeholder="Parâmetro (ex: 30 dias, 5000)" style="width:100%;padding:10px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;margin-bottom:14px">
+    <label style="font-size:.78rem;color:#94A3B8;font-weight:600">🟩 ENTÃO (ação)</label>
+    <select id="wf-action" style="width:100%;padding:10px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;margin:6px 0 4px">${WF_ACTIONS.map(a=>`<option value="${a.id}">${a.ico} ${a.label}</option>`).join('')}</select>
+    <input type="text" id="wf-action-param" placeholder="Detalhe da ação (mensagem, destinatário, etc)" style="width:100%;padding:10px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
+  </div>`;
+  if(typeof _fkModal === 'function'){
+    _fkModal('+ Nova automação', html, () => {
+      const trigger = document.getElementById('wf-trigger').value;
+      const triggerParam = (document.getElementById('wf-trigger-param').value||'').trim();
+      const action = document.getElementById('wf-action').value;
+      const actionParam = (document.getElementById('wf-action-param').value||'').trim();
+      const wf = {
+        id: Date.now(),
+        trigger, triggerParam,
+        action, actionParam,
+        ativo: true,
+        criadoEm: Date.now()
+      };
+      WORKFLOWS.push(wf);
+      wfSave();
+      if(typeof fkToast === 'function') fkToast('⚙ Automação criada', 'ok', 2500);
+      if(typeof auditLog === 'function') auditLog('workflow', 'criou: '+trigger+' → '+action);
+      setTimeout(wfOpen, 200);
+      return true;
+    });
+  }
+}
+function wfToggle(id){
+  const wf = WORKFLOWS.find(x => x.id===id); if(!wf) return;
+  wf.ativo = !wf.ativo; wfSave();
+  document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove();
+  setTimeout(wfOpen, 100);
+}
+function wfRemove(id){
+  if(!confirm('Remover automação?')) return;
+  WORKFLOWS = WORKFLOWS.filter(x => x.id!==id);
+  wfSave();
+  document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove();
+  setTimeout(wfOpen, 100);
+}
+try{ window.wfLoad = wfLoad; window.wfOpen = wfOpen; window.wfOpenCreate = wfOpenCreate; window.wfToggle = wfToggle; window.wfRemove = wfRemove; }catch(_){}
+
+// ── RECURRING TASKS · lembretes mensais ───────────────────────────
+const RTASK_KEY = 'forekash:rtasks:v1';
+let RTASKS = [];
+function rtaskLoad(){
+  try{ const raw = localStorage.getItem(RTASK_KEY); if(raw) RTASKS = JSON.parse(raw) || []; }catch(_){}
+  if(!Array.isArray(RTASKS)) RTASKS = [];
+  // Seed inicial se vazio
+  if(!RTASKS.length){
+    RTASKS = [
+      { id:1, titulo:'Pagar DAS (Simples Nacional)', diaMes:20, ativo:true, ultimaNotif:null },
+      { id:2, titulo:'Conciliar extrato bancário',   diaMes:1,  ativo:true, ultimaNotif:null },
+      { id:3, titulo:'Fechar mês contábil',          diaMes:5,  ativo:true, ultimaNotif:null },
+      { id:4, titulo:'Revisar orçamento',            diaMes:10, ativo:false, ultimaNotif:null }
+    ];
+    rtaskSave();
+  }
+}
+function rtaskSave(){ try{ localStorage.setItem(RTASK_KEY, JSON.stringify(RTASKS)); }catch(_){} }
+function rtaskOpen(){
+  rtaskLoad();
+  const html = `<div style="color:#E5E7EB">
+    <p style="font-size:.86rem;color:#94A3B8;margin:0 0 14px">Lembretes <b>recorrentes mensais</b>. Forekash te avisa no dia do mês escolhido.</p>
+    <div id="rtask-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;max-height:320px;overflow:auto">${_rtaskListHTML()}</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="text" id="rtask-new-tit" placeholder="Título (ex: Pagar IPTU)" style="flex:1;min-width:180px;padding:8px 12px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
+      <input type="number" id="rtask-new-dia" placeholder="dia" min="1" max="28" value="15" style="width:70px;padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;text-align:center">
+      <button class="btn btn-p" onclick="rtaskAdd()" style="padding:8px 14px">+ Add</button>
+    </div>
+  </div>`;
+  if(typeof _fkModal === 'function') _fkModal('🔁 Tarefas recorrentes', html, () => true);
+}
+function _rtaskListHTML(){
+  if(!RTASKS.length) return '<p style="color:#94A3B8;font-size:.84rem;text-align:center;padding:20px">Nenhuma tarefa cadastrada.</p>';
+  return RTASKS.map(t => `<div style="background:#0F172A;border-left:3px solid ${t.ativo?'#10B981':'#64748B'};padding:10px 14px;border-radius:8px;display:flex;align-items:center;gap:10px;font-size:.84rem">
+    <div style="flex:1">
+      <b>${(t.titulo||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</b>
+      <div style="color:#94A3B8;font-size:.74rem">todo dia ${t.diaMes} do mês</div>
+    </div>
+    <button onclick="rtaskToggle(${t.id})" style="background:transparent;border:1px solid #334155;color:${t.ativo?'#10B981':'#94A3B8'};padding:4px 10px;border-radius:6px;cursor:pointer;font-size:.72rem">${t.ativo?'ativo':'pausado'}</button>
+    <button onclick="rtaskRemove(${t.id})" style="background:transparent;border:none;color:#EF4444;cursor:pointer;font-size:.86rem">🗑</button>
+  </div>`).join('');
+}
+function rtaskAdd(){
+  const tit = (document.getElementById('rtask-new-tit')||{}).value;
+  const dia = parseInt((document.getElementById('rtask-new-dia')||{}).value) || 15;
+  if(!tit || !tit.trim()){ alert('Título obrigatório'); return; }
+  const novo = { id:Date.now(), titulo:tit.trim(), diaMes:Math.max(1,Math.min(28,dia)), ativo:true, ultimaNotif:null };
+  RTASKS.push(novo);
+  rtaskSave();
+  if(typeof fkToast === 'function') fkToast('🔁 Tarefa adicionada', 'ok', 2000);
+  document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove();
+  setTimeout(rtaskOpen, 100);
+}
+function rtaskToggle(id){
+  const t = RTASKS.find(x => x.id===id); if(!t) return;
+  t.ativo = !t.ativo; rtaskSave();
+  document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove();
+  setTimeout(rtaskOpen, 100);
+}
+function rtaskRemove(id){
+  if(!confirm('Remover tarefa?')) return;
+  RTASKS = RTASKS.filter(x => x.id!==id);
+  rtaskSave();
+  document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove();
+  setTimeout(rtaskOpen, 100);
+}
+// Check periódico — se hoje é dia X de tarefa ativa, dispara toast
+function rtaskCheck(){
+  try{
+    const hoje = new Date();
+    const dia = hoje.getDate();
+    const ymdHoje = hoje.toISOString().slice(0,10);
+    RTASKS.forEach(t => {
+      if(!t.ativo) return;
+      if(t.diaMes !== dia) return;
+      if(t.ultimaNotif === ymdHoje) return; // já notificou hoje
+      // Dispara!
+      if(typeof fkToast === 'function') fkToast(`🔁 Lembrete: ${t.titulo}`, 'info', 6000);
+      t.ultimaNotif = ymdHoje;
+    });
+    rtaskSave();
+  }catch(_){}
+}
+function rtaskStart(){
+  // Checa 5s após boot + a cada hora
+  setTimeout(rtaskCheck, 5000);
+  setInterval(rtaskCheck, 60*60*1000);
+}
+try{ window.rtaskLoad = rtaskLoad; window.rtaskOpen = rtaskOpen; window.rtaskAdd = rtaskAdd; window.rtaskToggle = rtaskToggle; window.rtaskRemove = rtaskRemove; window.rtaskStart = rtaskStart; }catch(_){}
+
+// ── EMAIL PARSER MOCK · cola email, extrai NF/boleto ──────────────
+function emailParserOpen(){
+  const html = `<div style="color:#E5E7EB">
+    <p style="font-size:.86rem;color:#94A3B8;margin:0 0 12px">Cola o conteúdo de um email com NF, boleto ou cobrança. MR KASH extrai os campos chave automaticamente.</p>
+    <textarea id="email-parser-input" placeholder="Cole o email aqui...
+
+Exemplo:
+Sua NFS-e foi emitida!
+Número: 12345
+Valor: R$ 1.500,00
+Vencimento: 15/06/2026
+Cliente: Acme Corp" style="width:100%;min-height:180px;padding:12px;background:#0F172A;border:1px solid #334155;border-radius:8px;color:#E5E7EB;font-family:'JetBrains Mono',monospace;font-size:.82rem;resize:vertical"></textarea>
+    <button class="btn btn-p" onclick="emailParserExtract()" style="width:100%;margin-top:10px;padding:10px">✨ Extrair campos</button>
+    <div id="email-parser-result" style="margin-top:14px"></div>
+  </div>`;
+  if(typeof _fkModal === 'function') _fkModal('📧 Email Parser', html, () => true);
+}
+function emailParserExtract(){
+  const text = (document.getElementById('email-parser-input')||{}).value || '';
+  if(!text.trim()){ alert('Cole algo primeiro'); return; }
+  // Regex parsers
+  const parsed = {};
+  // Número (NF, boleto, fatura, número)
+  let m = text.match(/(?:n[úu]mero|nº|number|nf|fatura|boleto)[:\s\.]*(\d{1,10})/i);
+  if(m) parsed.numero = m[1];
+  // Valor (R$ XXX,XX ou XXX.XX)
+  m = text.match(/(?:valor|total|amount)[:\s]*R?\$?\s*([\d\.]+,?\d{0,2})/i);
+  if(m) parsed.valor = m[1].replace(/\./g,'').replace(',','.');
+  // Vencimento (DD/MM/YYYY ou YYYY-MM-DD)
+  m = text.match(/(?:vencimento|venc|due|prazo)[:\s]*(\d{2}\/\d{2}\/\d{2,4}|\d{4}-\d{2}-\d{2})/i);
+  if(m) parsed.vencimento = m[1];
+  // Cliente / Pagador / Sacado
+  m = text.match(/(?:cliente|pagador|sacado|de[:\s]+|para[:\s]+|to[:\s]+)([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-\.]{2,40})/i);
+  if(m) parsed.cliente = m[1].trim();
+  // CNPJ/CPF
+  m = text.match(/(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}|\d{3}\.?\d{3}\.?\d{3}-?\d{2})/);
+  if(m) parsed.documento = m[1];
+  // Descrição (linha mais longa de até 80 chars)
+  const linhas = text.split('\n').filter(l => l.trim().length > 10 && l.trim().length < 80);
+  if(linhas.length) parsed.descricao = linhas[0].trim();
+  const el = document.getElementById('email-parser-result');
+  if(!el) return;
+  const items = Object.entries(parsed);
+  if(!items.length){
+    el.innerHTML = '<div style="background:#FEF3C7;border-left:3px solid #F59E0B;padding:10px 14px;border-radius:6px;color:#92400E;font-size:.82rem">⚠ Não consegui extrair campos automaticamente. Tenta um email mais estruturado.</div>';
+    return;
+  }
+  const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  el.innerHTML = `<div style="background:#0F172A;border-left:3px solid #10B981;padding:14px;border-radius:8px">
+    <div style="color:#10B981;font-size:.74rem;letter-spacing:1.5px;font-weight:700;margin-bottom:10px">✨ EXTRAÍDO</div>
+    <table style="width:100%;font-size:.84rem;color:#E5E7EB">
+      ${items.map(([k,v]) => `<tr><td style="padding:4px 0;color:#94A3B8;text-transform:capitalize">${k}</td><td style="padding:4px 0;text-align:right;font-weight:700;word-break:break-all">${_esc(v)}</td></tr>`).join('')}
+    </table>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn btn-p" onclick="emailParserCreate(${JSON.stringify(parsed).replace(/"/g,'&quot;')})" style="flex:1;padding:8px">+ Criar lançamento</button>
+      <button class="btn btn-sec" onclick="navigator.clipboard.writeText(JSON.stringify(${JSON.stringify(parsed).replace(/"/g,'&quot;')}, null, 2));if(typeof fkToast==='function')fkToast('JSON copiado','ok',1500)" style="padding:8px">📋</button>
+    </div>
+  </div>`;
+}
+function emailParserCreate(parsed){
+  try{
+    if(typeof extratoData === 'undefined') return alert('Módulo Extrato não carregado');
+    extratoData.lancamentos = extratoData.lancamentos || [];
+    const valor = parseFloat(parsed.valor) || 0;
+    const novo = {
+      id: 'ep_'+Date.now(),
+      data: parsed.vencimento ? _emailParseDate(parsed.vencimento) : new Date().toISOString().slice(0,10),
+      descricao: parsed.descricao || ('NF #'+parsed.numero||'Lançamento via email'),
+      valor: valor,
+      tipo: 'ganho',
+      categoria: 'Receita Operacional',
+      cliente: parsed.cliente || '',
+      numero: parsed.numero || '',
+      origem: 'email-parser'
+    };
+    extratoData.lancamentos.unshift(novo);
+    try{ if(typeof saveExtrato === 'function') saveExtrato(); else localStorage.setItem('forekash:extrato:v1', JSON.stringify(extratoData)); }catch(_){}
+    if(typeof fkToast === 'function') fkToast('✓ Lançamento criado a partir do email', 'ok', 3000);
+    if(typeof auditLog === 'function') auditLog('email-parser', 'criou lançamento: '+novo.descricao);
+    if(typeof switchModule === 'function') switchModule('extrato', null);
+    document.querySelectorAll('[id^=_fkmod]').forEach(m => m.closest('[style*=fixed]')?.remove());
+  }catch(e){
+    alert('Erro: '+e.message);
+  }
+}
+function _emailParseDate(s){
+  if(!s) return new Date().toISOString().slice(0,10);
+  if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+  const m = s.match(/(\d{2})\/(\d{2})\/(\d{2,4})/);
+  if(m){
+    let y = m[3]; if(y.length === 2) y = '20'+y;
+    return y + '-' + m[2] + '-' + m[1];
+  }
+  return new Date().toISOString().slice(0,10);
+}
+try{ window.emailParserOpen = emailParserOpen; window.emailParserExtract = emailParserExtract; window.emailParserCreate = emailParserCreate; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// 🇧🇷 PACK-4 · FISCAL BRASIL (Simulador regimes + Calendário fiscal + MEI)
+// ═════════════════════════════════════════════════════════════════════
+
+// ── SIMULADOR REGIMES · Simples × Presumido × Real ────────────────
+function regimeSimuOpen(){
+  // Tenta pegar receita 12m default
+  let receita12mDefault = 0;
+  try{
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      const hoje = new Date();
+      const inicio = new Date(hoje); inicio.setMonth(inicio.getMonth() - 11);
+      const ymInicio = inicio.toISOString().slice(0,7);
+      extratoData.lancamentos.forEach(l => {
+        if(!l.data) return;
+        if(l.data.slice(0,7) < ymInicio) return;
+        if(l.tipo === 'ganho' || (l.valor > 0 && !l.tipo)){
+          receita12mDefault += Math.abs(Number(l.valor)||0);
+        }
+      });
+    }
+  }catch(_){}
+  const html = `<div style="color:#E5E7EB">
+    <p style="font-size:.84rem;color:#94A3B8;margin:0 0 14px">Compare carga tributária entre <b>Simples Nacional</b>, <b>Lucro Presumido</b> e <b>Lucro Real</b> com base na sua operação.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+      <div>
+        <label style="font-size:.74rem;color:#94A3B8">Receita Anual (R$)</label>
+        <input type="number" id="rgs-receita" value="${Math.round(receita12mDefault)||500000}" step="1000" style="width:100%;padding:9px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;font-size:.92rem;margin-top:4px">
+      </div>
+      <div>
+        <label style="font-size:.74rem;color:#94A3B8">Atividade</label>
+        <select id="rgs-atividade" style="width:100%;padding:9px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;font-size:.92rem;margin-top:4px">
+          <option value="anexo3">Serviços comuns (Anexo III)</option>
+          <option value="anexo5">Serviços intelectuais (Anexo V)</option>
+          <option value="anexo1">Comércio (Anexo I)</option>
+          <option value="anexo2">Indústria (Anexo II)</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:.74rem;color:#94A3B8">Despesas dedutíveis 12m</label>
+        <input type="number" id="rgs-despesas" value="0" step="1000" style="width:100%;padding:9px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;font-size:.92rem;margin-top:4px">
+      </div>
+      <div>
+        <label style="font-size:.74rem;color:#94A3B8">Folha de pagamento 12m</label>
+        <input type="number" id="rgs-folha" value="0" step="1000" style="width:100%;padding:9px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;font-size:.92rem;margin-top:4px">
+      </div>
+    </div>
+    <button class="btn btn-p" onclick="regimeSimuCalc()" style="width:100%;padding:10px;margin-bottom:12px">Calcular comparativo →</button>
+    <div id="rgs-result"></div>
+  </div>`;
+  if(typeof _fkModal === 'function') _fkModal('🇧🇷 Simulador de Regime Tributário', html, () => true);
+}
+function regimeSimuCalc(){
+  const receita = parseFloat((document.getElementById('rgs-receita')||{}).value)||0;
+  const atividade = (document.getElementById('rgs-atividade')||{}).value || 'anexo3';
+  const despesas = parseFloat((document.getElementById('rgs-despesas')||{}).value)||0;
+  const folha = parseFloat((document.getElementById('rgs-folha')||{}).value)||0;
+  // SIMPLES NACIONAL (faixas 2024-26 simplificadas)
+  let simplesAliq = 0;
+  if(atividade === 'anexo3' || atividade === 'anexo5'){
+    if(receita <= 180000)      simplesAliq = 6.0;
+    else if(receita <= 360000) simplesAliq = 11.2;
+    else if(receita <= 720000) simplesAliq = 13.5;
+    else if(receita <= 1800000) simplesAliq = 16.0;
+    else if(receita <= 3600000) simplesAliq = 21.0;
+    else if(receita <= 4800000) simplesAliq = 33.0;
+  } else { // Comércio/Indústria
+    if(receita <= 180000)      simplesAliq = 4.0;
+    else if(receita <= 360000) simplesAliq = 7.3;
+    else if(receita <= 720000) simplesAliq = 9.5;
+    else if(receita <= 1800000) simplesAliq = 10.7;
+    else if(receita <= 3600000) simplesAliq = 14.3;
+    else if(receita <= 4800000) simplesAliq = 19.0;
+  }
+  // Fator R pra Anexo V → III se folha >= 28%
+  if(atividade === 'anexo5' && folha/receita >= 0.28) simplesAliq -= 3; // aproximação
+  const simplesValor = receita * (simplesAliq/100);
+  // LUCRO PRESUMIDO
+  // Base de presunção: 32% pra serviços, 8% pra comércio, 8% indústria
+  const presuncao = atividade.includes('anexo3')||atividade.includes('anexo5') ? 0.32 : 0.08;
+  const basePresumido = receita * presuncao;
+  const irpjPresumido = basePresumido * 0.15 + Math.max(0, basePresumido - 240000) * 0.10; // 15% + adicional 10% acima 240k/ano
+  const csllPresumido = basePresumido * 0.09;
+  const pisCofinsPresumido = receita * 0.0365; // 3.65% PIS+COFINS cumulativo
+  const issPresumido = (atividade.includes('anexo3')||atividade.includes('anexo5')) ? receita * 0.05 : 0;
+  const icmsPresumido = (atividade === 'anexo1' || atividade === 'anexo2') ? receita * 0.18 * 0.6 : 0; // 18% sobre 60% (rough)
+  const presumidoTotal = irpjPresumido + csllPresumido + pisCofinsPresumido + issPresumido + icmsPresumido;
+  // LUCRO REAL
+  const lucroBruto = Math.max(0, receita - despesas - folha);
+  const irpjReal = lucroBruto * 0.15 + Math.max(0, lucroBruto - 240000) * 0.10;
+  const csllReal = lucroBruto * 0.09;
+  const pisCofinsReal = receita * 0.0925; // 9.25% PIS+COFINS não-cumulativo
+  const issReal = (atividade.includes('anexo3')||atividade.includes('anexo5')) ? receita * 0.05 : 0;
+  const realTotal = irpjReal + csllReal + pisCofinsReal + issReal;
+  // Resultado
+  const fmt = v => Math.abs(Number(v)||0).toLocaleString('pt-BR', {minimumFractionDigits:0, maximumFractionDigits:0});
+  const opts = [
+    { nome:'Simples Nacional', total:simplesValor, aliq:simplesAliq.toFixed(2)+'%', det:`Alíquota efetiva ${simplesAliq.toFixed(2)}% · 1 guia única (DAS)` },
+    { nome:'Lucro Presumido',  total:presumidoTotal, aliq:(presumidoTotal/receita*100).toFixed(2)+'%', det:`IRPJ ${fmt(irpjPresumido)} · CSLL ${fmt(csllPresumido)} · PIS/COFINS ${fmt(pisCofinsPresumido)}` },
+    { nome:'Lucro Real',       total:realTotal, aliq:(realTotal/receita*100).toFixed(2)+'%', det:`IRPJ ${fmt(irpjReal)} · CSLL ${fmt(csllReal)} · PIS/COFINS ${fmt(pisCofinsReal)} · base lucro ${fmt(lucroBruto)}` }
+  ];
+  const min = Math.min(...opts.map(o=>o.total));
+  const el = document.getElementById('rgs-result');
+  if(!el) return;
+  el.innerHTML = `<div style="display:flex;flex-direction:column;gap:10px">
+    ${opts.map(o => {
+      const winner = o.total === min;
+      const cor = winner ? '#10B981' : '#94A3B8';
+      return `<div style="background:#0F172A;border-left:3px solid ${cor};padding:14px 16px;border-radius:8px;${winner?'box-shadow:0 0 0 1px #10B98144':''}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <b style="color:${cor};font-size:.95rem">${o.nome} ${winner?'<span style="background:#10B98122;color:#10B981;padding:2px 8px;border-radius:5px;font-size:.66rem;font-weight:700;margin-left:6px">🏆 MELHOR</span>':''}</b>
+          <span style="color:#94A3B8;font-size:.74rem">${o.aliq} efetiva</span>
+        </div>
+        <div style="font-size:1.4rem;font-weight:800;color:#fff;margin-bottom:4px">R$ ${fmt(o.total)}/ano</div>
+        <div style="color:#64748B;font-size:.74rem;line-height:1.4">${o.det}</div>
+      </div>`;
+    }).join('')}
+  </div>
+  <p style="margin-top:14px;font-size:.7rem;color:#64748B;line-height:1.5;text-align:center;font-style:italic">
+    ⚠ Estimativa simplificada baseada em tabelas oficiais 2024-26. Para decisão final, consulte seu contador.
+  </p>`;
+}
+try{ window.regimeSimuOpen = regimeSimuOpen; window.regimeSimuCalc = regimeSimuCalc; }catch(_){}
+
+// ── CALENDÁRIO FISCAL · datas importantes ano ─────────────────────
+function fiscalCalendarOpen(){
+  const hoje = new Date();
+  const yAtual = hoje.getFullYear();
+  // Datas fixas (recorrência mensal/anual)
+  const eventos = [
+    { dia:7,  freq:'mensal', titulo:'FGTS',                desc:'Recolhimento Fundo de Garantia · empregadores' },
+    { dia:7,  freq:'mensal', titulo:'IRRF retido',         desc:'Imposto de Renda Retido na Fonte (folha)' },
+    { dia:15, freq:'mensal', titulo:'CAGED',               desc:'Cadastro Geral de Empregados (mudou? envia)' },
+    { dia:20, freq:'mensal', titulo:'DAS · Simples Nacional', desc:'Documento de Arrecadação · empresas Simples' },
+    { dia:20, freq:'mensal', titulo:'PIS/COFINS · Presumido',  desc:'Recolhimento PIS+COFINS regime cumulativo' },
+    { dia:25, freq:'mensal', titulo:'IRPJ/CSLL · Presumido (trim)', desc:'Trimestral: mar/jun/set/dez' },
+    { dia:31, freq:'mensal', titulo:'eSocial',             desc:'Eventos do mês (eSocial)' },
+    { dia:'25/01', freq:'anual', titulo:'DEFIS · Declaração Simples', desc:'Declaração de Informações Socioeconômicas (até 31/03)' },
+    { dia:'31/05', freq:'anual', titulo:'DCTF anual',      desc:'Declaração de Débitos e Créditos Federais' },
+    { dia:'31/07', freq:'anual', titulo:'DEFIS MEI',       desc:'Declaração Anual MEI (até 31/05 normalmente)' },
+    { dia:'30/09', freq:'anual', titulo:'ECF · Lucro Real/Presumido', desc:'Escrituração Contábil Fiscal · anual' }
+  ];
+  const fmt = v => v < 10 ? '0'+v : v;
+  const proxMes = (hoje.getMonth() + 2) % 12 + 1; // mês +1
+  // Marca próximos
+  const eventosOrdenados = eventos.map(e => {
+    let dataStr = '';
+    if(e.freq === 'mensal'){
+      // Próxima data
+      const d = hoje.getDate();
+      if(d <= e.dia){
+        dataStr = `${fmt(e.dia)}/${fmt(hoje.getMonth()+1)}`;
+      } else {
+        dataStr = `${fmt(e.dia)}/${fmt(proxMes)}`;
+      }
+    } else {
+      dataStr = e.dia;
+    }
+    return Object.assign({dataStr, _ord: e.freq === 'mensal' ? e.dia : 99}, e);
+  });
+  eventosOrdenados.sort((a,b) => a._ord - b._ord);
+  const html = `<div style="color:#E5E7EB">
+    <p style="font-size:.86rem;color:#94A3B8;margin:0 0 14px">📅 Principais obrigações fiscais e trabalhistas (Pessoa Jurídica · ${yAtual}):</p>
+    <div style="max-height:440px;overflow:auto;display:flex;flex-direction:column;gap:6px">
+      ${eventosOrdenados.map(e => {
+        const cor = e.freq === 'anual' ? '#A78BFA' : '#10B981';
+        const tipo = e.freq === 'anual' ? 'ANUAL' : 'MENSAL';
+        return `<div style="background:#0F172A;border-left:3px solid ${cor};padding:10px 14px;border-radius:8px;display:flex;gap:12px;align-items:flex-start">
+          <div style="background:${cor}22;color:${cor};padding:6px 10px;border-radius:6px;text-align:center;min-width:60px;font-size:.74rem;font-weight:700;flex-shrink:0">${e.dataStr}</div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><b>${e.titulo}</b><span style="background:${cor}22;color:${cor};padding:1px 6px;border-radius:4px;font-size:.62rem;font-weight:700">${tipo}</span></div>
+            <div style="color:#94A3B8;font-size:.74rem;margin-top:2px">${e.desc}</div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <p style="margin-top:14px;font-size:.7rem;color:#64748B;text-align:center;font-style:italic">⚠ Datas referência geral. Confirme com seu contador (alguns estados/municípios têm regras próprias).</p>
+  </div>`;
+  if(typeof _fkModal === 'function') _fkModal('📅 Calendário Fiscal Brasil ' + yAtual, html, () => true);
+}
+try{ window.fiscalCalendarOpen = fiscalCalendarOpen; }catch(_){}
+
+// ── CADERNO DE RECEITA MEI · export PDF anual ─────────────────────
+function meiCadernoOpen(){
+  // Coleta receitas do ano via Receita Kanban + Extrato
+  const ano = new Date().getFullYear();
+  const linhas = [];
+  let totalAno = 0;
+  try{
+    if(typeof receita !== 'undefined' && receita && receita.years && receita.years[ano]){
+      const meses = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+      (receita.years[ano].clients||[]).forEach(cli => {
+        if(!cli.meses) return;
+        meses.forEach((m, idx) => {
+          const cell = cli.meses[m];
+          if(!cell || !cell.valor) return;
+          const v = Math.abs(Number(cell.valor)||0);
+          linhas.push({
+            data: cell.dataVencimento || `${ano}-${String(idx+1).padStart(2,'0')}-15`,
+            cliente: cli.nome,
+            valor: v,
+            origem: 'kanban'
+          });
+          totalAno += v;
+        });
+      });
+    }
+  }catch(_){}
+  try{
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      extratoData.lancamentos.forEach(l => {
+        if(!l.data || !l.data.startsWith(ano+'')) return;
+        if(!(l.tipo === 'ganho' || (l.valor > 0 && !l.tipo))) return;
+        const v = Math.abs(Number(l.valor)||0);
+        linhas.push({
+          data: l.data,
+          cliente: l.cliente || l.descricao || 'Recebimento',
+          valor: v,
+          origem: 'extrato'
+        });
+        totalAno += v;
+      });
+    }
+  }catch(_){}
+  linhas.sort((a,b) => (a.data||'').localeCompare(b.data||''));
+  // Limite MEI 2026: R$ 81.000/ano
+  const limMEI = 81000;
+  const pctUso = limMEI > 0 ? (totalAno / limMEI * 100) : 0;
+  const corStatus = pctUso < 70 ? '#10B981' : pctUso < 90 ? '#F59E0B' : '#EF4444';
+  const fmt = v => Math.abs(Number(v)||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+  let html = `<div style="color:#E5E7EB">
+    <div style="text-align:center;margin-bottom:18px">
+      <div style="font-size:36px">📒</div>
+      <h2 style="margin:6px 0;font-size:1.1rem;color:#10B981">Caderno de Receita MEI · ${ano}</h2>
+      <small style="color:#94A3B8">Obrigatório pra MEI (mantém por 5 anos) · ${linhas.length} recebimento(s)</small>
+    </div>
+    <div style="background:#0F172A;border-left:3px solid ${corStatus};padding:14px 16px;border-radius:8px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <b style="color:${corStatus}">Faturamento ${ano}: R$ ${fmt(totalAno)}</b>
+        <span style="color:${corStatus};font-weight:700">${pctUso.toFixed(1)}% do limite</span>
+      </div>
+      <div style="height:6px;background:${corStatus}22;border-radius:3px;overflow:hidden">
+        <div style="width:${Math.min(100, pctUso)}%;background:${corStatus};transition:width .4s"></div>
+      </div>
+      <small style="color:#94A3B8;font-size:.72rem;margin-top:6px;display:block">Limite MEI: R$ ${fmt(limMEI)}/ano · Acima vira ME (Simples Nacional)</small>
+    </div>`;
+  if(linhas.length){
+    html += `<div style="max-height:340px;overflow:auto;background:#0F172A;border-radius:8px;padding:8px">
+      <table style="width:100%;font-size:.78rem;color:#E5E7EB;border-collapse:collapse">
+        <thead><tr style="background:#1E293B">
+          <th style="text-align:left;padding:8px;color:#94A3B8">Data</th>
+          <th style="text-align:left;padding:8px;color:#94A3B8">Cliente / Origem</th>
+          <th style="text-align:right;padding:8px;color:#94A3B8">Valor</th>
+        </tr></thead><tbody>`;
+    linhas.forEach((l, i) => {
+      html += `<tr style="border-top:1px solid #334155">
+        <td style="padding:7px 8px">${(l.data||'').slice(0,10)}</td>
+        <td style="padding:7px 8px">${(l.cliente||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</td>
+        <td style="padding:7px 8px;text-align:right;color:#10B981;font-weight:700">R$ ${fmt(l.valor)}</td>
+      </tr>`;
+    });
+    html += `<tr style="background:#10B98115"><td style="padding:10px 8px;font-weight:800">TOTAL ${ano}</td><td></td><td style="text-align:right;font-weight:800;color:#10B981;padding:10px 8px">R$ ${fmt(totalAno)}</td></tr>
+      </tbody></table></div>`;
+  } else {
+    html += '<p style="color:#94A3B8;font-size:.84rem;text-align:center;padding:30px">Nenhum recebimento registrado em ' + ano + ' ainda.</p>';
+  }
+  html += `<div style="display:flex;gap:8px;margin-top:14px">
+    <button class="btn btn-p" onclick="meiCadernoExportCsv()" style="flex:1;padding:9px">📥 Exportar CSV</button>
+    <button class="btn btn-sec" onclick="meiCadernoPrint()" style="flex:1;padding:9px">🖨 Imprimir</button>
+  </div></div>`;
+  if(typeof _fkModal === 'function') _fkModal('📒 Caderno MEI', html, () => true);
+}
+function meiCadernoExportCsv(){
+  try{
+    const ano = new Date().getFullYear();
+    const linhas = [];
+    if(typeof receita !== 'undefined' && receita.years && receita.years[ano]){
+      const meses = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+      (receita.years[ano].clients||[]).forEach(cli => {
+        if(!cli.meses) return;
+        meses.forEach((m, idx) => {
+          const cell = cli.meses[m];
+          if(!cell || !cell.valor) return;
+          linhas.push([
+            cell.dataVencimento || `${ano}-${String(idx+1).padStart(2,'0')}-15`,
+            cli.nome,
+            Math.abs(Number(cell.valor)||0).toFixed(2).replace('.',','),
+            'kanban'
+          ]);
+        });
+      });
+    }
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      extratoData.lancamentos.forEach(l => {
+        if(!l.data || !l.data.startsWith(ano+'')) return;
+        if(!(l.tipo === 'ganho' || (l.valor > 0 && !l.tipo))) return;
+        linhas.push([l.data, l.cliente||l.descricao||'', Math.abs(Number(l.valor)||0).toFixed(2).replace('.',','), 'extrato']);
+      });
+    }
+    const csv = 'Data,Cliente/Origem,Valor (R$),Fonte\n' + linhas.map(r => r.map(c => `"${c}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `caderno-mei-${ano}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    if(typeof fkToast === 'function') fkToast('📥 CSV baixado', 'ok', 2500);
+  }catch(e){ alert('Erro: '+e.message); }
+}
+function meiCadernoPrint(){
+  window.print();
+}
+try{ window.meiCadernoOpen = meiCadernoOpen; window.meiCadernoExportCsv = meiCadernoExportCsv; window.meiCadernoPrint = meiCadernoPrint; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
 // 🎉 WHAT'S NEW · modal mostra features recentes na primeira visita pós-update
 // ═════════════════════════════════════════════════════════════════════
 const WHATSNEW_VERSION = 'v2.6.0-2026-05';
@@ -103350,6 +104515,14 @@ function fkBootApp(){
   _safeInit('modHistLoad',        () => modHistLoad());
   _safeInit('snipLoad',           () => snipLoad());
   _safeInit('webpushHook',        () => { setTimeout(webpushHook, 6000); });
+  _safeInit('streakRender',       () => setTimeout(streakRender, 1500));
+  _safeInit('onboardRender',      () => setTimeout(onboardRender, 800));
+  _safeInit('weeklyMaybeShow',    () => weeklyMaybeShow());
+  _safeInit('tfaLoad',            () => tfaLoad());
+  _safeInit('accessLogPush',      () => _accessLogPush());
+  _safeInit('wfLoad',             () => wfLoad());
+  _safeInit('rtaskLoad',          () => rtaskLoad());
+  _safeInit('rtaskStart',         () => rtaskStart());
   _safeInit('whatsnewMaybeShow',  () => whatsnewMaybeShow());
   _safeInit('konamiInit',         () => konamiInit());
   _safeInit('mrkProactiveLoad',   () => mrkProactiveLoad());
