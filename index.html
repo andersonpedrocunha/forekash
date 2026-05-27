@@ -7785,6 +7785,9 @@
     .rec-kb-toolbar .quick:hover{border-color:#7C3AED;color:#5B21B6}
     .rec-kb-toolbar .quick.is-active{background:#F5F3FF;border-color:#7C3AED;color:#5B21B6}
     .rec-kb-cob-bar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+    .rec-cob-bar{display:flex;gap:8px;align-items:center;margin:0 0 12px;padding:10px 14px;
+                 background:linear-gradient(135deg,#F0F9FF 0%,#E0F2FE 100%);
+                 border:1px solid #BAE6FD;border-radius:10px;flex-wrap:wrap}
     .rec-kb-board{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;align-items:flex-start}
     .rec-kb-col{background:#F8FAFC;border:1px solid #E5E7EB;border-radius:10px;
       display:flex;flex-direction:column;min-height:240px;max-height:75vh;overflow:hidden}
@@ -17504,6 +17507,23 @@
         <h1 class="pg-title">Receita</h1>
         <p class="pg-sub">Planilha anual de clientes, projetos e receitas mês a mês. Edite livremente e alterne entre anos.</p>
 
+        <!-- Barra global de Cobrança · visível em todas as abas -->
+        <div class="rec-cob-bar">
+          <button class="btn btn-asaas" onclick="asaasOpenCreate()" title="Gerar nova cobrança Asaas (boleto/PIX/cartão)">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-2px;margin-right:5px">
+              <path d="M21 12V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7"/>
+              <path d="M16 14h6M19 11v6"/>
+            </svg>
+            Gerar cobrança
+          </button>
+          <button class="btn btn-g" onclick="asaasOpenList()" title="Ver cobranças geradas">
+            📋 Cobranças
+            <span class="asaas-toolbar-badge" id="asaas-toolbar-badge" style="display:none">0</span>
+          </button>
+          <div style="flex:1"></div>
+          <span style="font-size:.7rem;color:var(--txl);align-self:center">💡 No Kanban, passe o mouse num card pra ver o ícone $ de cobrança vinculada</span>
+        </div>
+
         <!-- View toggle: Planilha · Kanban · Calendário -->
         <div class="rec-view-toggle">
           <button data-view="sheet" class="is-active" onclick="recSetView('sheet')">📊 Planilha</button>
@@ -17627,7 +17647,7 @@
             Novo lead (simulação)
           </button>
           <div style="margin-left:auto;font-size:.7rem;color:var(--txl);align-self:center">
-            Os dados são salvos automaticamente no navegador. <b style="color:#0BB1E1">💡 Cobrança</b> agora fica na aba <b>Kanban Financeiro</b>.
+            Os dados são salvos automaticamente no navegador.
           </div>
         </div>
         <p class="formula-hint">
@@ -17637,19 +17657,6 @@
 
         <!-- Kanban Financeiro view -->
         <div id="rec-view-kanban" style="display:none">
-          <div class="rec-kb-cob-bar">
-            <button class="btn btn-asaas" onclick="asaasOpenCreate()" title="Gerar nova cobrança Asaas (boleto/PIX/cartão)">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-2px;margin-right:5px">
-                <path d="M21 12V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7"/>
-                <path d="M16 14h6M19 11v6"/>
-              </svg>
-              Gerar cobrança
-            </button>
-            <button class="btn btn-g" onclick="asaasOpenList()" title="Ver cobranças geradas">
-              📋 Cobranças
-              <span class="asaas-toolbar-badge" id="asaas-toolbar-badge" style="display:none">0</span>
-            </button>
-          </div>
           <div class="rec-kb-toolbar" id="rec-kb-toolbar"></div>
           <div class="rec-kb-board" id="rec-kb-board"></div>
           <p style="font-size:.7rem;color:var(--txl);margin-top:10px;line-height:1.5">
@@ -30671,59 +30678,61 @@ try { window.recRenderKanban = recRenderKanban; } catch(e){}
 // ── Gerar cobrança VINCULADA a um lançamento da Receita ──
 function recKbGenCobranca(year, mesAbbr, rowId){
   try{
-    // Acha o lançamento no receitaData
-    if(typeof receitaData === 'undefined' || !Array.isArray(receitaData)) return;
-    const row = receitaData.find(r => (r.id === rowId || r._id === rowId) && (r.year === year || r.ano === year));
+    // Estrutura correta: receita.years[year].clients[].id, .clienteId, .meses[mesAbbr]
+    if(typeof receita === 'undefined' || !receita.years || !receita.years[year]){
+      if(typeof showToast === 'function') showToast('Ano não encontrado', 'err');
+      return;
+    }
+    const yearData = receita.years[year];
+    const row = (yearData.clients || []).find(x => x.id === rowId);
     if(!row){
+      console.warn('recKbGenCobranca: row não encontrado', { year, mesAbbr, rowId });
       if(typeof showToast === 'function') showToast('Lançamento não encontrado · tente recarregar', 'err');
       return;
     }
-    // Valor do mês específico
-    let valor = 0;
-    if(row[mesAbbr] && typeof row[mesAbbr] === 'object') valor = Number(row[mesAbbr].valor) || 0;
-    else if(row[mesAbbr]) valor = Number(row[mesAbbr]) || 0;
-    // Vencimento: último dia do mês + descrição = cliente + ref
+    // Cliente data
+    const cliObj = (receita.clientes || []).find(x => x.id === row.clienteId);
+    const cliNome = cliObj ? (cliObj.nome || 'Cliente') : 'Cliente';
+    const cliCnpj = cliObj ? (cliObj.cnpj || cliObj.documento || '') : '';
+    const cliEmail = cliObj ? (cliObj.email || '') : '';
+    // Valor do mês
+    const cell = (row.meses && row.meses[mesAbbr]) ? row.meses[mesAbbr] : null;
+    const valor = cell ? (Number(cell.valor) || 0) : 0;
+    // Vencimento: usa dataVencimento do cell ou último dia do mês
     const monthIx = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'].indexOf(mesAbbr);
-    const venc = new Date(year, monthIx + 1, 0).toISOString().slice(0,10); // último dia do mês
-    // Abrir modal Asaas com dados pré-preenchidos
-    if(typeof ASAAS_DRAFT === 'undefined') return;
-    ASAAS_DRAFT = {
-      id:null,
-      cliente: row.nome || row.cliente || 'Cliente',
-      cnpj: row.cnpj || row.documento || '',
-      email: row.email || '',
-      valor: valor,
-      descricao: (row.tipo || 'Serviço') + ' · ' + mesAbbr + '/' + String(year).slice(2) + (row.desc ? ' · ' + row.desc : ''),
-      tipo: 'pix',
-      vencimento: venc,
-      multa: 2, juros: 1, desconto: 0,
-      // VÍNCULO com o lançamento
-      receitaRowId: rowId, receitaYear: year, receitaMes: mesAbbr
-    };
-    // Abrir modal
-    if(typeof asaasOpenCreate === 'function'){
-      // Truque: abre o modal mas mantém nosso DRAFT
-      asaasOpenCreate();
-      // Re-aplica o draft (asaasOpenCreate resetou)
-      ASAAS_DRAFT = ASAAS_DRAFT; // já temos
-      if(typeof asaasRenderCreateForm === 'function'){
-        // Sobrescreve com nosso pré-preenchimento
-        ASAAS_DRAFT.cliente = row.nome || row.cliente || 'Cliente';
-        ASAAS_DRAFT.cnpj = row.cnpj || row.documento || '';
-        ASAAS_DRAFT.email = row.email || '';
+    const lastDay = new Date(year, monthIx + 1, 0);
+    const venc = (cell && cell.dataVencimento) ? cell.dataVencimento : lastDay.toISOString().slice(0,10);
+    const descricao = cliNome + ' · ' + mesAbbr + '/' + String(year).slice(2) +
+                      ((row.descricao || row.tipo) ? ' · ' + (row.descricao || row.tipo) : '');
+
+    // Abre modal Asaas e PRÉ-PREENCHE
+    if(typeof asaasOpenCreate !== 'function'){
+      if(typeof showToast === 'function') showToast('Módulo Asaas não carregado', 'err');
+      return;
+    }
+    // Chama o open + sobrescreve o draft após
+    asaasOpenCreate();
+    setTimeout(() => {
+      try{
+        if(typeof ASAAS_DRAFT === 'undefined' || !ASAAS_DRAFT) return;
+        ASAAS_DRAFT.cliente = cliNome;
+        ASAAS_DRAFT.cnpj = cliCnpj;
+        ASAAS_DRAFT.email = cliEmail;
         ASAAS_DRAFT.valor = valor;
-        ASAAS_DRAFT.descricao = (row.tipo || 'Serviço') + ' · ' + mesAbbr + '/' + String(year).slice(2) + (row.desc ? ' · ' + row.desc : '');
+        ASAAS_DRAFT.descricao = descricao;
         ASAAS_DRAFT.vencimento = venc;
+        // VÍNCULO persistido
         ASAAS_DRAFT.receitaRowId = rowId;
         ASAAS_DRAFT.receitaYear = year;
         ASAAS_DRAFT.receitaMes = mesAbbr;
-        asaasRenderCreateForm();
-      }
-      if(typeof showToast === 'function') showToast('✓ Cobrança vinculada a ' + (row.nome || 'lançamento') + ' · ' + mesAbbr + '/' + String(year).slice(2), 'ok');
-    }
+        // Re-renderiza form com os dados
+        if(typeof asaasRenderCreateForm === 'function') asaasRenderCreateForm();
+        if(typeof showToast === 'function') showToast('✓ Cobrança vinculada a ' + cliNome + ' · ' + mesAbbr + '/' + String(year).slice(2), 'ok');
+      }catch(err){ console.error('recKbGenCobranca pre-fill:', err); }
+    }, 50);
   }catch(e){
     console.error('recKbGenCobranca:', e);
-    if(typeof showToast === 'function') showToast('Erro ao gerar cobrança', 'err');
+    if(typeof showToast === 'function') showToast('Erro ao gerar cobrança: ' + e.message, 'err');
   }
 }
 try { window.recKbGenCobranca = recKbGenCobranca; } catch(e){}
@@ -90839,7 +90848,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779851531';
+      const CACHE = 'forekash-v1779852013';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
