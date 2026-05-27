@@ -57762,6 +57762,8 @@ function renderExtrato(){
     const isDerived = !it.manual;
     // sign já calculado acima: positivo = entrada (ganho/receita), negativo = saída
     const isEntradaForMenu = (sign > 0) ? 1 : 0;
+    // Popula cache de rows pra extRowMenu poder achar mesmo se id for derivado
+    try{ window._extRowsCache = window._extRowsCache || {}; window._extRowsCache[String(it.id)] = it; }catch(_){}
     const actBtn = isDerived
       ? '<button class="ext-row-act" type="button" onclick="extOpenSource(\''+ it.id + '\')" title="Abrir no módulo de origem">↗</button>'
       : '<button class="ext-row-act ext-row-act-menu" type="button" onclick="event.stopPropagation();extRowMenu(event,\''+ it.id + '\',' + isEntradaForMenu + ')" title="Mais opções">⋯</button>';
@@ -59740,47 +59742,71 @@ function _extCloseAllMenus(){
   const m = document.getElementById('ext-pop-menu-active');
   if(m) m.remove();
 }
+// Helper: localiza dados do lançamento por id usando múltiplas fontes
+function _extFindLanc(id){
+  // 1) extratoData.lancamentos (fonte primária dos manuais)
+  try{
+    if(typeof extratoData !== 'undefined' && extratoData && Array.isArray(extratoData.lancamentos)){
+      const found = extratoData.lancamentos.find(x => String(x.id) === String(id));
+      if(found) return found;
+    }
+  }catch(_){}
+  // 2) Map cache populado durante o render (fallback se id for derivado)
+  try{
+    if(window._extRowsCache && window._extRowsCache[String(id)]){
+      return window._extRowsCache[String(id)];
+    }
+  }catch(_){}
+  return null;
+}
+
 function extRowGenCobranca(id){
-  if(!window.extData) return;
-  const it = window.extData.find(x => String(x.id) === String(id));
-  if(!it) return;
+  const it = _extFindLanc(id);
+  console.log('[ext→cobrança] id=', id, 'achou:', !!it, it);
+  if(!it){
+    if(typeof showToast === 'function') showToast('Lançamento não encontrado · id=' + id, 'err');
+    return;
+  }
   if(typeof asaasOpenCreate !== 'function'){
-    if(typeof showToast === 'function') showToast('Asaas não carregado', 'err');
+    if(typeof showToast === 'function') showToast('Módulo Asaas não está carregado', 'err');
     return;
   }
   asaasOpenCreate();
   setTimeout(() => {
     if(typeof ASAAS_DRAFT === 'undefined' || !ASAAS_DRAFT) return;
-    ASAAS_DRAFT.cliente = it.cliente || it.descricao || 'Cliente';
+    ASAAS_DRAFT.cliente = it.cliente || it.fornecedor || it.descricao || 'Cliente';
     ASAAS_DRAFT.cnpj = it.cnpj || it.documento || '';
     ASAAS_DRAFT.email = it.email || '';
     ASAAS_DRAFT.valor = Math.abs(Number(it.valor) || 0);
     ASAAS_DRAFT.descricao = it.descricao || (it.categoria + ' · ' + (it.data || ''));
     ASAAS_DRAFT.vencimento = it.data || new Date().toISOString().slice(0,10);
-    // Vínculo direto com lançamento de extrato
-    ASAAS_DRAFT.extratoLancId = id;
+    ASAAS_DRAFT.extratoLancId = String(id);
     if(typeof asaasRenderCreateForm === 'function') asaasRenderCreateForm();
-    if(typeof showToast === 'function') showToast('✓ Cobrança vinculada ao lançamento #' + id, 'ok');
-  }, 50);
+    if(typeof showToast === 'function') showToast('✓ Cobrança vinculada ao lançamento ' + (it.descricao || '').slice(0,30), 'ok');
+  }, 80);
 }
+
 function extRowGenNF(id){
-  if(!window.extData) return;
-  const it = window.extData.find(x => String(x.id) === String(id));
-  if(!it) return;
+  const it = _extFindLanc(id);
+  console.log('[ext→NF] id=', id, 'achou:', !!it, it);
+  if(!it){
+    if(typeof showToast === 'function') showToast('Lançamento não encontrado · id=' + id, 'err');
+    return;
+  }
   if(typeof nfOpenCreate !== 'function'){
-    if(typeof showToast === 'function') showToast('Notas Fiscais não carregado', 'err');
+    if(typeof showToast === 'function') showToast('Módulo Notas Fiscais não está carregado', 'err');
     return;
   }
   nfOpenCreate({
-    cliente: it.cliente || it.descricao || 'Cliente',
+    cliente: it.cliente || it.fornecedor || it.descricao || 'Cliente',
     cnpj: it.cnpj || it.documento || '',
     email: it.email || '',
     valor: Math.abs(Number(it.valor) || 0),
     descricao: it.descricao || 'Serviços prestados · ' + (it.categoria || '') + ' · ' + (it.data || ''),
-    extratoLancId: id // vínculo com este lançamento
+    extratoLancId: String(id)
   });
 }
-try { window.extRowMenu = extRowMenu; window.extRowGenCobranca = extRowGenCobranca; window.extRowGenNF = extRowGenNF; }catch(e){}
+try { window.extRowMenu = extRowMenu; window.extRowGenCobranca = extRowGenCobranca; window.extRowGenNF = extRowGenNF; window._extFindLanc = _extFindLanc; }catch(e){}
 
 function extEditManual(id){
   if(typeof id === 'string' && id.startsWith('grp:')){ extEditGroup(id); return; }
@@ -91207,7 +91233,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779854651';
+      const CACHE = 'forekash-v1779854882';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
