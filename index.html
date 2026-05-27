@@ -87185,6 +87185,99 @@ function seedDemoData(opts){
     }
   }catch(e){ try{ console.warn('[seed] Asaas falhou:', e); }catch(_){} }
 
+  // ─── EXPAND Receita: preenche meses faltantes até dezembro (sem sobrescrever) ───
+  try{
+    const recRaw = localStorage.getItem(REC_KEY);
+    const recData = recRaw ? JSON.parse(recRaw) : null;
+    if(recData && recData.years && recData.years[Y]){
+      const yData = recData.years[Y];
+      let mutated = false;
+      // Projeção: pegar último valor não-nulo do cliente e propagar com leve crescimento
+      (yData.clients || []).forEach(client => {
+        if(!client.meses) client.meses = {};
+        let lastVal = null;
+        for(let i = 0; i < 12; i++){
+          const mes = MESES_ABBR[i];
+          const cell = client.meses[mes];
+          if(cell && cell.valor != null && cell.valor !== ''){
+            lastVal = Number(cell.valor) || 0;
+          } else if(lastVal != null && lastVal > 0){
+            // Preencher gap futuro com crescimento sutil (média 2% mês)
+            const growth = 1 + (Math.random() * 0.03 + 0.005); // 0.5%-3.5%
+            const newVal = Math.round(lastVal * growth / 100) * 100; // arredonda nas centenas
+            client.meses[mes] = { valor: newVal, status: 'aberto' };
+            lastVal = newVal;
+            mutated = true;
+          }
+        }
+      });
+      if(mutated){
+        localStorage.setItem(REC_KEY, JSON.stringify(recData));
+        try{ console.log('[seed] Receita expandida até dez · meses faltantes preenchidos com projeção'); }catch(_){}
+      }
+    }
+  }catch(e){ try{ console.warn('[seed] Receita expand falhou:', e); }catch(_){} }
+
+  // ─── CATMAP · garantir categorias Outras Receitas/Despesas ───
+  try{
+    const cmRaw = localStorage.getItem('forekash:catmap:v1');
+    const cm = cmRaw ? JSON.parse(cmRaw) : { categorias: [], nextId: 1 };
+    if(!Array.isArray(cm.categorias)) cm.categorias = [];
+    if(typeof cm.nextId !== 'number') cm.nextId = (cm.categorias.reduce((m,c) => Math.max(m, c.id || 0), 0) || 0) + 1;
+    const hasOutrasRec = cm.categorias.some(c => c.modulo === 'outrasRec');
+    const hasOutrasDesp = cm.categorias.some(c => c.modulo === 'outrasDesp');
+    const novasCategorias = [];
+    if(!hasOutrasRec){
+      novasCategorias.push({ id: cm.nextId++, nome: 'Aluguel recebido', modulo: 'outrasRec', cor: '#10B981', tipo: 'recebimento' });
+      novasCategorias.push({ id: cm.nextId++, nome: 'Juros aplicação financeira', modulo: 'outrasRec', cor: '#059669', tipo: 'recebimento' });
+      novasCategorias.push({ id: cm.nextId++, nome: 'Venda de imobilizado', modulo: 'outrasRec', cor: '#0EA5E9', tipo: 'recebimento' });
+      novasCategorias.push({ id: cm.nextId++, nome: 'Reembolso fornecedor', modulo: 'outrasRec', cor: '#22C55E', tipo: 'recebimento' });
+    }
+    if(!hasOutrasDesp){
+      novasCategorias.push({ id: cm.nextId++, nome: 'Multas e juros bancários', modulo: 'outrasDesp', cor: '#EF4444', tipo: 'pagamento' });
+      novasCategorias.push({ id: cm.nextId++, nome: 'Doações / patrocínios', modulo: 'outrasDesp', cor: '#F59E0B', tipo: 'pagamento' });
+      novasCategorias.push({ id: cm.nextId++, nome: 'Despesa não-operacional eventual', modulo: 'outrasDesp', cor: '#DC2626', tipo: 'pagamento' });
+      novasCategorias.push({ id: cm.nextId++, nome: 'Baixa de imobilizado', modulo: 'outrasDesp', cor: '#B91C1C', tipo: 'pagamento' });
+    }
+    if(novasCategorias.length > 0){
+      cm.categorias = cm.categorias.concat(novasCategorias);
+      localStorage.setItem('forekash:catmap:v1', JSON.stringify(cm));
+      try{ console.log('[seed] +' + novasCategorias.length + ' categorias Outras adicionadas ao catmap'); }catch(_){}
+    }
+    // ─── OUTRAS OPERAÇÕES · valores mês a mês ───
+    const ooRaw = localStorage.getItem(OUTRAS_OP_KEY);
+    const ooData = ooRaw ? JSON.parse(ooRaw) : { valores: {}, nextId: 1 };
+    if(!ooData.valores) ooData.valores = {};
+    const ooEmpty = Object.keys(ooData.valores).length === 0;
+    if(ooEmpty || FORCE){
+      // Mapeia novas categorias por nome → id
+      const allCats = (cmRaw ? JSON.parse(localStorage.getItem('forekash:catmap:v1')).categorias : cm.categorias);
+      const catByName = (nome) => (allCats.find(c => c.nome === nome) || {}).id;
+      const fill = (nome, vals) => {
+        const id = catByName(nome);
+        if(!id) return;
+        if(!ooData.valores[id]) ooData.valores[id] = {};
+        for(let i = 0; i < 12; i++){
+          if(vals[i] != null){
+            ooData.valores[id][keyYM(Y, i)] = vals[i];
+          }
+        }
+      };
+      // Outras Receitas (valores anuais realistas pra demo)
+      fill('Aluguel recebido',          [3500,3500,3500,3500,3500,3500,3500,3500,3500,3500,3500,3500]);
+      fill('Juros aplicação financeira',[ 850, 920, 980,1050,1120,1180,1240,1310,1380,1450,1530,1600]);
+      fill('Venda de imobilizado',      [null,null,null,12000,null,null,null,null,null,null,null,null]);
+      fill('Reembolso fornecedor',      [null,null,2400,null,null,1800,null,null,null,3200,null,null]);
+      // Outras Despesas
+      fill('Multas e juros bancários',  [ 280, 150, 320, 180, 220, 190, 410, 260, 180, 290, 340, 220]);
+      fill('Doações / patrocínios',     [null,null,null,null,2000,null,null,null,null,null,null,5000]);
+      fill('Despesa não-operacional eventual',[null,null,4500,null,null,null,null,2800,null,null,null,null]);
+      fill('Baixa de imobilizado',      [null,null,null,null,null,null,8500,null,null,null,null,null]);
+      localStorage.setItem(OUTRAS_OP_KEY, JSON.stringify(ooData));
+      try{ console.log('[seed] Outras Operações populadas (8 categorias × 12 meses)'); }catch(_){}
+    }
+  }catch(e){ try{ console.warn('[seed] Outras Op falhou:', e); }catch(_){} }
+
 
 
   // ═══════════════════════════════════════════════════════════════
@@ -91406,7 +91499,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779855364';
+      const CACHE = 'forekash-v1779855865';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
