@@ -16199,10 +16199,11 @@
     /* Tile base — fog of war via opacity (controlado por JS) */
     .br-tile{position:absolute;transition:opacity .12s linear}
     /* Player — sprite top-down de dev com notebook */
-    .br-player{position:absolute;width:32px;height:32px;z-index:10;transform:translate(-50%,-50%);filter:drop-shadow(0 0 10px rgba(16,185,129,.6)) drop-shadow(0 2px 3px rgba(0,0,0,.85));transition:none;will-change:left,top}
+    .br-player{position:absolute;width:40px;height:40px;z-index:10;transform:translate(-50%,-50%);filter:drop-shadow(0 0 12px rgba(16,185,129,.75)) drop-shadow(0 2px 4px rgba(0,0,0,.85));transition:none;will-change:left,top}
     .br-player svg{width:100%;height:100%;display:block;overflow:visible;transition:transform .12s ease-out}
     .br-player.invuln svg{animation:brPlayerHurt .14s steps(2) infinite}
     @keyframes brPlayerHurt{0%{opacity:1}50%{opacity:.35}}
+    .br-player.panic{filter:drop-shadow(0 0 14px #EF4444) drop-shadow(0 0 22px rgba(239,68,68,.7)) drop-shadow(0 2px 4px rgba(0,0,0,.85))!important}
     .br-player .br-cursor{animation:brCursorBlink .9s steps(2) infinite}
     @keyframes brCursorBlink{0%,49%{opacity:1}50%,100%{opacity:0}}
     /* Items */
@@ -16223,9 +16224,15 @@
     .br-entity.chasing.br-ent-spreadsheet{filter:drop-shadow(0 0 10px #10B981) drop-shadow(0 0 18px #10B981) drop-shadow(0 2px 4px rgba(0,0,0,.85))}
     .br-entity.chasing.br-ent-banker{filter:drop-shadow(0 0 12px #EF4444) drop-shadow(0 0 24px #EF4444) drop-shadow(0 2px 4px rgba(0,0,0,.85))}
     @keyframes brEntChase{0%,100%{transform:translate(-50%,-50%) scale(1)}50%{transform:translate(-50%,-50%) scale(1.12)}}
-    /* Portal de saída */
-    .br-portal{position:absolute;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:1.8rem;color:#FBBF24;z-index:5;transform:translate(-50%,-50%);text-shadow:0 0 10px #FBBF24,0 0 20px #FBBF24;animation:brPortal 1.4s ease-in-out infinite;filter:drop-shadow(0 0 8px #FBBF24)}
-    @keyframes brPortal{0%,100%{transform:translate(-50%,-50%) scale(1) rotate(0deg);opacity:.85}50%{transform:translate(-50%,-50%) scale(1.18) rotate(180deg);opacity:1}}
+    /* Portal de saída — beacon enorme que vaza pelo fog */
+    .br-portal{position:absolute;width:46px;height:46px;display:flex;align-items:center;justify-content:center;font-size:2.4rem;color:#FBBF24;z-index:12;transform:translate(-50%,-50%);text-shadow:0 0 14px #FBBF24,0 0 28px #FBBF24,0 0 50px #FBBF24;animation:brPortal 1.4s ease-in-out infinite;filter:drop-shadow(0 0 14px #FBBF24) drop-shadow(0 0 28px rgba(251,191,36,.7))}
+    /* Halo radial GIGANTE que "vaza" do fog (cobre área e mostra que há saída) */
+    .br-portal::before{content:'';position:absolute;left:50%;top:50%;width:280px;height:280px;margin-left:-140px;margin-top:-140px;background:radial-gradient(circle,rgba(251,191,36,.35) 0%,rgba(251,191,36,.18) 25%,rgba(251,191,36,.06) 55%,transparent 85%);border-radius:50%;animation:brPortalBeam 2.4s ease-in-out infinite;pointer-events:none;z-index:-1}
+    @keyframes brPortalBeam{0%,100%{transform:scale(1);opacity:.85}50%{transform:scale(1.15);opacity:1}}
+    @keyframes brPortal{0%,100%{transform:translate(-50%,-50%) scale(1) rotate(0deg);opacity:.9}50%{transform:translate(-50%,-50%) scale(1.22) rotate(180deg);opacity:1}}
+    /* Pulso anel cinemático adicional */
+    .br-portal::after{content:'';position:absolute;left:50%;top:50%;width:90px;height:90px;margin-left:-45px;margin-top:-45px;border:2px solid #FBBF24;border-radius:50%;animation:brPortalPulse 1.8s ease-out infinite;opacity:0;pointer-events:none}
+    @keyframes brPortalPulse{0%{transform:scale(.4);opacity:.8}100%{transform:scale(1.8);opacity:0}}
     /* Boss = SVG sprite maior, pulsa */
     .br-boss{position:absolute;width:44px;height:44px;z-index:8;transform:translate(-50%,-50%);filter:drop-shadow(0 0 10px #EF4444) drop-shadow(0 0 20px rgba(239,68,68,.5)) drop-shadow(0 3px 5px rgba(0,0,0,.85));animation:brBossPulse 1.8s ease-in-out infinite}
     .br-boss svg{width:100%;height:100%;display:block;overflow:visible}
@@ -113424,13 +113431,15 @@ const KS_BR = {
   W: 760, H: 440,
   TILE: 32,           // pixels por tile
   GRID_W: 23, GRID_H: 13,  // 736x416 dentro do stage 760x440
-  SPEED: 2.6,         // tiles por segundo (continuous movement)
+  SPEED: 2.8,         // tiles por segundo (continuous movement)
+  PANIC_SPEED: 4.6,   // velocidade quando em pânico (acabou de levar dano)
+  PANIC_DUR: 1800,    // ms de pânico após dano (mais rápido que enemy)
   VISION: 4.5,        // tiles de raio inicial
   SANITY_MAX: 100,
-  SANITY_DRAIN: 0.5,  // por segundo (idle)
-  SANITY_NEAR: 6,     // extra por segundo se entidade próxima (4 tiles)
-  SANITY_HIT: 28,     // perda quando pego
-  HIT_INV: 1500       // ms de invuln após levar dano
+  SANITY_DRAIN: 0.4,  // por segundo (idle)
+  SANITY_NEAR: 3,     // extra por segundo se entidade próxima (era 6)
+  SANITY_HIT: 15,     // perda quando pego (era 28 — agora 6+ hits antes de morrer)
+  HIT_INV: 2500       // ms de invuln após levar dano (era 1500)
 };
 
 const KS_BR_LEVELS = [
@@ -113573,50 +113582,54 @@ const KS_BR_BANKER_SVG = `<svg viewBox="0 0 28 28" xmlns="http://www.w3.org/2000
 </svg>`;
 
 const KS_BR_ENTITY_DEFS = {
-  auditor:    { svg:KS_BR_AUDITOR_SVG,    name:'THE AUDITOR',    speed:1.3, vision:5, ai:'cone',   color:'#94A3B8', size:28 },
-  spreadsheet:{ svg:KS_BR_SPREADSHEET_SVG,name:'THE SPREADSHEET',speed:2.2, vision:3, ai:'sound',  color:'#10B981', size:28 },
-  banker:     { svg:KS_BR_BANKER_SVG,     name:'THE BANKER',     speed:1.5, vision:6, ai:'cone',   color:'#EF4444', size:38 }
+  auditor:    { svg:KS_BR_AUDITOR_SVG,    name:'THE AUDITOR',    speed:1.1, vision:4.5, ai:'cone',   color:'#94A3B8', size:28 },
+  spreadsheet:{ svg:KS_BR_SPREADSHEET_SVG,name:'THE SPREADSHEET',speed:1.8, vision:2.8, ai:'sound',  color:'#10B981', size:28 },
+  banker:     { svg:KS_BR_BANKER_SVG,     name:'THE BANKER',     speed:1.3, vision:5.5, ai:'cone',   color:'#EF4444', size:38 }
 };
 
 // SVG do dev (top-down). Frente do personagem aponta pra BAIXO (Y+).
-// Rotação por CSS conforme direção do movimento.
-const KS_BR_PLAYER_SVG = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
-  <!-- glow halo -->
-  <circle cx="12" cy="12" r="11" fill="#10B981" opacity="0.18"/>
-  <!-- body/ombros (top-down rounded square) -->
-  <rect x="5.5" y="7" width="13" height="10" rx="3.5" fill="#0D2218" stroke="#10B981" stroke-width="0.6"/>
-  <!-- highlight ombro -->
-  <rect x="5.5" y="7" width="13" height="2" rx="2" fill="#1A3D2E" opacity="0.7"/>
-  <!-- hood (parte de trás da cabeça vista de cima) -->
-  <ellipse cx="12" cy="7" rx="5.5" ry="3.8" fill="#1A3D2E" stroke="#10B981" stroke-width="0.55"/>
-  <!-- hood opening (rosto escuro) -->
-  <ellipse cx="12" cy="8.5" rx="3.2" ry="2" fill="#000"/>
-  <!-- 2 olhinhos verdes brilhando dentro do capuz -->
-  <circle cx="10.7" cy="8.3" r="0.45" fill="#A7F3D0"/>
-  <circle cx="13.3" cy="8.3" r="0.45" fill="#A7F3D0"/>
-  <!-- braços pra frente (apontando pro -y do sprite = "frente") -->
-  <rect x="6.5" y="13" width="2.8" height="6" rx="1.2" fill="#0A1F12" stroke="#10B981" stroke-width="0.35"/>
-  <rect x="14.7" y="13" width="2.8" height="6" rx="1.2" fill="#0A1F12" stroke="#10B981" stroke-width="0.35"/>
-  <!-- luvas (mão segurando laptop) -->
-  <ellipse cx="7.9" cy="18.5" rx="1.5" ry="1.1" fill="#000" stroke="#10B981" stroke-width="0.3"/>
-  <ellipse cx="16.1" cy="18.5" rx="1.5" ry="1.1" fill="#000" stroke="#10B981" stroke-width="0.3"/>
-  <!-- LAPTOP segurado entre as mãos -->
-  <!-- sombra -->
-  <ellipse cx="12" cy="21.5" rx="5" ry="0.5" fill="#000" opacity="0.45"/>
-  <!-- moldura -->
-  <rect x="7" y="16" width="10" height="5.5" rx="0.6" fill="#1F2937" stroke="#FBBF24" stroke-width="0.5"/>
-  <!-- tela -->
-  <rect x="7.5" y="16.5" width="9" height="4.5" fill="#022C22"/>
-  <!-- linhas de código -->
-  <rect x="8" y="17" width="3.5" height="0.5" fill="#10B981"/>
-  <rect x="12" y="17" width="2" height="0.5" fill="#22D3EE"/>
-  <rect x="8" y="17.9" width="5" height="0.5" fill="#10B981" opacity="0.85"/>
-  <rect x="13.5" y="17.9" width="2.5" height="0.5" fill="#FBBF24"/>
-  <rect x="8" y="18.8" width="3" height="0.5" fill="#22D3EE"/>
-  <rect x="11.5" y="18.8" width="3" height="0.5" fill="#10B981"/>
-  <rect x="8" y="19.7" width="4.5" height="0.5" fill="#10B981" opacity="0.9"/>
+// v2: silhueta MUITO mais limpa — cabeça circular grande, ombros largos,
+// laptop dourado destacado. Legível em 32px.
+const KS_BR_PLAYER_SVG = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!-- glow halo duplo -->
+  <circle cx="12" cy="12" r="11.5" fill="#10B981" opacity="0.22"/>
+  <circle cx="12" cy="12" r="8" fill="#10B981" opacity="0.12"/>
+  <!-- OMBROS — capsule larga -->
+  <ellipse cx="12" cy="12" rx="6.5" ry="3.4" fill="#0D2218" stroke="#34D399" stroke-width="0.8"/>
+  <path d="M 5.5 11.2 Q 12 9 18.5 11.2" fill="none" stroke="#34D399" stroke-width="0.5" opacity="0.7"/>
+  <!-- CABEÇA com capuz — circle GRANDE, claramente legível -->
+  <circle cx="12" cy="7.5" r="4.4" fill="#1A3D2E" stroke="#34D399" stroke-width="0.75"/>
+  <!-- abertura escura -->
+  <circle cx="12" cy="8.2" r="2.5" fill="#000"/>
+  <!-- 2 olhos verdes -->
+  <circle cx="10.7" cy="7.8" r="0.7" fill="#A7F3D0"/>
+  <circle cx="13.3" cy="7.8" r="0.7" fill="#A7F3D0"/>
+  <circle cx="10.7" cy="7.9" r="0.28" fill="#000"/>
+  <circle cx="13.3" cy="7.9" r="0.28" fill="#000"/>
+  <!-- highlight do capuz no topo -->
+  <path d="M 8.8 5 Q 12 3.5 15.2 5" fill="none" stroke="#34D399" stroke-width="0.5" opacity="0.55"/>
+  <!-- BRAÇOS -->
+  <rect x="7.2" y="13.5" width="2.4" height="5" rx="1.2" fill="#0D2218" stroke="#34D399" stroke-width="0.45"/>
+  <rect x="14.4" y="13.5" width="2.4" height="5" rx="1.2" fill="#0D2218" stroke="#34D399" stroke-width="0.45"/>
+  <!-- MÃOS -->
+  <circle cx="8.4" cy="18.5" r="1.35" fill="#000" stroke="#34D399" stroke-width="0.4"/>
+  <circle cx="15.6" cy="18.5" r="1.35" fill="#000" stroke="#34D399" stroke-width="0.4"/>
+  <!-- LAPTOP DESTACADO — frame dourado grosso -->
+  <ellipse cx="12" cy="22.4" rx="5.2" ry="0.55" fill="#000" opacity="0.55"/>
+  <rect x="6.5" y="17" width="11" height="5.6" rx="0.7" fill="#FBBF24"/>
+  <rect x="7.2" y="17.6" width="9.6" height="4.4" fill="#022C22"/>
+  <!-- linhas de código grandes -->
+  <rect x="7.8" y="18.1" width="3.5" height="0.55" fill="#10B981"/>
+  <rect x="11.6" y="18.1" width="2.2" height="0.55" fill="#22D3EE"/>
+  <rect x="14.1" y="18.1" width="2.4" height="0.55" fill="#FBBF24"/>
+  <rect x="7.8" y="19.05" width="6" height="0.55" fill="#10B981" opacity="0.85"/>
+  <rect x="14.3" y="19.05" width="2.2" height="0.55" fill="#A7F3D0"/>
+  <rect x="7.8" y="20" width="3.2" height="0.55" fill="#22D3EE"/>
+  <rect x="11.3" y="20" width="4" height="0.55" fill="#10B981"/>
+  <rect x="7.8" y="20.95" width="5.5" height="0.55" fill="#10B981" opacity="0.9"/>
+  <rect x="13.6" y="20.95" width="1.5" height="0.55" fill="#FBBF24"/>
   <!-- cursor piscando -->
-  <rect class="br-cursor" x="13" y="19.7" width="0.6" height="0.5" fill="#FBBF24"/>
+  <rect class="br-cursor" x="15.3" y="20.95" width="0.7" height="0.55" fill="#FBBF24"/>
   <!-- glare diagonal -->
   <rect x="7.5" y="16.5" width="9" height="0.3" fill="#10B981" opacity="0.3"/>
 </svg>`;
@@ -113649,7 +113662,7 @@ function ksBrInit(){
     phase:0, levelDef:null,
     grid:[], items:[], entities:[],
     portal:null,
-    player:{ x:1.5, y:1.5, vx:0, vy:0, sanity:KS_BR.SANITY_MAX, vision:KS_BR.VISION, hits:0, invuln:0, keys:0, facing:90 /*deg, baixo*/ },
+    player:{ x:1.5, y:1.5, vx:0, vy:0, sanity:KS_BR.SANITY_MAX, vision:KS_BR.VISION, hits:0, invuln:0, keys:0, facing:90, panicTime:0 },
     score:0, startTime:performance.now(),
     notesFound:0, itemsCollected:0, detectionCount:0, lastDetection:0,
     totalNotes:0, totalItems:0,
@@ -113894,6 +113907,7 @@ function ksBrTick(now){
 function ksBrUpdatePlayer(dt){
   const p = _ksBr.player;
   if(p.invuln > 0) p.invuln -= dt;
+  if(p.panicTime > 0) p.panicTime -= dt;
   let mx = 0, my = 0;
   if(_ksBrKeys.up) my -= 1;
   if(_ksBrKeys.down) my += 1;
@@ -113901,7 +113915,9 @@ function ksBrUpdatePlayer(dt){
   if(_ksBrKeys.right) mx += 1;
   if(mx !== 0 || my !== 0){
     const len = Math.hypot(mx, my); mx /= len; my /= len;
-    const sp = KS_BR.SPEED * (dt/1000);
+    // Speed boost de pânico após dano — chance de fugir
+    const curSpeed = p.panicTime > 0 ? KS_BR.PANIC_SPEED : KS_BR.SPEED;
+    const sp = curSpeed * (dt/1000);
     const nx = p.x + mx*sp, ny = p.y + my*sp;
     // Tenta X, depois Y (slide nas paredes)
     if(ksBrCanMove(nx, p.y)) p.x = nx;
@@ -113923,11 +113939,34 @@ function ksBrUpdatePlayer(dt){
       _ksBr.itemsCollected++;
       ksBrAudioPing(800, 0.12, 0.08);
       if(it.type === 'note'){
-        _ksBr.score += 50;
+        const noteBonus = 100;
+        _ksBr.score += noteBonus;
         _ksBr.notesFound++;
         const lore = KS_BR_LORE[Math.floor(Math.random()*KS_BR_LORE.length)];
         _ksBrLoreCollected.push(lore);
-        ksBrFloatText(it.x+0.5, it.y, `"${lore}"`, '#FBBF24');
+        ksBrFloatText(it.x+0.5, it.y - 0.4, `+${noteBonus} · DOC RECUPERADO`, '#FBBF24');
+        ksBrFloatText(it.x+0.5, it.y + 0.3, `"${lore}"`, '#FCD34D');
+        // Combo de docs — se pegou nota recentemente, bonus extra
+        const now = performance.now();
+        if(now - (_ksBr.lastNoteTime||0) < 8000){
+          _ksBr.noteCombo = (_ksBr.noteCombo||0) + 1;
+          const comboBonus = _ksBr.noteCombo * 25;
+          _ksBr.score += comboBonus;
+          ksBrFloatText(it.x+0.5, it.y - 0.9, `+${comboBonus} ARQUIVISTA ${_ksBr.noteCombo}×`, '#A7F3D0');
+        } else {
+          _ksBr.noteCombo = 1;
+        }
+        _ksBr.lastNoteTime = now;
+        // Milestone: TODAS as notes desta FASE coletadas
+        const phaseNotes = _ksBr.items.filter(i => i.type === 'note');
+        const taken = phaseNotes.filter(i => i.taken).length;
+        if(taken === phaseNotes.length){
+          const milestone = 300;
+          _ksBr.score += milestone;
+          ksBrFloatText(it.x+0.5, it.y - 1.5, `+${milestone} · ARQUIVO COMPLETO!`, '#FBBF24');
+          ksBrAudioPing(1200, 0.3, 0.1);
+          setTimeout(() => ksBrAudioPing(1600, 0.4, 0.1), 150);
+        }
       } else if(it.type === 'battery'){
         _ksBr.score += 50;
         p.vision = Math.min(8, p.vision + 1.5);
@@ -113949,6 +113988,11 @@ function ksBrUpdateEntities(dt){
   const p = _ksBr.player;
   for(const e of _ksBr.entities){
     const def = e.def;
+    // Stun: entidade fica parada (decrementa stunTime e pula)
+    if(e.stunTime && e.stunTime > 0){
+      e.stunTime -= dt;
+      continue;
+    }
     const dx = p.x - e.x, dy = p.y - e.y;
     const dist = Math.hypot(dx, dy);
     // Detect: line of sight + range
@@ -114009,12 +114053,20 @@ function ksBrUpdateEntities(dt){
       p.sanity -= KS_BR.SANITY_HIT;
       p.hits++;
       p.invuln = KS_BR.HIT_INV;
+      p.panicTime = KS_BR.PANIC_DUR; // PÂNICO — speed boost pra fugir
       ksBrAudioNoise(0.3, 0.15);
-      ksBrFloatText(p.x, p.y - 0.5, `-${KS_BR.SANITY_HIT} SANIDADE`, '#EF4444');
-      // Knockback
-      const kbx = -dx/dist * 1.2, kby = -dy/dist * 1.2;
+      ksBrFloatText(p.x, p.y - 0.5, `-${KS_BR.SANITY_HIT} · PÂNICO! corre!`, '#EF4444');
+      // Knockback MAIOR pra dar espaço de fuga
+      const knockDist = 2.5;
+      const kbx = -dx/dist * knockDist, kby = -dy/dist * knockDist;
       if(ksBrCanMove(p.x + kbx, p.y)) p.x += kbx;
       if(ksBrCanMove(p.x, p.y + kby)) p.y += kby;
+      // Stun do INIMIGO também — recua e pausa breve (deixa player escapar)
+      e.x -= -dx/dist * 0.8;
+      e.y -= -dy/dist * 0.8;
+      e.seenPlayer = false;
+      e.chaseTime = 0;
+      e.stunTime = 1200; // 1.2s de stun (deixa player se afastar)
     }
   }
   // Boss check
@@ -114124,6 +114176,7 @@ function ksBrUpdateDom(){
     _ksBrDom.player.style.left = (p.x * KS_BR.TILE) + 'px';
     _ksBrDom.player.style.top  = (p.y * KS_BR.TILE) + 'px';
     _ksBrDom.player.classList.toggle('invuln', p.invuln > 0);
+    _ksBrDom.player.classList.toggle('panic', p.panicTime > 0);
     // Rotaciona o SVG conforme a direção atual
     const svg = _ksBrDom.player.querySelector('svg');
     if(svg) svg.style.transform = `rotate(${p.facing}deg)`;
@@ -114211,7 +114264,10 @@ function ksBrComputeRun(){
       bonuses.push({label:'STEALTH', desc:`só ${_ksBr.detectionCount} detecções`, value:500, color:'#A7F3D0', icon:'☆'});
     }
     bonuses.push({label:'SANE MIND', desc:`sanidade ${Math.round(p.sanity)}%`, value:Math.round(p.sanity*5), color:'#10B981', icon:'☕'});
-    bonuses.push({label:'ARCHIVIST', desc:`${_ksBr.itemsCollected} itens`, value:_ksBr.itemsCollected*30, color:'#22D3EE', icon:'📦'});
+    if(_ksBr.notesFound > 0){
+      bonuses.push({label:'DOCS RECUPERADOS', desc:`${_ksBr.notesFound} fragmentos de lore`, value:_ksBr.notesFound * 80, color:'#FBBF24', icon:'📄'});
+    }
+    bonuses.push({label:'ARCHIVIST', desc:`${_ksBr.itemsCollected} itens totais`, value:_ksBr.itemsCollected*30, color:'#22D3EE', icon:'📦'});
     if(time <= 240){
       bonuses.push({label:'NOCLIP SPEED', desc:`escapou em ${time}s`, value:Math.max(0,(240-time)*4), color:'#F472B6', icon:'⚡'});
     }
