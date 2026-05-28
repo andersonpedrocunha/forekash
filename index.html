@@ -113836,16 +113836,23 @@ function ksKnCheckHits(){
   }
 
   // Damage do player com inimigos
-  if(p.invuln <= 0){
+  // Regras:
+  //  · inimigos em hitstun (acabou de levar pancada) NÃO machucam
+  //  · enquanto o player está dando o swing (attackTime alto) ele tem i-frames
+  //  · invuln padrão também protege
+  const swingIFrame = p.attackTime > (KS_KN.ATK_DUR * 0.35); // primeiros ~65% do golpe = invuln
+  if(p.invuln <= 0 && !swingIFrame){
     for(const e of _ksKn.enemies){
       if(e.dead) continue;
+      if(e.hitTime > 0) continue; // inimigo em hitstun não machuca
       if(ksKnAABB(p.x, p.y, p.w, p.h, e.x, e.y, e.w, e.h)){
         ksKnHurtPlayer(1, e);
         break;
       }
     }
-    if(_ksKn.boss && !_ksKn.boss.dead && ksKnAABB(p.x, p.y, p.w, p.h, _ksKn.boss.x, _ksKn.boss.y, _ksKn.boss.w, _ksKn.boss.h)){
-      ksKnHurtPlayer(2, _ksKn.boss);
+    const bb = _ksKn.boss;
+    if(bb && !bb.dead && bb.hitTime <= 0 && ksKnAABB(p.x, p.y, p.w, p.h, bb.x, bb.y, bb.w, bb.h)){
+      ksKnHurtPlayer(2, bb);
     }
   }
 }
