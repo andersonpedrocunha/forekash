@@ -16212,19 +16212,24 @@
     .br-item-battery{color:#22D3EE}
     .br-item-coffee{color:#A7F3D0}
     .br-item-key{color:#FCD34D}
-    /* Entidades */
-    .br-entity{position:absolute;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:1.3rem;z-index:7;transform:translate(-50%,-50%);text-shadow:0 0 8px currentColor;filter:drop-shadow(0 2px 4px rgba(0,0,0,.8));transition:filter .2s}
-    .br-ent-auditor{color:#94A3B8}
-    .br-ent-spreadsheet{color:#10B981}
-    .br-ent-banker{color:#EF4444}
-    .br-entity.chasing{animation:brEntChase .3s steps(2) infinite;filter:drop-shadow(0 0 8px currentColor) drop-shadow(0 0 16px currentColor) saturate(2)}
-    @keyframes brEntChase{0%{transform:translate(-50%,-50%) scale(1)}50%{transform:translate(-50%,-50%) scale(1.18)}}
+    /* Entidades — agora SVG sprites top-down */
+    .br-entity{position:absolute;z-index:7;transform:translate(-50%,-50%);filter:drop-shadow(0 2px 4px rgba(0,0,0,.85));transition:filter .2s;will-change:left,top}
+    .br-entity svg{width:100%;height:100%;display:block;overflow:visible;transition:transform .1s ease-out}
+    .br-ent-auditor{filter:drop-shadow(0 0 4px rgba(148,163,184,.5)) drop-shadow(0 2px 4px rgba(0,0,0,.85))}
+    .br-ent-spreadsheet{filter:drop-shadow(0 0 4px rgba(16,185,129,.5)) drop-shadow(0 2px 4px rgba(0,0,0,.85))}
+    .br-ent-banker{filter:drop-shadow(0 0 6px rgba(239,68,68,.6)) drop-shadow(0 2px 4px rgba(0,0,0,.85))}
+    .br-entity.chasing{animation:brEntChase .35s ease-in-out infinite}
+    .br-entity.chasing.br-ent-auditor{filter:drop-shadow(0 0 10px #94A3B8) drop-shadow(0 0 18px rgba(239,68,68,.5)) drop-shadow(0 2px 4px rgba(0,0,0,.85))}
+    .br-entity.chasing.br-ent-spreadsheet{filter:drop-shadow(0 0 10px #10B981) drop-shadow(0 0 18px #10B981) drop-shadow(0 2px 4px rgba(0,0,0,.85))}
+    .br-entity.chasing.br-ent-banker{filter:drop-shadow(0 0 12px #EF4444) drop-shadow(0 0 24px #EF4444) drop-shadow(0 2px 4px rgba(0,0,0,.85))}
+    @keyframes brEntChase{0%,100%{transform:translate(-50%,-50%) scale(1)}50%{transform:translate(-50%,-50%) scale(1.12)}}
     /* Portal de saída */
     .br-portal{position:absolute;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:1.8rem;color:#FBBF24;z-index:5;transform:translate(-50%,-50%);text-shadow:0 0 10px #FBBF24,0 0 20px #FBBF24;animation:brPortal 1.4s ease-in-out infinite;filter:drop-shadow(0 0 8px #FBBF24)}
     @keyframes brPortal{0%,100%{transform:translate(-50%,-50%) scale(1) rotate(0deg);opacity:.85}50%{transform:translate(-50%,-50%) scale(1.18) rotate(180deg);opacity:1}}
-    /* Boss */
-    .br-boss{position:absolute;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:1.9rem;color:#EF4444;z-index:8;transform:translate(-50%,-50%);text-shadow:0 0 12px #EF4444,0 0 24px #EF4444;animation:brBossPulse 1.8s ease-in-out infinite;filter:drop-shadow(0 0 10px #EF4444)}
-    @keyframes brBossPulse{0%,100%{transform:translate(-50%,-50%) scale(1)}50%{transform:translate(-50%,-50%) scale(1.12)}}
+    /* Boss = SVG sprite maior, pulsa */
+    .br-boss{position:absolute;width:44px;height:44px;z-index:8;transform:translate(-50%,-50%);filter:drop-shadow(0 0 10px #EF4444) drop-shadow(0 0 20px rgba(239,68,68,.5)) drop-shadow(0 3px 5px rgba(0,0,0,.85));animation:brBossPulse 1.8s ease-in-out infinite}
+    .br-boss svg{width:100%;height:100%;display:block;overflow:visible}
+    @keyframes brBossPulse{0%,100%{transform:translate(-50%,-50%) scale(1)}50%{transform:translate(-50%,-50%) scale(1.08)}}
     /* Vignette + flicker fluorescente */
     .ks-br-vignette{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse 60% 60% at 50% 50%,transparent 30%,rgba(0,0,0,.5) 70%,rgba(0,0,0,.95) 100%);z-index:9}
     .br-flicker{position:absolute;inset:0;pointer-events:none;background:rgba(251,191,36,.04);z-index:11;animation:brFlicker 4s steps(8) infinite;mix-blend-mode:overlay}
@@ -113448,10 +113453,130 @@ const KS_BR_LEVELS = [
     epitaph:'O Banker espera. Apenas um de vocês sai.' }
 ];
 
+// SVGs dos monstros · top-down (frente aponta pra +Y, rotaciona com facing)
+const KS_BR_AUDITOR_SVG = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+  <!-- aura sinistra -->
+  <circle cx="12" cy="13" r="11" fill="#94A3B8" opacity="0.12"/>
+  <!-- braços/tentáculos finos (4) -->
+  <path d="M 4 14 Q 5 18 7 19" stroke="#1a1a1a" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+  <path d="M 20 14 Q 19 18 17 19" stroke="#1a1a1a" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+  <path d="M 6 18 Q 7 21 9 22" stroke="#1a1a1a" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+  <path d="M 18 18 Q 17 21 15 22" stroke="#1a1a1a" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+  <!-- corpo manto -->
+  <path d="M 6 9 Q 4 17 8 22 L 16 22 Q 20 17 18 9 Z" fill="#0f0f0f" stroke="#475569" stroke-width="0.5"/>
+  <!-- ombros largos -->
+  <ellipse cx="12" cy="10" rx="7" ry="2.5" fill="#1a1a1a" stroke="#475569" stroke-width="0.4"/>
+  <!-- pescoço fino -->
+  <rect x="10.5" y="8" width="3" height="3" fill="#0a0a0a"/>
+  <!-- CABEÇA = OLHO GIGANTE -->
+  <!-- glow externo (vermelho psicodélico) -->
+  <circle cx="12" cy="6" r="5.5" fill="#EF4444" opacity="0.18"/>
+  <!-- esclera -->
+  <ellipse cx="12" cy="6" rx="4.5" ry="4" fill="#e2e8f0" stroke="#0a0a0a" stroke-width="0.4"/>
+  <!-- veias vermelhas -->
+  <path d="M 8 5 Q 10 6 12 6" stroke="#EF4444" stroke-width="0.3" fill="none" opacity="0.7"/>
+  <path d="M 16 5 Q 14 6 12 6" stroke="#EF4444" stroke-width="0.3" fill="none" opacity="0.7"/>
+  <path d="M 9 8 Q 11 7 12 6" stroke="#EF4444" stroke-width="0.25" fill="none" opacity="0.6"/>
+  <path d="M 15 8 Q 13 7 12 6" stroke="#EF4444" stroke-width="0.25" fill="none" opacity="0.6"/>
+  <!-- íris cinza -->
+  <circle cx="12" cy="6" r="2.5" fill="#475569"/>
+  <circle cx="12" cy="6" r="1.8" fill="#1e293b"/>
+  <!-- pupila preta -->
+  <circle cx="12" cy="6" r="1.1" fill="#000"/>
+  <!-- highlight (brilho) -->
+  <circle cx="13" cy="5" r="0.6" fill="#fff" opacity="0.85"/>
+</svg>`;
+
+const KS_BR_SPREADSHEET_SVG = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+  <!-- aura verde -->
+  <circle cx="12" cy="12" r="11" fill="#10B981" opacity="0.14"/>
+  <!-- 8 patas (aranha) -->
+  <path d="M 4 9 Q 6 10 8 11" stroke="#022c22" stroke-width="0.9" fill="none"/>
+  <path d="M 4 13 Q 6 13 8 13" stroke="#022c22" stroke-width="0.9" fill="none"/>
+  <path d="M 4 17 Q 6 16 8 15" stroke="#022c22" stroke-width="0.9" fill="none"/>
+  <path d="M 4 21 Q 6 19 8 18" stroke="#022c22" stroke-width="0.9" fill="none"/>
+  <path d="M 20 9 Q 18 10 16 11" stroke="#022c22" stroke-width="0.9" fill="none"/>
+  <path d="M 20 13 Q 18 13 16 13" stroke="#022c22" stroke-width="0.9" fill="none"/>
+  <path d="M 20 17 Q 18 16 16 15" stroke="#022c22" stroke-width="0.9" fill="none"/>
+  <path d="M 20 21 Q 18 19 16 18" stroke="#022c22" stroke-width="0.9" fill="none"/>
+  <!-- corpo = planilha (grid) -->
+  <rect x="6.5" y="8.5" width="11" height="11" rx="0.5" fill="#0d2218" stroke="#10B981" stroke-width="0.4"/>
+  <rect x="7" y="9" width="10" height="10" fill="#1f3d2e"/>
+  <!-- linhas verticais do grid -->
+  <line x1="9.5" y1="9" x2="9.5" y2="19" stroke="#022c22" stroke-width="0.35"/>
+  <line x1="12" y1="9" x2="12" y2="19" stroke="#022c22" stroke-width="0.35"/>
+  <line x1="14.5" y1="9" x2="14.5" y2="19" stroke="#022c22" stroke-width="0.35"/>
+  <!-- linhas horizontais -->
+  <line x1="7" y1="11.5" x2="17" y2="11.5" stroke="#022c22" stroke-width="0.35"/>
+  <line x1="7" y1="14" x2="17" y2="14" stroke="#022c22" stroke-width="0.35"/>
+  <line x1="7" y1="16.5" x2="17" y2="16.5" stroke="#022c22" stroke-width="0.35"/>
+  <!-- header row destacada -->
+  <rect x="7" y="9" width="10" height="1.5" fill="#10B981" opacity="0.35"/>
+  <!-- "números" nas células -->
+  <text x="8.2" y="13" font-family="monospace" font-size="1.6" fill="#A7F3D0" opacity="0.85">3</text>
+  <text x="10.7" y="13" font-family="monospace" font-size="1.6" fill="#FBBF24">7</text>
+  <text x="13.2" y="13" font-family="monospace" font-size="1.6" fill="#A7F3D0" opacity="0.85">9</text>
+  <text x="15.7" y="13" font-family="monospace" font-size="1.6" fill="#EF4444">×</text>
+  <text x="8.2" y="15.5" font-family="monospace" font-size="1.6" fill="#A7F3D0" opacity="0.7">8</text>
+  <text x="13.2" y="15.5" font-family="monospace" font-size="1.6" fill="#FBBF24">∞</text>
+  <text x="10.7" y="18" font-family="monospace" font-size="1.6" fill="#EF4444">!</text>
+  <text x="15.7" y="18" font-family="monospace" font-size="1.6" fill="#A7F3D0" opacity="0.6">2</text>
+  <!-- "olhos" no topo (2 LEDs predatórios) -->
+  <ellipse cx="9.5" cy="7.5" rx="0.9" ry="0.7" fill="#000"/>
+  <ellipse cx="14.5" cy="7.5" rx="0.9" ry="0.7" fill="#000"/>
+  <circle cx="9.5" cy="7.5" r="0.45" fill="#EF4444"/>
+  <circle cx="14.5" cy="7.5" r="0.45" fill="#EF4444"/>
+  <!-- mandíbulas/presas embaixo -->
+  <polygon points="10,19.5 11,21 11.5,19.5" fill="#0a0a0a"/>
+  <polygon points="13.5,19.5 13,21 14,19.5" fill="#0a0a0a"/>
+</svg>`;
+
+const KS_BR_BANKER_SVG = `<svg viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+  <!-- aura vermelha boss -->
+  <circle cx="14" cy="14" r="13" fill="#EF4444" opacity="0.18"/>
+  <!-- sombra grande -->
+  <ellipse cx="14" cy="25" rx="8" ry="1.6" fill="#000" opacity="0.55"/>
+  <!-- "braços" longos com mãos -->
+  <path d="M 5 16 Q 4 21 7 24" stroke="#1a0505" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+  <path d="M 23 16 Q 24 21 21 24" stroke="#1a0505" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+  <!-- maleta dourada na mão direita (corner) -->
+  <rect x="20" y="22" width="4.5" height="3" fill="#3f1f0a" stroke="#FBBF24" stroke-width="0.4"/>
+  <rect x="21.5" y="21.4" width="1.5" height="0.7" fill="#3f1f0a" stroke="#FBBF24" stroke-width="0.3"/>
+  <circle cx="22.25" cy="23.5" r="0.25" fill="#FBBF24"/>
+  <!-- corpo terno -->
+  <path d="M 8 13 Q 5 22 10 26 L 18 26 Q 23 22 20 13 Z" fill="#1a0505" stroke="#7f1d1d" stroke-width="0.5"/>
+  <!-- ombros largos -->
+  <ellipse cx="14" cy="14" rx="8" ry="3" fill="#0a0a0a" stroke="#7f1d1d" stroke-width="0.4"/>
+  <!-- gravata vermelha -->
+  <polygon points="13,15 15,15 14.5,21 13.5,21" fill="#EF4444" stroke="#7f1d1d" stroke-width="0.3"/>
+  <polygon points="13.5,14 14.5,14 14,15.5 14,15.5" fill="#991b1b"/>
+  <!-- colarinho branco hint -->
+  <polygon points="13,14 14,15 15,14 14.5,13.5 13.5,13.5" fill="#e2e8f0" opacity="0.3"/>
+  <!-- pescoço -->
+  <rect x="12.5" y="11" width="3" height="2.5" fill="#0a0505"/>
+  <!-- CABEÇA -->
+  <ellipse cx="14" cy="9" rx="4" ry="4" fill="#0a0a0a" stroke="#7f1d1d" stroke-width="0.5"/>
+  <!-- rosto vazio (void) com 1 olho vermelho -->
+  <ellipse cx="14" cy="9.5" rx="2.5" ry="2" fill="#000"/>
+  <circle cx="14" cy="9.5" r="1.4" fill="#EF4444"/>
+  <circle cx="14" cy="9.5" r="0.7" fill="#fbbf24" opacity="0.9"/>
+  <circle cx="14" cy="9.5" r="0.3" fill="#000"/>
+  <!-- CARTOLA -->
+  <rect x="9" y="2.5" width="10" height="4.5" fill="#000" stroke="#EF4444" stroke-width="0.5"/>
+  <rect x="9" y="2.5" width="10" height="0.5" fill="#1a0505"/>
+  <!-- aba do chapéu -->
+  <rect x="7" y="6.5" width="14" height="1.5" fill="#000" stroke="#EF4444" stroke-width="0.45"/>
+  <!-- faixa vermelha do chapéu -->
+  <rect x="9" y="5.5" width="10" height="0.8" fill="#7f1d1d"/>
+  <rect x="9" y="5.5" width="10" height="0.4" fill="#EF4444"/>
+  <!-- highlight do chapéu -->
+  <rect x="9.5" y="3" width="0.6" height="2" fill="#1a0505"/>
+</svg>`;
+
 const KS_BR_ENTITY_DEFS = {
-  auditor:    { icon:'👁', name:'THE AUDITOR',    speed:1.3, vision:5, ai:'cone',   color:'#94A3B8' },
-  spreadsheet:{ icon:'📊', name:'THE SPREADSHEET',speed:2.2, vision:3, ai:'sound',  color:'#10B981' },
-  banker:     { icon:'🎩', name:'THE BANKER',     speed:1.5, vision:6, ai:'cone',   color:'#EF4444' }
+  auditor:    { svg:KS_BR_AUDITOR_SVG,    name:'THE AUDITOR',    speed:1.3, vision:5, ai:'cone',   color:'#94A3B8', size:28 },
+  spreadsheet:{ svg:KS_BR_SPREADSHEET_SVG,name:'THE SPREADSHEET',speed:2.2, vision:3, ai:'sound',  color:'#10B981', size:28 },
+  banker:     { svg:KS_BR_BANKER_SVG,     name:'THE BANKER',     speed:1.5, vision:6, ai:'cone',   color:'#EF4444', size:38 }
 };
 
 // SVG do dev (top-down). Frente do personagem aponta pra BAIXO (Y+).
@@ -113700,11 +113825,12 @@ function ksBrLoadPhase(idx){
       const c = pickCell();
       if(!c) break;
       _ksBr.entities.push({
-        type:lv.entityType, def, icon:def.icon,
+        type:lv.entityType, def,
         x:c.x+0.5, y:c.y+0.5, vx:0, vy:0,
         seenPlayer:false, chaseTime:0,
         wanderDir: Math.random() * Math.PI * 2,
-        wanderTimer: 0
+        wanderTimer: 0,
+        facing: 90 // graus, frente do SVG aponta pra +Y
       });
     }
   }
@@ -113848,13 +113974,15 @@ function ksBrUpdateEntities(dt){
       e.chaseTime -= dt;
       if(e.chaseTime <= 0) e.seenPlayer = false;
     }
-    // Move
+    // Move + atualiza facing
+    let moveDirRad = null;
     if(e.seenPlayer && dist > 0.1){
       const sp = def.speed * (dt/1000);
       const mx = dx/dist, my = dy/dist;
       const nx = e.x + mx*sp, ny = e.y + my*sp;
       if(ksBrCanMove(nx, e.y, 0.3)) e.x = nx;
       if(ksBrCanMove(e.x, ny, 0.3)) e.y = ny;
+      moveDirRad = Math.atan2(my, mx);
     } else {
       // Wander
       e.wanderTimer -= dt;
@@ -113863,12 +113991,19 @@ function ksBrUpdateEntities(dt){
         e.wanderTimer = 1500 + Math.random()*1500;
       }
       const sp = def.speed * 0.5 * (dt/1000);
-      const nx = e.x + Math.cos(e.wanderDir)*sp;
-      const ny = e.y + Math.sin(e.wanderDir)*sp;
+      const mx = Math.cos(e.wanderDir), my = Math.sin(e.wanderDir);
+      const nx = e.x + mx*sp;
+      const ny = e.y + my*sp;
       if(ksBrCanMove(nx, e.y, 0.3)) e.x = nx;
       else e.wanderDir = Math.random() * Math.PI * 2;
       if(ksBrCanMove(e.x, ny, 0.3)) e.y = ny;
       else e.wanderDir = Math.random() * Math.PI * 2;
+      moveDirRad = e.wanderDir;
+    }
+    if(moveDirRad != null){
+      const target = moveDirRad * 180/Math.PI - 90;
+      let diff = ((target - e.facing + 540) % 360) - 180;
+      e.facing = (e.facing + diff * 0.2 + 360) % 360;
     }
     // Catch
     if(p.invuln <= 0 && Math.abs(dx) < 0.6 && Math.abs(dy) < 0.6){
@@ -114001,6 +114136,8 @@ function ksBrUpdateDom(){
     el.style.left = (e.x * KS_BR.TILE) + 'px';
     el.style.top  = (e.y * KS_BR.TILE) + 'px';
     el.classList.toggle('chasing', e.seenPlayer);
+    const svg = el.querySelector('svg');
+    if(svg) svg.style.transform = `rotate(${e.facing}deg)`;
   });
   // Items
   _ksBr.items.forEach((it, i) => {
@@ -114210,17 +114347,18 @@ function ksBrRender(){
   _ksBr.items.forEach((it, i) => {
     itemsHtml += `<div class="br-item br-item-${it.type}" data-i="${i}" style="left:${(it.x+0.5)*KS_BR.TILE}px;top:${(it.y+0.5)*KS_BR.TILE}px">${it.icon}</div>`;
   });
-  // Entities
+  // Entities — SVG sprites com size dinâmico
   let entHtml = '';
   _ksBr.entities.forEach((e, i) => {
-    entHtml += `<div class="br-entity br-ent-${e.type}" data-i="${i}" style="left:${e.x*KS_BR.TILE}px;top:${e.y*KS_BR.TILE}px">${e.icon}</div>`;
+    const sz = e.def.size || 28;
+    entHtml += `<div class="br-entity br-ent-${e.type}" data-i="${i}" style="left:${e.x*KS_BR.TILE}px;top:${e.y*KS_BR.TILE}px;width:${sz}px;height:${sz}px">${e.def.svg}</div>`;
   });
   // Portal
   const pt = _ksBr.portal;
   const portalHtml = pt ? `<div class="br-portal" style="left:${(pt.x+0.5)*KS_BR.TILE}px;top:${(pt.y+0.5)*KS_BR.TILE}px">⬡</div>` : '';
-  // Boss
+  // Boss = THE BANKER (mesmo SVG)
   const bs = _ksBr.bossState;
-  const bossHtml = (bs && !bs.defeated) ? `<div class="br-boss" style="left:${bs.x*KS_BR.TILE}px;top:${bs.y*KS_BR.TILE}px">🎩</div>` : '';
+  const bossHtml = (bs && !bs.defeated) ? `<div class="br-boss" style="left:${bs.x*KS_BR.TILE}px;top:${bs.y*KS_BR.TILE}px">${KS_BR_BANKER_SVG}</div>` : '';
 
   main.innerHTML = `<div class="ks-sala">
     <button class="ks-jg-back" onclick="ksJgBackToLobby()">← voltar pro lobby</button>
