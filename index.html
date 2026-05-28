@@ -92727,7 +92727,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779937402';
+      const CACHE = 'forekash-v1779938398';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -95518,8 +95518,9 @@ function comRecListRender(){
       ? '<span style="background:#7C3AED22;color:#A78BFA;padding:2px 8px;border-radius:6px;font-size:.66rem;font-weight:700;margin-left:4px">⚡ AUTO-NF</span>' : '';
     const upgrades = ((a.changes||[]).length);
     const health = _comHealthForAssinatura(a);
-    const healthBadge = health.color ? `<span title="${health.label}" style="background:${health.color}22;color:${health.color};padding:2px 8px;border-radius:6px;font-size:.66rem;font-weight:700;margin-left:4px">${health.emoji} ${health.label}</span>` : '';
-    html += `<div class="com-card">
+    const healthTip = health.score!=null ? `Customer Health Score: ${health.score}/100 (${health.label}). Clique pra ver detalhes.` : '';
+    const healthBadge = health.color ? `<span onclick="event.stopPropagation();comRecHealthDetail(${a.id})" title="${healthTip}" style="background:${health.color}22;color:${health.color};padding:2px 8px;border-radius:6px;font-size:.66rem;font-weight:700;margin-left:4px;cursor:pointer">${health.emoji} ${health.label}${health.score!=null?' · '+health.score:''}</span>` : '';
+    html += `<div class="com-card" ondblclick="comRecOpenDetail(${a.id})" title="Click duplo pra ver detalhes da assinatura">
       <div class="com-card-ico rec">🔄</div>
       <div style="flex:1;min-width:0">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
@@ -95528,7 +95529,7 @@ function comRecListRender(){
         </div>
         <div style="color:#94A3B8;font-size:.78rem">${_comEsc(a.descricao||'Assinatura mensal')} · dia ${a.diaVenc} · ${totalGer} gerada(s) · última: ${ultMs}${upgrades?' · '+upgrades+' upgrade(s)':''}</div>
       </div>
-      <div style="text-align:right">
+      <div style="text-align:right" onclick="event.stopPropagation()" ondblclick="event.stopPropagation()">
         <div style="font-weight:700;color:#10B981;font-size:1rem">${_comFmtBRL(a.valor)}/mês</div>
         <div style="display:flex;gap:4px;margin-top:6px;justify-content:flex-end;flex-wrap:wrap">
           <button class="btn btn-sec" style="padding:4px 10px;font-size:.7rem" onclick="comRecUpgrade(${a.id})" title="Mudar valor (registra histórico)">↕ Up/Down</button>
@@ -95748,6 +95749,119 @@ function comRecHistOpen(id){
   // Modal sem botão salvar
   _fkModalInfo('📊 Histórico · '+a.cliente, html);
 }
+
+// Detalhe completo da assinatura (click duplo)
+function comRecOpenDetail(id){
+  const a = COM.assinaturas.find(x => x.id===id); if(!a) return;
+  const health = _comHealthForAssinatura(a);
+  const totalGer = (a.hist||[]).length;
+  const ultGer = a.ultimaGer ? a.ultimaGer.slice(0,10) : '—';
+  const mesesAtivos = a.criadoEm ? Math.max(1, Math.round((Date.now()-a.criadoEm)/(30*86400000))) : 1;
+  const receitaTotal = totalGer * a.valor;
+  const ltv12m = a.valor * 12;
+  const ltv24m = a.valor * 24;
+  const upgradesPos = (a.changes||[]).filter(c => c.delta > 0).length;
+  const upgradesNeg = (a.changes||[]).filter(c => c.delta < 0).length;
+  let cobAtrasadas = 0;
+  try{
+    if(typeof ASAAS !== 'undefined' && Array.isArray(ASAAS.cobrancas)){
+      const hoje = new Date().toISOString().slice(0,10);
+      cobAtrasadas = ASAAS.cobrancas.filter(c => c.assinaturaId===a.id && c.status==='pendente' && c.vencimento && c.vencimento < hoje).length;
+    }
+  }catch(_){}
+  const html = `<div style="color:#E5E7EB">
+    <!-- HEADER -->
+    <div style="display:flex;gap:14px;align-items:center;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid #334155">
+      <div style="width:54px;height:54px;border-radius:12px;background:#10B98122;color:#10B981;display:flex;align-items:center;justify-content:center;font-size:24px">🔄</div>
+      <div style="flex:1">
+        <h2 style="margin:0;font-size:1.2rem;color:#fff">${_comEsc(a.cliente)}</h2>
+        <div style="color:#94A3B8;font-size:.84rem;margin-top:2px">${_comEsc(a.descricao||'Assinatura mensal')}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:1.5rem;font-weight:800;color:#10B981">${_comFmtBRL(a.valor)}</div>
+        <div style="color:#94A3B8;font-size:.74rem">/mês</div>
+      </div>
+    </div>
+    <!-- KPIs -->
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:14px">
+      <div style="background:#0F172A;padding:10px;border-radius:8px"><div style="color:#94A3B8;font-size:.66rem;letter-spacing:1.5px;font-weight:700">STATUS</div><div style="font-size:.9rem;font-weight:700;color:${a.ativa?'#10B981':'#94A3B8'};margin-top:2px">${a.ativa?'ATIVA':'PAUSADA'}</div></div>
+      <div style="background:#0F172A;padding:10px;border-radius:8px"><div style="color:#94A3B8;font-size:.66rem;letter-spacing:1.5px;font-weight:700">MESES ATIVOS</div><div style="font-size:.9rem;font-weight:700;color:#fff;margin-top:2px">${mesesAtivos}m</div></div>
+      <div style="background:#0F172A;padding:10px;border-radius:8px"><div style="color:#94A3B8;font-size:.66rem;letter-spacing:1.5px;font-weight:700">COBRANÇAS</div><div style="font-size:.9rem;font-weight:700;color:#fff;margin-top:2px">${totalGer} ${cobAtrasadas?'<span style="color:#EF4444;font-size:.7rem">('+cobAtrasadas+'⚠)</span>':''}</div></div>
+      <div style="background:#0F172A;padding:10px;border-radius:8px"><div style="color:#94A3B8;font-size:.66rem;letter-spacing:1.5px;font-weight:700">HEALTH</div><div style="font-size:.9rem;font-weight:700;color:${health.color||'#94A3B8'};margin-top:2px">${health.emoji||''} ${health.score||'—'}/100</div></div>
+    </div>
+    <!-- DADOS -->
+    <h3 style="font-size:.84rem;color:#10B981;margin:14px 0 8px;letter-spacing:.3px">📋 Dados</h3>
+    <table style="width:100%;font-size:.82rem;background:#0F172A;border-radius:8px;padding:6px">
+      <tr><td style="padding:6px 12px;color:#94A3B8">Dia de vencimento</td><td style="padding:6px 12px;text-align:right;color:#fff;font-weight:600">${a.diaVenc}</td></tr>
+      <tr style="border-top:1px solid #334155"><td style="padding:6px 12px;color:#94A3B8">Auto-emit NF</td><td style="padding:6px 12px;text-align:right;color:${a.autoEmitNF?'#10B981':'#94A3B8'};font-weight:600">${a.autoEmitNF?'✓ ativado':'desativado'}</td></tr>
+      <tr style="border-top:1px solid #334155"><td style="padding:6px 12px;color:#94A3B8">Reajuste</td><td style="padding:6px 12px;text-align:right;color:#fff;font-weight:600">${a.reajusteIdx?a.reajusteIdx.toUpperCase()+' (mês '+a.reajusteMes+')':'não configurado'}</td></tr>
+      <tr style="border-top:1px solid #334155"><td style="padding:6px 12px;color:#94A3B8">Criada em</td><td style="padding:6px 12px;text-align:right;color:#fff;font-weight:600">${a.criadoEm?new Date(a.criadoEm).toLocaleDateString('pt-BR'):'—'}</td></tr>
+      <tr style="border-top:1px solid #334155"><td style="padding:6px 12px;color:#94A3B8">Última cobrança gerada</td><td style="padding:6px 12px;text-align:right;color:#fff;font-weight:600">${ultGer}</td></tr>
+    </table>
+    <!-- MÉTRICAS -->
+    <h3 style="font-size:.84rem;color:#10B981;margin:14px 0 8px;letter-spacing:.3px">💎 Métricas</h3>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+      <div style="background:#0F172A;padding:12px;border-radius:8px"><div style="color:#94A3B8;font-size:.66rem;letter-spacing:1.5px;font-weight:700">RECEITA TOTAL</div><div style="font-size:1rem;color:#10B981;font-weight:800;margin-top:2px">${_comFmtBRL(receitaTotal)}</div></div>
+      <div style="background:#0F172A;padding:12px;border-radius:8px"><div style="color:#94A3B8;font-size:.66rem;letter-spacing:1.5px;font-weight:700">LTV 12m</div><div style="font-size:1rem;color:#3B82F6;font-weight:800;margin-top:2px">${_comFmtBRL(ltv12m)}</div></div>
+      <div style="background:#0F172A;padding:12px;border-radius:8px"><div style="color:#94A3B8;font-size:.66rem;letter-spacing:1.5px;font-weight:700">LTV 24m</div><div style="font-size:1rem;color:#A78BFA;font-weight:800;margin-top:2px">${_comFmtBRL(ltv24m)}</div></div>
+    </div>
+    ${upgradesPos+upgradesNeg>0 ? `<p style="color:#94A3B8;font-size:.74rem;margin:10px 0 0;text-align:center">⬆ ${upgradesPos} upgrades · ⬇ ${upgradesNeg} downgrades</p>` : ''}
+    <!-- AÇÕES -->
+    <div style="display:flex;gap:6px;margin-top:18px;flex-wrap:wrap">
+      <button class="btn btn-sec" onclick="document.querySelector('[id^=_fkmi]')?.closest('[style*=fixed]')?.remove();comRecUpgrade(${a.id})" style="flex:1;padding:8px;font-size:.78rem">↕ Up/Down</button>
+      <button class="btn btn-sec" onclick="document.querySelector('[id^=_fkmi]')?.closest('[style*=fixed]')?.remove();comRecHistOpen(${a.id})" style="flex:1;padding:8px;font-size:.78rem">📊 Histórico</button>
+      <button class="btn btn-sec" onclick="document.querySelector('[id^=_fkmi]')?.closest('[style*=fixed]')?.remove();comRecToggle(${a.id})" style="flex:1;padding:8px;font-size:.78rem">${a.ativa?'⏸ Pausar':'▶️ Reativar'}</button>
+    </div>
+  </div>`;
+  _fkModalInfo('Detalhes da assinatura', html);
+}
+
+// Detalhe do Health Score (badge clicável)
+function comRecHealthDetail(id){
+  const a = COM.assinaturas.find(x => x.id===id); if(!a) return;
+  const h = _comHealthForAssinatura(a);
+  let cobAtrasadas = 0;
+  try{
+    if(typeof ASAAS !== 'undefined' && Array.isArray(ASAAS.cobrancas)){
+      const hoje = new Date().toISOString().slice(0,10);
+      cobAtrasadas = ASAAS.cobrancas.filter(c => c.assinaturaId===a.id && c.status==='pendente' && c.vencimento && c.vencimento < hoje).length;
+    }
+  }catch(_){}
+  const upgrades = (a.changes||[]).filter(c => c.delta > 0).length;
+  const totalGer = (a.hist||[]).length;
+  // Breakdown do score (segue a lógica de _comCalcHealthScores)
+  const breakdown = [
+    { label:'Status ativo', valor: a.ativa?'+20':'0', cor:a.ativa?'#10B981':'#94A3B8' },
+    { label:'Upgrades feitos', valor: upgrades?'+'+(upgrades*8):'0', cor:upgrades?'#10B981':'#94A3B8', detail:`${upgrades} upgrade(s)` },
+    { label:'Histórico de pagamentos', valor: '+'+Math.min(20, totalGer), cor:totalGer>=10?'#10B981':'#F59E0B', detail:`${totalGer} cobranças geradas` },
+    { label:'Cobranças atrasadas', valor: cobAtrasadas?'-'+(cobAtrasadas*20):'0', cor:cobAtrasadas?'#EF4444':'#10B981', detail:`${cobAtrasadas} atrasada(s)` }
+  ];
+  const html = `<div style="color:#E5E7EB">
+    <div style="text-align:center;margin-bottom:18px">
+      <div style="font-size:48px">${h.emoji||'💛'}</div>
+      <h2 style="margin:6px 0 4px;font-size:1.2rem;color:${h.color||'#F59E0B'}">${h.label||'Atenção'} · ${h.score||50}/100</h2>
+      <small style="color:#94A3B8">Customer Health Score · ${_comEsc(a.cliente)}</small>
+    </div>
+    <div style="background:#0F172A;padding:14px;border-radius:8px;margin-bottom:12px">
+      <p style="margin:0 0 10px;font-size:.84rem;color:#94A3B8">O score começa em 50 e ajusta baseado em sinais:</p>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${breakdown.map(b => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#1E293B;border-radius:6px;font-size:.82rem">
+          <span><b>${b.label}</b>${b.detail?`<br><small style="color:#64748B;font-size:.7rem">${b.detail}</small>`:''}</span>
+          <span style="color:${b.cor};font-weight:800;font-family:'JetBrains Mono',monospace">${b.valor}</span>
+        </div>`).join('')}
+      </div>
+    </div>
+    <div style="background:${h.color||'#F59E0B'}11;border-left:3px solid ${h.color||'#F59E0B'};padding:12px 14px;border-radius:8px;color:#E5E7EB;font-size:.84rem;line-height:1.5">
+      <b style="color:${h.color||'#F59E0B'}">${h.emoji||'💛'} ${h.label||'Atenção'}:</b>
+      ${h.label==='Saudável' ? 'Cliente em ótimo estado. Continue cultivando.' :
+        h.label==='Atenção' ? 'Cliente em zona de alerta. Vale uma ligação pra checar satisfação.' :
+        'Cliente em risco de churn. Ação imediata recomendada.'}
+    </div>
+  </div>`;
+  _fkModalInfo('💚 Customer Health Score', html);
+}
+try{ window.comRecOpenDetail = comRecOpenDetail; window.comRecHealthDetail = comRecHealthDetail; }catch(_){}
+
 function comRecGenerateNow(){
   const hoje = new Date();
   const ym   = hoje.toISOString().slice(0,7);
@@ -95792,36 +95906,96 @@ function comRecGenerateNow(){
 }
 // T2: Reajuste anual em massa
 function comRecReajusteRun(){
-  const elegiveis = COM.assinaturas.filter(a => a.ativa && a.reajusteIdx);
-  if(!elegiveis.length){ alert('Nenhuma assinatura tem reajuste configurado. Configure em cada assinatura (campo "Reajuste anual").'); return; }
+  // 3 modos: índice configurado | percentual customizado | aplicar em escolhidas
+  const ativas = COM.assinaturas.filter(a => a.ativa);
+  if(!ativas.length){ fkAlert({title:'Sem assinaturas', message:'Não há assinaturas ativas pra reajustar.'}); return; }
+  const elegiveis = ativas.filter(a => a.reajusteIdx);
   let html = `<div style="color:#E5E7EB">
-    <p style="font-size:.86rem;margin:0 0 12px">Aplicar reajuste agora em <b>${elegiveis.length}</b> assinatura(s)?</p>
-    <div style="background:#0F172A;border-radius:8px;padding:14px;max-height:300px;overflow:auto">`;
-  elegiveis.forEach(a => {
-    const pct = a.reajusteIdx==='ipca'?4:a.reajusteIdx==='igpm'?6:a.reajusteIdx==='fixo5'?5:a.reajusteIdx==='fixo10'?10:0;
-    const novo = Math.round(a.valor*(1+pct/100)*100)/100;
-    html += `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #334155;font-size:.8rem">
-      <span>${_comEsc(a.cliente)}</span>
-      <span style="color:#94A3B8">${a.reajusteIdx.toUpperCase()} · +${pct}%</span>
-      <span>${_comFmtBRL(a.valor)} → <b style="color:#10B981">${_comFmtBRL(novo)}</b></span>
-    </div>`;
-  });
-  html += '</div></div>';
+    <p style="font-size:.86rem;margin:0 0 14px">Escolha o modo de reajuste:</p>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+      <label style="display:flex;gap:10px;align-items:flex-start;background:#0F172A;padding:10px 14px;border-radius:8px;cursor:pointer;border:1px solid transparent;transition:border .15s" onmouseover="this.style.borderColor='#10B98144'" onmouseout="this.style.borderColor='transparent'">
+        <input type="radio" name="rea-modo" value="idx" checked onchange="_reaPreviewUpdate()" style="margin-top:3px">
+        <div style="flex:1">
+          <b style="color:#10B981">📊 Usar índice configurado por assinatura</b>
+          <div style="color:#94A3B8;font-size:.74rem;margin-top:2px">Cada assinatura usa seu próprio (IPCA/IGPM/Fixo). ${elegiveis.length}/${ativas.length} com índice configurado.</div>
+        </div>
+      </label>
+      <label style="display:flex;gap:10px;align-items:flex-start;background:#0F172A;padding:10px 14px;border-radius:8px;cursor:pointer;border:1px solid transparent;transition:border .15s" onmouseover="this.style.borderColor='#A78BFA44'" onmouseout="this.style.borderColor='transparent'">
+        <input type="radio" name="rea-modo" value="custom" onchange="_reaPreviewUpdate()" style="margin-top:3px">
+        <div style="flex:1">
+          <b style="color:#A78BFA">🎯 Percentual customizado em massa</b>
+          <div style="color:#94A3B8;font-size:.74rem;margin-top:2px">Aplica o mesmo % em TODAS as ${ativas.length} assinaturas ativas (ignora índice).</div>
+          <input type="number" id="rea-pct" value="10" min="-50" max="100" step="0.5" oninput="_reaPreviewUpdate()" onclick="document.querySelector('input[value=custom]').checked=true;_reaPreviewUpdate()" style="width:100px;padding:6px 10px;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#A78BFA;font-weight:700;margin-top:6px;font-size:.92rem;text-align:center"> %
+        </div>
+      </label>
+    </div>
+    <div id="rea-preview" style="background:#0F172A;border-radius:8px;padding:14px;max-height:280px;overflow:auto"></div>
+  </div>`;
   _fkModal('📈 Reajuste anual', html, () => {
-    elegiveis.forEach(a => {
-      const pct = a.reajusteIdx==='ipca'?4:a.reajusteIdx==='igpm'?6:a.reajusteIdx==='fixo5'?5:a.reajusteIdx==='fixo10'?10:0;
-      const novo = Math.round(a.valor*(1+pct/100)*100)/100;
-      a.changes = a.changes || [];
-      a.changes.push({ ts:Date.now(), from:a.valor, to:novo, motivo:`Reajuste anual ${a.reajusteIdx.toUpperCase()} (+${pct}%)`, delta:novo-a.valor });
-      a.valor = novo;
-    });
+    const modo = (document.querySelector('input[name="rea-modo"]:checked')||{}).value || 'idx';
+    const pctCustom = parseFloat((document.getElementById('rea-pct')||{}).value) || 0;
+    let n = 0;
+    if(modo === 'idx'){
+      elegiveis.forEach(a => {
+        const pct = a.reajusteIdx==='ipca'?4:a.reajusteIdx==='igpm'?6:a.reajusteIdx==='fixo5'?5:a.reajusteIdx==='fixo10'?10:0;
+        const novo = Math.round(a.valor*(1+pct/100)*100)/100;
+        a.changes = a.changes || [];
+        a.changes.push({ ts:Date.now(), from:a.valor, to:novo, motivo:`Reajuste anual ${a.reajusteIdx.toUpperCase()} (+${pct}%)`, delta:novo-a.valor });
+        a.valor = novo;
+        n++;
+      });
+    } else {
+      ativas.forEach(a => {
+        const novo = Math.round(a.valor*(1+pctCustom/100)*100)/100;
+        a.changes = a.changes || [];
+        a.changes.push({ ts:Date.now(), from:a.valor, to:novo, motivo:`Reajuste customizado (${pctCustom>=0?'+':''}${pctCustom}%)`, delta:novo-a.valor });
+        a.valor = novo;
+        n++;
+      });
+    }
     comSave();
     comRecListRender();
-    if(typeof notifPush==='function') notifPush({titulo:'📈 Reajuste aplicado', msg:`${elegiveis.length} assinaturas reajustadas`});
-    if(typeof auditLog==='function') auditLog('comercial', `aplicou reajuste anual em ${elegiveis.length} assinaturas`);
+    if(typeof fkToast==='function') fkToast(`📈 Reajuste aplicado em ${n} assinatura(s)`, 'ok', 3500);
+    if(typeof notifPush==='function') notifPush({titulo:'📈 Reajuste aplicado', msg:`${n} assinaturas reajustadas`});
+    if(typeof auditLog==='function') auditLog('comercial', `reajuste ${modo}: ${n} assinaturas` + (modo==='custom'?` ${pctCustom}%`:''));
     return true;
   });
+  setTimeout(_reaPreviewUpdate, 80);
 }
+// Atualiza preview do reajuste
+function _reaPreviewUpdate(){
+  const modo = (document.querySelector('input[name="rea-modo"]:checked')||{}).value || 'idx';
+  const pctCustom = parseFloat((document.getElementById('rea-pct')||{}).value) || 0;
+  const el = document.getElementById('rea-preview');
+  if(!el) return;
+  const ativas = COM.assinaturas.filter(a => a.ativa);
+  const elegiveis = ativas.filter(a => a.reajusteIdx);
+  const lista = modo === 'idx' ? elegiveis : ativas;
+  if(!lista.length){
+    el.innerHTML = '<p style="color:#F59E0B;font-size:.82rem;text-align:center;padding:20px">Nenhuma assinatura elegível neste modo.</p>';
+    return;
+  }
+  let total = 0;
+  el.innerHTML = lista.map(a => {
+    let pct = pctCustom;
+    let lbl = (pctCustom>=0?'+':'')+pctCustom+'%';
+    if(modo === 'idx'){
+      pct = a.reajusteIdx==='ipca'?4:a.reajusteIdx==='igpm'?6:a.reajusteIdx==='fixo5'?5:a.reajusteIdx==='fixo10'?10:0;
+      lbl = a.reajusteIdx.toUpperCase()+' · +'+pct+'%';
+    }
+    const novo = Math.round(a.valor*(1+pct/100)*100)/100;
+    total += (novo - a.valor);
+    return `<div style="display:grid;grid-template-columns:1.2fr .8fr 1fr;gap:10px;padding:6px 0;border-bottom:1px solid #334155;font-size:.8rem">
+      <span>${_comEsc(a.cliente)}</span>
+      <span style="color:#94A3B8">${lbl}</span>
+      <span style="text-align:right">${_comFmtBRL(a.valor)} → <b style="color:${novo>=a.valor?'#10B981':'#F59E0B'}">${_comFmtBRL(novo)}</b></span>
+    </div>`;
+  }).join('') + `<div style="margin-top:10px;padding-top:10px;border-top:2px solid #10B981;display:flex;justify-content:space-between;font-weight:800">
+    <span>Impacto MRR</span>
+    <span style="color:${total>=0?'#10B981':'#F59E0B'}">${total>=0?'+':''}${_comFmtBRL(total)}/mês</span>
+  </div>`;
+}
+try{ window._reaPreviewUpdate = _reaPreviewUpdate; }catch(_){}
 
 // Hook chamado por asaasMarkPaid: emite NF automaticamente se assinatura tem autoEmitNF
 function comOnPaymentReceived(cob){
@@ -96251,20 +96425,26 @@ function comContListRender(){
       ? `<span style="background:#10B98122;color:#10B981;padding:2px 8px;border-radius:6px;font-size:.66rem;font-weight:700;margin-left:4px">🔗 ${_comEsc(vincAss)}</span>` : '';
     const renBadge = c.renovaAuto
       ? '<span style="background:#7C3AED22;color:#A78BFA;padding:2px 8px;border-radius:6px;font-size:.66rem;font-weight:700;margin-left:4px">🔄 RENOVA AUTO</span>' : '';
-    html += `<div class="com-card" style="border-left:3px solid ${cor}">
+    const anexCount = Array.isArray(c.anexos) ? c.anexos.length : 0;
+    const anexBadge = anexCount
+      ? `<span style="background:#06B6D422;color:#22D3EE;padding:2px 8px;border-radius:6px;font-size:.66rem;font-weight:700;margin-left:4px">📎 ${anexCount}</span>` : '';
+    html += `<div class="com-card" ondblclick="comContratoOpenDetail(${c.id})" title="Click duplo pra ver detalhes e gerar minuta" style="border-left:3px solid ${cor};cursor:pointer">
       <div class="com-card-ico cont">📄</div>
       <div style="flex:1;min-width:0">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
           <strong>${_comEsc(c.titulo)}</strong>
           <span style="background:${cor}22;color:${cor};padding:2px 8px;border-radius:6px;font-size:.66rem;font-weight:700">${statusLbl[c.status]||'—'}</span>
-          ${vincBadge}${renBadge}
+          ${vincBadge}${renBadge}${anexBadge}
         </div>
         <div style="color:#94A3B8;font-size:.78rem">${_comEsc(c.contraparte)} · ${_comEsc(c.tipo)} · ${_comEsc(c.inicio||'?')} → ${_comEsc(c.fim||'∞')} · ${diasInfo}</div>
         ${c.obs?`<div style="color:#64748B;font-size:.72rem;margin-top:4px">${_comEsc(c.obs)}</div>`:''}
       </div>
       <div style="text-align:right">
         <div style="font-weight:700;color:#10B981">${_comFmtBRL(c.valor)}</div>
-        <button class="btn btn-sec" style="padding:4px 10px;font-size:.72rem;margin-top:6px" onclick="comContRemove(${c.id})">🗑️</button>
+        <div style="display:flex;gap:4px;justify-content:flex-end;margin-top:6px">
+          <button class="btn btn-sec" style="padding:4px 10px;font-size:.72rem" onclick="event.stopPropagation();comContratoOpenDetail(${c.id})" title="Ver detalhes / minuta">👁️</button>
+          <button class="btn btn-sec" style="padding:4px 10px;font-size:.72rem" onclick="event.stopPropagation();comContRemove(${c.id})">🗑️</button>
+        </div>
       </div>
     </div>`;
   });
@@ -96320,8 +96500,8 @@ function comContratoOpen(){
     const assId  = document.getElementById('com-cnt-ass').value;
     const ren    = document.getElementById('com-cnt-ren').checked;
     const obs    = (document.getElementById('com-cnt-obs').value||'').trim();
-    if(!titulo){ alert('Título obrigatório'); return false; }
-    if(!cpt){ alert('Contraparte obrigatória'); return false; }
+    if(!titulo){ if(typeof toast==='function') toast('Título obrigatório'); else if(typeof fkAlert==='function') fkAlert({title:'Falta info', message:'Título obrigatório'}); return false; }
+    if(!cpt){ if(typeof toast==='function') toast('Contraparte obrigatória'); else if(typeof fkAlert==='function') fkAlert({title:'Falta info', message:'Contraparte obrigatória'}); return false; }
     const contrato = { id:_comId(), titulo, contraparte:cpt, tipo, valor, inicio, fim, status:'ativo', obs, alertaDias:alt, assinaturaId:assId?parseInt(assId):null, renovaAuto:ren };
     COM.contratos.push(contrato);
     comSave(); comContListRender();
@@ -96330,16 +96510,413 @@ function comContratoOpen(){
     return true;
   });
 }
-function comContRemove(id){
-  if(!confirm('Remover este contrato?')) return;
+async function comContRemove(id){
+  const ok = await fkConfirm({ title:'Remover contrato', message:'Tem certeza que deseja remover este contrato?', danger:true });
+  if(!ok) return;
   COM.contratos = COM.contratos.filter(x => x.id!==id); comSave(); comContListRender();
 }
+
+// ═══════════════════════════════════════════════════════════════════
+//  Detalhes do contrato (double-click) + Múltiplos anexos + Gerar minuta
+// ═══════════════════════════════════════════════════════════════════
+function comContratoOpenDetail(id){
+  const c = COM.contratos.find(x => x.id===id);
+  if(!c) return;
+  if(!Array.isArray(c.anexos)) c.anexos = [];
+  const statusColor = { 'ativo':'#10B981', 'vence-em-breve':'#F59E0B', 'vencido':'#EF4444', 'sem-vencimento':'#94A3B8' };
+  const statusLbl   = { 'ativo':'ATIVO', 'vence-em-breve':'VENCE EM BREVE', 'vencido':'VENCIDO', 'sem-vencimento':'SEM VENC.' };
+  const cor = statusColor[c.status]||'#94A3B8';
+  const diasInfo = c.fim
+    ? (c.diasRestantes < 0 ? `venceu há ${Math.abs(c.diasRestantes)} dias` : `${c.diasRestantes} dias restantes`)
+    : 'sem prazo definido';
+  const vincAss = c.assinaturaId ? (COM.assinaturas.find(a => a.id===c.assinaturaId)||{}).cliente : null;
+  const anexosHtml = c.anexos.length
+    ? c.anexos.map((a,i) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#0F172A;border:1px solid #1E293B;border-radius:8px;margin-bottom:6px">
+          <span style="font-size:1.2rem">${_comContAnexoIcon(a.tipo||'')}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;color:#E5E7EB;font-size:.86rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_comEsc(a.nome||'arquivo')}</div>
+            <div style="color:#64748B;font-size:.7rem">${_comContAnexoSize(a.size)} · ${_comEsc(a.dataAdd||'')}</div>
+          </div>
+          ${a.dataUrl ? `<button class="btn btn-sec" style="padding:4px 10px;font-size:.7rem" onclick="comContAnexoDown(${c.id},${i})" title="Baixar">⬇️</button>` : ''}
+          <button class="btn btn-sec" style="padding:4px 10px;font-size:.7rem;color:#EF4444" onclick="comContAnexoRemove(${c.id},${i})" title="Remover">✕</button>
+        </div>`).join('')
+    : `<div style="text-align:center;padding:18px;color:#64748B;font-size:.82rem;background:#0F172A;border:1px dashed #1E293B;border-radius:8px">Nenhum anexo. Clique em "+ Adicionar arquivos" pra incluir o PDF assinado, escopo, NFs, etc.</div>`;
+  const html = `<div style="display:flex;flex-direction:column;gap:14px;max-width:720px">
+    <!-- Cabeçalho status -->
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="background:${cor}22;color:${cor};padding:4px 12px;border-radius:8px;font-size:.74rem;font-weight:700">${statusLbl[c.status]||'—'}</span>
+      <span style="color:#94A3B8;font-size:.82rem">${diasInfo}</span>
+      ${vincAss ? `<span style="background:#10B98122;color:#10B981;padding:4px 12px;border-radius:8px;font-size:.74rem;font-weight:700">🔗 vinculado a ${_comEsc(vincAss)}</span>` : ''}
+      ${c.renovaAuto ? '<span style="background:#7C3AED22;color:#A78BFA;padding:4px 12px;border-radius:8px;font-size:.74rem;font-weight:700">🔄 RENOVA AUTO</span>' : ''}
+    </div>
+
+    <!-- KPIs -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+      <div style="background:#0F172A;border:1px solid #1E293B;border-radius:8px;padding:12px;text-align:center">
+        <div style="color:#64748B;font-size:.66rem;text-transform:uppercase;letter-spacing:.5px">Valor</div>
+        <div style="color:#10B981;font-weight:700;font-size:1.08rem;margin-top:4px">${_comFmtBRL(c.valor)}</div>
+      </div>
+      <div style="background:#0F172A;border:1px solid #1E293B;border-radius:8px;padding:12px;text-align:center">
+        <div style="color:#64748B;font-size:.66rem;text-transform:uppercase;letter-spacing:.5px">Tipo</div>
+        <div style="color:#E5E7EB;font-weight:700;font-size:.92rem;margin-top:4px">${_comEsc(c.tipo)}</div>
+      </div>
+      <div style="background:#0F172A;border:1px solid #1E293B;border-radius:8px;padding:12px;text-align:center">
+        <div style="color:#64748B;font-size:.66rem;text-transform:uppercase;letter-spacing:.5px">Início</div>
+        <div style="color:#E5E7EB;font-weight:700;font-size:.92rem;margin-top:4px">${_comEsc(c.inicio||'—')}</div>
+      </div>
+      <div style="background:#0F172A;border:1px solid #1E293B;border-radius:8px;padding:12px;text-align:center">
+        <div style="color:#64748B;font-size:.66rem;text-transform:uppercase;letter-spacing:.5px">Fim</div>
+        <div style="color:#E5E7EB;font-weight:700;font-size:.92rem;margin-top:4px">${_comEsc(c.fim||'∞')}</div>
+      </div>
+    </div>
+
+    <!-- Dados -->
+    <div style="background:#0F172A;border:1px solid #1E293B;border-radius:10px;padding:14px">
+      <div style="color:#A78BFA;font-weight:700;font-size:.78rem;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">📋 Dados do contrato</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:.86rem">
+        <div><span style="color:#64748B">Título:</span> <strong style="color:#E5E7EB">${_comEsc(c.titulo)}</strong></div>
+        <div><span style="color:#64748B">Contraparte:</span> <strong style="color:#E5E7EB">${_comEsc(c.contraparte)}</strong></div>
+        <div><span style="color:#64748B">Alerta:</span> <strong style="color:#E5E7EB">${c.alertaDias||30} dias antes</strong></div>
+        <div><span style="color:#64748B">Vinculação:</span> <strong style="color:#E5E7EB">${vincAss?_comEsc(vincAss):'—'}</strong></div>
+      </div>
+      ${c.obs?`<div style="margin-top:10px;padding:8px;background:#1E293B;border-radius:6px;color:#CBD5E1;font-size:.82rem"><strong style="color:#A78BFA">Obs:</strong> ${_comEsc(c.obs)}</div>`:''}
+    </div>
+
+    <!-- Anexos múltiplos -->
+    <div style="background:#0F172A;border:1px solid #1E293B;border-radius:10px;padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="color:#22D3EE;font-weight:700;font-size:.78rem;text-transform:uppercase;letter-spacing:.5px">📎 Anexos (${c.anexos.length})</div>
+        <label class="btn btn-p" style="padding:5px 12px;font-size:.74rem;cursor:pointer;margin:0">
+          + Adicionar arquivos
+          <input type="file" multiple style="display:none" onchange="comContAnexoAdd(${c.id}, this.files)">
+        </label>
+      </div>
+      <div id="com-cont-anexos-list-${c.id}">${anexosHtml}</div>
+      <div style="margin-top:8px;color:#64748B;font-size:.7rem">💡 PDF, imagens, planilhas. Arquivos &gt;5MB ficam apenas referenciados pelo nome.</div>
+    </div>
+
+    <!-- Ações -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid #1E293B;padding-top:14px">
+      <button class="btn btn-p" onclick="comContratoMinuta(${c.id})" style="background:linear-gradient(135deg,#7C3AED,#A78BFA);border:none">📝 Gerar minuta pra assinatura</button>
+      <button class="btn btn-sec" onclick="comContratoEdit(${c.id})">✏️ Editar</button>
+      ${c.renovaAuto?'<button class="btn btn-sec" onclick="comContRenewCheck()">🔄 Verificar renovação</button>':''}
+      <button class="btn btn-sec" onclick="comContRemove(${c.id})" style="color:#EF4444;margin-left:auto">🗑️ Remover</button>
+    </div>
+  </div>`;
+  _fkModalInfo('📄 ' + (c.titulo||'Contrato'), html);
+}
+
+function _comContAnexoIcon(tipo){
+  const t = (tipo||'').toLowerCase();
+  if(t.includes('pdf')) return '📕';
+  if(t.includes('image')||t.includes('png')||t.includes('jpg')||t.includes('jpeg')) return '🖼️';
+  if(t.includes('sheet')||t.includes('excel')||t.includes('csv')) return '📊';
+  if(t.includes('word')||t.includes('doc')) return '📘';
+  if(t.includes('zip')||t.includes('rar')) return '🗜️';
+  return '📎';
+}
+function _comContAnexoSize(bytes){
+  if(!bytes) return '—';
+  if(bytes < 1024) return bytes+' B';
+  if(bytes < 1024*1024) return (bytes/1024).toFixed(1)+' KB';
+  return (bytes/1024/1024).toFixed(2)+' MB';
+}
+async function comContAnexoAdd(id, files){
+  const c = COM.contratos.find(x => x.id===id);
+  if(!c || !files || !files.length) return;
+  if(!Array.isArray(c.anexos)) c.anexos = [];
+  const hoje = new Date().toISOString().slice(0,10);
+  let pendentes = files.length;
+  for(let i=0; i<files.length; i++){
+    const f = files[i];
+    const item = { nome:f.name, tipo:f.type||'', size:f.size||0, dataAdd:hoje };
+    if(f.size && f.size < 5*1024*1024){
+      try{
+        item.dataUrl = await new Promise((res,rej) => {
+          const r = new FileReader();
+          r.onload = e => res(e.target.result);
+          r.onerror = rej;
+          r.readAsDataURL(f);
+        });
+      }catch(_){ /* falha silenciosa, fica só com nome */ }
+    }
+    c.anexos.push(item);
+    pendentes--;
+  }
+  comSave();
+  comContListRender();
+  // reabre detalhe pra refletir
+  setTimeout(() => comContratoOpenDetail(id), 100);
+  if(typeof notifPush==='function') notifPush({titulo:'📎 Anexos', msg:`${files.length} arquivo(s) adicionado(s) a "${c.titulo}"`});
+}
+function comContAnexoRemove(id, idx){
+  const c = COM.contratos.find(x => x.id===id);
+  if(!c || !Array.isArray(c.anexos)) return;
+  c.anexos.splice(idx,1);
+  comSave();
+  comContListRender();
+  setTimeout(() => comContratoOpenDetail(id), 50);
+}
+function comContAnexoDown(id, idx){
+  const c = COM.contratos.find(x => x.id===id);
+  if(!c || !Array.isArray(c.anexos)) return;
+  const a = c.anexos[idx];
+  if(!a || !a.dataUrl) return;
+  const link = document.createElement('a');
+  link.href = a.dataUrl;
+  link.download = a.nome || 'anexo';
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+}
+
+async function comContratoEdit(id){
+  const c = COM.contratos.find(x => x.id===id);
+  if(!c) return;
+  const assOpts = '<option value="">Nenhuma</option>' + COM.assinaturas.map(a => `<option value="${a.id}" ${a.id===c.assinaturaId?'selected':''}>${_comEsc(a.cliente)} · ${_comFmtBRL(a.valor)}/mês</option>`).join('');
+  const tipos = ['Prestação de serviços','Aluguel','Fornecimento','SaaS','Trabalhista','Outros'];
+  const tipoOpts = tipos.map(t => `<option value="${t}" ${t===c.tipo?'selected':''}>${t}</option>`).join('');
+  const html = `<div style="display:flex;flex-direction:column;gap:10px">
+    <label>Título</label>
+    <input type="text" id="com-cnt-e-tit" value="${_comEsc(c.titulo)}" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
+    <label>Contraparte</label>
+    <input type="text" id="com-cnt-e-cpt" value="${_comEsc(c.contraparte)}" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><label>Tipo</label><select id="com-cnt-e-tipo" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%">${tipoOpts}</select></div>
+      <div><label>Valor (R$)</label><input type="number" step="0.01" id="com-cnt-e-val" value="${c.valor||0}" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><label>Início</label><input type="date" id="com-cnt-e-ini" value="${c.inicio||''}" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%"></div>
+      <div><label>Fim</label><input type="date" id="com-cnt-e-fim" value="${c.fim||''}" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;width:100%"></div>
+    </div>
+    <label>Alertar X dias antes</label>
+    <input type="number" id="com-cnt-e-alt" value="${c.alertaDias||30}" min="1" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">
+    <label>Vincular assinatura</label>
+    <select id="com-cnt-e-ass" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB">${assOpts}</select>
+    <label style="display:flex;align-items:center;gap:8px;color:#A78BFA;font-size:.84rem">
+      <input type="checkbox" id="com-cnt-e-ren" ${c.renovaAuto?'checked':''}> 🔄 Renovar automaticamente
+    </label>
+    <label>Observações</label>
+    <textarea id="com-cnt-e-obs" style="padding:8px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;min-height:60px">${_comEsc(c.obs||'')}</textarea>
+  </div>`;
+  _fkModal('✏️ Editar contrato', html, () => {
+    c.titulo      = (document.getElementById('com-cnt-e-tit').value||'').trim() || c.titulo;
+    c.contraparte = (document.getElementById('com-cnt-e-cpt').value||'').trim() || c.contraparte;
+    c.tipo        = document.getElementById('com-cnt-e-tipo').value;
+    c.valor       = parseFloat(document.getElementById('com-cnt-e-val').value)||0;
+    c.inicio      = document.getElementById('com-cnt-e-ini').value;
+    c.fim         = document.getElementById('com-cnt-e-fim').value;
+    c.alertaDias  = parseInt(document.getElementById('com-cnt-e-alt').value)||30;
+    const assV    = document.getElementById('com-cnt-e-ass').value;
+    c.assinaturaId = assV?parseInt(assV):null;
+    c.renovaAuto  = document.getElementById('com-cnt-e-ren').checked;
+    c.obs         = (document.getElementById('com-cnt-e-obs').value||'').trim();
+    comSave(); comContListRender();
+    setTimeout(() => comContratoOpenDetail(id), 100);
+    if(typeof auditLog==='function') auditLog('comercial', `editou contrato ${c.titulo}`);
+    return true;
+  });
+}
+
+// ── Gerar minuta de contrato pré-formatada ────────────────────────────
+function _comValExtenso(valor){
+  // Bem básico, só pra ficar "profissional"
+  try{
+    const num = Number(valor)||0;
+    const f = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(num);
+    return f + ' (' + _comNumeroExtenso(Math.floor(num)) + ' reais' + (num%1>0?' e ' + _comNumeroExtenso(Math.round((num%1)*100)) + ' centavos':'') + ')';
+  }catch(_){ return 'R$ ' + (Number(valor)||0).toFixed(2); }
+}
+function _comNumeroExtenso(n){
+  if(n===0) return 'zero';
+  const u = ['','um','dois','três','quatro','cinco','seis','sete','oito','nove'];
+  const dz = ['dez','onze','doze','treze','quatorze','quinze','dezesseis','dezessete','dezoito','dezenove'];
+  const d = ['','','vinte','trinta','quarenta','cinquenta','sessenta','setenta','oitenta','noventa'];
+  const c = ['','cento','duzentos','trezentos','quatrocentos','quinhentos','seiscentos','setecentos','oitocentos','novecentos'];
+  function ate999(num){
+    if(num===0) return '';
+    if(num===100) return 'cem';
+    let s = '';
+    const cent = Math.floor(num/100); const r = num%100;
+    if(cent) s += c[cent];
+    if(r){
+      if(s) s+=' e ';
+      if(r<10) s += u[r];
+      else if(r<20) s += dz[r-10];
+      else { s += d[Math.floor(r/10)]; if(r%10) s += ' e '+u[r%10]; }
+    }
+    return s;
+  }
+  if(n<1000) return ate999(n);
+  if(n<1000000){
+    const mil = Math.floor(n/1000); const r = n%1000;
+    let s = (mil===1?'mil':ate999(mil)+' mil');
+    if(r) s += (r<100?' e ':' ') + ate999(r);
+    return s;
+  }
+  return String(n); // 1M+ deixa numérico
+}
+
+function comContratoMinuta(id){
+  const c = COM.contratos.find(x => x.id===id);
+  if(!c) return;
+  const emp = (typeof EMPRESAS!=='undefined' && EMPRESAS && EMPRESAS.currentId)
+    ? (EMPRESAS.list||[]).find(e => e.id===EMPRESAS.currentId)
+    : (typeof EMPRESAS!=='undefined' && EMPRESAS && EMPRESAS.list ? EMPRESAS.list[0] : null);
+  const empNome = emp ? (emp.razao || emp.nome) : 'NOME DA EMPRESA CONTRATANTE';
+  const empCnpj = emp ? (emp.cnpj || '___.___.___/____-__') : '___.___.___/____-__';
+  const empEnd  = emp && emp.endereco ? emp.endereco : '[ENDEREÇO COMPLETO DA EMPRESA]';
+  const empRep  = emp && emp.representante ? emp.representante : '[NOME DO REPRESENTANTE LEGAL]';
+  const empCpfRep = emp && emp.cpfRepresentante ? emp.cpfRepresentante : '___.___.___-__';
+
+  const hoje = new Date();
+  const meses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  const dataExt = `${hoje.getDate()} de ${meses[hoje.getMonth()]} de ${hoje.getFullYear()}`;
+  const valExt = _comValExtenso(c.valor);
+  const prazoTxt = (c.inicio && c.fim) ? `com vigência de ${c.inicio} até ${c.fim}` : 'por prazo indeterminado';
+  const tipoNomeUpper = (c.tipo||'PRESTAÇÃO DE SERVIÇOS').toUpperCase();
+
+  const minutaPlain = `INSTRUMENTO PARTICULAR DE CONTRATO DE ${tipoNomeUpper}
+
+Pelo presente instrumento particular, de um lado:
+
+CONTRATANTE: ${empNome}, pessoa jurídica de direito privado, inscrita no CNPJ sob nº ${empCnpj}, com sede em ${empEnd}, neste ato representada na forma de seu Contrato Social por ${empRep}, portador(a) do CPF nº ${empCpfRep}, doravante denominada simplesmente CONTRATANTE;
+
+E de outro lado:
+
+CONTRATADO(A): ${c.contraparte}, [qualificar: pessoa física/jurídica, CPF/CNPJ nº _____________, endereço completo], doravante denominada(o) simplesmente CONTRATADO(A);
+
+As partes acima qualificadas têm entre si justo e contratado o presente CONTRATO DE ${tipoNomeUpper}, que se regerá pelas seguintes cláusulas e condições:
+
+CLÁUSULA PRIMEIRA — DO OBJETO
+1.1. O presente contrato tem por objeto a ${(c.tipo||'prestação de serviços').toLowerCase()} pelo(a) CONTRATADO(A) à CONTRATANTE, conforme descrição: "${c.titulo}".
+1.2. ${c.obs ? 'Especificações complementares: ' + c.obs : 'Demais especificações constam no Anexo I deste instrumento, que faz parte integrante do contrato.'}
+
+CLÁUSULA SEGUNDA — DO PRAZO
+2.1. Este contrato vigorará ${prazoTxt}, podendo ser renovado mediante aditivo escrito firmado pelas partes.
+${c.renovaAuto?'2.2. Findo o prazo de vigência, este contrato será automaticamente renovado por período idêntico, salvo manifestação contrária de qualquer das partes com antecedência mínima de 30 (trinta) dias do término.':''}
+
+CLÁUSULA TERCEIRA — DO VALOR E FORMA DE PAGAMENTO
+3.1. Pelo objeto deste contrato, a CONTRATANTE pagará ao(à) CONTRATADO(A) o valor de R$ ${valExt}, ${c.tipo==='Aluguel'||c.tipo==='SaaS'||c.tipo==='Prestação de serviços'?'mensalmente':'conforme cronograma anexo'}.
+3.2. O pagamento será efetuado mediante depósito/transferência em conta indicada pelo(a) CONTRATADO(A), até o 5º (quinto) dia útil de cada mês.
+3.3. O atraso no pagamento sujeitará a CONTRATANTE ao pagamento de multa de 2% (dois por cento) sobre o valor em atraso, acrescida de juros de mora de 1% (um por cento) ao mês.
+
+CLÁUSULA QUARTA — DO REAJUSTE
+4.1. Os valores constantes deste contrato serão reajustados anualmente, na menor periodicidade permitida em lei, pelo índice IPCA/IBGE ou, na sua falta, por outro índice oficial que venha a substituí-lo.
+
+CLÁUSULA QUINTA — DAS OBRIGAÇÕES
+5.1. São obrigações do(a) CONTRATADO(A): (a) executar o objeto com zelo, diligência e dentro dos prazos avençados; (b) manter sigilo sobre informações da CONTRATANTE; (c) emitir nota fiscal correspondente aos valores recebidos.
+5.2. São obrigações da CONTRATANTE: (a) efetuar os pagamentos nas datas e formas convencionadas; (b) prestar as informações necessárias para o bom andamento dos serviços; (c) zelar pelo cumprimento das normas aplicáveis.
+
+CLÁUSULA SEXTA — DA RESCISÃO
+6.1. Este contrato poderá ser rescindido por qualquer das partes, mediante aviso prévio escrito de 30 (trinta) dias, sem qualquer ônus indenizatório.
+6.2. Constituem motivo de rescisão imediata por justa causa: (a) descumprimento de qualquer cláusula deste contrato; (b) falência, recuperação judicial ou insolvência; (c) prática de ato lesivo à outra parte.
+
+CLÁUSULA SÉTIMA — DA CONFIDENCIALIDADE
+7.1. As partes obrigam-se a manter em absoluto sigilo todas as informações de natureza confidencial trocadas em razão deste contrato, sob pena de responder por perdas e danos.
+
+CLÁUSULA OITAVA — DO FORO
+8.1. Fica eleito o foro da comarca de [CIDADE/UF] para dirimir quaisquer dúvidas ou litígios oriundos deste contrato, renunciando as partes a qualquer outro, por mais privilegiado que seja.
+
+E, por estarem assim justas e contratadas, as partes assinam o presente instrumento em 2 (duas) vias de igual teor e forma, na presença das testemunhas abaixo.
+
+[CIDADE/UF], ${dataExt}.
+
+
+_______________________________________________
+CONTRATANTE
+${empNome}
+${empRep}
+CPF: ${empCpfRep}
+
+
+_______________________________________________
+CONTRATADO(A)
+${c.contraparte}
+CPF/CNPJ: __________________
+
+
+TESTEMUNHAS:
+
+1) ___________________________   2) ___________________________
+Nome:                                           Nome:
+CPF:                                            CPF:`;
+
+  // HTML view com botões imprimir/copiar/baixar
+  const minutaHtml = `<div style="max-width:780px">
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;border-bottom:1px solid #1E293B;padding-bottom:12px">
+      <button class="btn btn-p" onclick="comMinutaPrint(${c.id})">🖨 Imprimir / Salvar PDF</button>
+      <button class="btn btn-sec" onclick="comMinutaCopy(${c.id})">📋 Copiar texto</button>
+      <button class="btn btn-sec" onclick="comMinutaDown(${c.id})">⬇️ Baixar .txt</button>
+      <div style="margin-left:auto;color:#64748B;font-size:.74rem;align-self:center">💡 Preencha campos entre [colchetes] antes de assinar</div>
+    </div>
+    <div id="com-minuta-body-${c.id}" style="background:#FAFAF9;color:#1F2937;padding:32px 40px;border-radius:8px;font-family:'Georgia',serif;font-size:.84rem;line-height:1.7;white-space:pre-wrap;max-height:55vh;overflow:auto;box-shadow:inset 0 0 0 1px #E5E7EB">${_comEsc(minutaPlain)}</div>
+  </div>`;
+  // guarda no contrato pra acesso pelos botões
+  c._minutaCache = minutaPlain;
+  _fkModalInfo('📝 Minuta do contrato · ' + (c.titulo||''), minutaHtml);
+  if(typeof auditLog==='function') auditLog('comercial', `gerou minuta do contrato ${c.titulo}`);
+}
+
+function comMinutaPrint(id){
+  const c = COM.contratos.find(x => x.id===id);
+  if(!c || !c._minutaCache) return;
+  const w = window.open('', '_blank', 'width=900,height=700');
+  if(!w){ if(typeof fkAlert==='function') fkAlert({title:'Bloqueado', message:'Permita pop-ups pra imprimir a minuta.'}); return; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Minuta · ${_comEsc(c.titulo||'Contrato')}</title>
+    <style>
+      body{font-family:'Georgia',serif;font-size:12pt;line-height:1.7;color:#111;max-width:780px;margin:40px auto;padding:0 40px;white-space:pre-wrap}
+      h1{font-size:14pt;text-align:center;margin-bottom:24px}
+      @media print { body{margin:0} }
+    </style></head><body>${_comEsc(c._minutaCache)}</body></html>`);
+  w.document.close();
+  setTimeout(() => { try{ w.focus(); w.print(); }catch(_){ } }, 250);
+}
+async function comMinutaCopy(id){
+  const c = COM.contratos.find(x => x.id===id);
+  if(!c || !c._minutaCache) return;
+  try{
+    await navigator.clipboard.writeText(c._minutaCache);
+    if(typeof toast==='function') toast('Minuta copiada ✓');
+    else if(typeof fkAlert==='function') fkAlert({title:'✓ Copiado', message:'Minuta copiada pra área de transferência.'});
+  }catch(_){
+    if(typeof fkAlert==='function') fkAlert({title:'Falhou', message:'Não consegui copiar — use o botão Baixar.'});
+  }
+}
+function comMinutaDown(id){
+  const c = COM.contratos.find(x => x.id===id);
+  if(!c || !c._minutaCache) return;
+  const blob = new Blob([c._minutaCache], {type:'text/plain;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'minuta-' + (c.titulo||'contrato').replace(/[^a-z0-9-_]+/gi,'_').toLowerCase() + '.txt';
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 300);
+}
+
+try{
+  window.comContratoOpenDetail = comContratoOpenDetail;
+  window.comContratoEdit       = comContratoEdit;
+  window.comContratoMinuta     = comContratoMinuta;
+  window.comContAnexoAdd       = comContAnexoAdd;
+  window.comContAnexoRemove    = comContAnexoRemove;
+  window.comContAnexoDown      = comContAnexoDown;
+  window.comMinutaPrint        = comMinutaPrint;
+  window.comMinutaCopy         = comMinutaCopy;
+  window.comMinutaDown         = comMinutaDown;
+}catch(_){}
 // T2: Renovação automática
-function comContRenewCheck(){
+async function comContRenewCheck(){
   const hoje = new Date();
   const elegiveis = COM.contratos.filter(c => c.renovaAuto && c.fim && new Date(c.fim) < new Date(hoje.getTime() + 30*24*60*60*1000) && !c._renewed);
-  if(!elegiveis.length){ alert('Nenhum contrato elegível pra renovação automática neste momento.\n\nCritérios: vence em 30 dias OU vencido + flag "Renovar automaticamente" marcada.'); return; }
-  if(!confirm(`Renovar ${elegiveis.length} contrato(s) automaticamente? Cria novo contrato com +1 ano de vigência.`)) return;
+  if(!elegiveis.length){
+    if(typeof fkAlert==='function') await fkAlert({title:'Nada pra renovar', message:'Nenhum contrato elegível pra renovação automática neste momento.\n\nCritérios: vence em 30 dias OU vencido + flag "Renovar automaticamente" marcada.'});
+    return;
+  }
+  const ok = typeof fkConfirm==='function'
+    ? await fkConfirm({title:'🔄 Renovação automática', message:`Renovar ${elegiveis.length} contrato(s) automaticamente?\n\nCria novo contrato com +1 ano de vigência.`})
+    : true;
+  if(!ok) return;
   elegiveis.forEach(c => {
     const novoIni = c.fim;
     const novoFim = new Date(new Date(c.fim).getTime() + 365*24*60*60*1000).toISOString().slice(0,10);
