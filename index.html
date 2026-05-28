@@ -21322,6 +21322,25 @@
           </div>
         </div>
 
+        <!-- ── INTEGRAÇÕES DE NOTIFICAÇÃO (8 plataformas) ─────── -->
+        <div data-cfg-tab="integracoes" class="cfg-section" id="cfg-integrations-section">
+          <div class="cfg-section-hd">
+            <div class="cfg-section-ico" style="background:#10B981">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.72"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+            </div>
+            <h3>Integrações de Notificação</h3>
+          </div>
+          <p class="cfg-section-sub">Receba eventos do Forekash em outras plataformas — pagamento recebido, contrato vencendo, anomalia detectada, daily briefing. Cada integração conecta via Webhook ou API token.</p>
+          <div class="cfg-section-body">
+            <div id="integrations-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px"></div>
+            <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
+              <button class="btn btn-sec" onclick="integrationsTestAll()" style="padding:7px 14px;font-size:.84rem">⚡ Testar todas ativas</button>
+              <button class="btn btn-sec" onclick="integrationsLogOpen()" style="padding:7px 14px;font-size:.84rem">📋 Ver logs</button>
+              <small style="color:#94A3B8;font-size:.74rem;margin-left:auto">${'✨'} Tudo configurado por você · sem custo</small>
+            </div>
+          </div>
+        </div>
+
         <!-- ── WHITE-LABEL CONTADORES ───────────────── -->
         <div data-cfg-tab="organizacao" class="cfg-section whitelabel" id="cfg-wl-section">
           <div class="cfg-section-hd">
@@ -92349,7 +92368,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779926766';
+      const CACHE = 'forekash-v1779929903';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -92767,6 +92786,7 @@ const CMDK_COMMANDS = [
   { group:'Ações',   label:'Novo contrato',              ico:'📄', kbd:'', action:() => { switchModule('comercial',null); setTimeout(() => { if(typeof comSwitchTab==='function') comSwitchTab('cont'); if(typeof comContratoOpen==='function') comContratoOpen(); }, 120); } },
   { group:'Ações',   label:'Emitir recibo avulso',      ico:'🧾', kbd:'', action:() => { switchModule('comercial',null); setTimeout(() => { if(typeof comSwitchTab==='function') comSwitchTab('rec2'); if(typeof comReciboOpen==='function') comReciboOpen(); }, 120); } },
   { group:'Configurações', label:'Configurar API & Webhooks', ico:'🔌', kbd:'', action:() => { switchModule('configuracoes',null); setTimeout(() => { cfgSetTab('integracoes'); setTimeout(()=>{ const el=document.getElementById('cfg-api-section'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 60); }, 200); } },
+  { group:'Configurações', label:'🔗 Integrações (WhatsApp/Slack/Telegram/Email...)', ico:'🔗', kbd:'', action:() => { switchModule('configuracoes',null); setTimeout(() => { cfgSetTab('integracoes'); setTimeout(()=>{ const el=document.getElementById('cfg-integrations-section'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 60); }, 200); } },
   { group:'Configurações', label:'Modo Contador (White-label)', ico:'🎨', kbd:'', action:() => { switchModule('configuracoes',null); setTimeout(() => { cfgSetTab('organizacao'); setTimeout(()=>{ const el=document.getElementById('cfg-wl-section'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 60); }, 200); } },
   { group:'Configurações', label:'🎉 Ver novidades (What\'s New)', ico:'🎉', kbd:'', action:() => { if(typeof whatsnewOpen==='function') whatsnewOpen(); } },
   { group:'Configurações', label:'🛡 LGPD · Privacidade', ico:'🛡', kbd:'', action:() => { if(typeof lgpdOpen==='function') lgpdOpen(); } },
@@ -99090,6 +99110,288 @@ function lgpdForgetMe(){
 }
 try{ window.lgpdOpen = lgpdOpen; window.lgpdExportAll = lgpdExportAll; window.lgpdForgetMe = lgpdForgetMe; }catch(_){}
 
+// ═════════════════════════════════════════════════════════════════════
+// 🔗 INTEGRAÇÕES DE NOTIFICAÇÃO · WhatsApp · Slack · Telegram · Email ·
+//                                Google Sheets · Zapier · Make · Teams
+// ═════════════════════════════════════════════════════════════════════
+const INTEG_KEY = 'forekash:integracoes:v1';
+const INTEG_LOG_KEY = 'forekash:integracoes-log:v1';
+const INTEG_LIST = [
+  { id:'whatsapp', nome:'WhatsApp Business', ico:'💬', cor:'#25D366',
+    desc:'Mensagens via WhatsApp Cloud API · phone_number_id + token',
+    fields:[
+      {key:'phoneId', label:'Phone Number ID', placeholder:'109361789...'},
+      {key:'token',   label:'Token Bearer',    placeholder:'EAAFw...'},
+      {key:'to',      label:'Número destino',  placeholder:'+5511999999999'}
+    ]
+  },
+  { id:'slack', nome:'Slack', ico:'💼', cor:'#4A154B',
+    desc:'Incoming Webhook do Slack · cole a URL completa',
+    fields:[{key:'webhookUrl', label:'Webhook URL', placeholder:'https://hooks.slack.com/services/...'}]
+  },
+  { id:'telegram', nome:'Telegram', ico:'✈', cor:'#0088CC',
+    desc:'Bot do Telegram · BotFather + Chat ID',
+    fields:[
+      {key:'botToken', label:'Bot Token',  placeholder:'123456:ABC-DEF...'},
+      {key:'chatId',   label:'Chat ID',    placeholder:'-1001234567890'}
+    ]
+  },
+  { id:'email', nome:'Email Digest', ico:'📧', cor:'#EA4335',
+    desc:'Envia via Resend / Mailgun / SMTP · API key',
+    fields:[
+      {key:'apiKey',   label:'API key (Resend)', placeholder:'re_xxxxxxxx'},
+      {key:'to',       label:'Email destino',    placeholder:'voce@empresa.com'},
+      {key:'from',     label:'From',             placeholder:'forekash@empresa.com'}
+    ]
+  },
+  { id:'gsheets', nome:'Google Sheets', ico:'📊', cor:'#0F9D58',
+    desc:'Envia linhas pra planilha · Apps Script Web App URL',
+    fields:[
+      {key:'webAppUrl', label:'Web App URL', placeholder:'https://script.google.com/macros/s/.../exec'},
+      {key:'sheetName', label:'Sheet name',  placeholder:'Forekash'}
+    ]
+  },
+  { id:'zapier', nome:'Zapier', ico:'⚡', cor:'#FF4F00',
+    desc:'Trigger "Catch Hook" no Zapier · cola URL',
+    fields:[{key:'hookUrl', label:'Hook URL', placeholder:'https://hooks.zapier.com/hooks/catch/...'}]
+  },
+  { id:'make', nome:'Make.com', ico:'🔄', cor:'#6D00CC',
+    desc:'Webhook do Make (ex-Integromat) · cola URL',
+    fields:[{key:'hookUrl', label:'Webhook URL', placeholder:'https://hook.eu1.make.com/...'}]
+  },
+  { id:'teams', nome:'Microsoft Teams', ico:'🏢', cor:'#6264A7',
+    desc:'Incoming Webhook do canal Teams · cole URL',
+    fields:[{key:'webhookUrl', label:'Webhook URL', placeholder:'https://outlook.office.com/webhook/...'}]
+  }
+];
+let INTEGRATIONS = {};  // { whatsapp:{enabled, config:{phoneId, token, to}}, ... }
+let INTEG_LOG = [];
+function integLoad(){
+  try{ const raw = localStorage.getItem(INTEG_KEY); if(raw) INTEGRATIONS = JSON.parse(raw) || {}; }catch(_){}
+  try{ const raw = localStorage.getItem(INTEG_LOG_KEY); if(raw) INTEG_LOG = JSON.parse(raw) || []; }catch(_){}
+  // Garante estrutura
+  INTEG_LIST.forEach(i => {
+    if(!INTEGRATIONS[i.id]) INTEGRATIONS[i.id] = { enabled:false, config:{} };
+  });
+}
+function integSave(){
+  try{ localStorage.setItem(INTEG_KEY, JSON.stringify(INTEGRATIONS)); }catch(_){}
+}
+function _integLogSave(){
+  try{ localStorage.setItem(INTEG_LOG_KEY, JSON.stringify(INTEG_LOG.slice(0,100))); }catch(_){}
+}
+function integRender(){
+  const el = document.getElementById('integrations-grid');
+  if(!el) return;
+  const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  el.innerHTML = INTEG_LIST.map(i => {
+    const state = INTEGRATIONS[i.id] || { enabled:false, config:{} };
+    const cfgCount = Object.keys(state.config||{}).filter(k => state.config[k]).length;
+    const reqCount = i.fields.length;
+    const configurado = cfgCount === reqCount;
+    return `<div style="background:#fff;border:1px solid ${state.enabled?i.cor:'#E2E8F0'};border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;transition:all .15s">
+      <div style="display:flex;align-items:flex-start;gap:10px">
+        <div style="width:36px;height:36px;border-radius:8px;background:${i.cor}22;color:${i.cor};display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">${i.ico}</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
+            <strong style="font-size:.86rem;color:#0F172A">${_esc(i.nome)}</strong>
+            <label style="position:relative;width:34px;height:18px;display:inline-block;cursor:${configurado?'pointer':'not-allowed'};opacity:${configurado?1:.4}">
+              <input type="checkbox" ${state.enabled?'checked':''} ${configurado?'':'disabled'} onchange="integToggle('${i.id}', this.checked)" style="opacity:0;width:0;height:0">
+              <span style="position:absolute;inset:0;background:${state.enabled?i.cor:'#CBD5E1'};border-radius:9px;transition:background .2s"></span>
+              <span style="position:absolute;left:${state.enabled?'17px':'2px'};top:2px;width:14px;height:14px;background:#fff;border-radius:50%;transition:left .2s;box-shadow:0 1px 2px rgba(0,0,0,.2)"></span>
+            </label>
+          </div>
+          <small style="color:#64748B;font-size:.72rem;line-height:1.4;display:block;margin-top:2px">${_esc(i.desc)}</small>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:4px">
+        <button class="btn btn-sec" onclick="integConfigOpen('${i.id}')" style="flex:1;padding:5px 8px;font-size:.74rem">${configurado?'⚙ Editar':'+ Configurar'}</button>
+        ${state.enabled ? `<button class="btn btn-sec" onclick="integTest('${i.id}')" style="padding:5px 10px;font-size:.74rem" title="Enviar mensagem de teste">⚡</button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+function integToggle(id, on){
+  if(!INTEGRATIONS[id]) INTEGRATIONS[id] = { enabled:false, config:{} };
+  INTEGRATIONS[id].enabled = !!on;
+  integSave();
+  integRender();
+  if(typeof fkToast === 'function') fkToast(`${id} ${on?'ativado':'desativado'}`, on?'ok':'info', 2000);
+  if(typeof auditLog === 'function') auditLog('integracao', `${id} ${on?'ativado':'desativado'}`);
+}
+function integConfigOpen(id){
+  const i = INTEG_LIST.find(x => x.id === id); if(!i) return;
+  const state = INTEGRATIONS[id] || { config:{} };
+  const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const html = `<div style="color:#E5E7EB">
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">
+      <div style="width:42px;height:42px;border-radius:10px;background:${i.cor}22;color:${i.cor};display:flex;align-items:center;justify-content:center;font-size:22px">${i.ico}</div>
+      <div>
+        <h2 style="margin:0;font-size:1.1rem;color:#10B981">${i.nome}</h2>
+        <small style="color:#94A3B8;font-size:.78rem">${_esc(i.desc)}</small>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      ${i.fields.map(f => `
+        <div>
+          <label style="font-size:.74rem;color:#94A3B8;font-weight:600;display:block;margin-bottom:4px">${_esc(f.label)}</label>
+          <input id="integ-cfg-${f.key}" type="text" value="${_esc(state.config[f.key]||'')}" placeholder="${_esc(f.placeholder||'')}" style="width:100%;padding:9px 12px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#E5E7EB;font-family:'JetBrains Mono',monospace;font-size:.82rem">
+        </div>
+      `).join('')}
+    </div>
+    <p style="margin-top:14px;font-size:.7rem;color:#64748B;line-height:1.5;font-style:italic">
+      ⚠ Dados ficam no SEU navegador (localStorage). Não enviamos nada pra fora do Forekash sem você ativar.
+    </p>
+  </div>`;
+  if(typeof _fkModal === 'function'){
+    _fkModal('Configurar ' + i.nome, html, () => {
+      if(!INTEGRATIONS[id]) INTEGRATIONS[id] = { enabled:false, config:{} };
+      i.fields.forEach(f => {
+        const v = (document.getElementById('integ-cfg-'+f.key)||{}).value || '';
+        INTEGRATIONS[id].config[f.key] = v.trim();
+      });
+      integSave();
+      integRender();
+      if(typeof fkToast === 'function') fkToast(`${i.nome} configurado`, 'ok', 2000);
+      return true;
+    });
+  }
+}
+// Despacha mensagem pra UMA integração específica
+async function integSend(id, payload){
+  const i = INTEG_LIST.find(x => x.id === id); if(!i) return { ok:false, err:'unknown' };
+  const state = INTEGRATIONS[id];
+  if(!state || !state.enabled) return { ok:false, err:'disabled' };
+  const cfg = state.config || {};
+  const msg = payload.text || payload.message || '';
+  let url = '', method = 'POST', headers = {'Content-Type':'application/json'}, body = '';
+  try{
+    if(id === 'slack' || id === 'teams' || id === 'zapier' || id === 'make'){
+      url = cfg.webhookUrl || cfg.hookUrl;
+      if(!url) return { ok:false, err:'no-url' };
+      if(id === 'slack') body = JSON.stringify({ text: 'Forekash · ' + msg });
+      else if(id === 'teams') body = JSON.stringify({ '@type':'MessageCard', text: 'Forekash · ' + msg });
+      else body = JSON.stringify({ source:'forekash', event:payload.event||'notif', text:msg, ts:Date.now(), data:payload.data||{} });
+    }
+    else if(id === 'telegram'){
+      if(!cfg.botToken || !cfg.chatId) return { ok:false, err:'no-config' };
+      url = `https://api.telegram.org/bot${cfg.botToken}/sendMessage`;
+      body = JSON.stringify({ chat_id:cfg.chatId, text:'🤖 *Forekash*\n' + msg, parse_mode:'Markdown' });
+    }
+    else if(id === 'whatsapp'){
+      if(!cfg.phoneId || !cfg.token || !cfg.to) return { ok:false, err:'no-config' };
+      url = `https://graph.facebook.com/v18.0/${cfg.phoneId}/messages`;
+      headers['Authorization'] = 'Bearer ' + cfg.token;
+      body = JSON.stringify({ messaging_product:'whatsapp', to:cfg.to, type:'text', text:{ body:'*Forekash*\n' + msg } });
+    }
+    else if(id === 'email'){
+      if(!cfg.apiKey || !cfg.to) return { ok:false, err:'no-config' };
+      url = 'https://api.resend.com/emails';
+      headers['Authorization'] = 'Bearer ' + cfg.apiKey;
+      body = JSON.stringify({
+        from: cfg.from || 'forekash@resend.dev',
+        to: cfg.to,
+        subject: payload.subject || 'Forekash · '+(payload.event||'notificação'),
+        text: msg,
+        html: `<div style="font-family:system-ui;padding:20px;max-width:600px"><div style="background:#10B981;color:#fff;padding:14px 18px;border-radius:8px;font-weight:700">Forekash</div><p style="margin:14px 0;line-height:1.6">${msg.replace(/\n/g,'<br>')}</p><small style="color:#94A3B8">Enviado por Forekash · ${new Date().toLocaleString('pt-BR')}</small></div>`
+      });
+    }
+    else if(id === 'gsheets'){
+      if(!cfg.webAppUrl) return { ok:false, err:'no-config' };
+      url = cfg.webAppUrl;
+      body = JSON.stringify({ sheetName: cfg.sheetName||'Forekash', row:[new Date().toISOString(), payload.event||'notif', msg, JSON.stringify(payload.data||{})] });
+    }
+    if(!url) return { ok:false, err:'no-url' };
+    const res = await fetch(url, { method, headers, body });
+    const ok = res.ok;
+    _integLog(id, payload.event||'notif', ok ? res.status : 0, ok ? null : 'http '+res.status);
+    return { ok, status: res.status };
+  }catch(e){
+    _integLog(id, payload.event||'notif', 0, e.message);
+    return { ok:false, err:e.message };
+  }
+}
+// Broadcast pra TODAS integrações ativas
+async function integrationsBroadcast(event, msg, data){
+  const ativos = INTEG_LIST.filter(i => INTEGRATIONS[i.id] && INTEGRATIONS[i.id].enabled);
+  if(!ativos.length) return [];
+  const results = await Promise.all(ativos.map(i =>
+    integSend(i.id, { event, text:msg, message:msg, data, subject:'Forekash · '+event })
+  ));
+  return results;
+}
+function _integLog(id, event, status, err){
+  INTEG_LOG.unshift({ ts:Date.now(), id, event, status, err });
+  INTEG_LOG = INTEG_LOG.slice(0, 100);
+  _integLogSave();
+}
+async function integTest(id){
+  const i = INTEG_LIST.find(x => x.id === id);
+  if(typeof fkToast === 'function') fkToast(`Testando ${i.nome}...`, 'info', 2000);
+  const r = await integSend(id, { event:'test.ping', text:`Teste de integração Forekash · ${new Date().toLocaleString('pt-BR')}`, subject:'Forekash · Teste' });
+  if(typeof fkToast === 'function') fkToast(r.ok ? `✅ ${i.nome} funcionou (HTTP ${r.status})` : `❌ ${i.nome} falhou: ${r.err||'erro'}`, r.ok?'ok':'err', 4500);
+}
+async function integrationsTestAll(){
+  const ativos = INTEG_LIST.filter(i => INTEGRATIONS[i.id] && INTEGRATIONS[i.id].enabled);
+  if(!ativos.length){
+    if(typeof fkToast === 'function') fkToast('Nenhuma integração ativa', 'warn', 3000);
+    return;
+  }
+  if(typeof fkToast === 'function') fkToast(`Testando ${ativos.length} integração(ões)...`, 'info', 2500);
+  const results = await Promise.all(ativos.map(i =>
+    integSend(i.id, { event:'test.ping', text:`Teste broadcast Forekash · ${new Date().toLocaleString('pt-BR')}`, subject:'Forekash · Teste' })
+  ));
+  const ok = results.filter(r => r.ok).length;
+  if(typeof fkToast === 'function') fkToast(`✓ ${ok}/${ativos.length} integrações OK`, ok===ativos.length?'ok':'warn', 4500);
+}
+function integrationsLogOpen(){
+  const _esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  if(!INTEG_LOG.length){
+    if(typeof fkToast === 'function') fkToast('Sem logs ainda', 'info', 2500);
+    return;
+  }
+  const html = `<div style="color:#E5E7EB">
+    <p style="font-size:.84rem;color:#94A3B8;margin:0 0 12px"><b>${INTEG_LOG.length}</b> evento(s) registrado(s) · últimos 100:</p>
+    <div style="max-height:380px;overflow:auto;display:flex;flex-direction:column;gap:4px">
+      ${INTEG_LOG.map(l => {
+        const ok = l.status >= 200 && l.status < 400;
+        const i = INTEG_LIST.find(x => x.id === l.id);
+        const dt = new Date(l.ts).toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' });
+        return `<div style="background:#0F172A;border-left:3px solid ${ok?'#10B981':'#EF4444'};padding:8px 12px;border-radius:6px;font-size:.78rem;display:flex;gap:8px;align-items:center">
+          <span style="font-size:14px">${i ? i.ico : '?'}</span>
+          <span style="flex:1"><b>${_esc(l.id)}</b> · ${_esc(l.event)}</span>
+          <span style="color:${ok?'#10B981':'#EF4444'};font-weight:700">${l.status||'ERR'}</span>
+          <span style="color:#64748B;font-size:.7rem">${dt}</span>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="margin-top:12px">
+      <button class="btn btn-sec" onclick="if(confirm('Limpar logs?')){ INTEG_LOG=[]; _integLogSave(); document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove(); }" style="padding:6px 12px;font-size:.74rem;color:#EF4444">🗑 Limpar</button>
+    </div>
+  </div>`;
+  if(typeof _fkModal === 'function') _fkModal('📋 Logs de Integrações', html, () => true);
+}
+// Hook automático: quando MR KASH proativo dispara, também broadcasta
+function _integHookMrKash(){
+  if(window._integMrkHooked) return;
+  const orig = window._mrkProactiveShow;
+  if(typeof orig === 'function'){
+    window._mrkProactiveShow = function(top){
+      try{ orig(top); }catch(_){}
+      try{ integrationsBroadcast(top.id||'mrkash', top.msg, top); }catch(_){}
+    };
+    window._integMrkHooked = true;
+  }
+}
+try{
+  window.integLoad = integLoad; window.integSave = integSave; window.integRender = integRender;
+  window.integToggle = integToggle; window.integConfigOpen = integConfigOpen;
+  window.integSend = integSend; window.integrationsBroadcast = integrationsBroadcast;
+  window.integTest = integTest; window.integrationsTestAll = integrationsTestAll;
+  window.integrationsLogOpen = integrationsLogOpen; window._integLogSave = _integLogSave;
+  window.INTEGRATIONS = INTEGRATIONS; window.INTEG_LOG = INTEG_LOG;
+}catch(_){}
+
 // ── TABS DE CONFIGURAÇÕES ──────────────────────────────────────────
 const CFG_TAB_KEY = 'forekash:cfg-tab:v1';
 function cfgSetTab(tab, btn){
@@ -104723,6 +105025,9 @@ function fkBootApp(){
   _safeInit('wfLoad',             () => wfLoad());
   _safeInit('rtaskLoad',          () => rtaskLoad());
   _safeInit('rtaskStart',         () => rtaskStart());
+  _safeInit('integLoad',          () => integLoad());
+  _safeInit('integRender',        () => setTimeout(integRender, 600));
+  _safeInit('integHookMrKash',    () => setTimeout(_integHookMrKash, 8500));
   _safeInit('whatsnewMaybeShow',  () => whatsnewMaybeShow());
   _safeInit('konamiInit',         () => konamiInit());
   _safeInit('mrkProactiveLoad',   () => mrkProactiveLoad());
