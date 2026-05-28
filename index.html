@@ -114227,12 +114227,16 @@ function ksBrUpdatePlayer(dt){
     // Tenta X, depois Y (slide nas paredes)
     if(ksBrCanMove(nx, p.y)) p.x = nx;
     if(ksBrCanMove(p.x, ny)) p.y = ny;
-    // Atualiza facing (angle em deg) — SVG frente aponta pra +Y, então
-    // angle de movimento = atan2(my,mx) deg, ajustando -90 pra alinhar
+    // Atualiza facing — NÃO wrappa modular pra CSS interpolar sempre
+    // o caminho mais curto entre frames (evita giros de 360° fantasma).
     const target = Math.atan2(my, mx) * 180/Math.PI - 90;
-    // Lerp suave em direção (curto caminho angular)
-    let diff = ((target - p.facing + 540) % 360) - 180;
-    p.facing = (p.facing + diff * 0.4 + 360) % 360;
+    // Calcula diff em [-180, 180] (caminho mais curto)
+    let pfMod = ((p.facing % 360) + 360) % 360;
+    let tgMod = ((target % 360) + 360) % 360;
+    let diff = tgMod - pfMod;
+    if(diff > 180) diff -= 360;
+    if(diff < -180) diff += 360;
+    p.facing += diff * 0.4; // deixa crescer livre
     // Footstep sound aleatório
     if(Math.random() < 0.04) ksBrAudioNoise(0.06, 0.025);
   }
