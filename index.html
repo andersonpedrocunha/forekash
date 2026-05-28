@@ -16237,9 +16237,16 @@
     .ks-br-stage.br-lv-office .br-wall{background:#1a1a1a;border:1px solid #000;box-shadow:inset 0 0 8px rgba(239,68,68,.15)}
     /* Tile base — fog of war via opacity (controlado por JS) */
     .br-tile{position:absolute;transition:opacity .12s linear}
-    /* Player — sprite top-down PNG do Gemini (hacker-top.png) */
+    /* Player — sprite top-down PNG do Gemini (3 frames: idle + walk1 + walk2) */
     .br-player{position:absolute;width:40px;height:40px;z-index:10;transform:translate(-50%,-50%);filter:drop-shadow(0 0 12px rgba(16,185,129,.85)) drop-shadow(0 2px 4px rgba(0,0,0,.9));transition:none;will-change:left,top}
-    .br-player .br-player-img{width:100%;height:100%;display:block;image-rendering:pixelated;image-rendering:-moz-crisp-edges;pointer-events:none;user-select:none;transition:transform .1s ease-out}
+    .br-player .br-player-img{position:absolute;inset:0;width:100%;height:100%;display:none;image-rendering:pixelated;image-rendering:-moz-crisp-edges;pointer-events:none;user-select:none;transition:transform .08s ease-out}
+    /* Por padrão: só idle visível */
+    .br-player .frm-idle{display:block}
+    /* Walking: alterna walk1/walk2 via JS toggle de classes step-l/step-r */
+    .br-player.walking .frm-idle{display:none}
+    .br-player.walking.step-l .frm-walk1{display:block}
+    .br-player.walking.step-r .frm-walk2{display:block}
+    /* Invuln blink + Panic glow */
     .br-player.invuln .br-player-img{animation:brPlayerHurt .14s steps(2) infinite}
     @keyframes brPlayerHurt{0%{opacity:1}50%{opacity:.35}}
     .br-player.panic{filter:drop-shadow(0 0 16px #EF4444) drop-shadow(0 0 26px rgba(239,68,68,.75)) drop-shadow(0 2px 4px rgba(0,0,0,.85))!important}
@@ -114475,27 +114482,35 @@ function ksBrUpdateDom(){
     _ksBrDom.player.style.top  = (p.y * KS_BR.TILE) + 'px';
     _ksBrDom.player.classList.toggle('invuln', p.invuln > 0);
     _ksBrDom.player.classList.toggle('panic', p.panicTime > 0);
-    // Rotação pela direção + animação de caminhada (squash/stretch + wobble)
-    // simula passos mesmo com sprite estática
-    const img = _ksBrDom.player.querySelector('img');
-    if(img){
-      const moving = (_ksBrKeys.up||_ksBrKeys.down||_ksBrKeys.left||_ksBrKeys.right);
+    // Estados de caminhada: alterna 3 frames (idle / walk1 / walk2)
+    const playerEl = _ksBrDom.player;
+    const moving = (_ksBrKeys.up||_ksBrKeys.down||_ksBrKeys.left||_ksBrKeys.right);
+    const t = performance.now();
+    if(moving){
+      playerEl.classList.add('walking');
+      // Step cycle 240ms = ~4Hz · alterna L/R
+      const step = Math.floor(t / 240) % 2;
+      playerEl.classList.toggle('step-l', step === 0);
+      playerEl.classList.toggle('step-r', step === 1);
+    } else {
+      playerEl.classList.remove('walking', 'step-l', 'step-r');
+    }
+    // Aplica rotação + bob + squash em TODOS os imgs do player
+    const imgs = playerEl.querySelectorAll('img');
+    if(imgs.length){
+      let transform;
       if(moving){
-        const t = performance.now();
-        // Bob vertical (pulinho do andar)
-        const bob = Math.sin(t/100) * 1.6;
-        // Squash/stretch — quando o "pé pousa" (bottom da onda), comprime; quando sobe, estica
-        const stepCycle = Math.sin(t/100);
-        const scaleY = 1 + stepCycle * 0.06;          // ±6% Y squash
-        const scaleX = 1 - stepCycle * 0.04;          // counter-X (volume preserved)
-        // Wobble lateral (twist do quadril a cada passo)
-        const wobble = Math.cos(t/200) * 1.5;          // ±1.5° rotação extra
-        img.style.transform = `rotate(${p.facing + wobble}deg) translateY(${bob}px) scale(${scaleX}, ${scaleY})`;
+        const bob = Math.sin(t/120) * 1.4;
+        const wobble = Math.cos(t/240) * 1.5;
+        const stepCycle = Math.sin(t/120);
+        const scaleY = 1 + stepCycle * 0.04;
+        const scaleX = 1 - stepCycle * 0.025;
+        transform = `rotate(${p.facing + wobble}deg) translateY(${bob}px) scale(${scaleX}, ${scaleY})`;
       } else {
-        // Breathing quando parado
-        const breath = 1 + Math.sin(performance.now()/700) * 0.018;
-        img.style.transform = `rotate(${p.facing}deg) scale(${breath})`;
+        const breath = 1 + Math.sin(t/700) * 0.018;
+        transform = `rotate(${p.facing}deg) scale(${breath})`;
       }
+      imgs.forEach(img => { img.style.transform = transform; });
     }
   }
   // Entities
@@ -114756,7 +114771,7 @@ function ksBrRender(){
       ${portalHtml}
       ${entHtml}
       ${bossHtml}
-      <div class="br-player ${_ksBr.player.invuln>0?'invuln':''}" id="ks-br-player" style="left:${_ksBr.player.x*KS_BR.TILE}px;top:${_ksBr.player.y*KS_BR.TILE}px"><img src="./hacker-top.png" class="br-player-img" alt="" draggable="false"></div>
+      <div class="br-player ${_ksBr.player.invuln>0?'invuln':''}" id="ks-br-player" style="left:${_ksBr.player.x*KS_BR.TILE}px;top:${_ksBr.player.y*KS_BR.TILE}px"><img src="./hacker-top.png" class="br-player-img frm-idle" alt="" draggable="false"><img src="./hacker-walk1.png" class="br-player-img frm-walk1" alt="" draggable="false"><img src="./hacker-walk2.png" class="br-player-img frm-walk2" alt="" draggable="false"></div>
       <div class="ks-br-fx" id="ks-br-fx"></div>
       <div class="ks-br-vignette"></div>
     </div>
