@@ -92727,7 +92727,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779938398';
+      const CACHE = 'forekash-v1779939190';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -95905,12 +95905,21 @@ function comRecGenerateNow(){
   if(typeof auditLog==='function')  auditLog('comercial', `gerou ${gerados} cobranças recorrentes em ${ym}`);
 }
 // T2: Reajuste anual em massa
+// Estado da tela de reajuste — assinaturas selecionadas e % por id no modo "escolher"
+let _reaSel = {};   // { [id]: bool }
+let _reaPctById = {}; // { [id]: number }
+
 function comRecReajusteRun(){
-  // 3 modos: índice configurado | percentual customizado | aplicar em escolhidas
+  // 3 modos: índice | massa | escolher (per-row pct)
   const ativas = COM.assinaturas.filter(a => a.ativa);
   if(!ativas.length){ fkAlert({title:'Sem assinaturas', message:'Não há assinaturas ativas pra reajustar.'}); return; }
   const elegiveis = ativas.filter(a => a.reajusteIdx);
-  let html = `<div style="color:#E5E7EB">
+  // Reset estado a cada abertura — todas selecionadas, % default = 10
+  _reaSel = {};
+  _reaPctById = {};
+  ativas.forEach(a => { _reaSel[a.id] = true; _reaPctById[a.id] = 10; });
+
+  let html = `<div style="color:#E5E7EB;max-width:760px">
     <p style="font-size:.86rem;margin:0 0 14px">Escolha o modo de reajuste:</p>
     <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
       <label style="display:flex;gap:10px;align-items:flex-start;background:#0F172A;padding:10px 14px;border-radius:8px;cursor:pointer;border:1px solid transparent;transition:border .15s" onmouseover="this.style.borderColor='#10B98144'" onmouseout="this.style.borderColor='transparent'">
@@ -95928,8 +95937,15 @@ function comRecReajusteRun(){
           <input type="number" id="rea-pct" value="10" min="-50" max="100" step="0.5" oninput="_reaPreviewUpdate()" onclick="document.querySelector('input[value=custom]').checked=true;_reaPreviewUpdate()" style="width:100px;padding:6px 10px;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#A78BFA;font-weight:700;margin-top:6px;font-size:.92rem;text-align:center"> %
         </div>
       </label>
+      <label style="display:flex;gap:10px;align-items:flex-start;background:#0F172A;padding:10px 14px;border-radius:8px;cursor:pointer;border:1px solid transparent;transition:border .15s" onmouseover="this.style.borderColor='#F59E0B44'" onmouseout="this.style.borderColor='transparent'">
+        <input type="radio" name="rea-modo" value="escolher" onchange="_reaPreviewUpdate()" style="margin-top:3px">
+        <div style="flex:1">
+          <b style="color:#F59E0B">🎚️ Escolher assinaturas + % individual</b>
+          <div style="color:#94A3B8;font-size:.74rem;margin-top:2px">Marca quais assinaturas reajustar e define um % específico pra cada uma. Mais cirúrgico.</div>
+        </div>
+      </label>
     </div>
-    <div id="rea-preview" style="background:#0F172A;border-radius:8px;padding:14px;max-height:280px;overflow:auto"></div>
+    <div style="background:#0F172A;border-radius:8px;padding:14px;max-height:380px;overflow:auto" id="rea-preview"></div>
   </div>`;
   _fkModal('📈 Reajuste anual', html, () => {
     const modo = (document.querySelector('input[name="rea-modo"]:checked')||{}).value || 'idx';
@@ -95944,11 +95960,32 @@ function comRecReajusteRun(){
         a.valor = novo;
         n++;
       });
-    } else {
+    } else if(modo === 'custom'){
       ativas.forEach(a => {
         const novo = Math.round(a.valor*(1+pctCustom/100)*100)/100;
         a.changes = a.changes || [];
         a.changes.push({ ts:Date.now(), from:a.valor, to:novo, motivo:`Reajuste customizado (${pctCustom>=0?'+':''}${pctCustom}%)`, delta:novo-a.valor });
+        a.valor = novo;
+        n++;
+      });
+    } else { // escolher
+      // sync inputs antes de aplicar
+      ativas.forEach(a => {
+        const inp = document.getElementById('rea-pct-'+a.id);
+        if(inp) _reaPctById[a.id] = parseFloat(inp.value)||0;
+        const chk = document.getElementById('rea-chk-'+a.id);
+        if(chk) _reaSel[a.id] = chk.checked;
+      });
+      const selecionadas = ativas.filter(a => _reaSel[a.id]);
+      if(!selecionadas.length){
+        if(typeof fkToast==='function') fkToast('Marque ao menos 1 assinatura', 'warn', 3000);
+        return false;
+      }
+      selecionadas.forEach(a => {
+        const pct = _reaPctById[a.id]||0;
+        const novo = Math.round(a.valor*(1+pct/100)*100)/100;
+        a.changes = a.changes || [];
+        a.changes.push({ ts:Date.now(), from:a.valor, to:novo, motivo:`Reajuste seletivo (${pct>=0?'+':''}${pct}%)`, delta:novo-a.valor });
         a.valor = novo;
         n++;
       });
@@ -95970,6 +96007,49 @@ function _reaPreviewUpdate(){
   if(!el) return;
   const ativas = COM.assinaturas.filter(a => a.ativa);
   const elegiveis = ativas.filter(a => a.reajusteIdx);
+
+  // ── MODO ESCOLHER ──
+  if(modo === 'escolher'){
+    // antes de re-renderizar, salva o estado dos inputs/checkboxes atuais
+    ativas.forEach(a => {
+      const inp = document.getElementById('rea-pct-'+a.id);
+      if(inp) _reaPctById[a.id] = parseFloat(inp.value)||0;
+      const chk = document.getElementById('rea-chk-'+a.id);
+      if(chk) _reaSel[a.id] = chk.checked;
+    });
+    let total = 0;
+    const rows = ativas.map(a => {
+      const sel = _reaSel[a.id] !== false;
+      const pct = _reaPctById[a.id] != null ? _reaPctById[a.id] : 10;
+      const novo = Math.round(a.valor*(1+pct/100)*100)/100;
+      if(sel) total += (novo - a.valor);
+      const idxLbl = a.reajusteIdx ? ` <span style="color:#64748B;font-size:.66rem">· ${a.reajusteIdx.toUpperCase()}</span>` : '';
+      return `<div style="display:grid;grid-template-columns:auto 1.4fr .9fr 1.1fr;gap:10px;padding:8px 4px;border-bottom:1px solid #1E293B;font-size:.82rem;align-items:center;${sel?'':'opacity:.45'}">
+        <input type="checkbox" id="rea-chk-${a.id}" ${sel?'checked':''} onchange="_reaPreviewUpdate()" style="cursor:pointer;width:16px;height:16px;accent-color:#F59E0B">
+        <span><strong>${_comEsc(a.cliente)}</strong>${idxLbl}</span>
+        <span style="display:flex;align-items:center;gap:4px;justify-content:flex-end">
+          <input type="number" id="rea-pct-${a.id}" value="${pct}" min="-50" max="100" step="0.5" oninput="_reaPreviewUpdate()" style="width:72px;padding:4px 6px;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#F59E0B;font-weight:700;font-size:.82rem;text-align:center"><span style="color:#94A3B8">%</span>
+        </span>
+        <span style="text-align:right;${sel?'':'color:#64748B'}">${_comFmtBRL(a.valor)} → <b style="color:${sel?(novo>=a.valor?'#10B981':'#F59E0B'):'#64748B'}">${_comFmtBRL(novo)}</b></span>
+      </div>`;
+    }).join('');
+    const selCount = ativas.filter(a => _reaSel[a.id] !== false).length;
+    el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #334155">
+      <span style="color:#94A3B8;font-size:.78rem"><b style="color:#F59E0B">${selCount}</b> de ${ativas.length} selecionada(s)</span>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sec" style="padding:3px 10px;font-size:.7rem" onclick="_reaToggleAll(true)">Marcar todas</button>
+        <button class="btn btn-sec" style="padding:3px 10px;font-size:.7rem" onclick="_reaToggleAll(false)">Limpar</button>
+      </div>
+    </div>
+    ${rows}
+    <div style="margin-top:10px;padding-top:10px;border-top:2px solid #F59E0B;display:flex;justify-content:space-between;font-weight:800">
+      <span>Impacto MRR (só selecionadas)</span>
+      <span style="color:${total>=0?'#10B981':'#F59E0B'}">${total>=0?'+':''}${_comFmtBRL(total)}/mês</span>
+    </div>`;
+    return;
+  }
+
+  // ── MODOS idx / custom ──
   const lista = modo === 'idx' ? elegiveis : ativas;
   if(!lista.length){
     el.innerHTML = '<p style="color:#F59E0B;font-size:.82rem;text-align:center;padding:20px">Nenhuma assinatura elegível neste modo.</p>';
@@ -95995,7 +96075,12 @@ function _reaPreviewUpdate(){
     <span style="color:${total>=0?'#10B981':'#F59E0B'}">${total>=0?'+':''}${_comFmtBRL(total)}/mês</span>
   </div>`;
 }
-try{ window._reaPreviewUpdate = _reaPreviewUpdate; }catch(_){}
+function _reaToggleAll(val){
+  const ativas = COM.assinaturas.filter(a => a.ativa);
+  ativas.forEach(a => { _reaSel[a.id] = !!val; });
+  _reaPreviewUpdate();
+}
+try{ window._reaPreviewUpdate = _reaPreviewUpdate; window._reaToggleAll = _reaToggleAll; }catch(_){}
 
 // Hook chamado por asaasMarkPaid: emite NF automaticamente se assinatura tem autoEmitNF
 function comOnPaymentReceived(cob){
@@ -96756,39 +96841,61 @@ function _comNumeroExtenso(n){
   return String(n); // 1M+ deixa numérico
 }
 
-function comContratoMinuta(id){
-  const c = COM.contratos.find(x => x.id===id);
-  if(!c) return;
+// Define o "papel" da empresa do user no contrato.
+// Em SaaS / Prestação de serviços / Fornecimento: a empresa É a CONTRATADA (presta o serviço, recebe).
+// Em Aluguel: a empresa É a LOCADORA (ou LOCATÁRIA, depende — assumimos LOCADORA por default).
+// Em Trabalhista: a empresa É a EMPREGADORA.
+// O usuário pode INVERTER os papéis via toggle no modal.
+function _comMinutaPapeis(tipo, invertido){
+  const t = (tipo||'').toLowerCase();
+  let userRole, otherRole;
+  if(t.includes('aluguel')){ userRole='LOCADORA'; otherRole='LOCATÁRIA'; }
+  else if(t.includes('trabalhista')){ userRole='EMPREGADORA'; otherRole='EMPREGADO(A)'; }
+  else { userRole='CONTRATADA'; otherRole='CONTRATANTE'; } // serviços/SaaS/fornecimento — empresa presta o serviço
+  if(invertido){ const tmp = userRole; userRole = otherRole; otherRole = tmp; }
+  return { user: userRole, other: otherRole };
+}
+
+function _comBuildMinutaTexto(c, papeis, opts){
+  opts = opts || {};
   const emp = (typeof EMPRESAS!=='undefined' && EMPRESAS && EMPRESAS.currentId)
     ? (EMPRESAS.list||[]).find(e => e.id===EMPRESAS.currentId)
     : (typeof EMPRESAS!=='undefined' && EMPRESAS && EMPRESAS.list ? EMPRESAS.list[0] : null);
-  const empNome = emp ? (emp.razao || emp.nome) : 'NOME DA EMPRESA CONTRATANTE';
-  const empCnpj = emp ? (emp.cnpj || '___.___.___/____-__') : '___.___.___/____-__';
-  const empEnd  = emp && emp.endereco ? emp.endereco : '[ENDEREÇO COMPLETO DA EMPRESA]';
-  const empRep  = emp && emp.representante ? emp.representante : '[NOME DO REPRESENTANTE LEGAL]';
+  const empNome   = emp ? (emp.razao || emp.nome) : '[NOME DA SUA EMPRESA]';
+  const empCnpj   = emp ? (emp.cnpj || '___.___.___/____-__') : '___.___.___/____-__';
+  const empEnd    = emp && emp.endereco ? emp.endereco : '[ENDEREÇO COMPLETO DA SUA EMPRESA]';
+  const empRep    = emp && emp.representante ? emp.representante : '[NOME DO REPRESENTANTE LEGAL]';
   const empCpfRep = emp && emp.cpfRepresentante ? emp.cpfRepresentante : '___.___.___-__';
 
   const hoje = new Date();
   const meses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
-  const dataExt = `${hoje.getDate()} de ${meses[hoje.getMonth()]} de ${hoje.getFullYear()}`;
-  const valExt = _comValExtenso(c.valor);
+  const dataExt  = `${hoje.getDate()} de ${meses[hoje.getMonth()]} de ${hoje.getFullYear()}`;
+  const valExt   = _comValExtenso(c.valor);
   const prazoTxt = (c.inicio && c.fim) ? `com vigência de ${c.inicio} até ${c.fim}` : 'por prazo indeterminado';
   const tipoNomeUpper = (c.tipo||'PRESTAÇÃO DE SERVIÇOS').toUpperCase();
+  const userIsServiceProvider = (papeis.user === 'CONTRATADA' || papeis.user === 'LOCADORA' || papeis.user === 'EMPREGADORA');
 
-  const minutaPlain = `INSTRUMENTO PARTICULAR DE CONTRATO DE ${tipoNomeUpper}
+  // Quem PAGA é quem CONTRATA / LOCATÁRIA / EMPREGADORA (recebe serviço/imóvel/trabalho)
+  // Quem RECEBE é quem PRESTA / LOCADORA / EMPREGADA (fornece serviço/imóvel/trabalho)
+  // Identificamos pagador/recebedor pelos labels:
+  const pagaUser = !userIsServiceProvider; // se user é CONTRATANTE/LOCATÁRIA/EMPREGADO → user paga
+  const pagador  = pagaUser ? papeis.user : papeis.other;
+  const recebedor = pagaUser ? papeis.other : papeis.user;
+
+  return `INSTRUMENTO PARTICULAR DE CONTRATO DE ${tipoNomeUpper}
 
 Pelo presente instrumento particular, de um lado:
 
-CONTRATANTE: ${empNome}, pessoa jurídica de direito privado, inscrita no CNPJ sob nº ${empCnpj}, com sede em ${empEnd}, neste ato representada na forma de seu Contrato Social por ${empRep}, portador(a) do CPF nº ${empCpfRep}, doravante denominada simplesmente CONTRATANTE;
+${papeis.user}: ${empNome}, pessoa jurídica de direito privado, inscrita no CNPJ sob nº ${empCnpj}, com sede em ${empEnd}, neste ato representada na forma de seu Contrato Social por ${empRep}, portador(a) do CPF nº ${empCpfRep}, doravante denominada simplesmente ${papeis.user};
 
 E de outro lado:
 
-CONTRATADO(A): ${c.contraparte}, [qualificar: pessoa física/jurídica, CPF/CNPJ nº _____________, endereço completo], doravante denominada(o) simplesmente CONTRATADO(A);
+${papeis.other}: ${c.contraparte}, [qualificar: pessoa física/jurídica, CPF/CNPJ nº _____________, endereço completo], doravante denominada(o) simplesmente ${papeis.other};
 
 As partes acima qualificadas têm entre si justo e contratado o presente CONTRATO DE ${tipoNomeUpper}, que se regerá pelas seguintes cláusulas e condições:
 
 CLÁUSULA PRIMEIRA — DO OBJETO
-1.1. O presente contrato tem por objeto a ${(c.tipo||'prestação de serviços').toLowerCase()} pelo(a) CONTRATADO(A) à CONTRATANTE, conforme descrição: "${c.titulo}".
+1.1. O presente contrato tem por objeto a ${(c.tipo||'prestação de serviços').toLowerCase()}, conforme descrição: "${c.titulo}".
 1.2. ${c.obs ? 'Especificações complementares: ' + c.obs : 'Demais especificações constam no Anexo I deste instrumento, que faz parte integrante do contrato.'}
 
 CLÁUSULA SEGUNDA — DO PRAZO
@@ -96796,16 +96903,17 @@ CLÁUSULA SEGUNDA — DO PRAZO
 ${c.renovaAuto?'2.2. Findo o prazo de vigência, este contrato será automaticamente renovado por período idêntico, salvo manifestação contrária de qualquer das partes com antecedência mínima de 30 (trinta) dias do término.':''}
 
 CLÁUSULA TERCEIRA — DO VALOR E FORMA DE PAGAMENTO
-3.1. Pelo objeto deste contrato, a CONTRATANTE pagará ao(à) CONTRATADO(A) o valor de R$ ${valExt}, ${c.tipo==='Aluguel'||c.tipo==='SaaS'||c.tipo==='Prestação de serviços'?'mensalmente':'conforme cronograma anexo'}.
-3.2. O pagamento será efetuado mediante depósito/transferência em conta indicada pelo(a) CONTRATADO(A), até o 5º (quinto) dia útil de cada mês.
-3.3. O atraso no pagamento sujeitará a CONTRATANTE ao pagamento de multa de 2% (dois por cento) sobre o valor em atraso, acrescida de juros de mora de 1% (um por cento) ao mês.
+3.1. Pelo objeto deste contrato, ${pagador} pagará a ${recebedor} o valor de R$ ${valExt}, ${c.tipo==='Aluguel'||c.tipo==='SaaS'||c.tipo==='Prestação de serviços'?'mensalmente':'conforme cronograma anexo'}.
+3.2. O pagamento será efetuado mediante depósito/transferência em conta indicada por ${recebedor}, até o 5º (quinto) dia útil de cada mês.
+3.3. O atraso no pagamento sujeitará ${pagador} ao pagamento de multa de 2% (dois por cento) sobre o valor em atraso, acrescida de juros de mora de 1% (um por cento) ao mês.
+${userIsServiceProvider ? '3.4. A emissão de Nota Fiscal de Serviços (NFS-e) referente aos valores recebidos é de responsabilidade exclusiva de ' + papeis.user + ', que se compromete a entregar o respectivo documento fiscal em até 5 (cinco) dias úteis após o recebimento de cada pagamento.' : '3.4. ' + papeis.other + ', enquanto prestadora dos serviços, será responsável pela emissão da Nota Fiscal de Serviços (NFS-e) correspondente aos pagamentos efetuados, nos termos da legislação aplicável.'}
 
 CLÁUSULA QUARTA — DO REAJUSTE
 4.1. Os valores constantes deste contrato serão reajustados anualmente, na menor periodicidade permitida em lei, pelo índice IPCA/IBGE ou, na sua falta, por outro índice oficial que venha a substituí-lo.
 
 CLÁUSULA QUINTA — DAS OBRIGAÇÕES
-5.1. São obrigações do(a) CONTRATADO(A): (a) executar o objeto com zelo, diligência e dentro dos prazos avençados; (b) manter sigilo sobre informações da CONTRATANTE; (c) emitir nota fiscal correspondente aos valores recebidos.
-5.2. São obrigações da CONTRATANTE: (a) efetuar os pagamentos nas datas e formas convencionadas; (b) prestar as informações necessárias para o bom andamento dos serviços; (c) zelar pelo cumprimento das normas aplicáveis.
+5.1. São obrigações de ${recebedor}: (a) executar o objeto com zelo, diligência e dentro dos prazos avençados; (b) manter sigilo sobre informações de ${pagador}; (c) emitir nota fiscal correspondente aos valores recebidos.
+5.2. São obrigações de ${pagador}: (a) efetuar os pagamentos nas datas e formas convencionadas; (b) prestar as informações necessárias para o bom andamento dos serviços; (c) zelar pelo cumprimento das normas aplicáveis.
 
 CLÁUSULA SEXTA — DA RESCISÃO
 6.1. Este contrato poderá ser rescindido por qualquer das partes, mediante aviso prévio escrito de 30 (trinta) dias, sem qualquer ônus indenizatório.
@@ -96823,14 +96931,14 @@ E, por estarem assim justas e contratadas, as partes assinam o presente instrume
 
 
 _______________________________________________
-CONTRATANTE
+${papeis.user}
 ${empNome}
 ${empRep}
 CPF: ${empCpfRep}
 
 
 _______________________________________________
-CONTRATADO(A)
+${papeis.other}
 ${c.contraparte}
 CPF/CNPJ: __________________
 
@@ -96840,21 +96948,122 @@ TESTEMUNHAS:
 1) ___________________________   2) ___________________________
 Nome:                                           Nome:
 CPF:                                            CPF:`;
+}
 
-  // HTML view com botões imprimir/copiar/baixar
-  const minutaHtml = `<div style="max-width:780px">
-    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;border-bottom:1px solid #1E293B;padding-bottom:12px">
-      <button class="btn btn-p" onclick="comMinutaPrint(${c.id})">🖨 Imprimir / Salvar PDF</button>
-      <button class="btn btn-sec" onclick="comMinutaCopy(${c.id})">📋 Copiar texto</button>
-      <button class="btn btn-sec" onclick="comMinutaDown(${c.id})">⬇️ Baixar .txt</button>
-      <div style="margin-left:auto;color:#64748B;font-size:.74rem;align-self:center">💡 Preencha campos entre [colchetes] antes de assinar</div>
-    </div>
-    <div id="com-minuta-body-${c.id}" style="background:#FAFAF9;color:#1F2937;padding:32px 40px;border-radius:8px;font-family:'Georgia',serif;font-size:.84rem;line-height:1.7;white-space:pre-wrap;max-height:55vh;overflow:auto;box-shadow:inset 0 0 0 1px #E5E7EB">${_comEsc(minutaPlain)}</div>
-  </div>`;
-  // guarda no contrato pra acesso pelos botões
+// Estado UI da minuta atual (toggle inverter papéis)
+let _minutaInvertido = false;
+
+function comContratoMinuta(id){
+  const c = COM.contratos.find(x => x.id===id);
+  if(!c) return;
+  // reset toggle a cada abertura, usa preferência salva no contrato se houver
+  _minutaInvertido = !!c.minutaPapeisInvertidos;
+  const papeis = _comMinutaPapeis(c.tipo, _minutaInvertido);
+  // Se já houver versão custom editada antes, reabre ela; senão gera template fresco
+  const minutaPlain = (typeof c.minutaCustom === 'string' && c.minutaCustom.length > 100)
+    ? c.minutaCustom
+    : _comBuildMinutaTexto(c, papeis);
   c._minutaCache = minutaPlain;
+
+  // Modal MUITO mais amplo, com editor inline (contenteditable), toolbar de ações
+  // e toggle pra inverter papéis (caso queira: empresa = CONTRATANTE em vez de CONTRATADA)
+  const minutaHtml = `<div style="width:min(96vw,1080px);max-width:1080px">
+    <!-- TOOLBAR superior -->
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;border-bottom:1px solid #1E293B;padding-bottom:10px;align-items:center">
+      <button class="btn btn-p" onclick="comMinutaPrint(${c.id})">🖨 Imprimir / Salvar PDF</button>
+      <button class="btn btn-sec" onclick="comMinutaCopy(${c.id})">📋 Copiar</button>
+      <button class="btn btn-sec" onclick="comMinutaDown(${c.id})">⬇️ Baixar .txt</button>
+      <button class="btn btn-sec" onclick="comMinutaReset(${c.id})" title="Volta pro template original">↻ Resetar template</button>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label style="display:flex;gap:6px;align-items:center;background:#1E293B;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:.76rem;color:#A78BFA" title="Inverte o papel da empresa no contrato">
+          <input type="checkbox" id="com-minuta-invert" ${_minutaInvertido?'checked':''} onchange="comMinutaTogglePapel(${c.id},this.checked)">
+          🔄 Sua empresa é a <b id="com-minuta-papel-lbl">${papeis.user}</b>
+        </label>
+      </div>
+    </div>
+
+    <!-- Info sobre permissão de edição -->
+    <div style="background:#0F172A;border:1px solid #1E293B;border-radius:8px;padding:10px 14px;margin-bottom:10px;color:#94A3B8;font-size:.78rem;display:flex;gap:10px;align-items:center">
+      <span style="font-size:1.2rem">✏️</span>
+      <div style="flex:1">
+        <b style="color:#22D3EE">Edição liberada.</b> Clique direto no documento abaixo pra ajustar qualquer parte (cláusulas, valores, endereço, foro). As alterações ficam salvas no contrato.
+        Campos entre <code style="color:#F59E0B">[colchetes]</code> precisam ser preenchidos antes da assinatura.
+      </div>
+      <span id="com-minuta-saving" style="color:#10B981;font-size:.72rem;font-weight:700;opacity:0;transition:opacity .25s">✓ Salvo</span>
+    </div>
+
+    <!-- Documento editável -->
+    <div id="com-minuta-body-${c.id}" contenteditable="true" spellcheck="true"
+         oninput="comMinutaOnEdit(${c.id})"
+         style="background:#FAFAF9;color:#1F2937;padding:48px 60px;border-radius:8px;font-family:'Georgia','Cambria',serif;font-size:.92rem;line-height:1.75;white-space:pre-wrap;max-height:65vh;overflow:auto;box-shadow:inset 0 0 0 1px #E5E7EB,0 4px 18px rgba(0,0,0,.35);outline:none;min-height:340px"
+         onfocus="this.style.boxShadow='inset 0 0 0 2px #A78BFA,0 4px 18px rgba(0,0,0,.35)'"
+         onblur="this.style.boxShadow='inset 0 0 0 1px #E5E7EB,0 4px 18px rgba(0,0,0,.35)'"
+    >${_comEsc(minutaPlain)}</div>
+  </div>`;
   _fkModalInfo('📝 Minuta do contrato · ' + (c.titulo||''), minutaHtml);
+  // Estoura o max-width default do _fkModalInfo (600px) — minuta precisa de 1080px
+  setTimeout(() => {
+    try{
+      const overlays = document.querySelectorAll('div[style*="z-index:9999"]');
+      const last = overlays[overlays.length-1];
+      if(last){
+        const inner = last.querySelector('div');
+        if(inner){
+          inner.style.maxWidth = '1120px';
+          inner.style.width = 'min(96vw,1120px)';
+        }
+      }
+    }catch(_){}
+  }, 30);
   if(typeof auditLog==='function') auditLog('comercial', `gerou minuta do contrato ${c.titulo}`);
+}
+
+function comMinutaOnEdit(id){
+  const c = COM.contratos.find(x => x.id===id);
+  if(!c) return;
+  const body = document.getElementById('com-minuta-body-'+id);
+  if(!body) return;
+  // contenteditable retorna innerText incluindo \n preservados
+  c._minutaCache = body.innerText;
+  c.minutaCustom = c._minutaCache; // persiste no contrato
+  // debounced save
+  clearTimeout(window._minutaSaveT);
+  window._minutaSaveT = setTimeout(() => {
+    comSave();
+    const ind = document.getElementById('com-minuta-saving');
+    if(ind){ ind.style.opacity = '1'; setTimeout(() => ind.style.opacity = '0', 1500); }
+  }, 400);
+}
+
+function comMinutaTogglePapel(id, invertido){
+  const c = COM.contratos.find(x => x.id===id);
+  if(!c) return;
+  _minutaInvertido = !!invertido;
+  c.minutaPapeisInvertidos = _minutaInvertido;
+  // limpa custom — papéis trocados regeram template
+  c.minutaCustom = null;
+  const papeis = _comMinutaPapeis(c.tipo, _minutaInvertido);
+  const novo = _comBuildMinutaTexto(c, papeis);
+  c._minutaCache = novo;
+  const body = document.getElementById('com-minuta-body-'+id);
+  if(body) body.innerText = novo;
+  const lbl = document.getElementById('com-minuta-papel-lbl');
+  if(lbl) lbl.textContent = papeis.user;
+  comSave();
+  if(typeof fkToast==='function') fkToast('Papéis trocados · ' + papeis.user, 'info', 2200);
+}
+
+function comMinutaReset(id){
+  const c = COM.contratos.find(x => x.id===id);
+  if(!c) return;
+  c.minutaCustom = null;
+  const papeis = _comMinutaPapeis(c.tipo, _minutaInvertido);
+  const novo = _comBuildMinutaTexto(c, papeis);
+  c._minutaCache = novo;
+  const body = document.getElementById('com-minuta-body-'+id);
+  if(body) body.innerText = novo;
+  comSave();
+  if(typeof fkToast==='function') fkToast('Template resetado', 'ok', 2000);
 }
 
 function comMinutaPrint(id){
@@ -96904,6 +97113,9 @@ try{
   window.comMinutaPrint        = comMinutaPrint;
   window.comMinutaCopy         = comMinutaCopy;
   window.comMinutaDown         = comMinutaDown;
+  window.comMinutaOnEdit       = comMinutaOnEdit;
+  window.comMinutaTogglePapel  = comMinutaTogglePapel;
+  window.comMinutaReset        = comMinutaReset;
 }catch(_){}
 // T2: Renovação automática
 async function comContRenewCheck(){
