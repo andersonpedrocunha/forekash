@@ -16202,34 +16202,51 @@
     .ks-kn-platform.floor{background:rgba(10,20,12,.85);background-image:repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(16,185,129,.10) 6px, rgba(16,185,129,.10) 8px)}
     /* Container TEM o tamanho do HITBOX (32x44) — posicionamento 1:1 com a física */
     .ks-kn-player{position:absolute;width:32px;height:44px;z-index:5;will-change:transform,left,top;image-rendering:pixelated;image-rendering:-moz-crisp-edges}
-    /* Sprite (48x72) sobressai do hitbox, ancorado pelo BOTTOM — pés colam no chão real */
-    .ks-kn-player img.kn-char-img{position:absolute;bottom:0;left:50%;width:48px;height:72px;margin-left:-24px;display:none;image-rendering:pixelated;image-rendering:-moz-crisp-edges;pointer-events:none;filter:drop-shadow(0 0 8px rgba(16,185,129,.45)) drop-shadow(0 2px 3px rgba(0,0,0,.8))}
-    /* Por padrão mostra idle */
-    .ks-kn-player .kn-pose-idle{display:block}
-    /* Estados trocam qual pose mostrar */
-    .ks-kn-player.walking .kn-pose-idle,
-    .ks-kn-player.jumping .kn-pose-idle,
-    .ks-kn-player.attacking .kn-pose-idle{display:none}
-    .ks-kn-player.walking .kn-pose-walk{display:block}
-    .ks-kn-player.jumping .kn-pose-walk{display:none}
-    .ks-kn-player.attacking .kn-pose-walk{display:none}
-    .ks-kn-player.jumping .kn-pose-jump{display:block}
-    .ks-kn-player.attacking .kn-pose-jump{display:none}
-    .ks-kn-player.attacking .kn-pose-attack{display:block}
-    /* Facing left → flip horizontal */
+    /* Sprite IDLE do Gemini (60x90) — única visível, animada por CSS pra movimento fluído */
+    /* Ancorado no BOTTOM do hitbox; sobressai pra cima/lados (cabeça/braços) */
+    .ks-kn-player img.kn-char-img{position:absolute;bottom:-2px;left:50%;width:60px;height:90px;margin-left:-30px;display:none;image-rendering:pixelated;image-rendering:-moz-crisp-edges;pointer-events:none;filter:drop-shadow(0 0 10px rgba(16,185,129,.55)) drop-shadow(0 3px 4px rgba(0,0,0,.8));transform-origin:50% 100%}
+    /* Só a idle aparece (mesma specificity vence agora) */
+    .ks-kn-player img.kn-pose-idle{display:block}
+    /* Facing left → flip horizontal (pivota em torno do centro-bottom) */
     .ks-kn-player.facing-l img.kn-char-img{transform:scaleX(-1)}
+    /* === ANIMAÇÕES FLUÍDAS sobre a sprite idle === */
+    /* WALK — bob suave + leve squash + pernas falsas via translateY */
+    .ks-kn-player.walking img.kn-pose-idle{animation:knWalk .42s ease-in-out infinite}
+    .ks-kn-player.facing-l.walking img.kn-pose-idle{animation:knWalkL .42s ease-in-out infinite}
+    @keyframes knWalk{
+      0%,100%{transform:translateY(0) scaleY(1)}
+      25%{transform:translateY(-2px) scaleY(1.02)}
+      50%{transform:translateY(0) scaleY(.98) scaleX(1.02)}
+      75%{transform:translateY(-2px) scaleY(1.02)}
+    }
+    @keyframes knWalkL{
+      0%,100%{transform:scaleX(-1) translateY(0) scaleY(1)}
+      25%{transform:scaleX(-1.02) translateY(-2px) scaleY(1.02)}
+      50%{transform:scaleX(-1.02) translateY(0) scaleY(.98)}
+      75%{transform:scaleX(-1.02) translateY(-2px) scaleY(1.02)}
+    }
+    /* JUMP — estica vertical + sobe um pouco */
+    .ks-kn-player.jumping img.kn-pose-idle{transform:translateY(-3px) scale(.92,1.12);transition:transform .15s ease-out}
+    .ks-kn-player.facing-l.jumping img.kn-pose-idle{transform:scaleX(-.92) scaleY(1.12) translateY(-3px);transition:transform .15s ease-out}
+    /* ATTACK — lunge à frente + rotaciona levemente + flash do drop-shadow */
+    .ks-kn-player.attacking img.kn-pose-idle{animation:knAtk .22s ease-out}
+    .ks-kn-player.facing-l.attacking img.kn-pose-idle{animation:knAtkL .22s ease-out}
+    @keyframes knAtk{
+      0%{transform:translateX(0) rotate(0)}
+      30%{transform:translateX(5px) rotate(-3deg) scale(1.05,.96)}
+      70%{transform:translateX(2px) rotate(-1deg)}
+      100%{transform:translateX(0) rotate(0)}
+    }
+    @keyframes knAtkL{
+      0%{transform:scaleX(-1) translateX(0) rotate(0)}
+      30%{transform:scaleX(-1.05) scaleY(.96) translateX(5px) rotate(3deg)}
+      70%{transform:scaleX(-1) translateX(2px) rotate(1deg)}
+      100%{transform:scaleX(-1) translateX(0) rotate(0)}
+    }
+    .ks-kn-player.attacking img.kn-pose-idle{filter:drop-shadow(0 0 14px #FBBF24) drop-shadow(0 0 8px #10B981) drop-shadow(0 3px 4px rgba(0,0,0,.8))}
     /* Invuln blink */
-    .ks-kn-player.invuln img.kn-char-img{animation:ksKnFlash .14s steps(2) infinite}
-    .ks-kn-player.facing-l.invuln img.kn-char-img{animation:ksKnFlashL .14s steps(2) infinite}
+    .ks-kn-player.invuln img.kn-pose-idle{animation:ksKnFlash .14s steps(2) infinite !important}
     @keyframes ksKnFlash{0%{opacity:1}50%{opacity:.3}}
-    @keyframes ksKnFlashL{0%{opacity:1;transform:scaleX(-1)}50%{opacity:.3;transform:scaleX(-1)}}
-    /* Bob no walk + leve squash no jump */
-    .ks-kn-player.walking{animation:knWalkBob .32s steps(2) infinite}
-    @keyframes knWalkBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
-    .ks-kn-player.attacking{animation:knAtkLunge .22s ease-out}
-    @keyframes knAtkLunge{0%{transform:translateX(0)}40%{transform:translateX(3px)}100%{transform:translateX(0)}}
-    .ks-kn-player.facing-l.attacking{animation:knAtkLungeL .22s ease-out}
-    @keyframes knAtkLungeL{0%{transform:translateX(0)}40%{transform:translateX(-3px)}100%{transform:translateX(0)}}
     /* Idle breathing animation */
     .ks-kn-player.idle{animation:knIdleBreathe 2.4s ease-in-out infinite}
     @keyframes knIdleBreathe{
@@ -113611,9 +113628,9 @@ function ksKnUpdatePlayer(dt){
   if(_ksKnKeys.attack && p.cooldown <= 0 && p.attackTime <= 0){
     p.attackTime = KS_KN.ATK_DUR;
     p.cooldown = KS_KN.ATK_CD;
-    // postAtkGrace = ATK_CD completo → enquanto não puder atacar de novo,
-    // continua invulnerável. Cobre o gap entre golpes 100%.
-    p.postAtkGrace = KS_KN.ATK_CD;
+    // postAtkGrace 600ms — cobre swing (220) + recovery + enemy hitstun (1500)
+    // com folga generosa. Em mash de attack, fica sempre invulnerável.
+    p.postAtkGrace = 600;
   }
 
   // Gravity
@@ -113722,11 +113739,10 @@ function ksKnCheckHits(dt){
       if(e.dead || e.hitTime > 0) continue;
       if(ksKnAABB(hbX, hbY, hbW, hbH, e.x, e.y, e.w, e.h)){
         e.hp -= 1;
-        // Hitstun LONGO (cobre swing+grace do player com folga) — impede dano por contato
-        e.hitTime = 550;
-        // Knockback forte: o inimigo voa pra longe, não tem como voltar antes da grace
-        e.vx = (p.facing === 'r' ? 1 : -1) * KS_KN.KNOCKBACK * 1.1;
-        e.vy = -5.5;
+        // Hitstun MUITO longo + knockback brutal — inimigo voa pra longe
+        e.hitTime = 1500;
+        e.vx = (p.facing === 'r' ? 1 : -1) * KS_KN.KNOCKBACK * 1.8;
+        e.vy = -7;
         ksKnSpawnParticles(e.x + e.w/2, e.y + e.h/2, '#10B981', 5);
         ksKnSpawnDmg(e.x + e.w/2, e.y, '-1', '#FBBF24');
         if(e.hp <= 0){
@@ -113734,6 +113750,19 @@ function ksKnCheckHits(dt){
           _ksKn.score += e.points;
           ksKnSpawnParticles(e.x + e.w/2, e.y + e.h/2, '#EF4444', 10);
           ksKnSpawnDmg(e.x + e.w/2, e.y - 8, '+' + e.points, '#22D3EE');
+          // KILL CHAIN STUN — todos inimigos no raio do player também ganham hitstun
+          // (impede dano em cadeia quando há vários inimigos juntos)
+          const chainRadius = p.w * 3;
+          for(const o of _ksKn.enemies){
+            if(o.dead || o === e) continue;
+            const dx = (o.x + o.w/2) - (p.x + p.w/2);
+            const dy = (o.y + o.h/2) - (p.y + p.h/2);
+            if(Math.abs(dx) < chainRadius && Math.abs(dy) < p.h * 1.5){
+              o.hitTime = Math.max(o.hitTime, 900);
+              o.vx = (dx > 0 ? 1 : -1) * KS_KN.KNOCKBACK * 0.8;
+              o.vy = -4;
+            }
+          }
         }
       }
     }
@@ -113792,6 +113821,17 @@ function ksKnAABB(ax,ay,aw,ah, bx,by,bw,bh){
 
 function ksKnHurtPlayer(dmg, src){
   const p = _ksKn.player;
+  // DEBUG: log do estado no momento do dano (pra caçar bug residual)
+  console.log('[KASH//KNIGHT damage]', {
+    dmg,
+    src: src && (src.type || 'boss'),
+    srcHitTime: src && src.hitTime,
+    attackTime: p.attackTime,
+    cooldown: p.cooldown,
+    postAtkGrace: p.postAtkGrace,
+    invuln: p.invuln,
+    hp: p.hp
+  });
   p.hp -= dmg;
   p.invuln = KS_KN.INV_DUR;
   // Knockback
@@ -113934,9 +113974,6 @@ function ksKnRender(){
       ${bossHtml}
       <div class="ks-kn-player" id="ks-kn-player" style="left:${_ksKn.player.x}px;top:${_ksKn.player.y}px">
         <img class="kn-char-img kn-pose-idle" src="./kn-char-idle.png" alt="">
-        <img class="kn-char-img kn-pose-walk" src="./kn-char-walk.png" alt="">
-        <img class="kn-char-img kn-pose-jump" src="./kn-char-jump.png" alt="">
-        <img class="kn-char-img kn-pose-attack" src="./kn-char-attack.png" alt="">
       </div>
       <div class="ks-kn-fx" id="ks-kn-fx"></div>
     </div>
