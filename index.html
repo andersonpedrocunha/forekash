@@ -16198,12 +16198,13 @@
     .ks-br-stage.br-lv-office .br-wall{background:#1a1a1a;border:1px solid #000;box-shadow:inset 0 0 8px rgba(239,68,68,.15)}
     /* Tile base — fog of war via opacity (controlado por JS) */
     .br-tile{position:absolute;transition:opacity .12s linear}
-    /* Player */
-    .br-player{position:absolute;width:20px;height:20px;background:radial-gradient(circle,#10B981 0%,#065F46 70%,transparent 100%);border:1.5px solid #A7F3D0;border-radius:50%;z-index:10;transform:translate(-50%,-50%);box-shadow:0 0 12px #10B981,0 0 24px rgba(16,185,129,.4);transition:none;will-change:left,top}
-    .br-player::before{content:'';position:absolute;inset:5px;background:#000;border-radius:50%}
-    .br-player::after{content:'';position:absolute;left:8px;top:6px;width:4px;height:1.5px;background:#10B981;box-shadow:0 0 4px #10B981}
-    .br-player.invuln{animation:brPlayerHurt .14s steps(2) infinite}
+    /* Player — sprite top-down de dev com notebook */
+    .br-player{position:absolute;width:32px;height:32px;z-index:10;transform:translate(-50%,-50%);filter:drop-shadow(0 0 10px rgba(16,185,129,.6)) drop-shadow(0 2px 3px rgba(0,0,0,.85));transition:none;will-change:left,top}
+    .br-player svg{width:100%;height:100%;display:block;overflow:visible;transition:transform .12s ease-out}
+    .br-player.invuln svg{animation:brPlayerHurt .14s steps(2) infinite}
     @keyframes brPlayerHurt{0%{opacity:1}50%{opacity:.35}}
+    .br-player .br-cursor{animation:brCursorBlink .9s steps(2) infinite}
+    @keyframes brCursorBlink{0%,49%{opacity:1}50%,100%{opacity:0}}
     /* Items */
     .br-item{position:absolute;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:1rem;z-index:6;transform:translate(-50%,-50%);animation:brItemFloat 1.6s ease-in-out infinite;text-shadow:0 0 6px currentColor;filter:drop-shadow(0 2px 4px rgba(0,0,0,.7))}
     @keyframes brItemFloat{0%,100%{transform:translate(-50%,-50%) translateY(0)}50%{transform:translate(-50%,-50%) translateY(-3px)}}
@@ -113453,6 +113454,49 @@ const KS_BR_ENTITY_DEFS = {
   banker:     { icon:'🎩', name:'THE BANKER',     speed:1.5, vision:6, ai:'cone',   color:'#EF4444' }
 };
 
+// SVG do dev (top-down). Frente do personagem aponta pra BAIXO (Y+).
+// Rotação por CSS conforme direção do movimento.
+const KS_BR_PLAYER_SVG = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+  <!-- glow halo -->
+  <circle cx="12" cy="12" r="11" fill="#10B981" opacity="0.18"/>
+  <!-- body/ombros (top-down rounded square) -->
+  <rect x="5.5" y="7" width="13" height="10" rx="3.5" fill="#0D2218" stroke="#10B981" stroke-width="0.6"/>
+  <!-- highlight ombro -->
+  <rect x="5.5" y="7" width="13" height="2" rx="2" fill="#1A3D2E" opacity="0.7"/>
+  <!-- hood (parte de trás da cabeça vista de cima) -->
+  <ellipse cx="12" cy="7" rx="5.5" ry="3.8" fill="#1A3D2E" stroke="#10B981" stroke-width="0.55"/>
+  <!-- hood opening (rosto escuro) -->
+  <ellipse cx="12" cy="8.5" rx="3.2" ry="2" fill="#000"/>
+  <!-- 2 olhinhos verdes brilhando dentro do capuz -->
+  <circle cx="10.7" cy="8.3" r="0.45" fill="#A7F3D0"/>
+  <circle cx="13.3" cy="8.3" r="0.45" fill="#A7F3D0"/>
+  <!-- braços pra frente (apontando pro -y do sprite = "frente") -->
+  <rect x="6.5" y="13" width="2.8" height="6" rx="1.2" fill="#0A1F12" stroke="#10B981" stroke-width="0.35"/>
+  <rect x="14.7" y="13" width="2.8" height="6" rx="1.2" fill="#0A1F12" stroke="#10B981" stroke-width="0.35"/>
+  <!-- luvas (mão segurando laptop) -->
+  <ellipse cx="7.9" cy="18.5" rx="1.5" ry="1.1" fill="#000" stroke="#10B981" stroke-width="0.3"/>
+  <ellipse cx="16.1" cy="18.5" rx="1.5" ry="1.1" fill="#000" stroke="#10B981" stroke-width="0.3"/>
+  <!-- LAPTOP segurado entre as mãos -->
+  <!-- sombra -->
+  <ellipse cx="12" cy="21.5" rx="5" ry="0.5" fill="#000" opacity="0.45"/>
+  <!-- moldura -->
+  <rect x="7" y="16" width="10" height="5.5" rx="0.6" fill="#1F2937" stroke="#FBBF24" stroke-width="0.5"/>
+  <!-- tela -->
+  <rect x="7.5" y="16.5" width="9" height="4.5" fill="#022C22"/>
+  <!-- linhas de código -->
+  <rect x="8" y="17" width="3.5" height="0.5" fill="#10B981"/>
+  <rect x="12" y="17" width="2" height="0.5" fill="#22D3EE"/>
+  <rect x="8" y="17.9" width="5" height="0.5" fill="#10B981" opacity="0.85"/>
+  <rect x="13.5" y="17.9" width="2.5" height="0.5" fill="#FBBF24"/>
+  <rect x="8" y="18.8" width="3" height="0.5" fill="#22D3EE"/>
+  <rect x="11.5" y="18.8" width="3" height="0.5" fill="#10B981"/>
+  <rect x="8" y="19.7" width="4.5" height="0.5" fill="#10B981" opacity="0.9"/>
+  <!-- cursor piscando -->
+  <rect class="br-cursor" x="13" y="19.7" width="0.6" height="0.5" fill="#FBBF24"/>
+  <!-- glare diagonal -->
+  <rect x="7.5" y="16.5" width="9" height="0.3" fill="#10B981" opacity="0.3"/>
+</svg>`;
+
 const KS_BR_LORE = [
   'Q3 forecast preso entre as paredes amarelas.',
   '"Conciliar saldos = noclip" — autor desconhecido.',
@@ -113481,7 +113525,7 @@ function ksBrInit(){
     phase:0, levelDef:null,
     grid:[], items:[], entities:[],
     portal:null,
-    player:{ x:1.5, y:1.5, vx:0, vy:0, sanity:KS_BR.SANITY_MAX, vision:KS_BR.VISION, hits:0, invuln:0, keys:0 },
+    player:{ x:1.5, y:1.5, vx:0, vy:0, sanity:KS_BR.SANITY_MAX, vision:KS_BR.VISION, hits:0, invuln:0, keys:0, facing:90 /*deg, baixo*/ },
     score:0, startTime:performance.now(),
     notesFound:0, itemsCollected:0, detectionCount:0, lastDetection:0,
     totalNotes:0, totalItems:0,
@@ -113737,6 +113781,12 @@ function ksBrUpdatePlayer(dt){
     // Tenta X, depois Y (slide nas paredes)
     if(ksBrCanMove(nx, p.y)) p.x = nx;
     if(ksBrCanMove(p.x, ny)) p.y = ny;
+    // Atualiza facing (angle em deg) — SVG frente aponta pra +Y, então
+    // angle de movimento = atan2(my,mx) deg, ajustando -90 pra alinhar
+    const target = Math.atan2(my, mx) * 180/Math.PI - 90;
+    // Lerp suave em direção (curto caminho angular)
+    let diff = ((target - p.facing + 540) % 360) - 180;
+    p.facing = (p.facing + diff * 0.25 + 360) % 360;
     // Footstep sound aleatório
     if(Math.random() < 0.04) ksBrAudioNoise(0.06, 0.025);
   }
@@ -113922,8 +113972,12 @@ window.ksBrAnswerPuzzle = function(idx){
 
 // ─── FLOAT TEXT (em coordenadas de tile) ───
 let _ksBrFloats = [];
-function ksBrFloatText(tx, ty, text, color){
-  _ksBrFloats.push({ tx, ty, text, color, life:1500, maxLife:1500 });
+function ksBrFloatText(tx, ty, text, color, dur){
+  // Duração escala com tamanho do texto se não passada explícita
+  // (lore notes são longas e precisam de tempo pra ler)
+  const auto = Math.max(2400, 1400 + text.length * 60);
+  const life = dur || auto;
+  _ksBrFloats.push({ tx, ty, text, color, life, maxLife:life });
 }
 
 // ─── DOM RENDER (incremental, cache de tiles) ───
@@ -113936,6 +113990,9 @@ function ksBrUpdateDom(){
     _ksBrDom.player.style.left = (p.x * KS_BR.TILE) + 'px';
     _ksBrDom.player.style.top  = (p.y * KS_BR.TILE) + 'px';
     _ksBrDom.player.classList.toggle('invuln', p.invuln > 0);
+    // Rotaciona o SVG conforme a direção atual
+    const svg = _ksBrDom.player.querySelector('svg');
+    if(svg) svg.style.transform = `rotate(${p.facing}deg)`;
   }
   // Entities
   _ksBr.entities.forEach((e, i) => {
@@ -113984,13 +114041,21 @@ function ksBrUpdateDom(){
       _ksBrDom.stage.style.filter = '';
     }
   }
-  // Floats
+  // Floats: rise fast, hold longa, fade no fim
   const fxEl = _ksBrDom.fx;
   if(fxEl){
     fxEl.innerHTML = _ksBrFloats.map(f => {
-      const opacity = f.life / f.maxLife;
-      const ty = (f.maxLife - f.life)/f.maxLife * 24;
-      return `<div style="position:absolute;left:${f.tx*KS_BR.TILE}px;top:${f.ty*KS_BR.TILE - ty}px;color:${f.color};font-family:'JetBrains Mono',monospace;font-size:.74rem;font-weight:700;text-shadow:0 0 6px currentColor;opacity:${opacity};transform:translateX(-50%);pointer-events:none;white-space:nowrap;max-width:280px">${_ksEsc ? _ksEsc(f.text) : f.text}</div>`;
+      const t = (f.maxLife - f.life)/f.maxLife; // 0 → 1 ao longo da vida
+      // Fade in nos primeiros 8%, hold até 75%, fade out no resto
+      let opacity = 1;
+      if(t < 0.08) opacity = t / 0.08;
+      else if(t > 0.75) opacity = (1 - t) / 0.25;
+      // Sobe rápido nos primeiros 30%, depois para
+      const ty = Math.min(28, t * 100);
+      // Texto longo precisa de fundo legível
+      const isLong = f.text.length > 20;
+      const bg = isLong ? 'background:rgba(0,0,0,.72);padding:4px 9px;border-radius:3px;border:1px solid rgba(251,191,36,.25);max-width:300px;white-space:normal;text-align:center;line-height:1.3' : '';
+      return `<div style="position:absolute;left:${f.tx*KS_BR.TILE}px;top:${f.ty*KS_BR.TILE - ty}px;color:${f.color};font-family:'JetBrains Mono',monospace;font-size:.74rem;font-weight:700;text-shadow:0 0 6px currentColor;opacity:${opacity.toFixed(2)};transform:translateX(-50%);pointer-events:none;white-space:nowrap;z-index:20;${bg}">${_ksEsc ? _ksEsc(f.text) : f.text}</div>`;
     }).join('');
     _ksBrFloats.forEach(f => f.life -= 16);
     _ksBrFloats = _ksBrFloats.filter(f => f.life > 0);
@@ -114177,7 +114242,7 @@ function ksBrRender(){
       ${portalHtml}
       ${entHtml}
       ${bossHtml}
-      <div class="br-player ${_ksBr.player.invuln>0?'invuln':''}" id="ks-br-player" style="left:${_ksBr.player.x*KS_BR.TILE}px;top:${_ksBr.player.y*KS_BR.TILE}px"></div>
+      <div class="br-player ${_ksBr.player.invuln>0?'invuln':''}" id="ks-br-player" style="left:${_ksBr.player.x*KS_BR.TILE}px;top:${_ksBr.player.y*KS_BR.TILE}px">${KS_BR_PLAYER_SVG}</div>
       <div class="ks-br-fx" id="ks-br-fx"></div>
       <div class="ks-br-vignette"></div>
     </div>
