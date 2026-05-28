@@ -667,6 +667,10 @@
       0%{background-position:200% 0}
       100%{background-position:-200% 0}
     }
+    @keyframes fkFadeIn{
+      from{opacity:0}
+      to{opacity:1}
+    }
     [data-theme="dark"] .fk-skel{background:linear-gradient(90deg,#1E293B 0%,#334155 50%,#1E293B 100%) !important}
 
     /* ══ MÓDULO PATRIMÔNIO ══ */
@@ -92723,7 +92727,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779935797';
+      const CACHE = 'forekash-v1779937402';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -95642,29 +95646,70 @@ function comRecValorParaMes(a, mes1to12){
   }
   return a.valor;
 }
-function comRecToggle(id){
+async function comRecToggle(id){
   const a = COM.assinaturas.find(x => x.id===id); if(!a) return;
+  // Confirma com explicação
+  const pausando = a.ativa;
+  const ok = await fkConfirm({
+    title: pausando ? '⏸ Pausar assinatura' : '▶️ Reativar assinatura',
+    message: pausando
+      ? `Pausar a assinatura de "${a.cliente}" (${_comFmtBRL(a.valor)}/mês)?\n\n• NÃO vai gerar cobranças automáticas até reativar\n• Cobranças e NFs já geradas permanecem\n• MR KASH pode flaggar como churn risk se ficar pausada muito tempo\n\nVocê pode reativar a qualquer momento.`
+      : `Reativar a assinatura de "${a.cliente}" (${_comFmtBRL(a.valor)}/mês)?\n\n• Volta a gerar cobranças automáticas no dia ${a.diaVenc} de cada mês\n• Próxima cobrança: dia ${a.diaVenc} deste mês (ou próximo se já passou)`,
+    okLabel: pausando ? 'Sim, pausar' : 'Sim, reativar',
+    cancelLabel: 'Cancelar',
+    danger: pausando
+  });
+  if(!ok) return;
   a.ativa = !a.ativa; comSave(); comRecListRender();
+  if(typeof fkToast==='function') fkToast(`Assinatura ${a.cliente} ${a.ativa?'reativada':'pausada'}`, a.ativa?'ok':'warn', 3000);
+  if(typeof auditLog==='function') auditLog('comercial', `${a.ativa?'reativou':'pausou'} assinatura: ${a.cliente}`);
 }
-function comRecRemove(id){
-  if(!confirm('Remover esta assinatura? Cobranças e previsões já geradas permanecem.')) return;
+async function comRecRemove(id){
+  const a = COM.assinaturas.find(x => x.id===id);
+  const ok = await fkConfirm({
+    title: '🗑 Remover assinatura',
+    message: `Remover a assinatura de "${a?a.cliente:'?'}" definitivamente?\n\nCobranças e previsões JÁ GERADAS permanecem no sistema.\nApenas a regra de geração futura é apagada.\n\n⚠ Ação não pode ser desfeita.`,
+    okLabel: 'Sim, remover',
+    cancelLabel: 'Cancelar',
+    danger: true
+  });
+  if(!ok) return;
   COM.assinaturas = COM.assinaturas.filter(x => x.id!==id); comSave(); comRecListRender();
 }
 // T2: Upgrade/Downgrade com histórico
-function comRecUpgrade(id){
+async function comRecUpgrade(id){
   const a = COM.assinaturas.find(x => x.id===id); if(!a) return;
-  const novoStr = prompt(`Cliente ${a.cliente}\nValor atual: ${_comFmtBRL(a.valor)}\n\nNovo valor:`, a.valor);
+  const novoStr = await fkPrompt({
+    title: '↕ Upgrade / Downgrade · ' + a.cliente,
+    message: 'Valor atual: ' + _comFmtBRL(a.valor) + '/mês\n\nDigite o novo valor mensal:',
+    defaultValue: String(a.valor),
+    type: 'number',
+    placeholder: 'Ex: 9500',
+    okLabel: 'Continuar',
+    cancelLabel: 'Cancelar'
+  });
   if(novoStr === null) return;
-  const novo = parseFloat(novoStr); if(isNaN(novo)||novo<=0){ alert('Valor inválido'); return; }
-  if(novo === a.valor){ alert('Valor não mudou.'); return; }
-  const motivo = prompt('Motivo (upgrade/downgrade/negociação)?', novo > a.valor ? 'Upgrade contratado' : 'Renegociação') || '';
+  const novo = parseFloat(novoStr);
+  if(isNaN(novo)||novo<=0){ fkAlert({title:'Valor inválido', message:'Digite um número maior que zero.'}); return; }
+  if(novo === a.valor){ fkAlert({title:'Sem alteração', message:'O valor é igual ao atual.'}); return; }
+  const motivo = await fkPrompt({
+    title: novo > a.valor ? '⬆ Upgrade contratado' : '⬇ Renegociação',
+    message: novo > a.valor
+      ? `Valor vai de ${_comFmtBRL(a.valor)} → ${_comFmtBRL(novo)} (+${_comFmtBRL(novo-a.valor)}/mês)`
+      : `Valor vai de ${_comFmtBRL(a.valor)} → ${_comFmtBRL(novo)} (-${_comFmtBRL(a.valor-novo)}/mês)`,
+    defaultValue: novo > a.valor ? 'Upgrade contratado' : 'Renegociação',
+    placeholder: 'Motivo (opcional)',
+    okLabel: 'Aplicar mudança',
+    cancelLabel: 'Cancelar'
+  });
+  if(motivo === null) return;
   a.changes = a.changes || [];
-  a.changes.push({ ts:Date.now(), from:a.valor, to:novo, motivo, delta:novo-a.valor });
+  a.changes.push({ ts:Date.now(), from:a.valor, to:novo, motivo:motivo||'', delta:novo-a.valor });
   a.valor = novo;
   comSave();
   comRecListRender();
-  if(typeof notifPush==='function') notifPush({titulo:novo>a.changes[a.changes.length-1].from?'⬆ Upgrade':'⬇ Downgrade', msg:`${a.cliente} → ${_comFmtBRL(novo)}/mês`});
-  if(typeof auditLog==='function') auditLog('comercial', `mudou valor da assinatura ${a.cliente}: ${motivo}`);
+  if(typeof fkToast==='function') fkToast(`${novo>a.changes[a.changes.length-1].from?'⬆ Upgrade':'⬇ Downgrade'}: ${a.cliente} → ${_comFmtBRL(novo)}/mês`, 'ok', 3500);
+  if(typeof auditLog==='function') auditLog('comercial', `mudou valor da assinatura ${a.cliente}: ${motivo||'sem motivo'}`);
 }
 function comRecHistOpen(id){
   const a = COM.assinaturas.find(x => x.id===id); if(!a) return;
@@ -95844,12 +95889,14 @@ function comPipeRender(){
       <button class="btn btn-p" onclick="comPipeOpen()" style="margin-top:14px">+ Criar primeira proposta</button></div>`;
     return;
   }
-  // Board kanban
-  let html = '<div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px">';
+  // Board kanban (com drag-and-drop)
+  let html = '<div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px" id="com-pipe-board-grid">';
   COM_PIPE_ESTAGIOS.forEach(est => {
     const items = COM.propostas.filter(p => p.estagio === est.key);
     const subtotal = items.reduce((s,p) => s + (Number(p.valorEstimado)||0), 0);
-    html += `<div style="background:#0F172A;border-radius:10px;padding:10px;border-top:3px solid ${est.color};min-height:240px">
+    html += `<div class="com-pipe-col" data-estagio="${est.key}"
+      ondragover="comPipeDragOver(event)" ondragleave="comPipeDragLeave(event)" ondrop="comPipeDrop(event,'${est.key}')"
+      style="background:#0F172A;border-radius:10px;padding:10px;border-top:3px solid ${est.color};min-height:240px;transition:background .15s">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <strong style="font-size:.78rem;color:${est.color}">${est.label}</strong>
         <span style="background:${est.color}22;color:${est.color};padding:2px 7px;border-radius:8px;font-size:.66rem;font-weight:700">${items.length}</span>
@@ -95857,17 +95904,82 @@ function comPipeRender(){
       <div style="color:#94A3B8;font-size:.7rem;margin-bottom:8px">${_comFmtBRL(subtotal)}</div>
       <div style="display:flex;flex-direction:column;gap:6px">`;
     items.forEach(p => {
-      html += `<div style="background:#1E293B;border-radius:8px;padding:8px 10px;cursor:pointer" onclick="comPipeEdit(${p.id})">
-        <div style="font-weight:700;font-size:.8rem;color:#E5E7EB;word-break:break-word">${_comEsc(p.cliente)}</div>
+      html += `<div draggable="true" data-pid="${p.id}"
+        ondragstart="comPipeDragStart(event,${p.id})" ondragend="comPipeDragEnd(event)"
+        onclick="comPipeEdit(${p.id})"
+        style="background:#1E293B;border-radius:8px;padding:8px 10px;cursor:grab;transition:transform .12s,opacity .12s;border:1px solid transparent"
+        onmouseover="this.style.borderColor='${est.color}66'" onmouseout="this.style.borderColor='transparent'">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+          <span style="color:#64748B;font-size:.7rem;letter-spacing:1px;line-height:1" title="Arraste pra outra coluna">⠿</span>
+          <div style="font-weight:700;font-size:.8rem;color:#E5E7EB;word-break:break-word;flex:1">${_comEsc(p.cliente)}</div>
+        </div>
         <div style="color:#10B981;font-size:.78rem;margin-top:2px">${_comFmtBRL(p.valorEstimado)}</div>
         ${p.vendedor?`<div style="color:#94A3B8;font-size:.66rem;margin-top:2px">👤 ${_comEsc(p.vendedor)}</div>`:''}
       </div>`;
     });
+    if(!items.length){
+      html += `<div style="color:#475569;font-size:.7rem;text-align:center;padding:18px 8px;border:1px dashed #334155;border-radius:6px;font-style:italic">Arraste cards pra cá</div>`;
+    }
     html += `</div></div>`;
   });
   html += '</div>';
+  html += '<small style="display:block;margin-top:10px;color:#94A3B8;font-size:.7rem;text-align:center">💡 Arraste os cards entre as colunas pra mudar o estágio · Click pra editar detalhes</small>';
   el.innerHTML = html;
 }
+
+// Drag-and-drop handlers do Pipeline
+let _comPipeDragId = null;
+function comPipeDragStart(e, pid){
+  _comPipeDragId = pid;
+  e.target.style.opacity = '.4';
+  try{ e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(pid)); }catch(_){}
+}
+function comPipeDragEnd(e){
+  if(e.target && e.target.style) e.target.style.opacity = '1';
+  _comPipeDragId = null;
+  document.querySelectorAll('.com-pipe-col').forEach(c => { c.style.background = '#0F172A'; });
+}
+function comPipeDragOver(e){
+  e.preventDefault();
+  try{ e.dataTransfer.dropEffect = 'move'; }catch(_){}
+  e.currentTarget.style.background = '#1E293B';
+}
+function comPipeDragLeave(e){
+  e.currentTarget.style.background = '#0F172A';
+}
+async function comPipeDrop(e, estagio){
+  e.preventDefault();
+  e.currentTarget.style.background = '#0F172A';
+  const pid = _comPipeDragId || Number(e.dataTransfer.getData('text/plain'));
+  if(!pid) return;
+  const p = COM.propostas.find(x => x.id === Number(pid));
+  if(!p || p.estagio === estagio) return;
+  const oldEst = p.estagio;
+  // Se mudou pra "ganhou", oferece converter em assinatura
+  if(estagio === 'ganhou' && oldEst !== 'ganhou'){
+    const ok = await fkConfirm({
+      title: '🎉 Proposta GANHA',
+      message: `Mover "${p.cliente}" pra coluna GANHOU.\n\nConverter automaticamente em ASSINATURA RECORRENTE de ${_comFmtBRL(p.valorEstimado)}/mês?\n\nIsso cria a assinatura + gera as 12 previsões no Receita Kanban.`,
+      okLabel: 'Sim, converter em assinatura',
+      cancelLabel: 'Só mover (sem criar)'
+    });
+    if(ok){
+      const ass = { id:_comId(), cliente:p.cliente, valor:p.valorEstimado, diaVenc:5, descricao:p.descricao||'Assinatura mensal', ativa:true, ultimaGer:null, hist:[], changes:[], receitaLinks:[], criadoEm:Date.now(), autoEmitNF:false, reajusteIdx:null, reajusteMes:1 };
+      COM.assinaturas.push(ass);
+      if(typeof comRecGerarPrevisoesReceita==='function') comRecGerarPrevisoesReceita(ass);
+      p.assinaturaId = ass.id;
+      if(typeof fkToast==='function') fkToast(`🎉 ${p.cliente} virou assinatura ativa!`, 'ok', 4000);
+      if(typeof fkConfetti==='function') fkConfetti();
+    }
+  }
+  p.estagio = estagio;
+  p.atualizadoEm = Date.now();
+  comSave();
+  comPipeRender();
+  if(typeof fkToast==='function' && estagio !== 'ganhou') fkToast(`Movido pra ${COM_PIPE_ESTAGIOS.find(x=>x.key===estagio).label}`, 'info', 2000);
+  if(typeof auditLog==='function') auditLog('comercial', `pipeline: ${p.cliente} ${oldEst}→${estagio}`);
+}
+try{ window.comPipeDragStart = comPipeDragStart; window.comPipeDragEnd = comPipeDragEnd; window.comPipeDragOver = comPipeDragOver; window.comPipeDragLeave = comPipeDragLeave; window.comPipeDrop = comPipeDrop; }catch(_){}
 function comPipeOpen(){
   const clientes = (typeof receita !== 'undefined' && receita.clientes) ? receita.clientes : [];
   const cliOpts = clientes.map(c => `<option value="${_comEsc(c.nome)}">${_comEsc(c.nome)}</option>`).join('');
@@ -96544,6 +96656,100 @@ function _fkModalInfo(title, html){
   document.body.appendChild(ov);
   ov.querySelector('#_fkmi-close').onclick = () => ov.remove();
 }
+
+// ═════════════════════════════════════════════════════════════════════
+// 🪟 fkPrompt / fkConfirm / fkAlert — substituem prompt()/confirm()/alert()
+// ═════════════════════════════════════════════════════════════════════
+function fkPrompt(opts){
+  // opts: { title, message, defaultValue, placeholder, type, okLabel, cancelLabel }
+  return new Promise((resolve) => {
+    const o = Object.assign({
+      title: 'Forekash', message: '', defaultValue: '', placeholder: '',
+      type: 'text', okLabel: 'OK', cancelLabel: 'Cancelar'
+    }, opts || {});
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;animation:fkFadeIn .15s ease-out';
+    const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    ov.innerHTML = `<div style="background:#1E293B;border:1px solid #334155;border-radius:12px;max-width:440px;width:100%;padding:24px;color:#E5E7EB;box-shadow:0 20px 50px rgba(0,0,0,.45)">
+      <h2 style="margin:0 0 6px;font-size:1.05rem;color:#10B981;letter-spacing:-.3px">${esc(o.title)}</h2>
+      ${o.message ? `<p style="margin:0 0 14px;color:#94A3B8;font-size:.86rem;line-height:1.5;white-space:pre-line">${esc(o.message)}</p>` : ''}
+      <input type="${o.type}" id="_fkp-input" value="${esc(o.defaultValue)}" placeholder="${esc(o.placeholder)}" style="width:100%;padding:11px 14px;background:#0F172A;border:1px solid #334155;border-radius:8px;color:#E5E7EB;font-size:.92rem;outline:none;box-sizing:border-box">
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+        <button class="btn btn-sec" id="_fkp-cancel" style="padding:8px 16px">${esc(o.cancelLabel)}</button>
+        <button class="btn btn-p"   id="_fkp-ok"     style="padding:8px 16px">${esc(o.okLabel)}</button>
+      </div>
+    </div>`;
+    document.body.appendChild(ov);
+    const inp = ov.querySelector('#_fkp-input');
+    setTimeout(() => { inp.focus(); inp.select(); }, 50);
+    const close = (val) => { ov.remove(); resolve(val); };
+    ov.querySelector('#_fkp-cancel').onclick = () => close(null);
+    ov.querySelector('#_fkp-ok').onclick = () => close(inp.value);
+    inp.addEventListener('keydown', e => {
+      if(e.key === 'Enter'){ e.preventDefault(); close(inp.value); }
+      if(e.key === 'Escape'){ e.preventDefault(); close(null); }
+    });
+  });
+}
+
+function fkConfirm(opts){
+  // opts: { title, message, okLabel, cancelLabel, danger }
+  return new Promise((resolve) => {
+    const o = Object.assign({
+      title: 'Confirmar', message: 'Tem certeza?',
+      okLabel: 'Sim', cancelLabel: 'Cancelar', danger: false
+    }, opts || {});
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;animation:fkFadeIn .15s ease-out';
+    const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const okBg = o.danger ? '#EF4444' : '#10B981';
+    const okColor = '#fff';
+    ov.innerHTML = `<div style="background:#1E293B;border:1px solid #334155;border-radius:12px;max-width:460px;width:100%;padding:24px;color:#E5E7EB;box-shadow:0 20px 50px rgba(0,0,0,.45)">
+      <h2 style="margin:0 0 10px;font-size:1.05rem;color:${o.danger?'#EF4444':'#10B981'};letter-spacing:-.3px">${esc(o.title)}</h2>
+      <p style="margin:0;color:#E5E7EB;font-size:.9rem;line-height:1.55;white-space:pre-line">${esc(o.message)}</p>
+      <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end">
+        <button class="btn btn-sec" id="_fkc-cancel" style="padding:9px 18px">${esc(o.cancelLabel)}</button>
+        <button id="_fkc-ok" style="padding:9px 18px;background:${okBg};color:${okColor};border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:.9rem">${esc(o.okLabel)}</button>
+      </div>
+    </div>`;
+    document.body.appendChild(ov);
+    const close = (val) => { ov.remove(); resolve(val); };
+    ov.querySelector('#_fkc-cancel').onclick = () => close(false);
+    ov.querySelector('#_fkc-ok').onclick = () => close(true);
+    ov.querySelector('#_fkc-ok').focus();
+    document.addEventListener('keydown', function onKey(e){
+      if(e.key === 'Escape'){ document.removeEventListener('keydown', onKey); close(false); }
+      else if(e.key === 'Enter'){ document.removeEventListener('keydown', onKey); close(true); }
+    });
+  });
+}
+
+function fkAlert(opts){
+  // opts: { title, message, okLabel } ou string
+  return new Promise((resolve) => {
+    if(typeof opts === 'string') opts = { message: opts };
+    const o = Object.assign({ title: 'Forekash', message: '', okLabel: 'OK' }, opts || {});
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;animation:fkFadeIn .15s ease-out';
+    const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    ov.innerHTML = `<div style="background:#1E293B;border:1px solid #334155;border-radius:12px;max-width:440px;width:100%;padding:24px;color:#E5E7EB;box-shadow:0 20px 50px rgba(0,0,0,.45)">
+      <h2 style="margin:0 0 10px;font-size:1.05rem;color:#10B981;letter-spacing:-.3px">${esc(o.title)}</h2>
+      <p style="margin:0;color:#E5E7EB;font-size:.9rem;line-height:1.55;white-space:pre-line">${esc(o.message)}</p>
+      <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end">
+        <button class="btn btn-p" id="_fka-ok" style="padding:9px 22px">${esc(o.okLabel)}</button>
+      </div>
+    </div>`;
+    document.body.appendChild(ov);
+    const close = () => { ov.remove(); resolve(true); };
+    ov.querySelector('#_fka-ok').onclick = close;
+    ov.querySelector('#_fka-ok').focus();
+    document.addEventListener('keydown', function onKey(e){
+      if(e.key === 'Escape' || e.key === 'Enter'){ document.removeEventListener('keydown', onKey); close(); }
+    });
+  });
+}
+
+try{ window.fkPrompt = fkPrompt; window.fkConfirm = fkConfirm; window.fkAlert = fkAlert; }catch(_){}
 
 // ── Modal genérico interno (fallback se _fkModal não existir) ────
 if(typeof _fkModal !== 'function'){
