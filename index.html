@@ -88790,11 +88790,289 @@ function seedDemoData(opts){
     localStorage.setItem(ORC_KEY_LOCAL, JSON.stringify(orcData));
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // SEED MÓDULOS NOVOS · Comercial v2, Asaas, NF, Patrimônio, FK Lab
+  // Idempotente (só preenche se vazio · até dez/2026)
+  // ═══════════════════════════════════════════════════════════════
+  try{ _seedComercialV2(Y); }catch(e){ console.warn('seed comercial:', e); }
+  try{ _seedAsaasFull(Y); }catch(e){ console.warn('seed asaas:', e); }
+  try{ _seedNFFull(Y); }catch(e){ console.warn('seed nf:', e); }
+  try{ _seedPatrimonioFull(Y); }catch(e){ console.warn('seed patrim:', e); }
+  try{ _seedFKLabFull(Y); }catch(e){ console.warn('seed fklab:', e); }
+  try{ _seedOutrasOpFull(Y); }catch(e){ console.warn('seed outras:', e); }
+
   try{
     const filled = Object.keys(isEmpty).filter(k => isEmpty[k]);
     const kept   = Object.keys(isEmpty).filter(k => !isEmpty[k]);
     console.log('[TALLER] Demo data seed — preenchidos:', filled.join(', ') || '(nenhum)', '| mantidos:', kept.join(', ') || '(nenhum)');
   }catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SEED FUNCTIONS · módulos novos (idempotentes, até dez/2026)
+// ═══════════════════════════════════════════════════════════════
+
+// COMERCIAL v2 · assinaturas + propostas + contratos + recibos
+function _seedComercialV2(Y){
+  const raw = localStorage.getItem('forekash:comercial:v2');
+  let COM = raw ? JSON.parse(raw) : null;
+  if(!COM) COM = { assinaturas:[], propostas:[], recibos:[], contratos:[], nextId:1 };
+  if(!Array.isArray(COM.assinaturas)) COM.assinaturas = [];
+  if(!Array.isArray(COM.propostas))   COM.propostas = [];
+  if(!Array.isArray(COM.recibos))     COM.recibos = [];
+  if(!Array.isArray(COM.contratos))   COM.contratos = [];
+  if(typeof COM.nextId !== 'number')  COM.nextId = 1;
+  const hoje = new Date();
+  // ASSINATURAS (8 ativas)
+  if(!COM.assinaturas.length){
+    const seedAss = [
+      { cliente:'Edtech Foco',         valor:8000,  diaVenc:5,  descricao:'Plano Enterprise',          reajusteIdx:'ipca',  reajusteMes:1 },
+      { cliente:'Construtora Horizon', valor:7000,  diaVenc:10, descricao:'Plano Pro',                 reajusteIdx:'igpm',  reajusteMes:6 },
+      { cliente:'Varejo Plus',         valor:5000,  diaVenc:15, descricao:'Plano Business',            reajusteIdx:'fixo5', reajusteMes:1 },
+      { cliente:'Acme Corp',           valor:1500,  diaVenc:5,  descricao:'Mensalidade SaaS',          reajusteIdx:'ipca',  reajusteMes:3 },
+      { cliente:'Tech Brasil',         valor:850,   diaVenc:10, descricao:'Plano Starter',             reajusteIdx:null,    reajusteMes:1 },
+      { cliente:'Studio Design',       valor:350,   diaVenc:5,  descricao:'Mensalidade básica',        reajusteIdx:'fixo5', reajusteMes:1 },
+      { cliente:'Consultoria Alpha',   valor:2500,  diaVenc:1,  descricao:'Plano Custom',              reajusteIdx:'fixo10', reajusteMes:3 },
+      { cliente:'E-commerce Delta',    valor:1800,  diaVenc:5,  descricao:'Plano Business',            reajusteIdx:null,    reajusteMes:1 }
+    ];
+    seedAss.forEach((s, i) => {
+      COM.assinaturas.push(Object.assign({
+        id: COM.nextId++, ativa:true, ultimaGer:null, hist:[], changes:[], receitaLinks:[],
+        criadoEm: hoje.getTime() - (i*30 + 60)*86400000, autoEmitNF: i < 5
+      }, s));
+    });
+  }
+  // PROPOSTAS (5 no funil)
+  if(!COM.propostas.length){
+    const stages = ['lead','proposta','negociacao','negociacao','ganhou'];
+    const seedProp = [
+      { cliente:'StartupTech',     valorEstimado:1200, vendedor:'João' },
+      { cliente:'NovaCo Ltda',     valorEstimado:3500, vendedor:'Maria' },
+      { cliente:'BigCo Brasil',    valorEstimado:6000, vendedor:'Maria' },
+      { cliente:'Loja Imediato',   valorEstimado:900,  vendedor:'João' },
+      { cliente:'Agência Digital', valorEstimado:2200, vendedor:'João' }
+    ];
+    seedProp.forEach((p, i) => {
+      COM.propostas.push(Object.assign({
+        id: COM.nextId++, estagio:stages[i], descricao:'Pipeline demo · stage '+stages[i],
+        criadoEm: hoje.getTime() - (i*7 + 10)*86400000, atualizadoEm: hoje.getTime()
+      }, p));
+    });
+  }
+  // CONTRATOS (4)
+  if(!COM.contratos.length){
+    const em30 = new Date(hoje.getTime() + 25*86400000).toISOString().slice(0,10);
+    const em180 = new Date(hoje.getTime() + 180*86400000).toISOString().slice(0,10);
+    const em365 = new Date(hoje.getTime() + 365*86400000).toISOString().slice(0,10);
+    const vencido = new Date(hoje.getTime() - 15*86400000).toISOString().slice(0,10);
+    const seedCont = [
+      { titulo:'Aluguel Sede SP',          contraparte:'Imóveis ZZZ Ltda', tipo:'Aluguel',              valor:6500,  inicio:Y+'-01-01', fim:em180, status:'ativo',  obs:'Contrato 12m · reajuste IGPM', alertaDias:60, renovaAuto:true },
+      { titulo:'Acme Corp · SaaS',         contraparte:'Acme Corp',        tipo:'Prestação de serviços',valor:18000, inicio:Y+'-01-01', fim:em30,  status:'vence-em-breve', obs:'Vence em breve · renovar', alertaDias:30, renovaAuto:false },
+      { titulo:'Construtora Horizon · BPO',contraparte:'Construtora Horizon', tipo:'Prestação de serviços', valor:84000, inicio:Y+'-03-01', fim:em365, status:'ativo', obs:'Contrato anual BPO contábil', alertaDias:60, renovaAuto:true },
+      { titulo:'Tech Brasil · Licença',    contraparte:'Tech Brasil',      tipo:'SaaS',                  valor:10200, inicio:Y+'-06-01', fim:vencido, status:'vencido', obs:'⚠ Vencido · renovar urgente', alertaDias:30, renovaAuto:false }
+    ];
+    seedCont.forEach(c => COM.contratos.push(Object.assign({ id: COM.nextId++ }, c)));
+  }
+  // RECIBOS (3 do último trim)
+  if(!COM.recibos.length){
+    const _d = (n) => new Date(hoje.getTime() - n*86400000).toISOString().slice(0,10);
+    const empNome = 'Taller';
+    const seedRcb = [
+      { numero:1, cliente:'Maria Silva Consultoria', valor:2500, descricao:'Consultoria estratégica · sessão única', data:_d(35), pagador:'Maria Silva Consultoria', prestador:empNome },
+      { numero:2, cliente:'Pedro Oliveira',          valor:850,  descricao:'Análise financeira pontual',              data:_d(20), pagador:'Pedro Oliveira',          prestador:empNome },
+      { numero:3, cliente:'Beta Studios',            valor:4200, descricao:'Workshop in-company · 8h',                data:_d(7),  pagador:'Beta Studios',            prestador:empNome }
+    ];
+    seedRcb.forEach(r => COM.recibos.push(Object.assign({ id: COM.nextId++ }, r)));
+  }
+  localStorage.setItem('forekash:comercial:v2', JSON.stringify(COM));
+}
+
+// ASAAS · cobranças até dez/2026 (jan-dez de cada assinatura)
+function _seedAsaasFull(Y){
+  const raw = localStorage.getItem('forekash:asaas:v1');
+  let ASAAS = raw ? JSON.parse(raw) : { cobrancas:[], cfg:{} };
+  if(!Array.isArray(ASAAS.cobrancas)) ASAAS.cobrancas = [];
+  if(ASAAS.cobrancas.length >= 30) return; // já tem dados
+  const hoje = new Date();
+  const ymHoje = hoje.toISOString().slice(0,7);
+  // 5 clientes recorrentes × 12 meses = 60 cobranças
+  const clientes = [
+    { nome:'Edtech Foco',         valor:8000, dia:5  },
+    { nome:'Construtora Horizon', valor:7000, dia:10 },
+    { nome:'Varejo Plus',         valor:5000, dia:15 },
+    { nome:'Acme Corp',           valor:1500, dia:5  },
+    { nome:'Tech Brasil',         valor:850,  dia:10 }
+  ];
+  for(let m=0; m<12; m++){
+    const ym = Y+'-'+String(m+1).padStart(2,'0');
+    clientes.forEach((c, idx) => {
+      const venc = Y+'-'+String(m+1).padStart(2,'0')+'-'+String(c.dia).padStart(2,'0');
+      let status = 'pendente';
+      if(ym < ymHoje) status = 'recebido';
+      else if(ym === ymHoje && c.dia < hoje.getDate()) status = idx % 3 === 0 ? 'pendente' : 'recebido';
+      // 1 atrasada artificial em mai/jun pra mostrar IA
+      if(m < hoje.getMonth() - 1 && idx === 2 && m === Math.max(0, hoje.getMonth()-2)) status = 'pendente';
+      ASAAS.cobrancas.push({
+        id: 'seed_'+Y+'_'+m+'_'+idx,
+        asaasId: 'demo_'+Y+m+idx,
+        cliente: c.nome, valor: c.valor, vencimento: venc,
+        status, descricao:'Mensalidade · '+ym, origem:'recorrencia',
+        ts: Date.now() - (12-m)*30*86400000
+      });
+    });
+  }
+  localStorage.setItem('forekash:asaas:v1', JSON.stringify(ASAAS));
+}
+
+// NF · notas mensais emitidas (até hoje)
+function _seedNFFull(Y){
+  const raw = localStorage.getItem('forekash:nf:v1');
+  let NF = raw ? JSON.parse(raw) : { notas:[], cfg:{} };
+  if(!Array.isArray(NF.notas)) NF.notas = [];
+  if(NF.notas.length >= 20) return;
+  const hoje = new Date();
+  const monthsSinceJan = hoje.getMonth() + 1; // jan-atual
+  let num = NF.notas.length ? Math.max(...NF.notas.map(n=>Number(n.numero)||0)) : 0;
+  // 5 clientes × monthsSinceJan
+  const clientes = [
+    { nome:'Edtech Foco',         valor:8000 },
+    { nome:'Construtora Horizon', valor:7000 },
+    { nome:'Varejo Plus',         valor:5000 },
+    { nome:'Acme Corp',           valor:1500 },
+    { nome:'Tech Brasil',         valor:850  }
+  ];
+  for(let m=0; m<monthsSinceJan; m++){
+    clientes.forEach(c => {
+      num++;
+      const dt = new Date(Number(Y), m, 10).toISOString();
+      NF.notas.push({
+        id: 'nf_seed_'+num,
+        numero: num,
+        status:'autorizada',
+        cliente: c.nome,
+        cnpj: '12.345.678/0001-9'+(num%10),
+        valor: c.valor,
+        descricao:'Mensalidade SaaS · '+Y+'-'+String(m+1).padStart(2,'0'),
+        dataEmissao: dt,
+        dataAutorizada: dt,
+        codigoVerificacao: 'SEED'+num.toString(36).toUpperCase(),
+        origem:'seed'
+      });
+    });
+  }
+  localStorage.setItem('forekash:nf:v1', JSON.stringify(NF));
+}
+
+// PATRIMÔNIO · contas + snapshots
+function _seedPatrimonioFull(Y){
+  const raw = localStorage.getItem('forekash:patrimonio:v1');
+  let PATRIM = raw ? JSON.parse(raw) : null;
+  if(!PATRIM) PATRIM = { contas:[], capital:[], snapshots:[], nextId:1 };
+  if(!Array.isArray(PATRIM.contas)) PATRIM.contas = [];
+  if(PATRIM.contas.length >= 8) return;
+  const seedContas = [
+    // ATIVO CIRCULANTE
+    { secao:'ac', nome:'Caixa e Equivalentes',     valor:32000,  auto:true,  src:'dispo-caixa' },
+    { secao:'ac', nome:'Contas a Receber',          valor:88000,  auto:true,  src:'asaas' },
+    { secao:'ac', nome:'Estoque',                   valor:15000,  auto:false, obs:'Inventário 30/05' },
+    { secao:'ac', nome:'Impostos a Recuperar',      valor:4500,   auto:false, obs:'PIS/COFINS' },
+    // ATIVO NÃO CIRCULANTE
+    { secao:'anc', nome:'Imobilizado (equipamentos)', valor:120000, auto:false, obs:'Computadores + móveis' },
+    { secao:'anc', nome:'Intangível (software/marca)', valor:80000, auto:false, obs:'Desenvolvimento próprio' },
+    // PASSIVO CIRCULANTE
+    { secao:'pc',  nome:'Fornecedores',             valor:22000,  auto:false },
+    { secao:'pc',  nome:'Impostos a Pagar',         valor:14000,  auto:false, obs:'DAS+FGTS+INSS' },
+    { secao:'pc',  nome:'Salários a Pagar',         valor:48000,  auto:false },
+    // PASSIVO NÃO CIRCULANTE
+    { secao:'pnc', nome:'Empréstimos Bancários',    valor:65000,  auto:true,  src:'emprestimos' }
+  ];
+  seedContas.forEach(c => PATRIM.contas.push(Object.assign({ id: PATRIM.nextId++ }, c)));
+  // CAPITAL (PL)
+  if(!Array.isArray(PATRIM.capital)) PATRIM.capital = [];
+  if(!PATRIM.capital.length){
+    PATRIM.capital.push({ id:PATRIM.nextId++, nome:'Capital Social',  valor:100000, obs:'Integralizado' });
+    PATRIM.capital.push({ id:PATRIM.nextId++, nome:'Lucros Acumulados', valor:90500,  obs:'Resultado anos anteriores' });
+  }
+  // SNAPSHOTS (3 históricos pra demo de comparação)
+  if(!Array.isArray(PATRIM.snapshots)) PATRIM.snapshots = [];
+  if(!PATRIM.snapshots.length){
+    const hoje = new Date();
+    [3, 2, 1].forEach((mAtras, i) => {
+      const dt = new Date(hoje.getFullYear(), hoje.getMonth()-mAtras, 1);
+      const fator = 0.85 + (i*0.05);
+      const ativo = Math.round(339500 * fator);
+      const passivo = Math.round(149000 * fator);
+      PATRIM.snapshots.push({
+        id: 'snap_'+i,
+        ts: dt.getTime(),
+        ym: dt.toISOString().slice(0,7),
+        ativo, passivo, pl: ativo - passivo,
+        obs: 'Snapshot '+dt.toLocaleDateString('pt-BR'),
+        contas: PATRIM.contas.map(c => Object.assign({}, c, { valor: Math.round(c.valor * fator) }))
+      });
+    });
+  }
+  localStorage.setItem('forekash:patrimonio:v1', JSON.stringify(PATRIM));
+}
+
+// FK LAB · cenários what-if
+function _seedFKLabFull(Y){
+  const raw = localStorage.getItem('forekash:fklab:v1');
+  let FKLAB = raw ? JSON.parse(raw) : { scenarios:[], nextId:1 };
+  if(!Array.isArray(FKLAB.scenarios)) FKLAB.scenarios = [];
+  if(FKLAB.scenarios.length >= 2) return;
+  // 3 cenários demo
+  FKLAB.scenarios.push({
+    id: FKLAB.nextId++,
+    nome:'Cenário base · plano agressivo de crescimento',
+    desc:'Investimento em marketing 40k/mês + 2 vendedores',
+    criadoEm: Date.now() - 30*86400000,
+    acts:[
+      { id:'act1', type:'addCost',    params:{ valor:40000, categoria:'Marketing', meses:6 } },
+      { id:'act2', type:'addCost',    params:{ valor:18000, categoria:'Folha · Vendedores', meses:12 } },
+      { id:'act3', type:'addRevenue', params:{ valor:80000, categoria:'Receita Nova', meses:6 } }
+    ]
+  });
+  FKLAB.scenarios.push({
+    id: FKLAB.nextId++,
+    nome:'Cenário conservador · cortar 20%',
+    desc:'Reduz folha em 20% + sem marketing por 3 meses',
+    criadoEm: Date.now() - 14*86400000,
+    acts:[
+      { id:'act1', type:'cutCost', params:{ percentual:20, categoria:'Folha', meses:12 } },
+      { id:'act2', type:'cutCost', params:{ percentual:100, categoria:'Marketing', meses:3 } }
+    ]
+  });
+  FKLAB.scenarios.push({
+    id: FKLAB.nextId++,
+    nome:'Cenário M&A · aquisição concorrente',
+    desc:'Compra concorrente menor por R$ 500k · integra base',
+    criadoEm: Date.now() - 5*86400000,
+    acts:[
+      { id:'act1', type:'addLoan',    params:{ valor:500000, parcelas:36, juros:1.8 } },
+      { id:'act2', type:'addRevenue', params:{ valor:35000, categoria:'Receita base adquirida', meses:12 } }
+    ]
+  });
+  localStorage.setItem('forekash:fklab:v1', JSON.stringify(FKLAB));
+}
+
+// OUTRAS OPERAÇÕES · receitas/despesas não operacionais
+function _seedOutrasOpFull(Y){
+  const raw = localStorage.getItem('forekash:outras-op:v1');
+  let OUTRAS = raw ? JSON.parse(raw) : { receitas:[], despesas:[] };
+  if(!Array.isArray(OUTRAS.receitas)) OUTRAS.receitas = [];
+  if(!Array.isArray(OUTRAS.despesas)) OUTRAS.despesas = [];
+  if(OUTRAS.receitas.length >= 4) return;
+  const meses = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  // Receitas não operacionais
+  OUTRAS.receitas.push({ id:1, nome:'Aluguel sala extra (recebido)', meses: { jan:1200, fev:1200, mar:1200, abr:1200, mai:1200, jun:1200, jul:1200, ago:1200, set:1200, out:1200, nov:1200, dez:1200 } });
+  OUTRAS.receitas.push({ id:2, nome:'Rendimento CDB',                meses: { jan:850, fev:870, mar:890, abr:910, mai:930, jun:950, jul:970, ago:990, set:1010, out:1030, nov:1050, dez:1070 } });
+  OUTRAS.receitas.push({ id:3, nome:'Indenização seguro 2025',       meses: { fev:8500 } });
+  // Despesas não operacionais
+  OUTRAS.despesas.push({ id:4, nome:'Multa contratual rescisão',     meses: { mar:3200 } });
+  OUTRAS.despesas.push({ id:5, nome:'Doação ONG (responsabilidade social)', meses: { jun:2000, dez:5000 } });
+  OUTRAS.despesas.push({ id:6, nome:'Baixa de imobilizado obsoleto',  meses: { ago:4500 } });
+  localStorage.setItem('forekash:outras-op:v1', JSON.stringify(OUTRAS));
 }
 
 // ═══════════════════════════════════════════════════
@@ -92445,7 +92723,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779935093';
+      const CACHE = 'forekash-v1779935797';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
