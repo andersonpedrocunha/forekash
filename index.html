@@ -15939,6 +15939,29 @@
     .ks-jg-card .stats b{color:#FBBF24}
     .ks-jg-back{background:transparent;color:#10B981;border:1px solid rgba(16,185,129,.4);padding:6px 14px;font-family:'JetBrains Mono','Courier New',monospace;cursor:pointer;font-size:.74rem;margin-bottom:18px;letter-spacing:.5px}
     .ks-jg-back:hover{background:rgba(16,185,129,.08)}
+    /* ═══════════ LEADERBOARD UNIVERSAL ═══════════ */
+    .ks-rank-board{max-width:760px;margin:28px auto;background:rgba(0,0,0,.45);border:1px solid rgba(251,191,36,.25);padding:18px 22px;font-family:'JetBrains Mono','Courier New',monospace}
+    .ks-rank-title{font-size:.84rem;color:#FBBF24;letter-spacing:3px;margin:0 0 14px;text-align:center;text-shadow:0 0 8px rgba(251,191,36,.4);padding-bottom:10px;border-bottom:1px dashed rgba(251,191,36,.2)}
+    .ks-rank-list{display:flex;flex-direction:column;gap:3px}
+    .ks-rank-row{display:grid;grid-template-columns:60px 1fr 70px 90px 32px 60px;gap:8px;padding:7px 10px;font-size:.78rem;color:#CBD5E1;border-radius:2px;align-items:center;transition:background .15s}
+    .ks-rank-row:hover{background:rgba(251,191,36,.04)}
+    .ks-rank-row.me{background:rgba(16,185,129,.10);color:#A7F3D0;border:1px solid rgba(16,185,129,.3);box-shadow:0 0 10px rgba(16,185,129,.15)}
+    .ks-rank-row.me .ks-rank-id{color:#10B981;font-weight:700}
+    .ks-rank-row.me small{color:#FBBF24;font-weight:400}
+    .ks-rank-pos{color:#94A3B8;text-align:left;font-size:.74rem;letter-spacing:.3px}
+    .ks-rank-id{color:#22D3EE;letter-spacing:1px}
+    .ks-rank-game{color:#94A3B8;font-size:.7rem;letter-spacing:1px}
+    .ks-rank-pts{text-align:right;color:#FBBF24;font-weight:700;font-size:.84rem}
+    .ks-rank-letter{text-align:center;font-weight:700;font-size:.86rem;text-shadow:0 0 6px currentColor}
+    .ks-rank-time{text-align:right;color:#64748B;font-size:.7rem}
+    .ks-rank-separator{text-align:center;color:#64748B;font-style:italic;font-size:.68rem;margin:8px 0 4px;letter-spacing:2px;font-family:Georgia,serif}
+    .ks-rank-footer{margin-top:12px;padding-top:10px;border-top:1px dashed rgba(16,185,129,.15);text-align:center;font-size:.66rem;color:#64748B;font-style:italic;font-family:Georgia,serif;letter-spacing:.3px}
+    .ks-rank-footer code{color:#FBBF24;background:none;padding:0 4px;font-family:'JetBrains Mono',monospace;font-style:normal}
+    .ks-rank-empty{padding:24px;text-align:center;color:#64748B;font-style:italic;font-family:Georgia,serif;font-size:.86rem}
+    @media(max-width:680px){
+      .ks-rank-row{grid-template-columns:48px 1fr 60px 76px;gap:6px;font-size:.72rem}
+      .ks-rank-letter,.ks-rank-time{display:none}
+    }
 
     /* ─── NIGHT/SHIFT ───────────────────────────────────────────── */
     .ks-ns-stage{max-width:560px;margin:0 auto}
@@ -112404,6 +112427,147 @@ function ksJgSave(state){
   try{ localStorage.setItem(KS_JG_KEY, JSON.stringify(state)); }catch(_){}
 }
 
+// ════════ LEADERBOARD UNIVERSAL · todos os 4 jogos ════════════════
+// Usa o MESMO pseudônimo de A PAREDE (ksGetMemberId() → #XXXXX)
+const KS_RANK_KEY = 'forekash:kashsociety:leaderboard:v1';
+const KS_GAME_LABEL = {
+  ns:'🌙 NIGHT/SHIFT', qu:'🜲 KASH/QUEST',
+  kn:'💻 KASH//KNIGHT', br:'🟨 KASH//ROOMS'
+};
+const KS_GAME_SHORT = { ns:'N/S', qu:'QUEST', kn:'KNIGHT', br:'ROOMS' };
+
+function ksScoresLoad(){
+  try{
+    const raw = localStorage.getItem(KS_RANK_KEY);
+    if(raw){ const arr = JSON.parse(raw); if(Array.isArray(arr) && arr.length) return arr; }
+  }catch(_){}
+  // Seed inicial — Society members fictícios pra dar competição
+  const now = Date.now();
+  const D = 1000*60*60*24;
+  const seed = [
+    { memberId:'#7K9P2', game:'kn', score:14580, rank:'S+', time:78,   ts:now-D*3 },
+    { memberId:'#A4F8E', game:'br', score:12420, rank:'S+', time:182,  ts:now-D*1.2 },
+    { memberId:'#X3B91', game:'kn', score:11870, rank:'S',  time:95,   ts:now-D*2 },
+    { memberId:'#7K9P2', game:'br', score:10240, rank:'S',  time:215,  ts:now-D*3.5 },
+    { memberId:'#M2R7T', game:'qu', score:9850,  rank:'A',  time:1820, ts:now-D*0.7 },
+    { memberId:'#H5D8N', game:'ns', score:9200,  rank:'A',  time:42,   ts:now-D*0.2 },
+    { memberId:'#K1L0V', game:'kn', score:8980,  rank:'A',  time:122,  ts:now-D*4 },
+    { memberId:'#A4F8E', game:'kn', score:8420,  rank:'A',  time:140,  ts:now-D*2.5 },
+    { memberId:'#X3B91', game:'br', score:7850,  rank:'B',  time:265,  ts:now-D*1 },
+    { memberId:'#P9Q2W', game:'ns', score:7300,  rank:'B',  time:38,   ts:now-D*0.3 },
+    { memberId:'#M2R7T', game:'kn', score:6980,  rank:'B',  time:155,  ts:now-D*1.5 },
+    { memberId:'#G6Y4S', game:'qu', score:6420,  rank:'B',  time:1620, ts:now-D*5 },
+    { memberId:'#H5D8N', game:'br', score:5980,  rank:'B',  time:280,  ts:now-D*0.5 },
+    { memberId:'#K1L0V', game:'br', score:5520,  rank:'C',  time:300,  ts:now-D*8 },
+    { memberId:'#P9Q2W', game:'kn', score:4850,  rank:'C',  time:180,  ts:now-D*2 },
+    { memberId:'#G6Y4S', game:'br', score:4320,  rank:'C',  time:340,  ts:now-D*1 },
+    { memberId:'#Z2M1F', game:'kn', score:3980,  rank:'C',  time:200,  ts:now-D*6 },
+    { memberId:'#Z2M1F', game:'ns', score:3200,  rank:'C',  time:25,   ts:now-D*0.1 },
+    { memberId:'#N7T4B', game:'qu', score:2850,  rank:'C',  time:1320, ts:now-D*3 }
+  ];
+  try{ localStorage.setItem(KS_RANK_KEY, JSON.stringify(seed)); }catch(_){}
+  return seed;
+}
+
+function ksScoresSave(scores){
+  try{ localStorage.setItem(KS_RANK_KEY, JSON.stringify(scores)); }catch(_){}
+}
+
+// Record uma nova run no leaderboard. Idempotente — se chamado 2× no mesmo run
+// (em re-renders), checa por dedupe via timestamp + score+game.
+function ksScoresRecord(game, score, rank, time){
+  if(!game || !score || score < 1) return;
+  const memberId = (typeof ksGetMemberId === 'function') ? ksGetMemberId() : '#?????';
+  const scores = ksScoresLoad();
+  // Dedupe nos últimos 5s
+  const recentSame = scores.find(s =>
+    s.memberId === memberId && s.game === game && s.score === score &&
+    (Date.now() - s.ts) < 5000
+  );
+  if(recentSame) return;
+  scores.push({ memberId, game, score, rank: rank||'C', time: time||0, ts: Date.now() });
+  // Mantém top 60 por jogo (evita inflar localStorage)
+  const byGame = {};
+  scores.forEach(s => { (byGame[s.game] = byGame[s.game] || []).push(s); });
+  const trimmed = [];
+  Object.keys(byGame).forEach(g => {
+    trimmed.push(...byGame[g].sort((a,b) => b.score - a.score).slice(0, 60));
+  });
+  ksScoresSave(trimmed);
+}
+
+// Top N globally (across all games)
+function ksScoresTop(n, filterGame){
+  let scores = ksScoresLoad();
+  if(filterGame) scores = scores.filter(s => s.game === filterGame);
+  return scores.sort((a,b) => b.score - a.score).slice(0, n||10);
+}
+
+// Helper: cor por rank
+function ksRankColor(r){
+  if(!r) return '#94A3B8';
+  if(r.indexOf('S+') === 0) return '#FBBF24';
+  if(r.indexOf('S') === 0)  return '#10B981';
+  if(r === 'A') return '#22D3EE';
+  if(r === 'B') return '#A7F3D0';
+  if(r === 'F') return '#EF4444';
+  return '#94A3B8';
+}
+
+// Renderiza um leaderboard. opts.game (opcional) filtra por jogo, opts.title custom
+function ksRenderLeaderboard(opts){
+  opts = opts || {};
+  const me = (typeof ksGetMemberId === 'function') ? ksGetMemberId() : '#?????';
+  const top = ksScoresTop(10, opts.game);
+  if(!top.length){
+    return `<div class="ks-rank-board"><div class="ks-rank-title">🏆 RANKING</div><div class="ks-rank-empty">Ainda sem entradas. Seja o primeiro.</div></div>`;
+  }
+  const rows = top.map((s, i) => {
+    const isMe = s.memberId === me;
+    const pos = (i+1).toString().padStart(2,' ');
+    const trophy = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : ' ';
+    const timeStr = s.time ? (s.time < 100 ? s.time+'s' : Math.floor(s.time/60)+'m'+(s.time%60)+'s') : '—';
+    return `<div class="ks-rank-row ${isMe?'me':''}">
+      <span class="ks-rank-pos">${trophy}${pos}.</span>
+      <span class="ks-rank-id">${s.memberId}${isMe?' <small>(você)</small>':''}</span>
+      <span class="ks-rank-game">${KS_GAME_SHORT[s.game]||s.game}</span>
+      <span class="ks-rank-pts">${s.score.toLocaleString('pt-BR')}</span>
+      <span class="ks-rank-letter" style="color:${ksRankColor(s.rank)}">${s.rank||'-'}</span>
+      <span class="ks-rank-time">${timeStr}</span>
+    </div>`;
+  }).join('');
+  // Se o player não tá no top 10, mostra a posição dele
+  let myBest = '';
+  if(!top.some(s => s.memberId === me)){
+    const all = ksScoresLoad().filter(s => !opts.game || s.game === opts.game);
+    const mine = all.filter(s => s.memberId === me);
+    if(mine.length){
+      const sorted = all.sort((a,b) => b.score - a.score);
+      const best = mine.sort((a,b) => b.score - a.score)[0];
+      const myPos = sorted.findIndex(s => s === best) + 1;
+      const timeStr = best.time ? (best.time < 100 ? best.time+'s' : Math.floor(best.time/60)+'m'+(best.time%60)+'s') : '—';
+      myBest = `<div class="ks-rank-separator">··· seu melhor ···</div>
+      <div class="ks-rank-row me">
+        <span class="ks-rank-pos">  ${myPos}.</span>
+        <span class="ks-rank-id">${me} <small>(você)</small></span>
+        <span class="ks-rank-game">${KS_GAME_SHORT[best.game]||best.game}</span>
+        <span class="ks-rank-pts">${best.score.toLocaleString('pt-BR')}</span>
+        <span class="ks-rank-letter" style="color:${ksRankColor(best.rank)}">${best.rank||'-'}</span>
+        <span class="ks-rank-time">${timeStr}</span>
+      </div>`;
+    }
+  }
+  const title = opts.title || (opts.game ? `🏆 TOP 10 · ${KS_GAME_LABEL[opts.game]||opts.game}` : '🏆 RANKING UNIVERSAL · TOP 10');
+  return `<div class="ks-rank-board">
+    <div class="ks-rank-title">${title}</div>
+    <div class="ks-rank-list">${rows}</div>
+    ${myBest}
+    <div class="ks-rank-footer">você joga como <code>${me}</code> · mesmo pseudônimo de A PAREDE</div>
+  </div>`;
+}
+window.ksScoresRecord = ksScoresRecord;
+window.ksRenderLeaderboard = ksRenderLeaderboard;
+
 function ksRenderJogos(){
   const main = document.getElementById('ks-main'); if(!main) return;
   if(_ksJogo === 'ns'){ return ksNsRender(); }
@@ -112447,6 +112611,7 @@ function ksRenderJogos(){
         <div class="stats"><span>runs: <b>${brRuns}</b> · escapes: <b>${brEscapes}</b></span><span style="color:#FBBF24">vibe: Backrooms</span></div>
       </div>
     </div>
+    ${ksRenderLeaderboard()}
   </div>`;
 }
 
@@ -112674,6 +112839,10 @@ function ksNsChoose(side){
       saved.nsBestCause = _ksNs.cause.msg;
       ksJgSave(saved);
     }
+    // Record no leaderboard universal — score = dias sobrevividos × 200
+    const score = _ksNs.survived * 200;
+    const rank = _ksNs.survived >= 30 ? 'S+' : _ksNs.survived >= 20 ? 'S' : _ksNs.survived >= 14 ? 'A' : _ksNs.survived >= 8 ? 'B' : 'C';
+    ksScoresRecord('ns', score, rank, _ksNs.survived);
     ksHistoryLog && ksHistoryLog('game.ns.over', {kind:'game', id:'ns'}, { survived:_ksNs.survived, cause:_ksNs.cause.k });
   }
   ksNsRender();
@@ -112712,6 +112881,7 @@ function ksNsRender(){
           <button onclick="ksNsInit();ksNsRender()">▶ NOVA NOITE</button>
         </div>
       </div>
+      ${ksRenderLeaderboard()}
     </div>`;
     return;
   }
@@ -113383,6 +113553,11 @@ function ksQuRenderEnd(victory){
     'No underground, ninguém perde de verdade.'
   ];
   const ep = epitaphs[Math.floor(Math.random()*epitaphs.length)];
+  // Score: kash + skills*100 + items*50 + bonus vitória 2000
+  const score = (_ksQu.kash||0) + (_ksQu.skills.length||0)*100 + (_ksQu.inventory.length||0)*50 + (victory ? 2000 : 0);
+  const rank = victory ? (score >= 5000 ? 'S+' : score >= 3500 ? 'S' : 'A')
+                       : (score >= 2000 ? 'B' : score >= 1000 ? 'C' : 'F');
+  ksScoresRecord('qu', score, rank, 0);
   main.innerHTML = `<div class="ks-sala">
     <button class="ks-jg-back" onclick="ksJgBackToLobby()">← voltar pro lobby</button>
     <h2>🜲 KASH/QUEST</h2>
@@ -113393,11 +113568,13 @@ function ksQuRenderEnd(victory){
         <div style="font-family:'JetBrains Mono',monospace;color:#10B981;opacity:.7;font-size:.78rem;margin:14px 0">
           ${victory?'> banker defeated':'> hp reached zero'}<br>
           > skills: ${_ksQu.skills.length} · items: ${_ksQu.inventory.length}<br>
-          > kash final: ${_ksQu.kash}
+          > kash final: ${_ksQu.kash}<br>
+          > <strong style="color:#FBBF24">score: ${score}</strong> · rank <span style="color:${ksRankColor(rank)}">${rank}</span>
         </div>
         <button onclick="ksQuInit();ksQuRender()">▶ NOVO RUN</button>
       </div>
     </div>
+    ${ksRenderLeaderboard()}
   </div>`;
 }
 
@@ -114343,6 +114520,8 @@ function ksBrRender(){
       saved.brEscapes = (saved.brEscapes||0) + 1;
       ksJgSave(saved);
     }
+    // Record no leaderboard universal
+    ksScoresRecord('br', r.finalScore, r.rank, r.time);
     const epitaph = r.victory
       ? (r.rank === 'S+' ? 'PERFEITO. Você nunca esteve aqui. O Liminar nunca soube.'
         : r.rank === 'S'  ? 'Como uma sombra através de salas vazias. F5 te leva embora.'
@@ -114388,6 +114567,7 @@ function ksBrRender(){
         ${_ksBrLoreCollected.length ? `<div class="ks-br-lore-found"><div class="lore-title">📄 LORE COLETADA (${_ksBrLoreCollected.length}):</div>${_ksBrLoreCollected.map(l => `<div class="lore-item">"${_ksEsc(l)}"</div>`).join('')}</div>` : ''}
         <button onclick="ksBrInit();ksBrRender()">▶ TENTAR DE NOVO</button>
       </div>
+      ${ksRenderLeaderboard()}
     </div>`;
     // Count-up animation
     setTimeout(() => {
@@ -115208,6 +115388,8 @@ function ksKnRender(){
   const main = document.getElementById('ks-main'); if(!main || !_ksKn) return;
   if(_ksKn.state === 'win' || _ksKn.state === 'lose'){
     const r = ksKnComputeRun();
+    // Record no leaderboard universal
+    ksScoresRecord('kn', r.finalScore, r.rank, r.time);
     const epitaph = r.victory
       ? (r.rank === 'S+' ? 'PERFEITO. A Society te aplaude em silêncio. O Banker nunca esteve tão derrotado.'
         : r.rank === 'S'  ? 'O notebook cortou através de tudo. Os bugs jazem mortos sem deixar rastros.'
@@ -115254,6 +115436,7 @@ function ksKnRender(){
         </div>
         <button onclick="ksKnInit();ksKnRender()">▶ TENTAR DE NOVO</button>
       </div>
+      ${ksRenderLeaderboard()}
     </div>`;
 
     // Anima os números (count-up) com delay sequencial
