@@ -16238,7 +16238,7 @@
     /* Tile base — fog of war via opacity (controlado por JS) */
     .br-tile{position:absolute;transition:opacity .12s linear}
     /* Player — sprite top-down PNG do Gemini (hacker-top.png) */
-    .br-player{position:absolute;width:56px;height:56px;z-index:10;transform:translate(-50%,-50%);filter:drop-shadow(0 0 14px rgba(16,185,129,.8)) drop-shadow(0 3px 5px rgba(0,0,0,.85));transition:none;will-change:left,top}
+    .br-player{position:absolute;width:40px;height:40px;z-index:10;transform:translate(-50%,-50%);filter:drop-shadow(0 0 12px rgba(16,185,129,.85)) drop-shadow(0 2px 4px rgba(0,0,0,.9));transition:none;will-change:left,top}
     .br-player .br-player-img{width:100%;height:100%;display:block;image-rendering:pixelated;image-rendering:-moz-crisp-edges;pointer-events:none;user-select:none;transition:transform .1s ease-out}
     .br-player.invuln .br-player-img{animation:brPlayerHurt .14s steps(2) infinite}
     @keyframes brPlayerHurt{0%{opacity:1}50%{opacity:.35}}
@@ -114475,17 +114475,24 @@ function ksBrUpdateDom(){
     _ksBrDom.player.style.top  = (p.y * KS_BR.TILE) + 'px';
     _ksBrDom.player.classList.toggle('invuln', p.invuln > 0);
     _ksBrDom.player.classList.toggle('panic', p.panicTime > 0);
-    // Rotação pela direção do movimento + bob/breathing sobreposto
-    // PNG default tem o personagem "olhando pra baixo" (frontal-down view).
-    // p.facing já contém o ângulo final (target = atan2(my,mx)*180/PI - 90)
+    // Rotação pela direção + animação de caminhada (squash/stretch + wobble)
+    // simula passos mesmo com sprite estática
     const img = _ksBrDom.player.querySelector('img');
     if(img){
       const moving = (_ksBrKeys.up||_ksBrKeys.down||_ksBrKeys.left||_ksBrKeys.right);
       if(moving){
         const t = performance.now();
-        const bob = Math.sin(t/110) * 1.5;
-        img.style.transform = `rotate(${p.facing}deg) translateY(${bob}px)`;
+        // Bob vertical (pulinho do andar)
+        const bob = Math.sin(t/100) * 1.6;
+        // Squash/stretch — quando o "pé pousa" (bottom da onda), comprime; quando sobe, estica
+        const stepCycle = Math.sin(t/100);
+        const scaleY = 1 + stepCycle * 0.06;          // ±6% Y squash
+        const scaleX = 1 - stepCycle * 0.04;          // counter-X (volume preserved)
+        // Wobble lateral (twist do quadril a cada passo)
+        const wobble = Math.cos(t/200) * 1.5;          // ±1.5° rotação extra
+        img.style.transform = `rotate(${p.facing + wobble}deg) translateY(${bob}px) scale(${scaleX}, ${scaleY})`;
       } else {
+        // Breathing quando parado
         const breath = 1 + Math.sin(performance.now()/700) * 0.018;
         img.style.transform = `rotate(${p.facing}deg) scale(${breath})`;
       }
