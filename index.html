@@ -88746,49 +88746,95 @@ function seedDemoData(opts){
   }
 
   // ─── Orçamento (DRC previsto) ───
+  // Estrutura correta esperada pelo módulo:
+  //   { activeYear, years: { [year]: { versions:[{id, nome, criadoEm, linhas:{[catId]:{previsto:{[mIdx]:val}}}}], ativa, anosExcluidos:[] } } }
+  // catIds: receita, folha, despesas, emprestimos, impostos
   const ORC_KEY_LOCAL = 'taller_orcamento_v1';
   const orcExisting = readJSON(ORC_KEY_LOCAL);
+  // "Has values" agora valida shape correto: precisa ter linhas[catId].previsto preenchido em PELO MENOS uma versão
   const orcHasValues = (() => {
     if(!orcExisting || !orcExisting.years || typeof orcExisting.years !== 'object') return false;
     for(const y of Object.keys(orcExisting.years)){
       const versions = orcExisting.years[y] && orcExisting.years[y].versions;
-      if(versions && Array.isArray(versions) && versions.length > 0) return true;
+      if(!Array.isArray(versions)) continue;
+      for(const v of versions){
+        if(v && v.linhas && typeof v.linhas === 'object'){
+          for(const catId of Object.keys(v.linhas)){
+            const prev = v.linhas[catId] && v.linhas[catId].previsto;
+            if(prev && typeof prev === 'object' && Object.keys(prev).length > 0) return true;
+          }
+        }
+      }
     }
     return false;
   })();
   isEmpty.orcamento = FORCE || !orcHasValues;
   if(isEmpty.orcamento){
-    // Orçamento previsto pro ano corrente + ano anterior (1 versão cada)
-    function orcMes(vals){
-      const o = {};
-      for(let i = 0; i < 12; i++){ if(vals[i] != null) o[String(i+1).padStart(2,'0')] = vals[i]; }
-      return o;
+    // Curva sazonal típica B2B: aquece em Mar/Abr, pico em Set/Out/Nov, suaviza em Dez
+    function orcLinhas(vals){
+      const previsto = {};
+      for(let i=0; i<12; i++){ if(vals[i] != null) previsto[i] = vals[i]; }
+      return { previsto };
     }
-    const versaoY = {
-      id: 1, nome:'v1 — Plano anual', createdAt: new Date().toISOString(),
-      previsto: {
-        receita:     orcMes([110000,112000,115000,118000,120000,122000,125000,128000,130000,132000,135000,140000]),
-        folha:       orcMes([56000,56000,57000,57000,58000,58000,58500,59000,59500,60000,60500,61000]),
-        despesas:    orcMes([16500,16500,17000,17000,17500,17500,18000,18000,18500,18500,19000,19000]),
-        emprestimos: orcMes([6550,6550,6550,6550,6550,6550,6550,6550,6550,6550,6550,6550]),
-        impostos:    orcMes([13500,13500,14000,14000,14500,14500,15000,15000,15500,15500,16000,16000])
-      }
-    };
-    const versaoYp = {
-      id: 1, nome:'v1 — Plano anual', createdAt: new Date(Yp + '-01-01').toISOString(),
-      previsto: {
-        receita:     orcMes([90000,92000,95000,98000,100000,102000,105000,108000,110000,112000,115000,118000]),
-        folha:       orcMes([48000,48000,49000,49000,50000,50000,50500,51000,51500,52000,52500,53000]),
-        despesas:    orcMes([14000,14000,14500,14500,15000,15000,15500,15500,16000,16000,16500,16500]),
-        emprestimos: orcMes([6550,6550,6550,6550,6550,6550,6550,6550,6550,6550,6550,6550]),
-        impostos:    orcMes([11500,11500,12000,12000,12500,12500,13000,13000,13500,13500,14000,14000])
-      }
-    };
+    function mkVersion(idSuffix, nome, ts, dados){
+      return {
+        id: 'v' + idSuffix,
+        nome: nome,
+        criadoEm: ts,
+        congelado: null,
+        linhas: {
+          receita:     orcLinhas(dados.receita),
+          folha:       orcLinhas(dados.folha),
+          despesas:    orcLinhas(dados.despesas),
+          emprestimos: orcLinhas(dados.emprestimos),
+          impostos:    orcLinhas(dados.impostos)
+        }
+      };
+    }
+    const Yn = String(parseInt(Y)+1);
+    // Yp (ano anterior) — base mais conservadora
+    const verYp = mkVersion('yp1', 'v1 · Plano anual ' + Yp, new Date(Yp + '-01-15T10:00:00').toISOString(), {
+      receita:     [90000, 92000, 95000, 98000, 100000, 102000, 105000, 108000, 110000, 112000, 115000, 118000],
+      folha:       [48000, 48000, 49000, 49000, 50000, 50000, 50500, 51000, 51500, 52000, 52500, 53000],
+      despesas:    [14000, 14000, 14500, 14500, 15000, 15000, 15500, 15500, 16000, 16000, 16500, 16500],
+      emprestimos: [6550, 6550, 6550, 6550, 6550, 6550, 6550, 6550, 6550, 6550, 6550, 6550],
+      impostos:    [11500, 11500, 12000, 12000, 12500, 12500, 13000, 13000, 13500, 13500, 14000, 14000]
+    });
+    // Y (ano corrente) — Plano original + Revisão Q2
+    const verY1 = mkVersion('y1', 'v1 · Plano anual ' + Y, new Date(Y + '-01-08T09:30:00').toISOString(), {
+      receita:     [110000, 112000, 115000, 118000, 120000, 122000, 125000, 128000, 130000, 132000, 135000, 140000],
+      folha:       [56000, 56000, 57000, 57000, 58000, 58000, 58500, 59000, 59500, 60000, 60500, 61000],
+      despesas:    [16500, 16500, 17000, 17000, 17500, 17500, 18000, 18000, 18500, 18500, 19000, 19000],
+      emprestimos: [6550, 6550, 6550, 6550, 6550, 6550, 6550, 6550, 6550, 6550, 6550, 6550],
+      impostos:    [13500, 13500, 14000, 14000, 14500, 14500, 15000, 15000, 15500, 15500, 16000, 16000]
+    });
+    const verY2 = mkVersion('y2', 'v2 · Revisão Q2 ' + Y, new Date(Y + '-06-30T18:45:00').toISOString(), {
+      // Otimismo pós-Q1: receita ajustada pra cima, custos sobem proporcionalmente
+      receita:     [110000, 112000, 115000, 122000, 126000, 128000, 132000, 135000, 138000, 142000, 146000, 152000],
+      folha:       [56000, 56000, 57000, 57000, 58000, 58500, 59500, 60000, 60500, 61500, 62000, 63000],
+      despesas:    [16500, 16500, 17000, 17500, 18000, 18500, 19000, 19500, 20000, 20500, 21000, 22000],
+      emprestimos: [6550, 6550, 6550, 6550, 6550, 6550, 6550, 6550, 6550, 6550, 6550, 6550],
+      impostos:    [13500, 13500, 14000, 14500, 15000, 15500, 16000, 16500, 17000, 17500, 18000, 18500]
+    });
+    // Yn (ano seguinte) — meta agressiva
+    const verYn = mkVersion('yn1', 'v1 · Meta ' + Yn, new Date(Y + '-11-20T14:00:00').toISOString(), {
+      receita:     [148000, 150000, 155000, 160000, 165000, 168000, 172000, 175000, 180000, 185000, 190000, 200000],
+      folha:       [63000, 63000, 64500, 64500, 66000, 66000, 67500, 68000, 69000, 70000, 71000, 72000],
+      despesas:    [22000, 22000, 22500, 23000, 23500, 24000, 24500, 25000, 25500, 26000, 26500, 27500],
+      emprestimos: [5800, 5800, 5800, 5800, 5800, 5800, 5800, 5800, 5800, 5800, 5800, 5800],
+      impostos:    [18500, 18500, 19500, 20000, 20500, 21000, 21500, 22000, 22500, 23000, 24000, 25000]
+    });
+
+    // Mantém os anos JÁ excluídos explicitamente pelo user
+    const anosExcluidos = (orcExisting && Array.isArray(orcExisting.anosExcluidos)) ? orcExisting.anosExcluidos : [];
+
     const orcData = {
       activeYear: Y,
+      anosExcluidos,
       years: {
-        [Yp]: { activeVerId: 1, versions: [versaoYp], nextVerId: 2 },
-        [Y]:  { activeVerId: 1, versions: [versaoY],  nextVerId: 2 }
+        [Yp]: { versions: [verYp],         ativa: verYp.id },
+        [Y]:  { versions: [verY1, verY2],  ativa: verY2.id },  // ativa = revisão Q2
+        [Yn]: { versions: [verYn],         ativa: verYn.id }
       }
     };
     localStorage.setItem(ORC_KEY_LOCAL, JSON.stringify(orcData));
@@ -88804,6 +88850,94 @@ function seedDemoData(opts){
   try{ _seedPatrimonioFull(Y); }catch(e){ console.warn('seed patrim:', e); }
   try{ _seedFKLabFull(Y); }catch(e){ console.warn('seed fklab:', e); }
   try{ _seedOutrasOpFull(Y); }catch(e){ console.warn('seed outras:', e); }
+
+  // ─── Migração one-shot: corrige seeds antigos quebrados de Outras Op + Orçamento ───
+  // Versões anteriores escreviam em chave/shape erradas (forekash:outras-op:v1 + previsto em vez de linhas.previsto).
+  // Esta migração roda 1× por instalação pra normalizar o estado.
+  try{
+    const MIG_FLAG = 'forekash:migration:outras-orc:v3';
+    if(!localStorage.getItem(MIG_FLAG)){
+      // Limpa o lixo da chave antiga errada
+      try{ localStorage.removeItem('forekash:outras-op:v1'); }catch(_){}
+
+      // Detecta orçamento com shape errado (versões sem .linhas com previsto preenchido) e regenera
+      const ok = readJSON('taller_orcamento_v1');
+      let orcBroken = true;
+      if(ok && ok.years && typeof ok.years === 'object'){
+        outer: for(const y of Object.keys(ok.years)){
+          const vs = ok.years[y] && ok.years[y].versions;
+          if(Array.isArray(vs)){
+            for(const v of vs){
+              if(v && v.linhas && Object.keys(v.linhas).some(k => v.linhas[k] && v.linhas[k].previsto && Object.keys(v.linhas[k].previsto).length > 0)){
+                orcBroken = false;
+                break outer;
+              }
+            }
+          }
+        }
+      }
+      if(orcBroken){
+        // Limpa estado quebrado e re-gera com seed novo (shape correto)
+        try{ localStorage.removeItem('taller_orcamento_v1'); }catch(_){}
+        // Re-executa o bloco de seed do orçamento manualmente (replicando o que já fizemos acima)
+        try{
+          const Yn = String(parseInt(Y)+1);
+          function _orcL(vals){ const previsto = {}; for(let i=0;i<12;i++){ if(vals[i] != null) previsto[i] = vals[i]; } return { previsto }; }
+          function _orcV(idSuf, nome, ts, d){
+            return { id:'v'+idSuf, nome, criadoEm:ts, congelado:null,
+              linhas:{ receita:_orcL(d.r), folha:_orcL(d.f), despesas:_orcL(d.d), emprestimos:_orcL(d.e), impostos:_orcL(d.i) } };
+          }
+          const verYp = _orcV('yp1','v1 · Plano anual '+Yp, new Date(Yp+'-01-15T10:00:00').toISOString(), {
+            r:[90000,92000,95000,98000,100000,102000,105000,108000,110000,112000,115000,118000],
+            f:[48000,48000,49000,49000,50000,50000,50500,51000,51500,52000,52500,53000],
+            d:[14000,14000,14500,14500,15000,15000,15500,15500,16000,16000,16500,16500],
+            e:[6550,6550,6550,6550,6550,6550,6550,6550,6550,6550,6550,6550],
+            i:[11500,11500,12000,12000,12500,12500,13000,13000,13500,13500,14000,14000]
+          });
+          const verY1 = _orcV('y1','v1 · Plano anual '+Y, new Date(Y+'-01-08T09:30:00').toISOString(), {
+            r:[110000,112000,115000,118000,120000,122000,125000,128000,130000,132000,135000,140000],
+            f:[56000,56000,57000,57000,58000,58000,58500,59000,59500,60000,60500,61000],
+            d:[16500,16500,17000,17000,17500,17500,18000,18000,18500,18500,19000,19000],
+            e:[6550,6550,6550,6550,6550,6550,6550,6550,6550,6550,6550,6550],
+            i:[13500,13500,14000,14000,14500,14500,15000,15000,15500,15500,16000,16000]
+          });
+          const verY2 = _orcV('y2','v2 · Revisão Q2 '+Y, new Date(Y+'-06-30T18:45:00').toISOString(), {
+            r:[110000,112000,115000,122000,126000,128000,132000,135000,138000,142000,146000,152000],
+            f:[56000,56000,57000,57000,58000,58500,59500,60000,60500,61500,62000,63000],
+            d:[16500,16500,17000,17500,18000,18500,19000,19500,20000,20500,21000,22000],
+            e:[6550,6550,6550,6550,6550,6550,6550,6550,6550,6550,6550,6550],
+            i:[13500,13500,14000,14500,15000,15500,16000,16500,17000,17500,18000,18500]
+          });
+          const verYn = _orcV('yn1','v1 · Meta '+Yn, new Date(Y+'-11-20T14:00:00').toISOString(), {
+            r:[148000,150000,155000,160000,165000,168000,172000,175000,180000,185000,190000,200000],
+            f:[63000,63000,64500,64500,66000,66000,67500,68000,69000,70000,71000,72000],
+            d:[22000,22000,22500,23000,23500,24000,24500,25000,25500,26000,26500,27500],
+            e:[5800,5800,5800,5800,5800,5800,5800,5800,5800,5800,5800,5800],
+            i:[18500,18500,19500,20000,20500,21000,21500,22000,22500,23000,24000,25000]
+          });
+          const orcDataMig = {
+            activeYear: Y,
+            anosExcluidos: [],
+            years: {
+              [Yp]: { versions:[verYp],          ativa: verYp.id },
+              [Y]:  { versions:[verY1, verY2],   ativa: verY2.id },
+              [Yn]: { versions:[verYn],          ativa: verYn.id }
+            }
+          };
+          localStorage.setItem('taller_orcamento_v1', JSON.stringify(orcDataMig));
+          // Atualiza variável em memória se já carregada
+          try{ if(typeof orcamento !== 'undefined') { orcamento = orcDataMig; orcActiveYear = Y; orcActiveVerId = verY2.id; } }catch(_){}
+          try{ if(typeof renderOrcamento === 'function' && document.getElementById('mod-orcamento')) renderOrcamento(); }catch(_){}
+        }catch(e){ console.warn('mig orc:', e); }
+      }
+
+      // Outras Op: força a re-seed (o seed novo escreve em taller_outras_op_v1)
+      try{ _seedOutrasOpFull(Y); }catch(e){ console.warn('mig outras:', e); }
+
+      localStorage.setItem(MIG_FLAG, '1');
+      console.log('[FK] Migração outras-op + orçamento v3 aplicada');
+    }
+  }catch(e){ console.warn('migration v3:', e); }
 
   try{
     const filled = Object.keys(isEmpty).filter(k => isEmpty[k]);
@@ -89062,21 +89196,142 @@ function _seedFKLabFull(Y){
 
 // OUTRAS OPERAÇÕES · receitas/despesas não operacionais
 function _seedOutrasOpFull(Y){
-  const raw = localStorage.getItem('forekash:outras-op:v1');
-  let OUTRAS = raw ? JSON.parse(raw) : { receitas:[], despesas:[] };
-  if(!Array.isArray(OUTRAS.receitas)) OUTRAS.receitas = [];
-  if(!Array.isArray(OUTRAS.despesas)) OUTRAS.despesas = [];
-  if(OUTRAS.receitas.length >= 4) return;
-  const meses = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
-  // Receitas não operacionais
-  OUTRAS.receitas.push({ id:1, nome:'Aluguel sala extra (recebido)', meses: { jan:1200, fev:1200, mar:1200, abr:1200, mai:1200, jun:1200, jul:1200, ago:1200, set:1200, out:1200, nov:1200, dez:1200 } });
-  OUTRAS.receitas.push({ id:2, nome:'Rendimento CDB',                meses: { jan:850, fev:870, mar:890, abr:910, mai:930, jun:950, jul:970, ago:990, set:1010, out:1030, nov:1050, dez:1070 } });
-  OUTRAS.receitas.push({ id:3, nome:'Indenização seguro 2025',       meses: { fev:8500 } });
-  // Despesas não operacionais
-  OUTRAS.despesas.push({ id:4, nome:'Multa contratual rescisão',     meses: { mar:3200 } });
-  OUTRAS.despesas.push({ id:5, nome:'Doação ONG (responsabilidade social)', meses: { jun:2000, dez:5000 } });
-  OUTRAS.despesas.push({ id:6, nome:'Baixa de imobilizado obsoleto',  meses: { ago:4500 } });
-  localStorage.setItem('forekash:outras-op:v1', JSON.stringify(OUTRAS));
+  // Estrutura correta esperada pelo módulo OUTRAS_OPERACOES:
+  //   Chave: 'taller_outras_op_v1'
+  //   Shape: { valores: { [catmapId]: { [YYYY-MM]: valor } }, nextId }
+  // Categorias vêm do catmap (forekash:catmap:v1) filtrado por moduloId='outrasRec' ou 'outrasDesp'.
+  const OUTRAS_KEY = 'taller_outras_op_v1';
+  const CATMAP_KEY = 'forekash:catmap:v1';
+  const yI = parseInt(Y);
+  const Yp = String(yI-1), Yn = String(yI+1);
+
+  // 1) Garante categorias outrasRec/outrasDesp no catmap (idempotente — checa por nome)
+  let cm = null;
+  try{ const raw = localStorage.getItem(CATMAP_KEY); if(raw) cm = JSON.parse(raw); }catch(_){}
+  if(!cm || !Array.isArray(cm.categorias)) cm = { categorias: [], nextId: 1 };
+  const nextId = () => {
+    const ids = cm.categorias.map(c => parseInt(c.id)||0);
+    const max = ids.length ? Math.max(...ids) : 0;
+    return Math.max(max+1, cm.nextId||1);
+  };
+  const ensureCat = (nome, moduloId, cor) => {
+    const existing = cm.categorias.find(c => c.nome === nome && c.moduloId === moduloId);
+    if(existing) return existing.id;
+    const id = nextId();
+    cm.categorias.push({ id, nome, moduloId, linhaId:null, cor: cor||'#7C3AED' });
+    cm.nextId = id + 1;
+    return id;
+  };
+  // Outras Receitas (não operacionais) — 7 categorias
+  const cRecFinanceira = ensureCat('Receita financeira (rendimentos)', 'outrasRec', '#10B981');
+  const cRecAluguel   = ensureCat('Aluguel sublocação',                'outrasRec', '#22D3EE');
+  const cRecVendaAtv  = ensureCat('Venda de ativo imobilizado',        'outrasRec', '#A78BFA');
+  const cRecIndeniz   = ensureCat('Indenizações recebidas',            'outrasRec', '#F59E0B');
+  const cRecCashback  = ensureCat('Cashback / Rebates de cartão',      'outrasRec', '#EC4899');
+  const cRecReemb     = ensureCat('Reembolso de despesas',             'outrasRec', '#34D399');
+  const cRecVarCambial= ensureCat('Variação cambial ativa',            'outrasRec', '#FBBF24');
+  // Outras Despesas (não operacionais) — 7 categorias
+  const cDespJuros    = ensureCat('Juros de empréstimo',               'outrasDesp', '#EF4444');
+  const cDespMulta    = ensureCat('Multas e penalidades',              'outrasDesp', '#DC2626');
+  const cDespIOF      = ensureCat('IOF e tarifas bancárias',           'outrasDesp', '#F97316');
+  const cDespDoacao   = ensureCat('Doações e patrocínios',             'outrasDesp', '#8B5CF6');
+  const cDespBaixa    = ensureCat('Baixa de imobilizado obsoleto',     'outrasDesp', '#94A3B8');
+  const cDespInadim   = ensureCat('Perdas com inadimplência',          'outrasDesp', '#F43F5E');
+  const cDespVarCamb  = ensureCat('Variação cambial passiva',          'outrasDesp', '#7C3AED');
+  localStorage.setItem(CATMAP_KEY, JSON.stringify(cm));
+
+  // 2) Popula valores em taller_outras_op_v1 (idempotente — só se vazio)
+  let outras = null;
+  try{ const raw = localStorage.getItem(OUTRAS_KEY); if(raw) outras = JSON.parse(raw); }catch(_){}
+  if(!outras) outras = { valores:{}, nextId:1 };
+  if(!outras.valores || typeof outras.valores !== 'object') outras.valores = {};
+  // Só seeda se realmente não tem dados
+  const totalVals = Object.values(outras.valores).reduce((s,o) => s + Object.keys(o||{}).length, 0);
+  if(totalVals >= 12) return; // já tem dados, não sobrescreve
+
+  const ym = (y, m1to12) => String(y) + '-' + String(m1to12).padStart(2,'0');
+  const setVal = (catId, y, m1to12, val) => {
+    if(!val || val <= 0) return;
+    if(!outras.valores[catId]) outras.valores[catId] = {};
+    outras.valores[catId][ym(y, m1to12)] = val;
+  };
+  // Helper: aplica curva mensal pra um catId em um ano
+  const fillYear = (catId, year, vals) => {
+    for(let m=0; m<12; m++){ if(vals[m] != null) setVal(catId, year, m+1, vals[m]); }
+  };
+
+  // ── ANO ANTERIOR (Yp) — base histórica completa ─────────────────────────────
+  // Receitas
+  fillYear(cRecFinanceira, Yp, [820, 840, 860, 880, 900, 920, 940, 960, 980, 1000, 1020, 1040]);
+  fillYear(cRecAluguel,    Yp, [1100, 1100, 1100, 1100, 1100, 1100, 1100, 1100, 1100, 1100, 1100, 1100]);
+  setVal(cRecVendaAtv,     Yp, 4, 6500);   // venda de notebook antigo em abr
+  setVal(cRecIndeniz,      Yp, 9, 12000);  // indenização seguro em set
+  fillYear(cRecCashback,   Yp, [180, 210, 240, 195, 220, 260, 230, 250, 240, 280, 310, 420]);
+  setVal(cRecReemb,        Yp, 3, 1850);   // reembolso viagem em mar
+  setVal(cRecReemb,        Yp, 11, 2200);  // reembolso evento em nov
+  setVal(cRecVarCambial,   Yp, 2, 1200);
+  setVal(cRecVarCambial,   Yp, 8, 950);
+  // Despesas
+  fillYear(cDespJuros,     Yp, [890, 870, 850, 830, 810, 790, 770, 750, 730, 710, 690, 670]);
+  setVal(cDespMulta,       Yp, 5, 1800);   // multa atraso fornecedor
+  setVal(cDespMulta,       Yp, 10, 950);
+  fillYear(cDespIOF,       Yp, [120, 135, 110, 145, 130, 155, 140, 125, 160, 175, 150, 195]);
+  setVal(cDespDoacao,      Yp, 6, 1500);
+  setVal(cDespDoacao,      Yp, 12, 4000);
+  setVal(cDespBaixa,       Yp, 8, 3200);   // baixa de equipamento
+  setVal(cDespInadim,      Yp, 7, 2400);   // cliente A não pagou
+  setVal(cDespInadim,      Yp, 11, 1800);
+  setVal(cDespVarCamb,     Yp, 3, 800);
+  setVal(cDespVarCamb,     Yp, 9, 1100);
+
+  // ── ANO CORRENTE (Y) — completo até dez ────────────────────────────────────
+  fillYear(cRecFinanceira, Y, [1050, 1080, 1110, 1140, 1170, 1200, 1230, 1260, 1290, 1320, 1350, 1380]);
+  fillYear(cRecAluguel,    Y, [1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200]);
+  setVal(cRecVendaAtv,     Y, 7, 8500);   // venda de impressora em jul
+  setVal(cRecIndeniz,      Y, 2, 8500);   // indenização seguro em fev
+  fillYear(cRecCashback,   Y, [340, 380, 410, 360, 395, 450, 420, 440, 460, 510, 580, 720]);
+  setVal(cRecReemb,        Y, 4, 2100);
+  setVal(cRecReemb,        Y, 10, 2850);
+  setVal(cRecVarCambial,   Y, 5, 1450);
+  setVal(cRecVarCambial,   Y, 11, 1100);
+
+  fillYear(cDespJuros,     Y, [650, 630, 610, 590, 570, 550, 530, 510, 490, 470, 450, 430]);
+  setVal(cDespMulta,       Y, 3, 3200);   // multa contratual rescisão
+  setVal(cDespMulta,       Y, 9, 1450);
+  fillYear(cDespIOF,       Y, [180, 195, 175, 210, 195, 220, 205, 190, 240, 255, 230, 285]);
+  setVal(cDespDoacao,      Y, 6, 2000);
+  setVal(cDespDoacao,      Y, 12, 5000);
+  setVal(cDespBaixa,       Y, 8, 4500);
+  setVal(cDespInadim,      Y, 5, 3600);
+  setVal(cDespInadim,      Y, 10, 2800);
+  setVal(cDespVarCamb,     Y, 4, 1050);
+  setVal(cDespVarCamb,     Y, 10, 1300);
+
+  // ── ANO SEGUINTE (Yn) — projeção mais leve, só 1º semestre ─────────────────
+  fillYear(cRecFinanceira, Yn, [1400, 1430, 1460, 1490, 1520, 1550]);
+  fillYear(cRecAluguel,    Yn, [1320, 1320, 1320, 1320, 1320, 1320]);
+  fillYear(cRecCashback,   Yn, [380, 410, 440, 400, 430, 480]);
+  setVal(cRecReemb,        Yn, 3, 1950);
+
+  fillYear(cDespJuros,     Yn, [410, 390, 370, 350, 330, 310]);
+  fillYear(cDespIOF,       Yn, [200, 215, 195, 230, 215, 240]);
+  setVal(cDespMulta,       Yn, 4, 1200);
+  setVal(cDespDoacao,      Yn, 6, 2500);
+
+  localStorage.setItem(OUTRAS_KEY, JSON.stringify(outras));
+
+  // 3) Atualiza variáveis em memória se já carregadas (pra refletir sem refresh)
+  try{
+    if(typeof outrasOp !== 'undefined'){
+      outrasOp.valores = outras.valores;
+      outrasOp.nextId  = outras.nextId || 1;
+    }
+    if(typeof catmapData !== 'undefined'){
+      catmapData.categorias = cm.categorias;
+      catmapData.nextId     = cm.nextId;
+    }
+    if(typeof renderOutrasOp === 'function' && document.getElementById('mod-outras-op')) renderOutrasOp();
+  }catch(_){}
 }
 
 // ═══════════════════════════════════════════════════
@@ -92727,7 +92982,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1779939190';
+      const CACHE = 'forekash-v1779939613';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
