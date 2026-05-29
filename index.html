@@ -15919,6 +15919,9 @@
     @media(min-width:780px){.ks-bib-user-grid{grid-template-columns:1fr 1fr}}
     .ks-bib-user-card{background:rgba(251,191,36,.04);border:1px solid rgba(251,191,36,.2);padding:16px 18px;font-family:'JetBrains Mono','Courier New',monospace;position:relative;border-left:3px solid #FBBF24}
     .ks-bib-user-card:hover{background:rgba(251,191,36,.06);border-color:rgba(251,191,36,.4)}
+    .ks-bib-user-card.s-lido{border-left-color:#10B981;background:rgba(16,185,129,.05)}
+    .ks-bib-user-card.s-lendo{border-left-color:#FBBF24}
+    .ks-bib-user-card.s-wish{border-left-color:#A78BFA;background:rgba(167,139,250,.04)}
     .ks-bib-user-hd{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;font-size:.7rem;color:#94A3B8;margin-bottom:8px}
     .ks-bib-user-cat{padding:2px 8px;background:rgba(251,191,36,.15);color:#FBBF24;border:1px solid rgba(251,191,36,.35);letter-spacing:1.5px;font-weight:700;font-size:.62rem;border-radius:2px}
     .ks-bib-user-author{color:#A7F3D0;letter-spacing:.5px}
@@ -113082,6 +113085,31 @@ window.ksBibUserLike = function(id){
   ksBibUserSave(arr);
   ksRenderBiblioteca();
 };
+// Toggle status (lido/lendo/quero) num livro INDICADO pelo membro.
+// Storage usa chave 'u:'+id pra não colidir com índices numéricos da curadoria.
+window.ksBibUserStatusToggle = function(id, action){
+  const s = ksBibLoad();
+  s.reads = s.reads || {};
+  const key = 'u:' + id;
+  s.reads[key] = s.reads[key] || { status:null };
+  const r = s.reads[key];
+  if(r.status === action) r.status = null;
+  else r.status = action;
+  ksBibSave(s);
+  ksRenderBiblioteca();
+};
+window.ksBibUserDiscussNaParede = function(id){
+  const arr = ksBibUserLoad();
+  const book = arr.find(b => b.id === id); if(!book) return;
+  const draft = `Discussão da indicação: "${book.titulo}" (${book.autor}${book.ano?', '+book.ano:''}).\n\nIndicado por ${book.memberId}. O que vocês acharam?\n\nMotivo original: "${book.motivo}"`;
+  try{ localStorage.setItem('forekash:kashsociety:parede:draft', draft); }catch(_){}
+  _ksSala = 'parede';
+  if(typeof ksRender === 'function') ksRender();
+  setTimeout(() => {
+    const ta = document.getElementById('ks-pa-input');
+    if(ta){ ta.value = draft; ta.focus(); }
+  }, 100);
+};
 window.ksBibUserDelete = function(id){
   const arr = ksBibUserLoad();
   const me = (typeof ksGetMemberId === 'function') ? ksGetMemberId() : '#?????';
@@ -113174,8 +113202,9 @@ function ksRenderBiblioteca(){
     {k:'iniciante', lbl:'INICIANTE'}
   ];
   const catLabel = (k) => (cats.find(c => c.k === k) || {}).lbl || k.toUpperCase();
-  const lidos = Object.values(reads).filter(r => r.status === 'lido').length;
-  const lendo = Object.values(reads).filter(r => r.status === 'lendo').length;
+  // Conta status em TODOS os reads (curados + indicados pelos membros)
+  const lidos = Object.values(reads).filter(r => r && r.status === 'lido').length;
+  const lendo = Object.values(reads).filter(r => r && r.status === 'lendo').length;
   const me = (typeof ksGetMemberId === 'function') ? ksGetMemberId() : '#?????';
 
   // Catálogo curado
@@ -113217,8 +113246,9 @@ function ksRenderBiblioteca(){
       const isMine = u.memberId === me;
       const likes = Array.isArray(u.likes) ? u.likes : [];
       const iLiked = likes.includes(me);
+      const r = (reads['u:' + u.id]) || {};
       const dateStr = new Date(u.ts).toLocaleDateString('pt-BR');
-      return `<div class="ks-bib-user-card">
+      return `<div class="ks-bib-user-card ${r.status?'s-'+r.status:''}">
         <div class="ks-bib-user-hd">
           <span class="ks-bib-user-cat">${_ksEsc(catLabel(u.cat))}</span>
           <span class="ks-bib-user-author"><b>${_ksEsc(u.memberId)}</b>${isMine?' <small>(você)</small>':''} · ${dateStr}</span>
@@ -113228,7 +113258,11 @@ function ksRenderBiblioteca(){
         <div class="ks-bib-meta">${_ksEsc(u.autor)}${u.ano?' · '+u.ano:''}</div>
         <div class="ks-bib-user-motivo">"${_ksEsc(u.motivo)}"</div>
         <div class="ks-bib-actions">
+          <button class="${r.status==='lido'?'on':''}" onclick="ksBibUserStatusToggle('${u.id}', 'lido')">📖 lido</button>
+          <button class="${r.status==='lendo'?'on':''}" onclick="ksBibUserStatusToggle('${u.id}', 'lendo')">▸ lendo</button>
+          <button class="${r.status==='wish'?'on':''}" onclick="ksBibUserStatusToggle('${u.id}', 'wish')">★ quero</button>
           <button class="like-btn ${iLiked?'on':''}" onclick="ksBibUserLike('${u.id}')">♥ ${likes.length}</button>
+          <button class="discuss-btn" onclick="ksBibUserDiscussNaParede('${u.id}')">💬 discutir na PAREDE</button>
         </div>
       </div>`;
     }).join('')}
