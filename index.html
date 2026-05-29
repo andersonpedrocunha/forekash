@@ -94342,7 +94342,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780071362';
+      const CACHE = 'forekash-v1780074925';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -109605,6 +109605,23 @@ function ksBoot(){
     // limpa o hash pra não unlockar de novo em refresh
     try{ history.replaceState(null,'',window.location.pathname + window.location.search); }catch(_){}
   }
+  // Limpeza global: se a URL terminar com '#' vazio (resto do unlock, reset de
+  // senha do Supabase, click em <a href="#">, etc) — remove via replaceState.
+  // Roda no boot E sempre que o hash mudar.
+  try{
+    const _fkStripEmptyHash = () => {
+      if(window.location.hash === '' && /#$/.test(window.location.href)){
+        try{ history.replaceState(null,'',window.location.pathname + window.location.search); }catch(_){}
+      }
+    };
+    _fkStripEmptyHash();
+    window.addEventListener('hashchange', _fkStripEmptyHash);
+    // Intercepta cliques em <a href="#"> sem onclick (defesa em profundidade)
+    document.addEventListener('click', (e) => {
+      const a = e.target && e.target.closest && e.target.closest('a[href="#"]');
+      if(a && !e.defaultPrevented){ e.preventDefault(); }
+    }, true);
+  }catch(_){}
   // UNLOCK TRIGGER 5: comando global no console
   window.kashsociety = function(){
     if(ksIsUnlocked()){
