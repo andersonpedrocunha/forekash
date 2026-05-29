@@ -22771,7 +22771,7 @@
             <button class="ks-tab"        data-sala="glossario" onclick="ksSwitchSala('glossario')">🜏 GLOSSÁRIO</button>
             <button class="ks-tab"        data-sala="almanaque" onclick="ksSwitchSala('almanaque')">🜐 ALMANAQUE</button>
             <button class="ks-tab"        data-sala="arquivo"   onclick="ksSwitchSala('arquivo')">🝳 ARQUIVO</button>
-            <button class="ks-tab"        data-sala="ranking"   onclick="ksSwitchSala('ranking')">🜾 RANKING</button>
+            <button class="ks-tab"        data-sala="ranking"   onclick="ksSwitchSala('ranking')">🜾 HIERARQUIA</button>
             <button class="ks-tab"        data-sala="jogos"     onclick="ksSwitchSala('jogos')">🜸 JOGOS</button>
             <button class="ks-tab"        data-sala="terminal"  onclick="ksSwitchSala('terminal')">⚯ TERMINAL</button>
             <button class="ks-tab"        data-sala="transmissoes" onclick="ksSwitchSala('transmissoes')">🜔 TRANSMISSÕES</button>
@@ -101891,20 +101891,37 @@ function streakUpdate(){
   return s;
 }
 function streakRender(){
-  const s = streakUpdate();
-  if(s.count < 2) return;
-  let badge = document.getElementById('hdr-streak-badge');
-  if(!badge){
-    const anchor = document.getElementById('hdr-cmdk-btn');
-    if(!anchor) return;
-    badge = document.createElement('button');
-    badge.id = 'hdr-streak-badge';
-    badge.type = 'button';
-    badge.style.cssText = 'background:transparent;border:1px solid #F59E0B;color:#F59E0B;padding:4px 10px;border-radius:8px;font-size:.74rem;font-weight:700;cursor:default;display:inline-flex;align-items:center;gap:4px;margin-right:6px';
-    anchor.parentNode.insertBefore(badge, anchor);
-  }
-  badge.innerHTML = `🔥 <span>${s.count}d</span>`;
-  badge.title = `${s.count} dias seguidos usando o Forekash · ${s.count >= 7 ? 'Streak épico!' : s.count >= 3 ? 'Tá pegando o hábito.' : 'Bom começo.'}`;
+  // Mantém streak update (pros pontos da hierarquia), mas o badge no header
+  // virou indicador de CASTA da Society em vez do streak.
+  streakUpdate();
+  // Renderiza badge da casta atual no header
+  try{
+    if(typeof ksRankCalcScore !== 'function' || typeof ksRankCasteFor !== 'function') return;
+    const score = ksRankCalcScore();
+    const caste = ksRankCasteFor(score);
+    if(!caste) return;
+    let badge = document.getElementById('hdr-streak-badge');
+    if(!badge){
+      const anchor = document.getElementById('hdr-cmdk-btn');
+      if(!anchor) return;
+      badge = document.createElement('button');
+      badge.id = 'hdr-streak-badge';
+      badge.type = 'button';
+      badge.title = `Sua casta na Society · clique pra ver a hierarquia`;
+      badge.onclick = () => {
+        // Abre KASH SOCIETY na aba HIERARQUIA
+        try{
+          if(typeof ksOpenPanel === 'function') ksOpenPanel();
+          if(typeof ksSwitchSala === 'function') setTimeout(() => ksSwitchSala('ranking'), 80);
+        }catch(_){}
+      };
+      anchor.parentNode.insertBefore(badge, anchor);
+    }
+    badge.style.cssText = `background:transparent;border:1px solid ${caste.cor};color:${caste.cor};padding:4px 10px;border-radius:8px;font-size:.7rem;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:5px;margin-right:6px;letter-spacing:1px;box-shadow:0 0 8px ${caste.cor}33;transition:all .15s`;
+    badge.onmouseenter = () => { badge.style.background = caste.cor + '22'; badge.style.boxShadow = `0 0 12px ${caste.cor}66`; };
+    badge.onmouseleave = () => { badge.style.background = 'transparent'; badge.style.boxShadow = `0 0 8px ${caste.cor}33`; };
+    badge.innerHTML = `🜾 <span>${_ksEsc ? _ksEsc(caste.nome) : caste.nome}</span>`;
+  }catch(_){}
 }
 try{ window.streakUpdate = streakUpdate; window.streakRender = streakRender; }catch(_){}
 
@@ -113289,7 +113306,7 @@ function ksRenderRankingSociety(){
     </div>`;
   });
   main.innerHTML = `<div class="ks-sala">
-    <h2>🜾 RANKING SOCIETY</h2>
+    <h2>🜾 HIERARQUIA · Castas da Society</h2>
     <p style="max-width:760px;color:#94A3B8;font-family:Georgia,serif;font-style:italic">Castas baseadas em quanto você usa Forekash. Quanto mais opera, mais sobe na hierarquia da Society. Você joga como <code style="color:#FBBF24">${me}</code>.</p>
     <div class="ks-rk-status" style="--cc:${myCaste.cor}">
       <div class="ks-rk-status-l">
