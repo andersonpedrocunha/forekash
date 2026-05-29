@@ -16063,6 +16063,20 @@
     .ks-rk-row.mine .id{color:#10B981;font-weight:700}
     .ks-rk-row .caste{font-size:.78rem;letter-spacing:1.5px;font-weight:700;text-shadow:0 0 6px currentColor}
     .ks-rk-row .pts{text-align:right;color:#FBBF24;font-weight:700}
+    /* Agentes de treinamento (seed) — visualmente distintos dos reais */
+    .ks-rk-row.seed{opacity:.55}
+    .ks-rk-row.seed .id{color:#94A3B8}
+    .ks-rk-row.seed .pts{color:#94A3B8}
+    .ks-rk-seed-tag{display:inline-block;font-size:.55rem;letter-spacing:1px;padding:1px 4px;background:rgba(148,163,184,.12);color:#94A3B8;border:1px solid rgba(148,163,184,.25);margin-left:6px;vertical-align:middle;font-weight:700;border-radius:2px}
+    /* Status da network (cloud sync) */
+    .ks-rk-net{display:flex;align-items:center;gap:10px;max-width:760px;margin:14px auto 8px;padding:8px 14px;font-family:'JetBrains Mono',monospace;font-size:.72rem;letter-spacing:.5px;background:rgba(0,0,0,.4);border:1px solid rgba(100,116,139,.25);border-left:3px solid #64748B;flex-wrap:wrap}
+    .ks-rk-net[data-status="online"]{border-left-color:#10B981;background:rgba(16,185,129,.04)}
+    .ks-rk-net[data-status="syncing"]{border-left-color:#FBBF24;background:rgba(251,191,36,.04)}
+    .ks-rk-net[data-status="offline"]{border-left-color:#F97316;background:rgba(249,115,22,.04)}
+    .ks-rk-net-dot{font-size:.7rem}
+    .ks-rk-net-txt{color:#CBD5E1;flex:1;min-width:200px}
+    .ks-rk-net-pos{color:#94A3B8}
+    .ks-rk-net-pos b{color:#FBBF24}
     @media(max-width:680px){
       .ks-rk-row{grid-template-columns:44px 1fr 80px;gap:6px;font-size:.74rem}
       .ks-rk-row .caste{display:none}
@@ -94328,7 +94342,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780070098';
+      const CACHE = 'forekash-v1780071362';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -110191,6 +110205,16 @@ function ksRender(){
   }
   // Atualiza barra de PROTOCOLO (fica no header, sempre visível)
   try{ ksProtoRender(); }catch(_){}
+  // Push do meu score + fetch do leaderboard (assíncrono, throttled)
+  try{
+    if(typeof ksLeaderboardSync === 'function') ksLeaderboardSync(false);
+    if(typeof ksLeaderboardFetch === 'function'){
+      ksLeaderboardFetch(false).then(() => {
+        // Re-render bar com posição atualizada
+        try{ ksProtoRender(); }catch(_){}
+      }).catch(()=>{});
+    }
+  }catch(_){}
   // Renderiza sala atual
   switch(_ksSala){
     case 'manifesto':    return ksRenderManifesto();
@@ -112625,15 +112649,25 @@ function ksProtoRender(){
   // Cor do tema = cor da casta
   wrap.style.setProperty('--pcc', myCaste.cor);
 
-  // Posição num leaderboard sintético + você (mesmo seedMembers do ksRenderRankingSociety)
+  // Posição: usa leaderboard universal (cloud) se disponível, senão seed local
   let pos = '—', total = '—';
   try{
-    const seed = [
-      { score:3420 },{ score:2810 },{ score:1980 },{ score:1450 },{ score:1180 },
-      { score:920 },{ score:680 },{ score:540 },{ score:380 },{ score:260 },
-      { score:170 },{ score:110 },{ score:60 }
-    ];
-    const all = [...seed.map(s=>({...s,isMe:false})), { score, isMe:true }];
+    const me = (typeof ksGetMemberId === 'function') ? ksGetMemberId() : '#?????';
+    const cloud = (typeof _ksLeaderboardCache !== 'undefined' && _ksLeaderboardCache) ? _ksLeaderboardCache : null;
+    let all;
+    if(cloud && cloud.length >= 4){
+      // Cloud com massa crítica — usa só real
+      const meInCloud = cloud.find(m => m.member_id === me);
+      all = meInCloud
+        ? cloud.map(m => m.member_id === me ? {score:m.score, isMe:true} : {score:m.score, isMe:false})
+        : [...cloud.map(m => ({score:m.score, isMe:false})), {score, isMe:true}];
+    } else {
+      // Modo offline / sparse → mistura com seed
+      const seed = (typeof KS_RANK_SEED_MEMBERS !== 'undefined' ? KS_RANK_SEED_MEMBERS : []).map(s => ({score:s.score, isMe:false}));
+      const cloudReal = (cloud||[]).map(m => ({score:m.score, isMe: m.member_id === me}));
+      all = [...cloudReal, ...seed];
+      if(!all.find(m => m.isMe)) all.push({score, isMe:true});
+    }
     all.sort((a,b) => b.score - a.score);
     pos = (all.findIndex(m => m.isMe) + 1).toString().padStart(2,'0');
     total = all.length.toString().padStart(2,'0');
@@ -113971,47 +114005,48 @@ function ksRenderArquivoMorto(){
 // 🜾 RANKING SOCIETY · Castes baseadas em uso do Forekash
 // ════════════════════════════════════════════════════════════════════
 const KS_RANK_CASTES = [
-  { n:0, nome:'ASPIRANTE',     cor:'#94A3B8', minScore:0,     desc:'Acabou de chegar. Ainda não sabe onde está.' },
-  { n:1, nome:'OPERATIVO',     cor:'#A7F3D0', minScore:50,    desc:'Faz o básico. Já entende que tem algo diferente aqui.' },
-  { n:2, nome:'INICIADO',      cor:'#22D3EE', minScore:200,   desc:'Usa Forekash com método. Começa a ver os padrões.' },
-  { n:3, nome:'ADEPTO',        cor:'#10B981', minScore:500,   desc:'Domínio operacional. Outros membros pedem opinião.' },
-  { n:4, nome:'OPERADOR DA SOMBRA', cor:'#FBBF24', minScore:1200, desc:'Você não opera. Você arquiteta. A Society te observa de perto.' },
-  { n:5, nome:'SOCIETY',       cor:'#EF4444', minScore:2500,  desc:'Iniciação completa. Você é a Society agora.' }
+  { n:0, nome:'ASPIRANTE',          cor:'#94A3B8', minScore:0,     desc:'Acabou de chegar. Ainda não sabe onde está.' },
+  { n:1, nome:'OPERATIVO',          cor:'#A7F3D0', minScore:250,   desc:'Faz o básico. Já entende que tem algo diferente aqui.' },
+  { n:2, nome:'INICIADO',           cor:'#22D3EE', minScore:1500,  desc:'Usa Forekash com método. Começa a ver os padrões.' },
+  { n:3, nome:'ADEPTO',             cor:'#10B981', minScore:5000,  desc:'Domínio operacional. Outros membros pedem opinião.' },
+  { n:4, nome:'OPERADOR DA SOMBRA', cor:'#FBBF24', minScore:15000, desc:'Você não opera. Você arquiteta. A Society te observa de perto.' },
+  { n:5, nome:'SOCIETY',            cor:'#EF4444', minScore:50000, desc:'Iniciação completa. Você é a Society agora.' }
 ];
 
 function ksRankCalcScore(){
   // Pontuação vem APENAS do uso real do Forekash (não da Kash Society).
-  // 3 vetores:
+  // v3 (universal): SEM caps · pontos sempre crescem · vetor de tempo
+  // contínuo garante progressão mesmo em dias parados.
   //  1. STREAK · dias consecutivos de uso (constância)
-  //  2. HISTÓRICO · módulos únicos visitados + ações totais (diversidade + engajamento)
-  //  3. DADOS PERSISTIDOS · quanto você opera (lançamentos, vendas, patrimônio, NFs, etc.)
+  //  2. HISTÓRICO · módulos únicos + ações totais (diversidade + engajamento)
+  //  3. DADOS PERSISTIDOS · quanto você opera (sem teto por store)
+  //  4. TEMPO · dias desde primeiro unlock da Society (passivo, sempre cresce)
   let score = 0;
 
-  // 1) STREAK
+  // 1) STREAK · multiplica por dia consecutivo
   try{
     const s = JSON.parse(localStorage.getItem('forekash:streak:v1')||'{}');
     score += (s.count||0) * 8;
   }catch(_){}
 
-  // 2) HISTÓRICO de uso
+  // 2) HISTÓRICO de uso (cap de engajamento REMOVIDO · agora cresce linearmente)
   try{
     const hist = JSON.parse(localStorage.getItem('forekash:history:v1')||'[]');
     if(Array.isArray(hist)){
       const uniqueMods = new Set(hist.map(h => h.target && h.target.kind).filter(Boolean));
-      score += uniqueMods.size * 12;        // diversidade
-      score += Math.min(150, hist.length);  // engajamento (capped)
+      score += uniqueMods.size * 12;     // diversidade
+      score += hist.length * 1;          // engajamento total (sem cap)
     }
   }catch(_){}
 
-  // 3) DADOS PERSISTIDOS · stores UNIVERSAIS que todo operador usa
-  // (patrimônio e asaas removidos — eram nichos/premium)
+  // 3) DADOS PERSISTIDOS · caps por store REMOVIDOS
   const dataStores = [
-    {k:'forekash:extrato:v1',    mult:0.4, max:220, label:'extrato'},      // qualquer operação tem extrato
-    {k:'forekash:receita:v1',    mult:0.6, max:180, label:'receita'},      // toda empresa vende algo
-    {k:'forekash:catmap:v1',     mult:2.5, max:80,  label:'cat. map.'},   // organização de categorias = uso maduro
-    {k:'forekash:comercial:v2',  mult:1,   max:140, label:'comercial'},   // pipeline de vendas
-    {k:'forekash:nf:v1',         mult:1.5, max:100, label:'NF-e'},        // emissão regular
-    {k:'forekash:fklab:v1',      mult:3,   max:60,  label:'FK Lab'}        // cenários = uso avançado
+    {k:'forekash:extrato:v1',    mult:0.4, label:'extrato'},
+    {k:'forekash:receita:v1',    mult:0.6, label:'receita'},
+    {k:'forekash:catmap:v1',     mult:2.5, label:'cat. map.'},
+    {k:'forekash:comercial:v2',  mult:1,   label:'comercial'},
+    {k:'forekash:nf:v1',         mult:1.5, label:'NF-e'},
+    {k:'forekash:fklab:v1',      mult:3,   label:'FK Lab'}
   ];
   dataStores.forEach(s => {
     try{
@@ -114026,9 +114061,18 @@ function ksRankCalcScore(){
         }
       };
       countItems(raw, 0);
-      score += Math.min(s.max, count * s.mult);
+      score += count * s.mult;       // SEM cap
     }catch(_){}
   });
+
+  // 4) TEMPO DE OPERAÇÃO · dias desde primeiro unlock da KS
+  // garante que a pontuação SEMPRE cresce, mesmo sem nova atividade
+  try{
+    if(_ksState && _ksState.unlockedAt){
+      const dias = Math.max(0, Math.floor((Date.now() - _ksState.unlockedAt) / (1000*60*60*24)));
+      score += dias * 3;
+    }
+  }catch(_){}
 
   return Math.floor(score);
 }
@@ -114039,33 +114083,155 @@ function ksRankCasteFor(score){
   return caste;
 }
 
+// ──── Cloud sync do leaderboard universal ────
+// Pushes meu score · Fetches todos os membros · Cache 30s.
+let _ksLeaderboardCache = null; let _ksLeaderboardCacheTs = 0;
+let _ksLeaderboardSyncPending = false; let _ksLeaderboardSyncLast = 0;
+
+async function ksLeaderboardSync(force){
+  // Throttle: máximo 1 sync a cada 60s salvo se forçado
+  if(!force && (Date.now() - _ksLeaderboardSyncLast) < 60000) return;
+  if(_ksLeaderboardSyncPending) return;
+  if(!window.sb || !window._FK_CLOUD_USER) return;
+  _ksLeaderboardSyncPending = true;
+  try{
+    const score = ksRankCalcScore();
+    const caste = ksRankCasteFor(score);
+    const memberId = (typeof ksGetMemberId === 'function') ? ksGetMemberId() : '#?????';
+    let streak = 0;
+    try{ streak = (JSON.parse(localStorage.getItem('forekash:streak:v1')||'{}').count)||0; }catch(_){}
+    const { error } = await window.sb
+      .from('kash_society_leaderboard')
+      .upsert({
+        user_id: window._FK_CLOUD_USER.id,
+        member_id: memberId,
+        score: score,
+        caste_n: caste.n,
+        caste_nome: caste.nome,
+        caste_cor: caste.cor,
+        streak: streak
+      }, { onConflict: 'user_id' });
+    if(error){
+      // Tabela ainda não criada? Ignora silenciosamente até migração rodar
+      if(!/relation .* does not exist/i.test(error.message||'')){
+        console.warn('[KS] leaderboard sync erro:', error.message);
+      }
+    } else {
+      _ksLeaderboardSyncLast = Date.now();
+      // Invalida cache pra próxima fetch trazer dado fresco
+      _ksLeaderboardCacheTs = 0;
+    }
+  } catch(e){
+    console.warn('[KS] leaderboard sync fail:', e.message||e);
+  } finally {
+    _ksLeaderboardSyncPending = false;
+  }
+}
+
+async function ksLeaderboardFetch(force){
+  // Cache 30s
+  if(!force && _ksLeaderboardCache && (Date.now() - _ksLeaderboardCacheTs) < 30000){
+    return _ksLeaderboardCache;
+  }
+  if(!window.sb) return [];
+  try{
+    const { data, error } = await window.sb
+      .from('kash_society_leaderboard')
+      .select('member_id, score, caste_n, caste_nome, caste_cor, streak, updated_at')
+      .order('score', { ascending: false })
+      .limit(50);
+    if(error){
+      if(!/relation .* does not exist/i.test(error.message||'')){
+        console.warn('[KS] leaderboard fetch erro:', error.message);
+      }
+      return _ksLeaderboardCache || [];
+    }
+    _ksLeaderboardCache = data || [];
+    _ksLeaderboardCacheTs = Date.now();
+    return _ksLeaderboardCache;
+  } catch(e){
+    console.warn('[KS] leaderboard fetch fail:', e.message||e);
+    return _ksLeaderboardCache || [];
+  }
+}
+
+try{
+  window.ksLeaderboardSync = ksLeaderboardSync;
+  window.ksLeaderboardFetch = ksLeaderboardFetch;
+}catch(_){}
+
+// Seed members — só aparecem em MODO OFFLINE (sem cloud) como fallback decorativo
+const KS_RANK_SEED_MEMBERS = [
+  { id:'#7K9P2', score:32420 },
+  { id:'#A4F8E', score:18810 },
+  { id:'#X3B91', score:9980 },
+  { id:'#M2R7T', score:6450 },
+  { id:'#K1L0V', score:4180 },
+  { id:'#H5D8N', score:2920 },
+  { id:'#P9Q2W', score:1680 },
+  { id:'#G6Y4S', score:1240 },
+  { id:'#Z2M1F', score:880 },
+  { id:'#N7T4B', score:560 },
+  { id:'#J3X8H', score:380 },
+  { id:'#R5L6K', score:220 },
+  { id:'#W8B4E', score:120 }
+];
+
 function ksRenderRankingSociety(){
   const main = document.getElementById('ks-main'); if(!main) return;
   const score = ksRankCalcScore();
   const myCaste = ksRankCasteFor(score);
   const me = (typeof ksGetMemberId === 'function') ? ksGetMemberId() : '#?????';
-  // Próxima casta
   const nextCaste = KS_RANK_CASTES.find(c => c.n > myCaste.n);
   const progress = nextCaste ? Math.min(100, ((score - myCaste.minScore) / (nextCaste.minScore - myCaste.minScore)) * 100) : 100;
-  // Lista de membros fictícios + você
-  const seedMembers = [
-    { id:'#7K9P2', score:3420 },
-    { id:'#A4F8E', score:2810 },
-    { id:'#X3B91', score:1980 },
-    { id:'#M2R7T', score:1450 },
-    { id:'#K1L0V', score:1180 },
-    { id:'#H5D8N', score:920 },
-    { id:'#P9Q2W', score:680 },
-    { id:'#G6Y4S', score:540 },
-    { id:'#Z2M1F', score:380 },
-    { id:'#N7T4B', score:260 },
-    { id:'#J3X8H', score:170 },
-    { id:'#R5L6K', score:110 },
-    { id:'#W8B4E', score:60 }
-  ];
-  const allMembers = [...seedMembers, { id:me, score, isMe:true }];
-  allMembers.sort((a,b) => b.score - a.score);
-  const myPos = allMembers.findIndex(m => m.isMe) + 1;
+
+  // Dispara sync do meu score + fetch do leaderboard (assíncrono)
+  // Re-renderiza quando dados chegarem.
+  let networkStatus = 'OFFLINE';
+  let cloudMembers = [];
+  const cloudAvail = !!(window.sb && window._FK_CLOUD_USER);
+  if(cloudAvail){
+    networkStatus = _ksLeaderboardCache ? 'ONLINE' : 'SYNCING';
+    cloudMembers = _ksLeaderboardCache || [];
+    // Push + fetch em paralelo (não bloqueia render)
+    ksLeaderboardSync(true).then(() => ksLeaderboardFetch(true)).then(rows => {
+      // Se ainda estamos na sala ranking, re-renderiza
+      if(_ksSala === 'ranking' && document.getElementById('ks-rk-list')){
+        ksRenderRankingSociety();
+      }
+    }).catch(()=>{});
+  }
+
+  // Monta lista de membros: prioriza cloud, completa com seed se sparse
+  // Se cloud tem ≥ 4 membros reais, mostra só reais. Se < 4, mistura com seed
+  // (marcando cada qual claramente).
+  let listMembers;
+  let usingSeed = false;
+  if(cloudMembers.length >= 4){
+    // Garante que EU apareço (se ainda não estou na lista do server)
+    const meInCloud = cloudMembers.find(m => m.member_id === me);
+    if(!meInCloud){
+      listMembers = [...cloudMembers, { member_id:me, score, caste_n:myCaste.n, caste_nome:myCaste.nome, caste_cor:myCaste.cor, isMe:true }];
+    } else {
+      listMembers = cloudMembers.map(m => m.member_id === me ? {...m, isMe:true} : m);
+    }
+    listMembers.sort((a,b) => (b.score||0) - (a.score||0));
+  } else {
+    usingSeed = true;
+    const cloud = cloudMembers.map(m => ({ ...m, isReal:true, isMe: m.member_id === me }));
+    const seed = KS_RANK_SEED_MEMBERS
+      .filter(s => !cloud.find(c => c.member_id === s.id))
+      .map(s => { const c = ksRankCasteFor(s.score); return { member_id:s.id, score:s.score, caste_n:c.n, caste_nome:c.nome, caste_cor:c.cor, isSeed:true }; });
+    let combined = [...cloud, ...seed];
+    if(!combined.find(m => m.isMe)){
+      combined.push({ member_id:me, score, caste_n:myCaste.n, caste_nome:myCaste.nome, caste_cor:myCaste.cor, isMe:true, isReal:true });
+    }
+    combined.sort((a,b) => (b.score||0) - (a.score||0));
+    listMembers = combined;
+  }
+  const myPos = listMembers.findIndex(m => m.isMe) + 1;
+  const realCount = listMembers.filter(m => !m.isSeed).length;
+
   let castesHtml = '';
   KS_RANK_CASTES.slice().reverse().forEach(c => {
     const isMine = c.n === myCaste.n;
@@ -114075,41 +114241,56 @@ function ksRenderRankingSociety(){
       <div class="ks-rk-caste-body">
         <div class="ks-rk-caste-name">${_ksEsc(c.nome)} ${isMine?'<small>← VOCÊ</small>':''}</div>
         <div class="ks-rk-caste-desc">"${_ksEsc(c.desc)}"</div>
-        <div class="ks-rk-caste-req">precisa de <b>${c.minScore}</b> pontos${unlocked?' ✓':''}</div>
+        <div class="ks-rk-caste-req">precisa de <b>${c.minScore.toLocaleString('pt-BR')}</b> pontos${unlocked?' ✓':''}</div>
       </div>
     </div>`;
   });
   let listHtml = '';
-  allMembers.slice(0, 14).forEach((m, i) => {
-    const c = ksRankCasteFor(m.score);
+  listMembers.slice(0, 20).forEach((m, i) => {
+    const cor = m.caste_cor || ksRankCasteFor(m.score||0).cor;
+    const nome = m.caste_nome || ksRankCasteFor(m.score||0).nome;
     const trophy = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '  ';
-    listHtml += `<div class="ks-rk-row ${m.isMe?'mine':''}">
+    const badge = m.isSeed ? ' <span class="ks-rk-seed-tag" title="agente de treinamento">·SIM·</span>' : '';
+    listHtml += `<div class="ks-rk-row ${m.isMe?'mine':''} ${m.isSeed?'seed':''}">
       <span class="pos">${trophy}${(i+1).toString().padStart(2,' ')}.</span>
-      <span class="id">${_ksEsc(m.id)}${m.isMe?' <small>(você)</small>':''}</span>
-      <span class="caste" style="color:${c.cor}">${_ksEsc(c.nome)}</span>
-      <span class="pts">${m.score} pts</span>
+      <span class="id">${_ksEsc(m.member_id)}${m.isMe?' <small>(você)</small>':''}${badge}</span>
+      <span class="caste" style="color:${cor}">${_ksEsc(nome)}</span>
+      <span class="pts">${(m.score||0).toLocaleString('pt-BR')} pts</span>
     </div>`;
   });
+
+  const statusDot = networkStatus === 'ONLINE' ? '🟢' : networkStatus === 'SYNCING' ? '🟡' : '🔴';
+  const statusTxt = networkStatus === 'ONLINE'
+    ? `NETWORK ONLINE · ${realCount} operador${realCount===1?'':'es'} real${realCount===1?'':'is'}${usingSeed?' (+agentes de treinamento)':''}`
+    : networkStatus === 'SYNCING'
+      ? 'CONECTANDO À NETWORK...'
+      : 'NETWORK OFFLINE · modo simulação';
+
   main.innerHTML = `<div class="ks-sala">
     <h2>🜾 PROTOCOLO · Castas da Society</h2>
-    <p style="max-width:760px;color:#94A3B8;font-family:Georgia,serif;font-style:italic">Castas baseadas em quanto você usa Forekash. Quanto mais opera, mais sobe na hierarquia da Society. Você joga como <code style="color:#FBBF24">${me}</code>.</p>
+    <p style="max-width:760px;color:#94A3B8;font-family:Georgia,serif;font-style:italic">Ranking universal — todos os operadores se veem. Você joga como <code style="color:#FBBF24">${me}</code> (mesmo pseudônimo da A PAREDE). Pontuação cresce com uso real do Forekash e nunca para de subir.</p>
+    <div class="ks-rk-net" data-status="${networkStatus.toLowerCase()}">
+      <span class="ks-rk-net-dot">${statusDot}</span>
+      <span class="ks-rk-net-txt">${statusTxt}</span>
+      <span class="ks-rk-net-pos">·  você: <b>#${String(myPos).padStart(2,'0')}/${String(listMembers.length).padStart(2,'0')}</b></span>
+    </div>
     <div class="ks-rk-status" style="--cc:${myCaste.cor}">
       <div class="ks-rk-status-l">
         <div class="ks-rk-status-cur">CASTA ATUAL</div>
         <div class="ks-rk-status-name">${_ksEsc(myCaste.nome)}</div>
-        <div class="ks-rk-status-score">${score} pontos</div>
+        <div class="ks-rk-status-score">${score.toLocaleString('pt-BR')} pontos</div>
       </div>
       <div class="ks-rk-status-r">
-        ${nextCaste ? `<div class="ks-rk-status-next">PRÓXIMA: ${_ksEsc(nextCaste.nome)} <small>(${nextCaste.minScore} pts)</small></div>
+        ${nextCaste ? `<div class="ks-rk-status-next">PRÓXIMA: ${_ksEsc(nextCaste.nome)} <small>(${nextCaste.minScore.toLocaleString('pt-BR')} pts)</small></div>
         <div class="ks-rk-prog"><div class="ks-rk-prog-fill" style="width:${progress.toFixed(0)}%;background:${myCaste.cor}"></div></div>
-        <div class="ks-rk-status-rem">faltam <b>${nextCaste.minScore - score}</b> pontos</div>` : `<div class="ks-rk-status-next" style="color:#EF4444">VOCÊ É A SOCIETY · casta máxima</div>`}
+        <div class="ks-rk-status-rem">faltam <b>${(nextCaste.minScore - score).toLocaleString('pt-BR')}</b> pontos</div>` : `<div class="ks-rk-status-next" style="color:#EF4444">VOCÊ É A SOCIETY · casta máxima</div>`}
       </div>
     </div>
     <h3 style="margin-top:28px;color:#FBBF24">CASTAS</h3>
     <div class="ks-rk-castes">${castesHtml}</div>
-    <h3 style="margin-top:28px;color:#FBBF24">MEMBROS · TOP 14</h3>
-    <div class="ks-rk-list">${listHtml}</div>
-    <p style="max-width:760px;color:#64748B;font-style:italic;font-size:.78rem;margin-top:18px;font-family:Georgia,serif">Pontos vêm do uso real do Forekash: streak (fim de semana/feriado não quebra), diversidade de módulos acessados, lançamentos no extrato, vendas, categorias mapeadas, pipeline comercial, NF-e, cenários do FK Lab. Continue operando — vai subir.</p>
+    <h3 style="margin-top:28px;color:#FBBF24">MEMBROS · TOP ${Math.min(20, listMembers.length)}</h3>
+    <div class="ks-rk-list" id="ks-rk-list">${listHtml}</div>
+    <p style="max-width:760px;color:#64748B;font-style:italic;font-size:.78rem;margin-top:18px;font-family:Georgia,serif">Pontos vêm do uso real do Forekash: streak (fim de semana/feriado não quebra), diversidade de módulos, lançamentos no extrato, vendas, categorias mapeadas, pipeline comercial, NF-e, cenários do FK Lab + bônus por tempo de operação. Pontos nunca decrescem. Quando há &lt;4 operadores reais, agentes de treinamento (·SIM·) completam a lista.</p>
   </div>`;
 }
 
