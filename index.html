@@ -16849,8 +16849,16 @@
     .ks-lab-input-wrap{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#000;border:1px solid rgba(34,211,238,.3);margin-top:12px;border-radius:3px}
     .ks-lab-input{flex:1;background:transparent;border:none;color:#A5F3FC;font-family:'JetBrains Mono',monospace;font-size:.86rem;outline:none;caret-color:#22D3EE;padding:0;letter-spacing:.3px}
     .ks-lab-input::placeholder{color:#475569;font-style:italic}
-    .ks-lab-run{background:rgba(34,211,238,.15);border:1px solid rgba(34,211,238,.4);color:#22D3EE;padding:5px 12px;font-family:'JetBrains Mono',monospace;font-size:.7rem;letter-spacing:1.5px;cursor:pointer;font-weight:700;border-radius:2px;transition:all .15s}
-    .ks-lab-run:hover{background:rgba(34,211,238,.3);box-shadow:0 0 10px rgba(34,211,238,.4)}
+    .ks-lab-run{background:linear-gradient(180deg,rgba(34,211,238,.25),rgba(34,211,238,.12));border:1px solid #22D3EE;color:#A5F3FC;padding:7px 16px;font-family:'JetBrains Mono',monospace;font-size:.74rem;letter-spacing:2px;cursor:pointer;font-weight:800;border-radius:3px;transition:all .15s;box-shadow:0 0 10px rgba(34,211,238,.25)}
+    .ks-lab-run:hover{background:linear-gradient(180deg,rgba(34,211,238,.4),rgba(34,211,238,.2));box-shadow:0 0 16px rgba(34,211,238,.55);color:#fff}
+    /* Autocomplete dropdown */
+    .ks-lab-input-wrap-outer{position:relative;margin-top:12px}
+    .ks-lab-input-wrap-outer .ks-lab-input-wrap{margin-top:0}
+    .ks-lab-ac{position:absolute;top:100%;left:0;right:0;background:#0a0f0a;border:1px solid rgba(34,211,238,.4);border-top:none;font-family:'JetBrains Mono',monospace;font-size:.8rem;z-index:10;max-height:240px;overflow-y:auto;box-shadow:0 6px 18px rgba(0,0,0,.45)}
+    .ks-lab-ac-item{padding:8px 16px;color:#94A3B8;cursor:pointer;transition:all .1s;border-bottom:1px solid rgba(100,116,139,.08)}
+    .ks-lab-ac-item:last-child{border-bottom:none}
+    .ks-lab-ac-item:hover,.ks-lab-ac-item.active{background:rgba(34,211,238,.12);color:#A5F3FC;padding-left:20px}
+    .ks-lab-ac-item b{color:#22D3EE;font-weight:800}
     /* Quick chips */
     .ks-lab-quick{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:12px 0;font-family:'JetBrains Mono',monospace}
     .ks-lab-quick small{color:#64748B;font-size:.7rem;letter-spacing:1px;margin-right:4px}
@@ -94513,7 +94521,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780092052';
+      const CACHE = 'forekash-v1780092416';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -110493,13 +110501,14 @@ function ksSwitchSubSala(parent, sub){
 function ksRenderTerminalHub(){
   const main = document.getElementById('ks-main'); if(!main) return;
   const sub = _ksTerminalSub || 'shell';
-  if(sub === 'lab') ksRenderTerminalLab();
+  // 'lab' continua válido pra compat retroativa
+  if(sub === 'lab' || sub === 'compute') ksRenderTerminalCompute();
   else ksRenderTerminalShell();
   const bar = document.createElement('nav');
   bar.className = 'ks-subtabs';
   bar.innerHTML = `
     <button class="ks-subtab ${sub==='shell'?'active':''}" onclick="ksSwitchSubSala('terminal','shell')">⚯ Shell</button>
-    <button class="ks-subtab ${sub==='lab'?'active':''}" onclick="ksSwitchSubSala('terminal','lab')">▪ Lab</button>`;
+    <button class="ks-subtab ${(sub==='compute'||sub==='lab')?'active':''}" onclick="ksSwitchSubSala('terminal','compute')">▪ Compute</button>`;
   main.insertBefore(bar, main.firstChild);
 }
 try{ window.ksSwitchSubSala = ksSwitchSubSala; }catch(_){}
@@ -112050,7 +112059,19 @@ function ksTermMrKashCanned(q){
 let _ksLabCells = [];  // [{cmd, html, ts}]
 let _ksLabHistIdx = -1;
 
-function ksRenderTerminalLab(){
+// ─── Catálogo de comandos pro autocomplete ────────────────────────
+const KS_LAB_COMMANDS = [
+  'help', 'clear',
+  'chart receita', 'chart mrr', 'chart contas', 'chart fluxo',
+  'table clientes', 'table fluxo', 'table cobrancas',
+  'kpi mrr', 'kpi arr', 'kpi caixa', 'kpi clientes',
+  'list inadimplentes', 'list top',
+  'compare mrr 6m'
+];
+let _ksLabAcIdx = 0;  // índice do item highlighted no dropdown
+let _ksLabAcMatches = [];
+
+function ksRenderTerminalCompute(){
   const main = document.getElementById('ks-main'); if(!main) return;
   const cellsHtml = _ksLabCells.map((cell, i) => `
     <div class="ks-lab-cell">
@@ -112067,13 +112088,16 @@ function ksRenderTerminalLab(){
   `).join('');
 
   main.innerHTML = `<div class="ks-sala ks-lab-sala">
-    <h2>⚯ TERMINAL · ▪ LAB</h2>
-    <p style="max-width:680px;color:#94A3B8;font-family:Georgia,serif;font-style:italic">Notebook computacional. Digita um comando, ele renderiza tabela/gráfico/lista. Tipo Colab mas pros teus dados reais.</p>
-    <div class="ks-lab-cells">${cellsHtml || '<div class="ks-lab-empty">Sem células ainda. Digita um comando abaixo. <code>help</code> pra listar.</div>'}</div>
-    <div class="ks-lab-input-wrap">
-      <span class="ks-lab-num">In [${_ksLabCells.length+1}]:</span>
-      <input type="text" id="ks-lab-input" class="ks-lab-input" autocomplete="off" spellcheck="false" placeholder="digite um comando · 'help' pra listar" onkeydown="ksLabKey(event)">
-      <button class="ks-lab-run" onclick="ksLabRun()">▶ run</button>
+    <h2>⚯ TERMINAL · ▪ COMPUTE</h2>
+    <p style="max-width:680px;color:#94A3B8;font-family:Georgia,serif;font-style:italic">Notebook computacional. Digita um comando, ele renderiza tabela/gráfico/lista/KPI. <b style="color:#22D3EE">Enter</b> ou <b style="color:#22D3EE">▶ Run</b> executa · <b style="color:#22D3EE">Tab</b> autocompleta · <b style="color:#22D3EE">↑↓</b> navega histórico.</p>
+    <div class="ks-lab-cells">${cellsHtml || '<div class="ks-lab-empty">Sem células ainda. Digita um comando abaixo (ex: <code onclick="ksLabQuick(\'help\')" style="cursor:pointer">help</code>) e aperta <b>Enter</b>.</div>'}</div>
+    <div class="ks-lab-input-wrap-outer">
+      <div class="ks-lab-input-wrap">
+        <span class="ks-lab-num">In [${_ksLabCells.length+1}]:</span>
+        <input type="text" id="ks-lab-input" class="ks-lab-input" autocomplete="off" spellcheck="false" placeholder="digite um comando · 'help' pra listar · Tab pra autocompletar" onkeydown="ksLabKey(event)" oninput="ksLabAutocomplete()">
+        <button class="ks-lab-run" onclick="ksLabRun()">▶ RUN</button>
+      </div>
+      <div id="ks-lab-ac" class="ks-lab-ac" style="display:none"></div>
     </div>
     <div class="ks-lab-quick">
       <small>Sugestões:</small>
@@ -112091,19 +112115,108 @@ function ksRenderTerminalLab(){
     if(inp) inp.focus();
   }, 50);
 }
+// Alias retrocompat
+function ksRenderTerminalLab(){ return ksRenderTerminalCompute(); }
+
+function ksLabAutocomplete(){
+  const inp = document.getElementById('ks-lab-input');
+  const drop = document.getElementById('ks-lab-ac');
+  if(!inp || !drop) return;
+  const q = (inp.value||'').toLowerCase().trim();
+  if(!q){
+    _ksLabAcMatches = [];
+    drop.innerHTML = '';
+    drop.style.display = 'none';
+    return;
+  }
+  // matches: começa com q OU contém q como substring
+  _ksLabAcMatches = KS_LAB_COMMANDS.filter(c => c.toLowerCase().startsWith(q));
+  if(_ksLabAcMatches.length === 0){
+    _ksLabAcMatches = KS_LAB_COMMANDS.filter(c => c.toLowerCase().includes(q));
+  }
+  _ksLabAcMatches = _ksLabAcMatches.slice(0, 6);
+  if(_ksLabAcMatches.length === 0){
+    drop.style.display = 'none';
+    return;
+  }
+  if(_ksLabAcIdx >= _ksLabAcMatches.length) _ksLabAcIdx = 0;
+  drop.innerHTML = _ksLabAcMatches.map((m, i) => {
+    const safeM = _ksEsc(m);
+    const reSafe = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const highlighted = safeM.replace(new RegExp('('+reSafe+')', 'i'), '<b>$1</b>');
+    return `<div class="ks-lab-ac-item ${i===_ksLabAcIdx?'active':''}" data-i="${i}" onmousedown="event.preventDefault();ksLabAcPick(${i})">${highlighted}</div>`;
+  }).join('');
+  drop.style.display = 'block';
+}
+
+function ksLabAcPick(i){
+  const inp = document.getElementById('ks-lab-input');
+  if(!inp || !_ksLabAcMatches[i]) return;
+  inp.value = _ksLabAcMatches[i];
+  document.getElementById('ks-lab-ac').style.display = 'none';
+  _ksLabAcMatches = [];
+  ksLabRun();
+}
+window.ksLabAutocomplete = ksLabAutocomplete;
+window.ksLabAcPick = ksLabAcPick;
 
 function ksLabKey(ev){
+  const drop = document.getElementById('ks-lab-ac');
+  const acOpen = drop && drop.style.display !== 'none' && _ksLabAcMatches.length > 0;
+
+  // Tab → autocompleta com sugestão atual
+  if(ev.key === 'Tab'){
+    if(acOpen){
+      ev.preventDefault();
+      const inp = document.getElementById('ks-lab-input');
+      if(inp && _ksLabAcMatches[_ksLabAcIdx]){
+        inp.value = _ksLabAcMatches[_ksLabAcIdx];
+        drop.style.display = 'none';
+        _ksLabAcMatches = [];
+      }
+    }
+    return;
+  }
+  // Esc → fecha autocomplete
+  if(ev.key === 'Escape'){
+    if(acOpen){ ev.preventDefault(); drop.style.display = 'none'; _ksLabAcMatches = []; }
+    return;
+  }
   if(ev.key === 'Enter'){
     ev.preventDefault();
+    if(acOpen && _ksLabAcMatches[_ksLabAcIdx]){
+      // Enter c/ AC aberto: usa a sugestão highlighted
+      const inp = document.getElementById('ks-lab-input');
+      if(inp) inp.value = _ksLabAcMatches[_ksLabAcIdx];
+      drop.style.display = 'none';
+      _ksLabAcMatches = [];
+    }
     ksLabRun();
-  } else if(ev.key === 'ArrowUp'){
+    return;
+  }
+  if(ev.key === 'ArrowUp'){
+    if(acOpen){
+      ev.preventDefault();
+      _ksLabAcIdx = Math.max(0, _ksLabAcIdx - 1);
+      ksLabAutocomplete();
+      return;
+    }
+    // Histórico
     if(_ksLabCells.length === 0) return;
     if(_ksLabHistIdx === -1) _ksLabHistIdx = _ksLabCells.length;
     _ksLabHistIdx = Math.max(0, _ksLabHistIdx - 1);
     const inp = document.getElementById('ks-lab-input');
     if(inp && _ksLabCells[_ksLabHistIdx]) inp.value = _ksLabCells[_ksLabHistIdx].cmd;
     ev.preventDefault();
-  } else if(ev.key === 'ArrowDown'){
+    return;
+  }
+  if(ev.key === 'ArrowDown'){
+    if(acOpen){
+      ev.preventDefault();
+      _ksLabAcIdx = Math.min(_ksLabAcMatches.length - 1, _ksLabAcIdx + 1);
+      ksLabAutocomplete();
+      return;
+    }
     if(_ksLabHistIdx === -1) return;
     _ksLabHistIdx++;
     const inp = document.getElementById('ks-lab-input');
@@ -112114,7 +112227,10 @@ function ksLabKey(ev){
       inp.value = _ksLabCells[_ksLabHistIdx].cmd;
     }
     ev.preventDefault();
+    return;
   }
+  // Reset highlighted index ao continuar digitando
+  _ksLabAcIdx = 0;
 }
 
 function ksLabRun(){
@@ -112124,10 +112240,11 @@ function ksLabRun(){
   if(!cmd) return;
   inp.value = '';
   _ksLabHistIdx = -1;
+  _ksLabAcMatches = [];
   let html = '';
   try{ html = ksLabExec(cmd); }catch(e){ html = `<div class="ks-lab-err">erro: ${_ksEsc(e.message||String(e))}</div>`; }
   _ksLabCells.push({ cmd, html, ts: Date.now() });
-  ksRenderTerminalLab();
+  ksRenderTerminalCompute();
   // Scroll pra última célula
   setTimeout(() => {
     const cells = document.querySelectorAll('.ks-lab-cell');
