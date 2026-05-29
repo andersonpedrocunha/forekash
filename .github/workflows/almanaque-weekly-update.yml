@@ -1,0 +1,48 @@
+name: ALMANAQUE · busca eventos novos semanalmente
+
+on:
+  schedule:
+    # Toda segunda às 06:00 UTC (03:00 BRT)
+    - cron: '0 6 * * 1'
+  workflow_dispatch:  # permite rodar manual via UI do GitHub
+
+jobs:
+  fetch-and-insert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Verificar secrets configurados
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          MISSING=""
+          [ -z "$GEMINI_API_KEY" ]      && MISSING="$MISSING GEMINI_API_KEY"
+          [ -z "$SUPABASE_URL" ]        && MISSING="$MISSING SUPABASE_URL"
+          [ -z "$SUPABASE_SERVICE_KEY" ] && MISSING="$MISSING SUPABASE_SERVICE_KEY"
+          if [ -n "$MISSING" ]; then
+            echo "⚠ Secrets faltando:$MISSING"
+            echo "Configure em: Settings → Secrets and variables → Actions"
+            echo "Workflow vai pular (não é erro)."
+            exit 0
+          fi
+          echo "✓ Todos os secrets presentes"
+
+      - name: Buscar e inserir eventos
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ] || [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_KEY" ]; then
+            echo "Pulando · secrets ausentes"
+            exit 0
+          fi
+          node scripts/almanaque-fetch-events.mjs

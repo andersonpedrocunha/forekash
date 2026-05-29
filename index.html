@@ -94427,7 +94427,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780085461';
+      const CACHE = 'forekash-v1780086079';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -113361,7 +113361,9 @@ try{ window.ksAlmJump = ksAlmJump; window.ksAlmScrubTo = ksAlmScrubTo; }catch(_)
 
 // ─── Modal de detalhe (double-click) ───
 window.ksAlmDetailOpen = function(idx){
-  const e = KS_ALM_EVENTS[idx];
+  // Lookup via array merged (window._ksAlmEvIdx), fallback pro seed
+  const pool = (window._ksAlmEvIdx && window._ksAlmEvIdx.length) ? window._ksAlmEvIdx : KS_ALM_EVENTS;
+  const e = pool[idx];
   if(!e) return;
   const era = ksAlmEraFor(e.y);
   const sev = e.severidade || 2;
@@ -113435,17 +113437,101 @@ window.ksAlmDetailClose = function(){
   if(window._ksAlmModalEsc){ window.removeEventListener('keydown', window._ksAlmModalEsc); window._ksAlmModalEsc = null; }
 };
 
+// ─── Cloud sync · ALMANAQUE pega novos eventos do Supabase + merge com seed ───
+let _ksAlmCloudCache = null;
+let _ksAlmCloudCacheTs = 0;
+let _ksAlmCloudErr = false;
+let _ksAlmCloudTried = false;
+
+async function ksAlmFetchCloud(force){
+  // Cache 60s (eventos históricos não mudam rápido)
+  if(!force && _ksAlmCloudCache && (Date.now() - _ksAlmCloudCacheTs) < 60000){
+    return _ksAlmCloudCache;
+  }
+  if(!window.sb){
+    _ksAlmCloudTried = true;
+    _ksAlmCloudErr = true;
+    _ksAlmCloudCache = _ksAlmCloudCache || [];
+    return _ksAlmCloudCache;
+  }
+  try{
+    const { data, error } = await window.sb
+      .from('kash_almanaque_eventos')
+      .select('d, y, lugar, evento, "desc", tipo, severidade, detalhes, economistas, doutrinas, fontes')
+      .eq('approved', true)
+      .order('y', { ascending: true })
+      .limit(500);
+    _ksAlmCloudTried = true;
+    if(error){
+      if(!/relation .* does not exist/i.test(error.message||'')){
+        console.warn('[KS-ALM] fetch erro:', error.message);
+      }
+      _ksAlmCloudErr = true;
+      _ksAlmCloudCache = _ksAlmCloudCache || [];
+      _ksAlmCloudCacheTs = Date.now();
+      return _ksAlmCloudCache;
+    }
+    _ksAlmCloudErr = false;
+    _ksAlmCloudCache = (data || []).map(r => ({
+      d: r.d, y: r.y, lugar: r.lugar, evento: r.evento, desc: r.desc,
+      tipo: r.tipo || 'evento', severidade: r.severidade || 3,
+      detalhes: r.detalhes, economistas: r.economistas || [],
+      doutrinas: r.doutrinas || [], fontes: r.fontes || [], _cloud: true
+    }));
+    _ksAlmCloudCacheTs = Date.now();
+    return _ksAlmCloudCache;
+  } catch(e){
+    _ksAlmCloudTried = true;
+    _ksAlmCloudErr = true;
+    _ksAlmCloudCache = _ksAlmCloudCache || [];
+    return _ksAlmCloudCache;
+  }
+}
+
+// Mescla seed local (KS_ALM_EVENTS) + cloud. Cloud sobrescreve em conflito.
+function ksAlmMergedEvents(){
+  const seed = KS_ALM_EVENTS;
+  const cloud = _ksAlmCloudCache || [];
+  if(!cloud.length) return seed;
+  const key = e => `${e.d}|${e.y}|${(e.evento||'').toLowerCase().trim()}`;
+  const map = new Map(seed.map(e => [key(e), e]));
+  for(const ce of cloud){ map.set(key(ce), ce); }
+  return Array.from(map.values());
+}
+
+try{
+  window.ksAlmFetchCloud = ksAlmFetchCloud;
+  window.ksAlmMergedEvents = ksAlmMergedEvents;
+}catch(_){}
+
 function ksRenderAlmanaque(){
   const main = document.getElementById('ks-main'); if(!main) return;
   const today = new Date();
   const todayKey = String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
-  const todayEvents = KS_ALM_EVENTS.filter(e => e.d === todayKey);
+
+  // Mescla seed + cloud (cloud já preencheu via cache, se houve fetch)
+  const allEvents = ksAlmMergedEvents();
+  const todayEvents = allEvents.filter(e => e.d === todayKey);
 
   // Sort cronológico: ano + dentro do ano por data
-  const events = KS_ALM_EVENTS.slice().sort((a,b) => {
+  const events = allEvents.slice().sort((a,b) => {
     if(a.y !== b.y) return a.y - b.y;
     return a.d.localeCompare(b.d);
   });
+
+  // Dispara fetch do cloud em paralelo (não bloqueia). Re-renderiza só
+  // se o cache realmente mudar — evita loop infinito quando fetch falha.
+  const _prevKey = JSON.stringify({c:_ksAlmCloudCache, e:_ksAlmCloudErr});
+  ksAlmFetchCloud(false).then(() => {
+    const _newKey = JSON.stringify({c:_ksAlmCloudCache, e:_ksAlmCloudErr});
+    if(_prevKey !== _newKey && _ksSala === 'almanaque' && document.getElementById('ks-alm-rail')){
+      ksRenderAlmanaque();
+    }
+  }).catch(()=>{});
+
+  // Index estável dos eventos visíveis · usado pelo modal opener
+  // (substitui KS_ALM_EVENTS.indexOf, que falhava pra eventos cloud).
+  window._ksAlmEvIdx = events;
 
   // Calcula espaçamento proporcional ao gap de anos (sensação de zoom-out temporal)
   let prevYear = null;
@@ -113470,14 +113556,16 @@ function ksRenderAlmanaque(){
     const dateLabel = e.d.slice(3) + ' ' + MM[parseInt(e.d.slice(0,2),10)-1];
     const sev = e.severidade || 2;
     const tipo = e.tipo || 'evento';
-    const origIdx = KS_ALM_EVENTS.indexOf(e);
+    // Stash referência por índice no array merged (sobrevive a cloud events).
+    // window._ksAlmEvIdx é populado abaixo, antes do innerHTML.
+    const mergedIdx = (window._ksAlmEvIdx || []).indexOf(e);
     const sevDots = Array.from({length:5}, (_,k) =>
       `<span class="ks-alm-tl-sev-dot ${k<sev?'on':''}"></span>`
     ).join('');
     // Gap visual entre cards proporcional ao tempo
     const gapStyle = e._spaceBefore > 24 ? `margin-left:${e._spaceBefore}px` : '';
     const style = `--era-cor:${era.cor};${gapStyle}`;
-    return `<div class="ks-alm-tl-event ${isToday?'today':''}" data-year="${e.y}" data-decade="${decade}" data-era="${_ksEsc(era.nome)}" data-tipo="${tipo}" data-idx="${origIdx}" style="${style}" ondblclick="ksAlmDetailOpen(${origIdx})">
+    return `<div class="ks-alm-tl-event ${isToday?'today':''}" data-year="${e.y}" data-decade="${decade}" data-era="${_ksEsc(era.nome)}" data-tipo="${tipo}" data-idx="${mergedIdx}" style="${style}" ondblclick="ksAlmDetailOpen(${mergedIdx})">
       <div class="ks-alm-tl-year">${e.y}</div>
       <div class="ks-alm-tl-date">${dateLabel}${isToday?' · HOJE':''}</div>
       <div class="ks-alm-tl-title"><span class="ks-alm-tl-flag">${e.lugar}</span>${_ksEsc(e.evento)}</div>
@@ -113555,7 +113643,7 @@ function ksRenderAlmanaque(){
     <div class="ks-alm-hist">${histHtml}</div>
 
     <div class="ks-alm-scrub" id="ks-alm-scrub">${scrubHtml}</div>
-    <p class="ks-alm-scrub-hint">${events.length} eventos curados (${events.filter(e=>e.tipo==='doutrina').length} doutrinas/teorias) · ${decades.length} décadas · scroll horizontal, drag, setas ← → ou jump por década no histograma. Clique num card pra abrir o detalhe completo (narrativa, economistas, doutrinas). Eventos de hoje pulsam em âmbar.</p>
+    <p class="ks-alm-scrub-hint">${events.length} eventos${(_ksAlmCloudCache && _ksAlmCloudCache.length) ? ` <span style="color:#10B981">(+${_ksAlmCloudCache.length} do servidor)</span>` : (_ksAlmCloudTried && _ksAlmCloudErr) ? ' <span style="color:#94A3B8">· servidor offline</span>' : ''} · ${events.filter(e=>e.tipo==='doutrina').length} doutrinas · ${decades.length} décadas · scroll horizontal, drag, setas ← → ou jump por década no histograma. Clique num card pra abrir o detalhe completo. Eventos de hoje pulsam em âmbar.</p>
   </div>`;
 
   // ── Setup interativo ──
