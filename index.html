@@ -94436,7 +94436,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780090771';
+      const CACHE = 'forekash-v1780091103';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -115692,6 +115692,16 @@ function ksQuMove(dx, dy){
   ksQuRender();
 }
 
+// Mapa de flags → dica humana mostrada quando bloqueio (em vez de "Falta algo")
+const KS_QU_FLAG_HINTS = {
+  defeated_loanshark: 'Caminho bloqueado. <strong>The Loan Shark</strong> precisa cair primeiro (Beco).',
+  defeated_auditor:   'Caminho bloqueado. Precisa derrotar o <strong>Auditor Fantasma</strong> (Servidor).',
+  terminal_done:      'Caminho bloqueado. Decifre o <strong>terminal piscando</strong> no Office — precisa de skill <strong>DECRYPT</strong> (vende no Café).',
+  got_chip:           'Caminho bloqueado. Pegue o <strong>Chip de Acesso</strong> (Servidor, depois de derrotar o Auditor).',
+  hacked_door:        'Porta trancada. Compre skill <strong>HACK</strong> no Café e volte aqui.',
+  got_holo:           'Caminho bloqueado. Algo no Beco quer revelar a verdade primeiro.'
+};
+
 function ksQuHandleCell(){
   const sc = KS_QU_SCENES[_ksQu.scene];
   const {x, y} = _ksQu.pos;
@@ -115699,7 +115709,8 @@ function ksQuHandleCell(){
   const exit = (sc.exits||[]).find(e => e.x === x && e.y === y);
   if(exit){
     if(exit.ifFlag && !_ksQu.flags[exit.ifFlag]){
-      ksQuToast('Caminho bloqueado. Falta algo.');
+      const hint = KS_QU_FLAG_HINTS[exit.ifFlag] || 'Caminho bloqueado. Falta algo.';
+      ksQuToast(hint);
       return;
     }
     _ksQu.scene = exit.to;
@@ -115717,9 +115728,13 @@ function ksQuHandleCell(){
       def.effect(_ksQu);
       _ksQu.pickedItems[key] = true;
     } else {
-      // não pega automático, mas chama o efeito (interação)
+      // Item interativo · NÃO marca como pego automaticamente. Cada item
+      // gerencia sua própria idempotência via flags/skills/inventory
+      // (terminal_done, hacked_door, q.skills.includes('decrypt'), etc).
+      // Bug anterior: marcava como "picked" mesmo quando o effect falhava
+      // (ex: usuário sem DECRYPT pisava no terminal → mensagem de erro +
+      // cell marcada como picked → nunca mais conseguia interagir).
       def.effect(_ksQu);
-      if(it.oneShot !== false) _ksQu.pickedItems[key] = true;
     }
   }
   // NPC?
