@@ -22954,7 +22954,6 @@
           <nav class="ks-tabs" id="ks-tabs">
             <button class="ks-tab active" data-sala="manifesto" onclick="ksSwitchSala('manifesto')">🜂 MANIFESTO</button>
             <button class="ks-tab"        data-sala="parede"    onclick="ksSwitchSala('parede')">☿ A PAREDE</button>
-            <button class="ks-tab"        data-sala="glossario" onclick="ksSwitchSala('glossario')">🜏 GLOSSÁRIO</button>
             <button class="ks-tab"        data-sala="almanaque" onclick="ksSwitchSala('almanaque')">🜐 ALMANAQUE</button>
             <button class="ks-tab"        data-sala="arquivo"   onclick="ksSwitchSala('arquivo')">🝳 ARQUIVO</button>
             <button class="ks-tab"        data-sala="ranking"   onclick="ksSwitchSala('ranking')">🜾 PROTOCOLO</button>
@@ -94431,7 +94430,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780088254';
+      const CACHE = 'forekash-v1780088944';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -110341,8 +110340,8 @@ function ksRender(){
     case 'terminal':     return ksRenderTerminal();
     case 'transmissoes': return ksRenderTransmissoes();
     case 'almanaque':    return ksRenderAlmanaque();
-    case 'glossario':    return ksRenderGlossario();
-    case 'arquivo':      return ksRenderArquivoMorto();
+    case 'glossario':    return ksRenderArquivoHub();
+    case 'arquivo':      return ksRenderArquivoHub();
     case 'ranking':      return ksRenderRankingSociety();
   }
 }
@@ -110350,8 +110349,10 @@ function ksRender(){
 // ─── Sub-salas consolidadas ────
 // MANIFESTO virou hub que aninha: Manifesto / Dossiês / Operation
 // A PAREDE virou hub que aninha: A Parede / Biblioteca
+// ARQUIVO virou hub que aninha: Arquivo Morto / Glossário
 let _ksManifestoSub = 'manifesto';
 let _ksParedeSub = 'parede';
+let _ksArquivoSub = 'arquivo';
 
 function ksRenderManifestoHub(){
   const main = document.getElementById('ks-main'); if(!main) return;
@@ -110383,9 +110384,23 @@ function ksRenderParedeHub(){
   main.insertBefore(bar, main.firstChild);
 }
 
+function ksRenderArquivoHub(){
+  const main = document.getElementById('ks-main'); if(!main) return;
+  const sub = _ksArquivoSub || 'arquivo';
+  if(sub === 'glossario') ksRenderGlossario();
+  else ksRenderArquivoMorto();
+  const bar = document.createElement('nav');
+  bar.className = 'ks-subtabs';
+  bar.innerHTML = `
+    <button class="ks-subtab ${sub==='arquivo'?'active':''}" onclick="ksSwitchSubSala('arquivo','arquivo')">🝳 Arquivo Morto</button>
+    <button class="ks-subtab ${sub==='glossario'?'active':''}" onclick="ksSwitchSubSala('arquivo','glossario')">🜏 Glossário</button>`;
+  main.insertBefore(bar, main.firstChild);
+}
+
 function ksSwitchSubSala(parent, sub){
   if(parent === 'manifesto') _ksManifestoSub = sub;
   if(parent === 'parede') _ksParedeSub = sub;
+  if(parent === 'arquivo') _ksArquivoSub = sub;
   ksRender();
 }
 try{ window.ksSwitchSubSala = ksSwitchSubSala; }catch(_){}
@@ -110398,10 +110413,15 @@ function ksSwitchSala(sala){
   } else if(sala === 'biblioteca'){
     _ksParedeSub = 'biblioteca';
     sala = 'parede';
+  } else if(sala === 'glossario'){
+    _ksArquivoSub = 'glossario';
+    sala = 'arquivo';
   } else if(sala === 'manifesto'){
     _ksManifestoSub = 'manifesto';
   } else if(sala === 'parede'){
     _ksParedeSub = 'parede';
+  } else if(sala === 'arquivo'){
+    _ksArquivoSub = 'arquivo';
   }
   _ksSala = sala;
   document.querySelectorAll('#ks-tabs .ks-tab').forEach(t => t.classList.remove('active'));
