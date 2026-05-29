@@ -15820,6 +15820,13 @@
       transition:all .15s;border-radius:6px 6px 0 0;font-weight:600}
     .ks-tab:hover{opacity:1;background:rgba(16,185,129,.06)}
     .ks-tab.active{opacity:1;background:rgba(16,185,129,.1);border-color:rgba(16,185,129,.4);border-bottom:1px solid #000;margin-bottom:-1px}
+    /* ─── Sub-tabs (Manifesto/Dossiês/Operation · Parede/Biblioteca) ─── */
+    .ks-subtabs{display:inline-flex;gap:1px;margin:-8px auto 22px;padding:3px;background:rgba(0,0,0,.45);border:1px solid rgba(16,185,129,.18);border-radius:4px;font-family:'JetBrains Mono','Courier New',monospace}
+    .ks-subtab{background:transparent;border:none;color:#94A3B8;padding:7px 14px;cursor:pointer;font-family:inherit;font-size:.7rem;letter-spacing:1.5px;transition:all .15s;border-radius:2px;font-weight:700}
+    .ks-subtab:hover{color:#A7F3D0;background:rgba(16,185,129,.06)}
+    .ks-subtab.active{color:#FBBF24;background:rgba(251,191,36,.1);box-shadow:inset 0 -2px 0 #FBBF24}
+    /* Container que envolve as sub-tabs (centraliza) */
+    #ks-main > .ks-subtabs{display:flex;justify-content:center;width:fit-content;margin-left:auto;margin-right:auto}
     /* Sala genérica */
     .ks-sala{animation:ksFadeIn .25s ease-out}
     @keyframes ksFadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
@@ -22946,10 +22953,7 @@
 
           <nav class="ks-tabs" id="ks-tabs">
             <button class="ks-tab active" data-sala="manifesto" onclick="ksSwitchSala('manifesto')">🜂 MANIFESTO</button>
-            <button class="ks-tab"        data-sala="dossies"   onclick="ksSwitchSala('dossies')">🜃 DOSSIÊS</button>
-            <button class="ks-tab"        data-sala="operation" onclick="ksSwitchSala('operation')">🜄 OPERATION</button>
             <button class="ks-tab"        data-sala="parede"    onclick="ksSwitchSala('parede')">☿ A PAREDE</button>
-            <button class="ks-tab"        data-sala="biblioteca" onclick="ksSwitchSala('biblioteca')">🜍 BIBLIOTECA</button>
             <button class="ks-tab"        data-sala="glossario" onclick="ksSwitchSala('glossario')">🜏 GLOSSÁRIO</button>
             <button class="ks-tab"        data-sala="almanaque" onclick="ksSwitchSala('almanaque')">🜐 ALMANAQUE</button>
             <button class="ks-tab"        data-sala="arquivo"   onclick="ksSwitchSala('arquivo')">🝳 ARQUIVO</button>
@@ -94427,7 +94431,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780086079';
+      const CACHE = 'forekash-v1780088254';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -110327,22 +110331,78 @@ function ksRender(){
   }catch(_){}
   // Renderiza sala atual
   switch(_ksSala){
-    case 'manifesto':    return ksRenderManifesto();
-    case 'dossies':      return ksRenderDossies();
-    case 'operation':    return ksRenderOperation();
+    case 'manifesto':    return ksRenderManifestoHub();
+    case 'dossies':      return ksRenderManifestoHub();
+    case 'operation':    return ksRenderManifestoHub();
     case 'lab':          return ksRenderLab();
-    case 'parede':       return ksRenderParede();
+    case 'parede':       return ksRenderParedeHub();
+    case 'biblioteca':   return ksRenderParedeHub();
     case 'jogos':        return ksRenderJogos();
     case 'terminal':     return ksRenderTerminal();
     case 'transmissoes': return ksRenderTransmissoes();
     case 'almanaque':    return ksRenderAlmanaque();
-    case 'biblioteca':   return ksRenderBiblioteca();
     case 'glossario':    return ksRenderGlossario();
     case 'arquivo':      return ksRenderArquivoMorto();
     case 'ranking':      return ksRenderRankingSociety();
   }
 }
+
+// ─── Sub-salas consolidadas ────
+// MANIFESTO virou hub que aninha: Manifesto / Dossiês / Operation
+// A PAREDE virou hub que aninha: A Parede / Biblioteca
+let _ksManifestoSub = 'manifesto';
+let _ksParedeSub = 'parede';
+
+function ksRenderManifestoHub(){
+  const main = document.getElementById('ks-main'); if(!main) return;
+  const sub = _ksManifestoSub || 'manifesto';
+  // Dispara o render filho (cada um escreve em #ks-main direto)
+  if(sub === 'dossies') ksRenderDossies();
+  else if(sub === 'operation') ksRenderOperation();
+  else ksRenderManifesto();
+  // Prepend a barra de sub-abas
+  const bar = document.createElement('nav');
+  bar.className = 'ks-subtabs';
+  bar.innerHTML = `
+    <button class="ks-subtab ${sub==='manifesto'?'active':''}" onclick="ksSwitchSubSala('manifesto','manifesto')">🜂 Manifesto</button>
+    <button class="ks-subtab ${sub==='dossies'?'active':''}" onclick="ksSwitchSubSala('manifesto','dossies')">🜃 Dossiês</button>
+    <button class="ks-subtab ${sub==='operation'?'active':''}" onclick="ksSwitchSubSala('manifesto','operation')">🜄 Operation</button>`;
+  main.insertBefore(bar, main.firstChild);
+}
+
+function ksRenderParedeHub(){
+  const main = document.getElementById('ks-main'); if(!main) return;
+  const sub = _ksParedeSub || 'parede';
+  if(sub === 'biblioteca') ksRenderBiblioteca();
+  else ksRenderParede();
+  const bar = document.createElement('nav');
+  bar.className = 'ks-subtabs';
+  bar.innerHTML = `
+    <button class="ks-subtab ${sub==='parede'?'active':''}" onclick="ksSwitchSubSala('parede','parede')">☿ A Parede</button>
+    <button class="ks-subtab ${sub==='biblioteca'?'active':''}" onclick="ksSwitchSubSala('parede','biblioteca')">🜍 Biblioteca</button>`;
+  main.insertBefore(bar, main.firstChild);
+}
+
+function ksSwitchSubSala(parent, sub){
+  if(parent === 'manifesto') _ksManifestoSub = sub;
+  if(parent === 'parede') _ksParedeSub = sub;
+  ksRender();
+}
+try{ window.ksSwitchSubSala = ksSwitchSubSala; }catch(_){}
+
 function ksSwitchSala(sala){
+  // Redirecionamentos pra hubs consolidados
+  if(sala === 'dossies' || sala === 'operation'){
+    _ksManifestoSub = sala;
+    sala = 'manifesto';
+  } else if(sala === 'biblioteca'){
+    _ksParedeSub = 'biblioteca';
+    sala = 'parede';
+  } else if(sala === 'manifesto'){
+    _ksManifestoSub = 'manifesto';
+  } else if(sala === 'parede'){
+    _ksParedeSub = 'parede';
+  }
   _ksSala = sala;
   document.querySelectorAll('#ks-tabs .ks-tab').forEach(t => t.classList.remove('active'));
   const btn = document.querySelector('#ks-tabs .ks-tab[data-sala="'+sala+'"]');
