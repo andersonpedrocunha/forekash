@@ -101943,13 +101943,39 @@ function streakRender(){
       badge = document.createElement('button');
       badge.id = 'hdr-streak-badge';
       badge.type = 'button';
-      badge.title = `Sua casta na Society · clique pra ver o protocolo`;
+      badge.title = `Sua casta na Society · 5× pra entrar na sala`;
+      // Contador de 5 cliques pra entrar na KASH SOCIETY (similar ao 7× avatar)
+      badge._clickCount = 0;
+      badge._clickTimer = null;
       badge.onclick = () => {
-        // Abre KASH SOCIETY na aba HIERARQUIA
-        try{
-          if(typeof ksOpenPanel === 'function') ksOpenPanel();
-          if(typeof ksSwitchSala === 'function') setTimeout(() => ksSwitchSala('ranking'), 80);
-        }catch(_){}
+        badge._clickCount++;
+        if(badge._clickTimer) clearTimeout(badge._clickTimer);
+        // Reseta o contador se não bater 5 em até 1.5s
+        badge._clickTimer = setTimeout(() => { badge._clickCount = 0; }, 1500);
+        if(badge._clickCount >= 5){
+          badge._clickCount = 0;
+          if(badge._clickTimer) clearTimeout(badge._clickTimer);
+          // Abre KASH SOCIETY (módulo) e navega pra aba PROTOCOLO
+          try{
+            // Garante unlock (se ainda não)
+            if(typeof ksDoUnlock === 'function' && typeof ksIsUnlocked === 'function' && !ksIsUnlocked()){
+              ksDoUnlock('hdr-caste-badge');
+            }
+            // Abre o módulo Kash Society
+            if(typeof switchModule === 'function'){
+              const sbBtn = document.getElementById('sb-kashsociety');
+              switchModule('kashsociety', sbBtn || null);
+            }
+            // Navega pra aba PROTOCOLO
+            if(typeof ksSwitchSala === 'function'){
+              setTimeout(() => ksSwitchSala('ranking'), 120);
+            }
+          }catch(_){}
+        } else {
+          // Feedback visual sutil — pulsa
+          badge.style.transform = 'scale(1.12)';
+          setTimeout(() => { badge.style.transform = ''; }, 120);
+        }
       };
       anchor.parentNode.insertBefore(badge, anchor);
     }
