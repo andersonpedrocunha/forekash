@@ -94342,7 +94342,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780075573';
+      const CACHE = 'forekash-v1780076914';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -102040,7 +102040,7 @@ function streakRender(){
       badge = document.createElement('button');
       badge.id = 'hdr-streak-badge';
       badge.type = 'button';
-      badge.title = `Sua casta na Society · 5× pra entrar na sala`;
+      badge.title = `Seu nível atual · 5× pra abrir a hierarquia`;
       // Contador de 5 cliques pra entrar na KASH SOCIETY (similar ao 7× avatar)
       badge._clickCount = 0;
       badge._clickTimer = null;
@@ -108487,7 +108487,12 @@ function fkBootApp(){
   _safeInit('modHistLoad',        () => modHistLoad());
   _safeInit('snipLoad',           () => snipLoad());
   _safeInit('webpushHook',        () => { setTimeout(webpushHook, 6000); });
-  _safeInit('streakRender',       () => setTimeout(streakRender, 1500));
+  _safeInit('streakRender',       () => {
+    setTimeout(streakRender, 1500);
+    // Re-render periódico pra evitar badge stale quando a pontuação muda
+    // (ex.: usuário muda de casta entre sessões longas sem reload)
+    setInterval(() => { try{ streakRender(); }catch(_){} }, 30000);
+  });
   _safeInit('onboardRender',      () => setTimeout(onboardRender, 800));
   _safeInit('weeklyMaybeShow',    () => weeklyMaybeShow());
   _safeInit('tfaLoad',            () => tfaLoad());
@@ -110222,13 +110227,16 @@ function ksRender(){
   }
   // Atualiza barra de PROTOCOLO (fica no header, sempre visível)
   try{ ksProtoRender(); }catch(_){}
+  // Mantém o badge da casta no header global sincronizado com a pontuação atual
+  try{ if(typeof streakRender === 'function') streakRender(); }catch(_){}
   // Push do meu score + fetch do leaderboard (assíncrono, throttled)
   try{
     if(typeof ksLeaderboardSync === 'function') ksLeaderboardSync(false);
     if(typeof ksLeaderboardFetch === 'function'){
       ksLeaderboardFetch(false).then(() => {
-        // Re-render bar com posição atualizada
+        // Re-render bar com posição atualizada + badge sincronizado
         try{ ksProtoRender(); }catch(_){}
+        try{ if(typeof streakRender === 'function') streakRender(); }catch(_){}
       }).catch(()=>{});
     }
   }catch(_){}
