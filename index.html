@@ -101877,16 +101877,52 @@ try{ window.weeklyMaybeShow = weeklyMaybeShow; window.weeklyOpen = weeklyOpen; }
 
 // ── STREAK COUNTER · 🔥 dias seguidos abrindo o app ────────────────
 const STREAK_KEY = 'forekash:streak:v1';
+// Considera fim de semana + feriados nacionais BR como NÃO-DIAS-ÚTEIS:
+// se o gap entre lastDay e hoje só passou por sáb/dom/feriados, o streak continua.
+function streakIsNonWorking(date){
+  const dow = date.getDay(); // 0=dom 6=sab
+  if(dow === 0 || dow === 6) return true;
+  const m = date.getMonth() + 1, d = date.getDate();
+  // Feriados nacionais fixos BR
+  if(m === 1  && d === 1)  return true; // Ano Novo
+  if(m === 4  && d === 21) return true; // Tiradentes
+  if(m === 5  && d === 1)  return true; // Dia do Trabalho
+  if(m === 9  && d === 7)  return true; // Independência
+  if(m === 10 && d === 12) return true; // N. Sra. Aparecida
+  if(m === 11 && d === 2)  return true; // Finados
+  if(m === 11 && d === 15) return true; // Proclamação da República
+  if(m === 12 && d === 25) return true; // Natal
+  return false;
+}
 function streakUpdate(){
   let s = { count:0, lastDay:'' };
   try{ const raw = localStorage.getItem(STREAK_KEY); if(raw) s = JSON.parse(raw); }catch(_){}
-  const hoje = new Date().toISOString().slice(0,10);
-  if(s.lastDay === hoje) return s;
-  const ontem = new Date(Date.now() - 86400000).toISOString().slice(0,10);
-  if(s.lastDay === ontem) s.count = (s.count||0) + 1;
-  else if(s.lastDay && s.lastDay !== hoje) s.count = 1;
-  else s.count = 1;
-  s.lastDay = hoje;
+  const hojeD = new Date();
+  const hojeStr = hojeD.toISOString().slice(0,10);
+  if(s.lastDay === hojeStr) return s;
+  if(!s.lastDay){
+    s.count = 1;
+    s.lastDay = hojeStr;
+  } else {
+    // Verifica TODOS os dias entre lastDay e hoje (exclusivo): se todos forem
+    // não-úteis (fds/feriado), continua streak. Caso contrário, reseta.
+    const last = new Date(s.lastDay + 'T12:00:00');
+    const ms = hojeD.getTime() - last.getTime();
+    const diasGap = Math.round(ms / 86400000);
+    let continua = false;
+    if(diasGap === 1){
+      continua = true; // próximo dia útil/qualquer
+    } else if(diasGap > 1 && diasGap <= 5){
+      // Checa cada dia entre lastDay (exclusive) e hoje (exclusive)
+      continua = true;
+      for(let i = 1; i < diasGap; i++){
+        const probe = new Date(last.getTime() + i * 86400000);
+        if(!streakIsNonWorking(probe)){ continua = false; break; }
+      }
+    }
+    s.count = continua ? (s.count||0) + 1 : 1;
+    s.lastDay = hojeStr;
+  }
   try{ localStorage.setItem(STREAK_KEY, JSON.stringify(s)); }catch(_){}
   return s;
 }
@@ -113226,16 +113262,15 @@ function ksRankCalcScore(){
     }
   }catch(_){}
 
-  // 3) DADOS PERSISTIDOS (módulos centrais do Forekash com dados reais)
+  // 3) DADOS PERSISTIDOS · stores UNIVERSAIS que todo operador usa
+  // (patrimônio e asaas removidos — eram nichos/premium)
   const dataStores = [
-    {k:'forekash:extrato:v1',    mult:0.3, max:200, label:'extrato'},
-    {k:'forekash:receita:v1',    mult:0.5, max:150, label:'receita'},
-    {k:'forekash:patrimonio:v1', mult:2,   max:100, label:'patrimônio'},
-    {k:'forekash:nf:v1',         mult:1.5, max:100, label:'NF-e'},
-    {k:'forekash:asaas:v1',      mult:1,   max:80,  label:'Asaas'},
-    {k:'forekash:fklab:v1',      mult:3,   max:60,  label:'FK Lab'},
-    {k:'forekash:comercial:v2',  mult:0.8, max:120, label:'comercial'},
-    {k:'forekash:catmap:v1',     mult:2,   max:60,  label:'cat. map.'}
+    {k:'forekash:extrato:v1',    mult:0.4, max:220, label:'extrato'},      // qualquer operação tem extrato
+    {k:'forekash:receita:v1',    mult:0.6, max:180, label:'receita'},      // toda empresa vende algo
+    {k:'forekash:catmap:v1',     mult:2.5, max:80,  label:'cat. map.'},   // organização de categorias = uso maduro
+    {k:'forekash:comercial:v2',  mult:1,   max:140, label:'comercial'},   // pipeline de vendas
+    {k:'forekash:nf:v1',         mult:1.5, max:100, label:'NF-e'},        // emissão regular
+    {k:'forekash:fklab:v1',      mult:3,   max:60,  label:'FK Lab'}        // cenários = uso avançado
   ];
   dataStores.forEach(s => {
     try{
@@ -113333,7 +113368,7 @@ function ksRenderRankingSociety(){
     <div class="ks-rk-castes">${castesHtml}</div>
     <h3 style="margin-top:28px;color:#FBBF24">MEMBROS · TOP 14</h3>
     <div class="ks-rk-list">${listHtml}</div>
-    <p style="max-width:760px;color:#64748B;font-style:italic;font-size:.78rem;margin-top:18px;font-family:Georgia,serif">Pontos vêm do uso real do Forekash: streak diário, diversidade de módulos acessados, lançamentos no extrato, vendas, patrimônio, NF-e, Asaas, FK Lab, comercial. Continue operando — vai subir.</p>
+    <p style="max-width:760px;color:#64748B;font-style:italic;font-size:.78rem;margin-top:18px;font-family:Georgia,serif">Pontos vêm do uso real do Forekash: streak (fim de semana/feriado não quebra), diversidade de módulos acessados, lançamentos no extrato, vendas, categorias mapeadas, pipeline comercial, NF-e, cenários do FK Lab. Continue operando — vai subir.</p>
   </div>`;
 }
 
