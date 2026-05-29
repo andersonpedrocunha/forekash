@@ -113203,49 +113203,58 @@ const KS_RANK_CASTES = [
 ];
 
 function ksRankCalcScore(){
-  // Soma pontos por uso de Forekash:
-  // · 5 pts por módulo acessado (history)
-  // · 10 pts por jogo zerado
-  // · 2 pts por post na PAREDE
-  // · 1 pt por dia ativo
+  // Pontuação vem APENAS do uso real do Forekash (não da Kash Society).
+  // 3 vetores:
+  //  1. STREAK · dias consecutivos de uso (constância)
+  //  2. HISTÓRICO · módulos únicos visitados + ações totais (diversidade + engajamento)
+  //  3. DADOS PERSISTIDOS · quanto você opera (lançamentos, vendas, patrimônio, NFs, etc.)
   let score = 0;
+
+  // 1) STREAK
   try{
-    // Histórico de módulos
+    const s = JSON.parse(localStorage.getItem('forekash:streak:v1')||'{}');
+    score += (s.count||0) * 8;
+  }catch(_){}
+
+  // 2) HISTÓRICO de uso
+  try{
     const hist = JSON.parse(localStorage.getItem('forekash:history:v1')||'[]');
     if(Array.isArray(hist)){
       const uniqueMods = new Set(hist.map(h => h.target && h.target.kind).filter(Boolean));
-      score += uniqueMods.size * 8;
-      score += Math.min(50, hist.length);
+      score += uniqueMods.size * 12;        // diversidade
+      score += Math.min(150, hist.length);  // engajamento (capped)
     }
   }catch(_){}
-  try{
-    // Jogos zerados
-    const jg = JSON.parse(localStorage.getItem('forekash:kashsociety:jogos:v1')||'{}');
-    score += (jg.knWins||0) * 30;
-    score += (jg.quWins||0) * 30;
-    score += (jg.brEscapes||0) * 30;
-    score += Math.min(100, (jg.nsBest||0) * 2);
-  }catch(_){}
-  try{
-    // Leaderboard de jogos
-    const lb = JSON.parse(localStorage.getItem('forekash:kashsociety:leaderboard:v1')||'[]');
-    const me = (typeof ksGetMemberId === 'function') ? ksGetMemberId() : null;
-    if(me){
-      const mine = lb.filter(s => s.memberId === me);
-      score += mine.length * 5;
-    }
-  }catch(_){}
-  try{
-    // PAREDE posts
-    const st = JSON.parse(localStorage.getItem('forekash:state:v1')||'{}');
-    if(st && st.wall && Array.isArray(st.wall.posts)){
-      const me = (typeof ksGetMemberId === 'function') ? ksGetMemberId() : null;
-      if(me){
-        score += st.wall.posts.filter(p => p.memberId === me).length * 12;
-      }
-    }
-  }catch(_){}
-  return score;
+
+  // 3) DADOS PERSISTIDOS (módulos centrais do Forekash com dados reais)
+  const dataStores = [
+    {k:'forekash:extrato:v1',    mult:0.3, max:200, label:'extrato'},
+    {k:'forekash:receita:v1',    mult:0.5, max:150, label:'receita'},
+    {k:'forekash:patrimonio:v1', mult:2,   max:100, label:'patrimônio'},
+    {k:'forekash:nf:v1',         mult:1.5, max:100, label:'NF-e'},
+    {k:'forekash:asaas:v1',      mult:1,   max:80,  label:'Asaas'},
+    {k:'forekash:fklab:v1',      mult:3,   max:60,  label:'FK Lab'},
+    {k:'forekash:comercial:v2',  mult:0.8, max:120, label:'comercial'},
+    {k:'forekash:catmap:v1',     mult:2,   max:60,  label:'cat. map.'}
+  ];
+  dataStores.forEach(s => {
+    try{
+      const raw = JSON.parse(localStorage.getItem(s.k)||'null');
+      if(!raw) return;
+      let count = 0;
+      const countItems = (obj, depth) => {
+        if(depth > 4) return;
+        if(Array.isArray(obj)) count += obj.length;
+        else if(obj && typeof obj === 'object'){
+          Object.values(obj).forEach(v => countItems(v, depth+1));
+        }
+      };
+      countItems(raw, 0);
+      score += Math.min(s.max, count * s.mult);
+    }catch(_){}
+  });
+
+  return Math.floor(score);
 }
 
 function ksRankCasteFor(score){
@@ -113324,7 +113333,7 @@ function ksRenderRankingSociety(){
     <div class="ks-rk-castes">${castesHtml}</div>
     <h3 style="margin-top:28px;color:#FBBF24">MEMBROS · TOP 14</h3>
     <div class="ks-rk-list">${listHtml}</div>
-    <p style="max-width:760px;color:#64748B;font-style:italic;font-size:.78rem;margin-top:18px;font-family:Georgia,serif">Pontos vêm de: módulos acessados, jogos zerados, posts na PAREDE, runs nos jogos. Continue usando — vai subir.</p>
+    <p style="max-width:760px;color:#64748B;font-style:italic;font-size:.78rem;margin-top:18px;font-family:Georgia,serif">Pontos vêm do uso real do Forekash: streak diário, diversidade de módulos acessados, lançamentos no extrato, vendas, patrimônio, NF-e, Asaas, FK Lab, comercial. Continue operando — vai subir.</p>
   </div>`;
 }
 
