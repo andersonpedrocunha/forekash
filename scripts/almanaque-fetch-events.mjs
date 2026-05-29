@@ -34,20 +34,33 @@ startDate.setDate(startDate.getDate() - 30);
 const start = startDate.toISOString().slice(0, 10);
 
 // ─── Prompt pro Gemini ───
-const PROMPT = `Liste 1-4 eventos financeiros/econômicos REAIS que aconteceram entre ${start} e ${end} (datas reais, fontes verificáveis).
+const PROMPT = `Você é um historiador econômico rigoroso. Liste 0-4 eventos financeiros/econômicos REAIS que aconteceram entre ${start} e ${end} (datas verificáveis, fontes primárias).
 
-Considere apenas eventos de IMPACTO SISTÊMICO:
-- Decisões marcantes de bancos centrais (Fed, BCE, BCB, BoJ, PBoC)
-- Falências grandes (>US$ 1bi)
-- IPOs ou aquisições significativas
-- Choques cambiais, defaults soberanos
-- Mudanças regulatórias importantes
-- Publicação de livros/papers econômicos relevantes
+REGRAS DE CURADORIA (estrito):
+1. SÓ eventos que daqui a 20 anos ainda seriam estudados em curso de história econômica
+2. Datas EXATAS (não "em julho aproximadamente", precisa dia exato)
+3. Fontes PRIMÁRIAS verificáveis (Fed, BCE, BCB, BIS, IMF, OECD, comunicados oficiais, papers academicos NBER/SSRN, jornais sérios FT/WSJ/Reuters)
+4. JAMAIS Wikipedia, blogs, posts de redes sociais
+5. Se não tiver certeza absoluta que aconteceu, NÃO INCLUA
+
+Considere apenas eventos de IMPACTO SISTÊMICO REAL:
+- Decisões marcantes de bancos centrais (corte/alta de juros não-rotineira, QE, mudança de regime monetário)
+- Falências de instituições grandes (>US$ 5bi) com risco sistêmico
+- Defaults soberanos
+- Choques cambiais (>10% em poucos dias)
+- Mudanças regulatórias estruturais (não trivialidades regulatórias rotineiras)
+- Publicação de obras econômicas de impacto (Piketty, etc · raríssimo)
 
 NÃO INCLUA:
-- Eventos triviais (resultados trimestrais comuns, movimentos diários de mercado)
-- Coisas que não aconteceram nas datas (não inventar)
-- Itens já cobertos por eventos clássicos (Lehman 2008, etc)
+- Resultados trimestrais (mesmo de empresas grandes)
+- Movimentos diários normais de mercado
+- Discursos sem decisão concreta
+- Notícias de M&A não-finalizados
+- Eventos já cobertos por clássicos (Lehman 2008, Bretton Woods 1944, etc)
+- Tendências macro vagas ("inflação subiu", "mercado em alta")
+- Eventos que você não tem 100% certeza da data exata
+
+Se em dúvida, **prefira retornar array vazio []**. É MELHOR retornar 0 eventos do que 1 evento errado/inventado.
 
 Retorne APENAS um array JSON válido (sem markdown, sem comentários). Schema:
 [
@@ -89,7 +102,7 @@ try {
       contents: [{ parts: [{ text: PROMPT }] }],
       generationConfig: {
         responseMimeType: 'application/json',
-        temperature: 0.3,
+        temperature: 0.1,  // bem baixa pra reduzir alucinação
         maxOutputTokens: 4096
       }
     })
@@ -165,7 +178,7 @@ for (const ev of valid) {
     economistas: ev.economistas || [],
     doutrinas: ev.doutrinas || [],
     fontes: ev.fontes || [],
-    approved: true,
+    approved: false,  // ← entra em fila pra revisão manual (mais seguro)
     source: 'gemini-cron'
   };
 
