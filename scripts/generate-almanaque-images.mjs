@@ -35,7 +35,7 @@
 // ============================================================
 
 import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -43,6 +43,25 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 const OUT_DIR = join(ROOT, 'img', 'almanaque');
 const PROMPTS_FILE = join(__dirname, 'almanaque-prompts.json');
+
+// ─── Auto-carrega .env do root se existir (sem dep externa) ───
+const envFile = join(ROOT, '.env');
+if (existsSync(envFile)) {
+  try {
+    const txt = readFileSync(envFile, 'utf-8');
+    for (const line of txt.split('\n')) {
+      const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/);
+      if (m && !process.env[m[1]]) {
+        let v = m[2];
+        // strip optional quotes
+        if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+          v = v.slice(1, -1);
+        }
+        process.env[m[1]] = v;
+      }
+    }
+  } catch (_) {}
+}
 
 // ─── Parse args ───
 const args = process.argv.slice(2);
