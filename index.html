@@ -1736,6 +1736,15 @@
              width:100%;text-align:left;font-family:inherit}
     .sb-item:hover{background:#F3F4F6}
     .sb-item.active{background:#EFF6FF;color:var(--blue-d);font-weight:600}
+    /* Diferenciais features · destaque visual */
+    .sb-item.sb-feat{position:relative;border:1px solid transparent;transition:all .15s}
+    .sb-item.sb-feat:hover{background:#F8FAFC;border-color:#E2E8F0;transform:translateX(2px)}
+    .sb-item.sb-feat .sb-icon{color:#fff;font-size:.86rem;font-weight:700;box-shadow:0 2px 6px rgba(15,23,42,.15)}
+    .sb-item.sb-feat .sb-lbl{font-weight:600;color:#0F172A}
+    .sb-feat-badge{position:absolute;right:8px;top:50%;transform:translateY(-50%);min-width:16px;height:16px;border-radius:8px;background:#EF4444;color:#fff;font-size:.6rem;font-weight:700;padding:0 5px;display:none;align-items:center;justify-content:center;line-height:1}
+    .sb-feat-badge.is-on{display:flex}
+    [data-theme="dark"] .sb-item.sb-feat .sb-lbl{color:#E2E8F0}
+    [data-theme="dark"] .sb-item.sb-feat:hover{background:#1E293B;border-color:#334155}
     .sb-icon{width:26px;height:26px;border-radius:6px;display:flex;
              align-items:center;justify-content:center;flex-shrink:0;
              color:#fff;font-size:.82rem;line-height:1}
@@ -18465,6 +18474,39 @@
 
   <!-- ══ SIDEBAR ══ -->
   <aside class="sidebar">
+    <!-- ══ DIFERENCIAIS · destaque no topo ══ -->
+    <div class="sb-section" style="color:#10B981">✨ Diferenciais</div>
+    <button class="sb-item sb-feat" onclick="fkCfoOpen()" title="CFO Virtual · decisões sugeridas + briefing áudio">
+      <span class="sb-icon" style="background:linear-gradient(135deg,#3B82F6,#1E40AF)">🧠</span>
+      <span class="sb-lbl">CFO Virtual</span>
+      <span class="sb-feat-badge" id="sb-cfo-badge"></span>
+    </button>
+    <button class="sb-item sb-feat" onclick="fkWaOpen()" title="WhatsApp · templates + agendamento">
+      <span class="sb-icon" style="background:linear-gradient(135deg,#25D366,#128C7E)">💬</span>
+      <span class="sb-lbl">WhatsApp Hub</span>
+    </button>
+    <button class="sb-item sb-feat" onclick="fkOfAtivoOpen()" title="Open Finance · pagar e aplicar com 1 clique">
+      <span class="sb-icon" style="background:linear-gradient(135deg,#8B5CF6,#6D28D9)">🏦</span>
+      <span class="sb-lbl">Open Finance</span>
+    </button>
+    <button class="sb-item sb-feat" onclick="fkBenchOpen()" title="Benchmark setorial · score 0-1000">
+      <span class="sb-icon" style="background:linear-gradient(135deg,#F59E0B,#D97706)">📊</span>
+      <span class="sb-lbl">Score Forekash</span>
+      <span class="sb-feat-badge" id="sb-bench-badge"></span>
+    </button>
+    <button class="sb-item sb-feat" onclick="fkAcademyOpen()" title="Academy · aulas + glossário + marketplace">
+      <span class="sb-icon" style="background:linear-gradient(135deg,#10B981,#047857)">🎓</span>
+      <span class="sb-lbl">Academy</span>
+    </button>
+    <button class="sb-item sb-feat" onclick="fkMcOpen()" title="Monte Carlo · forecast probabilístico">
+      <span class="sb-icon" style="background:linear-gradient(135deg,#EC4899,#BE185D)">🔮</span>
+      <span class="sb-lbl">Forecast MC</span>
+    </button>
+    <button class="sb-item sb-feat" onclick="fkShareOpen()" title="Compartilhar · auditor/investidor/sócio">
+      <span class="sb-icon" style="background:linear-gradient(135deg,#0EA5E9,#0369A1)">💎</span>
+      <span class="sb-lbl">Share Mode</span>
+    </button>
+
     <div class="sb-section">Módulos</div>
 
     <button class="sb-item" data-module="dashboard" onclick="switchModule('dashboard',this)">
@@ -97928,7 +97970,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780348373';
+      const CACHE = 'forekash-v1780348777';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -106278,6 +106320,31 @@ function fkCfoWeeklySummaryShow(){
 setInterval(() => { try { fkCfoWeeklySummaryCheck(); } catch(_){} }, 30*60*1000);
 // E na primeira abertura
 setTimeout(() => { try { fkCfoWeeklySummaryCheck(); } catch(_){} }, 60*1000);
+
+// ─── Atualiza badges das features na sidebar ──
+function fkSidebarUpdateBadges(){
+  try{
+    // CFO: número de decisões urgentes (warn ou danger)
+    const decisions = (typeof fkCfoGenerateDecisions === 'function') ? fkCfoGenerateDecisions() : [];
+    const urgent = decisions.filter(d => d.severity === 'danger' || d.severity === 'warn').length;
+    const cfoBadge = document.getElementById('sb-cfo-badge');
+    if(cfoBadge){
+      if(urgent > 0){ cfoBadge.textContent = urgent; cfoBadge.classList.add('is-on'); }
+      else { cfoBadge.classList.remove('is-on'); }
+    }
+    // Bench: mostra score atual
+    const benchBadge = document.getElementById('sb-bench-badge');
+    if(benchBadge && typeof fkBenchScore === 'function'){
+      const r = fkBenchScore();
+      benchBadge.textContent = r.score;
+      benchBadge.style.background = r.nivel.cor;
+      benchBadge.classList.add('is-on');
+    }
+  }catch(_){}
+}
+setTimeout(fkSidebarUpdateBadges, 3000);
+setInterval(fkSidebarUpdateBadges, 5*60*1000);
+try{ window.fkSidebarUpdateBadges = fkSidebarUpdateBadges; }catch(_){}
 try{ window.fkCfoDismiss = fkCfoDismiss; window.fkCfoAccept = fkCfoAccept; window.fkCfoHistoryOpen = fkCfoHistoryOpen; window.fkCfoWeeklySummaryShow = fkCfoWeeklySummaryShow; }catch(_){}
 
 // ════════════════════════════════════════════════════════════════════
