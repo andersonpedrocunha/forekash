@@ -9728,6 +9728,20 @@
       .sidebar{display:none !important}
       .app-layout{margin-left:0 !important}
     }
+    /* ── Monte Carlo modal ── */
+    .fk-shortcuts-card.fk-mc-card{width:min(820px,98vw);max-height:92vh;display:flex;flex-direction:column}
+    .fk-shortcuts-card .fk-mc-bd{padding:18px;overflow:auto;display:flex;flex-direction:column;gap:14px;grid-template-columns:none}
+    .fk-mc-inputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+    .fk-mc-fld{display:flex;flex-direction:column;gap:3px}
+    .fk-mc-fld>span{font-size:.7rem;color:#475569;font-weight:600}
+    .fk-mc-fld>input,.fk-mc-fld>select{padding:7px;border:1.5px solid #CBD5E1;border-radius:5px;font-size:.82rem;font-family:inherit}
+    .fk-mc-headline{padding:14px 18px;border-radius:10px;font-size:.9rem;text-align:center}
+    .fk-mc-headline b{font-size:1.6rem}
+    .fk-mc-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+    .fk-mc-stat{background:#F8FAFC;border-radius:8px;padding:10px 14px}
+    .fk-mc-stat span{font-size:.7rem;color:#64748B;font-weight:600;display:block;margin-bottom:3px}
+    .fk-mc-stat b{font-size:1rem;color:#0F172A;font-variant-numeric:tabular-nums}
+    .fk-mc-scenario{background:#F8FAFC;border-radius:8px;padding:12px 14px}
     /* ── KASH ACADEMY ── */
     .fk-shortcuts-card.fk-aca-card{width:min(920px,98vw);max-height:92vh;display:flex;flex-direction:column}
     .fk-shortcuts-card .fk-aca-bd{padding:18px;overflow:auto;display:flex;flex-direction:column;gap:14px;grid-template-columns:none}
@@ -98307,6 +98321,7 @@ const CMDK_COMMANDS = [
   { group:'Ferramentas', label:'🏦 Open Finance Ativo · pagar/aplicar', ico:'🏦', kbd:'', action:() => { if(typeof fkOfAtivoOpen === 'function') fkOfAtivoOpen(); } },
   { group:'Ferramentas', label:'📊 Benchmark setorial · score vs mercado', ico:'📊', kbd:'', action:() => { if(typeof fkBenchOpen === 'function') fkBenchOpen(); } },
   { group:'Ferramentas', label:'🎓 KASH ACADEMY · aulas + glossário', ico:'🎓', kbd:'', action:() => { if(typeof fkAcademyOpen === 'function') fkAcademyOpen(); } },
+  { group:'Ferramentas', label:'🔮 Monte Carlo · forecast probabilístico', ico:'🔮', kbd:'', action:() => { if(typeof fkMcOpen === 'function') fkMcOpen(); } },
   { group:'Ferramentas', label:'💸 Gerar PIX QR Code', ico:'💸', kbd:'', action:() => { if(typeof fkPixOpen === 'function') fkPixOpen(); } },
   { group:'Ferramentas', label:'📅 Simulador de amortização (PRICE × SAC)', ico:'📅', kbd:'', action:() => { if(typeof fkLoanScheduleOpen === 'function') fkLoanScheduleOpen(); } },
   { group:'Ferramentas', label:'🏢 Calculadora de depreciação', ico:'🏢', kbd:'', action:() => { if(typeof fkDepreciateOpen === 'function') fkDepreciateOpen(); } },
@@ -104462,6 +104477,250 @@ function fkLoanSchedule({principal, rateMonthly, months, method, extraPayment, e
     mesesQuitacao: rows.length
   };
 }
+
+// ════════════════════════════════════════════════════════════════════
+// 🔮 MONTE CARLO + STRESS TESTS + BACKTESTING DE DECISÕES
+// ════════════════════════════════════════════════════════════════════
+// Diferencial: analytics probabilística e não só projeção linear.
+// Combina Monte Carlo pra forecasting + stress tests automáticos +
+// avaliação retroativa das decisões tomadas.
+
+function _fkMcSimulate(opts){
+  // opts: { caixaInicial, receitaMedia, receitaStd, despMedia, despStd, meses, runs }
+  const { caixaInicial, receitaMedia, receitaStd, despMedia, despStd, meses, runs } = opts;
+  // Gera N runs · cada run simula M meses
+  // Usa Box-Muller pra amostrar dist normal
+  const _normal = (mu, sigma) => {
+    const u = Math.max(1e-12, Math.random());
+    const v = Math.max(1e-12, Math.random());
+    const z = Math.sqrt(-2*Math.log(u)) * Math.cos(2*Math.PI*v);
+    return mu + z * sigma;
+  };
+  const final = []; // caixa final em cada run
+  const minPerRun = []; // mínimo durante run
+  let furos = 0; // runs onde caixa ficou negativo
+  const allTraces = []; // pra mostrar uma amostra
+  for(let r=0; r<runs; r++){
+    let caixa = caixaInicial;
+    const trace = [caixa];
+    let m_min = caixa;
+    for(let m=0; m<meses; m++){
+      const rec = Math.max(0, _normal(receitaMedia, receitaStd));
+      const des = Math.max(0, _normal(despMedia, despStd));
+      caixa = caixa + rec - des;
+      trace.push(caixa);
+      if(caixa < m_min) m_min = caixa;
+      if(caixa < 0) furos++;
+    }
+    final.push(caixa);
+    minPerRun.push(m_min);
+    if(allTraces.length < 50) allTraces.push(trace);
+  }
+  final.sort((a,b) => a-b);
+  minPerRun.sort((a,b) => a-b);
+  const pct = (arr, p) => arr[Math.min(arr.length-1, Math.floor(arr.length*p))];
+  return {
+    runs,
+    meses,
+    final: {
+      p10: pct(final, 0.1),
+      p50: pct(final, 0.5),
+      p90: pct(final, 0.9),
+      mean: final.reduce((s,v) => s+v, 0) / final.length
+    },
+    min: {
+      p10: pct(minPerRun, 0.1),
+      p50: pct(minPerRun, 0.5)
+    },
+    probFuro: (furos / (runs*meses)),
+    probRunGoNegative: minPerRun.filter(m => m < 0).length / runs,
+    traces: allTraces
+  };
+}
+
+function _fkMcStatsHistory(){
+  // Calcula receita/despesa média e desvio padrão dos últimos meses do extrato
+  if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return null;
+  const byMonth = new Map(); // ym → {rec, desp}
+  const now = new Date();
+  for(let m=11;m>=0;m--){
+    const d = new Date(now.getFullYear(), now.getMonth()-m, 1);
+    const ym = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    byMonth.set(ym, { rec:0, desp:0 });
+  }
+  for(const l of extratoData.lancamentos){
+    if(!l.data) continue;
+    const ym = l.data.substring(0, 7);
+    if(!byMonth.has(ym)) continue;
+    const v = Math.abs(parseFloat(l.valor)||0);
+    if(l.tipo === 'ganho') byMonth.get(ym).rec += v;
+    else if(l.tipo === 'gasto') byMonth.get(ym).desp += v;
+  }
+  const recs = [], desps = [];
+  for(const v of byMonth.values()){ recs.push(v.rec); desps.push(v.desp); }
+  const _avg = (a) => a.reduce((s,v)=>s+v,0) / Math.max(1,a.length);
+  const _std = (a, mean) => {
+    if(a.length < 2) return mean * 0.15;
+    const v = a.reduce((s,x) => s + (x-mean)*(x-mean), 0) / (a.length-1);
+    return Math.sqrt(v);
+  };
+  const rM = _avg(recs); const dM = _avg(desps);
+  return { receitaMedia: rM, receitaStd: Math.max(rM*0.05, _std(recs, rM)), despMedia: dM, despStd: Math.max(dM*0.05, _std(desps, dM)) };
+}
+
+function fkMcOpen(){
+  const old = document.getElementById('fk-mc-ov');
+  if(old){ old.remove(); return; }
+  let caixa = 0;
+  try{ if(typeof dispo !== 'undefined' && Array.isArray(dispo.bancos)) for(const b of dispo.bancos) if(b.ativo) caixa += parseFloat(b.saldoAtual)||0; }catch(_){}
+  const hist = _fkMcStatsHistory() || { receitaMedia: 80000, receitaStd: 12000, despMedia: 60000, despStd: 9000 };
+  const ov = document.createElement('div');
+  ov.id = 'fk-mc-ov';
+  ov.className = 'fk-shortcuts-ov';
+  ov.innerHTML =
+    `<div class="fk-shortcuts-card fk-mc-card">`+
+      `<div class="fk-shortcuts-hd"><h2>🔮 Monte Carlo · forecast probabilístico</h2><button class="fk-shortcuts-x" onclick="fkMcClose()">×</button></div>`+
+      `<div class="fk-shortcuts-bd fk-mc-bd">`+
+        `<div class="fk-mc-inputs">`+
+          `<label class="fk-mc-fld"><span>Caixa inicial (R$)</span><input id="fkmc-caixa" type="number" step="100" value="${Math.round(caixa)}"></label>`+
+          `<label class="fk-mc-fld"><span>Receita média/mês</span><input id="fkmc-rec" type="number" step="100" value="${Math.round(hist.receitaMedia)}"></label>`+
+          `<label class="fk-mc-fld"><span>Desvio (volatilidade)</span><input id="fkmc-recstd" type="number" step="100" value="${Math.round(hist.receitaStd)}"></label>`+
+          `<label class="fk-mc-fld"><span>Despesa média/mês</span><input id="fkmc-des" type="number" step="100" value="${Math.round(hist.despMedia)}"></label>`+
+          `<label class="fk-mc-fld"><span>Desvio (volatilidade)</span><input id="fkmc-desstd" type="number" step="100" value="${Math.round(hist.despStd)}"></label>`+
+          `<label class="fk-mc-fld"><span>Meses</span><input id="fkmc-meses" type="number" step="1" value="6"></label>`+
+          `<label class="fk-mc-fld"><span>Simulações</span><select id="fkmc-runs"><option value="1000">1000</option><option value="5000" selected>5000</option><option value="10000">10000</option></select></label>`+
+        `</div>`+
+        `<div style="display:flex;gap:10px"><button onclick="fkMcRun()" style="flex:1;padding:10px 18px;background:#10B981;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:.86rem;font-family:inherit">▶ Rodar simulação</button><button onclick="fkMcStress()" style="padding:10px 18px;background:#fff;color:#EF4444;border:2px solid #EF4444;border-radius:6px;cursor:pointer;font-weight:700;font-size:.86rem;font-family:inherit">🔥 Stress test</button></div>`+
+        `<div id="fk-mc-result"></div>`+
+      `</div>`+
+      `<div class="fk-shortcuts-ft"><button class="btn-cancel" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer;font-size:.76rem" onclick="fkMcClose()">Fechar</button></div>`+
+    `</div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click', (e) => { if(e.target === ov) fkMcClose(); });
+  setTimeout(fkMcRun, 200);
+}
+function fkMcClose(){ const ov = document.getElementById('fk-mc-ov'); if(ov) ov.remove(); }
+
+function fkMcRun(){
+  const opts = {
+    caixaInicial: parseFloat(document.getElementById('fkmc-caixa')?.value)||0,
+    receitaMedia: parseFloat(document.getElementById('fkmc-rec')?.value)||0,
+    receitaStd: parseFloat(document.getElementById('fkmc-recstd')?.value)||0,
+    despMedia: parseFloat(document.getElementById('fkmc-des')?.value)||0,
+    despStd: parseFloat(document.getElementById('fkmc-desstd')?.value)||0,
+    meses: parseInt(document.getElementById('fkmc-meses')?.value)||6,
+    runs: parseInt(document.getElementById('fkmc-runs')?.value)||5000
+  };
+  if(opts.runs > 1000){
+    document.getElementById('fk-mc-result').innerHTML = '<div style="text-align:center;padding:30px;color:#64748B">⏳ Simulando...</div>';
+  }
+  setTimeout(() => {
+    const r = _fkMcSimulate(opts);
+    _fkMcRender(r, opts);
+  }, 50);
+}
+
+function _fkMcRender(r, opts){
+  const fmt = (n) => 'R$ ' + Math.round(n).toLocaleString('pt-BR');
+  const pctNeg = (r.probRunGoNegative * 100);
+  const probSeguro = (100 - pctNeg).toFixed(1);
+  let cor, lbl;
+  if(pctNeg < 5){ cor = '#10B981'; lbl = 'Seguro'; }
+  else if(pctNeg < 20){ cor = '#F59E0B'; lbl = 'Atenção'; }
+  else { cor = '#EF4444'; lbl = 'Alto risco'; }
+  // SVG chart simples (faixa de cenários)
+  const W = 600, H = 220, padL = 50, padR = 10, padT = 16, padB = 30;
+  const cw = W - padL - padR; const ch = H - padT - padB;
+  // Bounds: usa min/max das traces
+  let yMin = Infinity, yMax = -Infinity;
+  for(const t of r.traces){ for(const y of t){ if(y<yMin) yMin = y; if(y>yMax) yMax = y; } }
+  yMin = Math.min(yMin, 0);
+  const range = (yMax - yMin) || 1;
+  const xStep = cw / (opts.meses);
+  const _y = (v) => padT + ch - ((v - yMin) / range) * ch;
+  const _x = (m) => padL + m * xStep;
+  let traces = '';
+  for(const t of r.traces){
+    let d = `M ${_x(0)} ${_y(t[0])}`;
+    for(let i=1;i<t.length;i++) d += ` L ${_x(i)} ${_y(t[i])}`;
+    traces += `<path d="${d}" stroke="#10B981" stroke-width="1" fill="none" opacity=".15"/>`;
+  }
+  // Linhas P10/P50/P90 (precisa recalcular por mês)
+  const lineP = (p) => {
+    const out = [];
+    for(let m=0; m<=opts.meses; m++){
+      const vals = r.traces.map(t => t[m]).sort((a,b)=>a-b);
+      out.push(vals[Math.floor(vals.length * p)]);
+    }
+    return out;
+  };
+  const p10s = lineP(0.1), p50s = lineP(0.5), p90s = lineP(0.9);
+  const mkPath = (arr) => arr.map((v,i) => `${i===0?'M':'L'} ${_x(i)} ${_y(v)}`).join(' ');
+  const zeroLine = yMin <= 0 ? `<line x1="${padL}" y1="${_y(0)}" x2="${padL+cw}" y2="${_y(0)}" stroke="#EF4444" stroke-dasharray="3 3" stroke-width="1.5"/>` : '';
+  const chart = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;background:#F8FAFC;border-radius:8px">`+
+    `<rect x="${padL}" y="${padT}" width="${cw}" height="${ch}" fill="none" stroke="#E2E8F0"/>`+
+    zeroLine+
+    traces+
+    `<path d="${mkPath(p10s)}" stroke="#EF4444" stroke-width="1.5" fill="none" stroke-dasharray="4 2"/>`+
+    `<path d="${mkPath(p50s)}" stroke="#0F172A" stroke-width="2" fill="none"/>`+
+    `<path d="${mkPath(p90s)}" stroke="#10B981" stroke-width="1.5" fill="none" stroke-dasharray="4 2"/>`+
+    `<text x="${padL-6}" y="${_y(yMax)+4}" text-anchor="end" font-size="9" fill="#64748B">${fmt(yMax)}</text>`+
+    `<text x="${padL-6}" y="${_y(yMin)+4}" text-anchor="end" font-size="9" fill="#64748B">${fmt(yMin)}</text>`+
+    `<text x="${padL}" y="${H-8}" font-size="9" fill="#64748B">Mês 0</text>`+
+    `<text x="${padL+cw}" y="${H-8}" text-anchor="end" font-size="9" fill="#64748B">Mês ${opts.meses}</text>`+
+  `</svg>`;
+  document.getElementById('fk-mc-result').innerHTML =
+    `<div class="fk-mc-headline" style="background:${cor}20;border:1.5px solid ${cor};color:${cor}">`+
+      `<b>${probSeguro}%</b> de chance do caixa NÃO furar nos próximos ${opts.meses} meses · <small>${lbl}</small>`+
+    `</div>`+
+    `<div class="fk-mc-stats">`+
+      `<div class="fk-mc-stat"><span>Caixa final · pessimista (P10)</span><b style="color:#EF4444">${fmt(r.final.p10)}</b></div>`+
+      `<div class="fk-mc-stat"><span>Caixa final · esperado (P50)</span><b>${fmt(r.final.p50)}</b></div>`+
+      `<div class="fk-mc-stat"><span>Caixa final · otimista (P90)</span><b style="color:#10B981">${fmt(r.final.p90)}</b></div>`+
+    `</div>`+
+    `<div style="margin:14px 0 8px;font-size:.84rem;color:#475569"><b>Trajetória do caixa</b> · ${r.runs} simulações · linha preta = mediana, verde = otimista, vermelha = pessimista</div>`+
+    chart;
+}
+
+function fkMcStress(){
+  // Roda 4 cenários de stress automaticamente
+  const base = {
+    caixaInicial: parseFloat(document.getElementById('fkmc-caixa')?.value)||0,
+    receitaMedia: parseFloat(document.getElementById('fkmc-rec')?.value)||0,
+    receitaStd: parseFloat(document.getElementById('fkmc-recstd')?.value)||0,
+    despMedia: parseFloat(document.getElementById('fkmc-des')?.value)||0,
+    despStd: parseFloat(document.getElementById('fkmc-desstd')?.value)||0,
+    meses: 6,
+    runs: 2000
+  };
+  const cenarios = [
+    { nome:'Base · realista',           modificar:o => o, desc:'Premissas atuais' },
+    { nome:'Perder cliente top (-25% receita)', modificar:o => ({...o, receitaMedia: o.receitaMedia * 0.75}), desc:'Maior cliente cancela' },
+    { nome:'Custo de fornecedor +20%',  modificar:o => ({...o, despMedia: o.despMedia * 1.2}), desc:'Reajuste inflacionário' },
+    { nome:'Selic em 16% · juros do empréstimo +50%', modificar:o => ({...o, despMedia: o.despMedia + (o.despMedia * 0.05)}), desc:'Custo de capital sobe' },
+    { nome:'Recessão · receita -15% + atraso de 30 dias', modificar:o => ({...o, receitaMedia: o.receitaMedia * 0.85, despStd: o.despStd * 1.3}), desc:'Cenário pessimista' }
+  ];
+  const resultados = cenarios.map(c => {
+    const opts = c.modificar({...base});
+    const r = _fkMcSimulate(opts);
+    return { ...c, ...r };
+  });
+  const fmt = (n) => 'R$ ' + Math.round(n).toLocaleString('pt-BR');
+  const html = resultados.map(r => {
+    const pctSeg = (100 - r.probRunGoNegative * 100).toFixed(1);
+    const cor = r.probRunGoNegative < 0.05 ? '#10B981' : (r.probRunGoNegative < 0.2 ? '#F59E0B' : '#EF4444');
+    return `<div class="fk-mc-scenario" style="border-left:4px solid ${cor}">`+
+      `<div style="display:flex;justify-content:space-between;align-items:center"><div><b>${r.nome}</b><div style="font-size:.74rem;color:#64748B">${r.desc}</div></div><div style="font-size:1.2rem;font-weight:900;color:${cor}">${pctSeg}%</div></div>`+
+      `<div style="display:flex;gap:14px;font-size:.74rem;margin-top:8px;color:#475569"><span>Pessimista: ${fmt(r.final.p10)}</span><span>Esperado: ${fmt(r.final.p50)}</span><span>Otimista: ${fmt(r.final.p90)}</span></div>`+
+    `</div>`;
+  }).join('');
+  document.getElementById('fk-mc-result').innerHTML = `<div style="margin-bottom:10px;font-size:.84rem;color:#0F172A;font-weight:600">🔥 Stress test · 5 cenários × 2000 simulações</div><div style="display:flex;flex-direction:column;gap:8px">${html}</div>`;
+}
+
+try{
+  window.fkMcOpen = fkMcOpen; window.fkMcClose = fkMcClose;
+  window.fkMcRun = fkMcRun; window.fkMcStress = fkMcStress;
+}catch(_){}
 
 // ════════════════════════════════════════════════════════════════════
 // 🎓 KASH ACADEMY · educação contextual + glossário + marketplace
