@@ -9728,9 +9728,10 @@
       .sidebar{display:none !important}
       .app-layout{margin-left:0 !important}
     }
-    /* ── Simulador de Amortização (fkls) ── */
-    .fkls-card{width:min(960px,98vw);max-height:92vh;display:flex;flex-direction:column}
-    .fkls-bd{padding:16px 18px;overflow:auto;display:flex;flex-direction:column;gap:12px}
+    /* ── Simulador de Amortização (fkls) ──
+       Selectors específicos pra sobrescrever .fk-shortcuts-card e .fk-shortcuts-bd */
+    .fk-shortcuts-card.fkls-card{width:min(1100px,98vw);max-height:92vh;display:flex;flex-direction:column}
+    .fk-shortcuts-card .fkls-bd{padding:16px 18px;overflow:auto;display:flex;flex-direction:column;gap:12px;grid-template-columns:none}
     .fkls-inputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
     .fkls-fld{display:flex;flex-direction:column;gap:3px;min-width:0}
     .fkls-fld>span{font-size:.7rem;color:#475569;font-weight:600;letter-spacing:.02em}
@@ -9743,31 +9744,32 @@
     .fkls-tab-on{background:#fff;color:#10B981;box-shadow:0 1px 3px rgba(15,23,42,.12)}
     .fkls-calc-btn{padding:8px 18px;background:#10B981;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:.82rem;font-family:inherit;white-space:nowrap}
     .fkls-calc-btn:hover{background:#059669}
-    /* Summary cards */
-    .fkls-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}
+    /* Summary cards · sempre lado a lado em desktop */
+    .fkls-summary{display:grid;grid-template-columns:1fr;gap:10px}
+    .fkls-summary.is-both{grid-template-columns:repeat(2,1fr)}
     .fkls-sumcard{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;min-width:0}
-    .fkls-sumcard-title{font-size:.7rem;font-weight:800;letter-spacing:.08em;margin-bottom:8px}
+    .fkls-sumcard-title{font-size:.7rem;font-weight:800;letter-spacing:.08em;margin-bottom:10px}
     .fkls-sumcard-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;min-width:0}
     .fkls-stat{min-width:0;overflow:hidden}
-    .fkls-stat .lbl{font-size:.66rem;color:#64748B;font-weight:600;text-transform:uppercase;letter-spacing:.02em;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .fkls-stat .val{font-size:.92rem;font-weight:700;color:#0F172A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+    .fkls-stat .lbl{font-size:.66rem;color:#64748B;font-weight:600;text-transform:uppercase;letter-spacing:.02em;margin-bottom:2px}
+    .fkls-stat .val{font-size:.92rem;font-weight:700;color:#0F172A;font-variant-numeric:tabular-nums}
     .fkls-stat .val small{font-size:.7em;color:#64748B;margin-left:1px}
     /* Tabela */
-    .fkls-table-wrap{overflow:auto;max-height:40vh;border:1px solid #E2E8F0;border-radius:8px}
-    .fkls-tbl{width:100%;border-collapse:collapse;font-size:.76rem;table-layout:fixed}
+    .fkls-table-wrap{overflow:auto;max-height:46vh;border:1px solid #E2E8F0;border-radius:8px}
+    .fkls-tbl{width:100%;border-collapse:collapse;font-size:.78rem}
     .fkls-tbl thead{background:#F1F5F9;position:sticky;top:0;z-index:2}
-    .fkls-tbl th{padding:7px 8px;font-weight:700;color:#475569;font-size:.7rem;text-transform:uppercase;letter-spacing:.04em}
-    .fkls-tbl td{padding:6px 8px;border-top:1px solid #F1F5F9;color:#0F172A;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .fkls-tbl th{padding:8px 10px;font-weight:700;color:#475569;font-size:.7rem;text-transform:uppercase;letter-spacing:.04em}
+    .fkls-tbl td{padding:7px 10px;border-top:1px solid #F1F5F9;color:#0F172A;font-variant-numeric:tabular-nums;white-space:nowrap}
     .fkls-tbl .fkls-c{text-align:center}
     .fkls-tbl .fkls-r{text-align:right}
     .fkls-tbl .fkls-sep{border-left:2px solid #E2E8F0}
     .fkls-tbl .fkls-th-price{background:#DBEAFE;color:#1E3A8A}
     .fkls-tbl .fkls-th-sac{background:#FEF3C7;color:#92400E}
     .fkls-tbl tbody tr:hover td{background:#F8FAFC}
-    @media(max-width:640px){
+    @media(max-width:700px){
       .fkls-sumcard-grid{grid-template-columns:repeat(2,1fr)}
-      .fkls-stat .val{font-size:.84rem}
-      .fkls-tbl{font-size:.7rem}
+      .fkls-summary.is-both{grid-template-columns:1fr}
+      .fkls-tbl{font-size:.72rem}
       .fkls-tbl th,.fkls-tbl td{padding:5px 6px}
     }
     /* ── Atalhos cheatsheet ── */
@@ -35556,6 +35558,17 @@ try {
 } catch(e){}
 
 function _flxAutoReceita(year, mIdx){
+  // Memo durante render (vê _impCalcCache em renderImpostos)
+  if(typeof _impCalcCache !== 'undefined' && _impCalcCache){
+    const k = '_flxAutoReceita:' + year + ':' + mIdx;
+    if(k in _impCalcCache) return _impCalcCache[k];
+    const v = _flxAutoReceitaCompute(year, mIdx);
+    _impCalcCache[k] = v;
+    return v;
+  }
+  return _flxAutoReceitaCompute(year, mIdx);
+}
+function _flxAutoReceitaCompute(year, mIdx){
   if(!receita || !receita.years || !receita.years[year]) return 0;
   const d = receita.years[year];
   const mesNome = REC_MESES[mIdx];
@@ -35570,6 +35583,16 @@ function _flxAutoReceita(year, mIdx){
   return tot;
 }
 function _flxAutoFolha(year, mIdx){
+  if(typeof _impCalcCache !== 'undefined' && _impCalcCache){
+    const k = '_flxAutoFolha:' + year + ':' + mIdx;
+    if(k in _impCalcCache) return _impCalcCache[k];
+    const v = _flxAutoFolhaCompute(year, mIdx);
+    _impCalcCache[k] = v;
+    return v;
+  }
+  return _flxAutoFolhaCompute(year, mIdx);
+}
+function _flxAutoFolhaCompute(year, mIdx){
   if(!pessoas || !Array.isArray(pessoas.people)) return 0;
   const k = pesMesKey(year, mIdx);
   let tot = 0;
@@ -35773,6 +35796,15 @@ function flxEmprestimosMes(year, mIdx){
        : _flxAutoEmprestimos(year,mIdx);
 }
 function flxImpostoMes(year, mIdx){
+  if(typeof _impCalcCache !== 'undefined' && _impCalcCache){
+    const k = 'flxImpostoMes:' + year + ':' + mIdx;
+    if(k in _impCalcCache) return _impCalcCache[k];
+    const v = flxHasOverride(year,'impostos',mIdx)
+       ? flxOverrideVal(year,'impostos',mIdx)
+       : _flxAutoImpostos(year, mIdx);
+    _impCalcCache[k] = v;
+    return v;
+  }
   return flxHasOverride(year,'impostos',mIdx)
        ? flxOverrideVal(year,'impostos',mIdx)
        : _flxAutoImpostos(year, mIdx);
@@ -75551,27 +75583,48 @@ window.cloudImpostosFetch = cloudImpostosFetch;
 function impRubrica(id){ return (impostos.rubricas||[]).find(r=>r.id===id) || null; }
 
 // ─── Render principal ──────────────────────────────────────────
+// ─── Cache de render (memo das funções de base) ──
+// As funções _flxAutoReceita, _flxAutoFolha, _flxAutoDespesas etc. iteram
+// estruturas inteiras pra cada (year, mIdx). Em uma planilha de Impostos com
+// 6 rubricas × 12 meses, isso roda 72× pra MESMA célula com mesmos parâmetros.
+// Solução: cache simples durante o render, limpo no fim.
+let _impCalcCache = null;
+function _impCacheKey(fn, year, mIdx){ return fn + ':' + year + ':' + mIdx; }
+function _impMemo(fn, key, compute){
+  if(!_impCalcCache) return compute();
+  if(key in _impCalcCache) return _impCalcCache[key];
+  const v = compute();
+  _impCalcCache[key] = v;
+  return v;
+}
+
 function renderImpostos(){
   if(!impostos) return;
-  // Reflete tab ativa nos botões/panes (para caso o load tenha mudado)
-  const elCor  = document.getElementById('imp-tab-correntes');
-  const elPar  = document.getElementById('imp-tab-parcel');
-  const btnCor = document.querySelector('.imp-tab-cor');
-  const btnPar = document.querySelector('.imp-tab-par');
-  if(elCor && elPar && btnCor && btnPar){
-    const isPar = impActiveTab === 'parcel';
-    elCor.classList.toggle('active', !isPar);
-    elPar.classList.toggle('active',  isPar);
-    btnCor.classList.toggle('active', !isPar);
-    btnPar.classList.toggle('active',  isPar);
+  // ─── Liga o cache pra esse ciclo de render ──
+  _impCalcCache = {};
+  try {
+    // Reflete tab ativa nos botões/panes (para caso o load tenha mudado)
+    const elCor  = document.getElementById('imp-tab-correntes');
+    const elPar  = document.getElementById('imp-tab-parcel');
+    const btnCor = document.querySelector('.imp-tab-cor');
+    const btnPar = document.querySelector('.imp-tab-par');
+    if(elCor && elPar && btnCor && btnPar){
+      const isPar = impActiveTab === 'parcel';
+      elCor.classList.toggle('active', !isPar);
+      elPar.classList.toggle('active',  isPar);
+      btnCor.classList.toggle('active', !isPar);
+      btnPar.classList.toggle('active',  isPar);
+    }
+    renderImpCorYearTabs();
+    renderImpParYearTabs();
+    renderImpSelicBadge();
+    renderImpCorSheet();
+    renderImpParSheet();
+    updateImpCorKpis();
+    updateImpParKpis();
+  } finally {
+    _impCalcCache = null;
   }
-  renderImpCorYearTabs();
-  renderImpParYearTabs();
-  renderImpSelicBadge();
-  renderImpCorSheet();
-  renderImpParSheet();
-  updateImpCorKpis();
-  updateImpParKpis();
 }
 
 function switchImpTab(name, btn){
@@ -76133,15 +76186,18 @@ function toggleImpCorPago(rubricaId, key){
 // Se o modo é 'manual', usa o valor informado pelo usuário.
 // Caso contrário, puxa da aba Receita automaticamente.
 function impReceitaMes(year, mIdx){
-  if(impostos && impostos.baseMode === 'manual'){
-    const key = impMesKey(year, mIdx);
-    const v = impostos.baseManual && impostos.baseManual[key];
-    return (typeof v === 'number' && !isNaN(v)) ? v : 0;
-  }
-  try{
-    if(typeof flxReceitaMes === 'function') return +flxReceitaMes(year, mIdx) || 0;
-  }catch(e){}
-  return 0;
+  // Memo cache durante render (vê _impCalcCache em renderImpostos)
+  return _impMemo('impReceitaMes', _impCacheKey('impReceitaMes', year, mIdx), () => {
+    if(impostos && impostos.baseMode === 'manual'){
+      const key = impMesKey(year, mIdx);
+      const v = impostos.baseManual && impostos.baseManual[key];
+      return (typeof v === 'number' && !isNaN(v)) ? v : 0;
+    }
+    try{
+      if(typeof flxReceitaMes === 'function') return +flxReceitaMes(year, mIdx) || 0;
+    }catch(e){}
+    return 0;
+  });
 }
 
 // Receita da competência do mês anterior (o pagamento em mIdx refere-se ao mês mIdx-1).
@@ -97700,7 +97756,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780344258';
+      const CACHE = 'forekash-v1780345675';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -104347,19 +104403,20 @@ function fkLoanScheduleRender(){
   const every = parseInt(document.getElementById('fkls-every')?.value)||1;
   const methods = _fklsMethod === 'BOTH' ? ['PRICE','SAC'] : [_fklsMethod];
   const results = methods.map(m => ({ m, r: fkLoanSchedule({principal:pv, rateMonthly:rate, months:n, method:m, extraPayment:extra, extraEveryMonth:every}) }));
-  // ─── Summary cards (grid auto-fit · wrap automaticamente) ───
+  // ─── Summary cards · valores SEMPRE completos, sem truncar ───
   const sumEl = document.getElementById('fkls-summary');
   if(sumEl){
+    sumEl.className = results.length > 1 ? 'fkls-summary is-both' : 'fkls-summary';
     const cards = results.map(x => {
       const r = x.r;
       const cor = x.m === 'PRICE' ? '#3B82F6' : '#F59E0B';
       return `<div class="fkls-sumcard" style="border-top:3px solid ${cor}">`+
         `<div class="fkls-sumcard-title" style="color:${cor}">${x.m}</div>`+
         `<div class="fkls-sumcard-grid">`+
-          `<div class="fkls-stat"><div class="lbl">Quitação</div><div class="val">${r.mesesQuitacao}<small>m</small></div></div>`+
-          `<div class="fkls-stat"><div class="lbl">Parcela média</div><div class="val">${_fklsFmtBRLShort(r.parcelaMedia)}</div></div>`+
-          `<div class="fkls-stat"><div class="lbl">Total juros</div><div class="val" style="color:#DC2626">${_fklsFmtBRLShort(r.totalJuros)}</div></div>`+
-          `<div class="fkls-stat"><div class="lbl">Total pago</div><div class="val">${_fklsFmtBRLShort(r.totalPago)}</div></div>`+
+          `<div class="fkls-stat"><div class="lbl">Quitação</div><div class="val">${r.mesesQuitacao} <small>meses</small></div></div>`+
+          `<div class="fkls-stat"><div class="lbl">Parcela média</div><div class="val">${_fklsFmtBRL(r.parcelaMedia)}</div></div>`+
+          `<div class="fkls-stat"><div class="lbl">Total juros</div><div class="val" style="color:#DC2626">${_fklsFmtBRL(r.totalJuros)}</div></div>`+
+          `<div class="fkls-stat"><div class="lbl">Total pago</div><div class="val">${_fklsFmtBRL(r.totalPago)}</div></div>`+
         `</div></div>`;
     }).join('');
     sumEl.innerHTML = cards;
@@ -104380,8 +104437,7 @@ function fkLoanScheduleRender(){
         `</tr>`
       ).join('');
       tbl.innerHTML = `<table class="fkls-tbl">`+
-        `<colgroup><col style="width:48px"><col><col><col><col><col></colgroup>`+
-        `<thead><tr><th class="fkls-c">Mês</th><th class="fkls-r">Parcela</th><th class="fkls-r">Juros</th><th class="fkls-r">Amort.</th><th class="fkls-r">Extra</th><th class="fkls-r">Saldo</th></tr></thead>`+
+        `<thead><tr><th class="fkls-c">Mês</th><th class="fkls-r">Parcela</th><th class="fkls-r">Juros</th><th class="fkls-r">Amortização</th><th class="fkls-r">Pgto Extra</th><th class="fkls-r">Saldo Devedor</th></tr></thead>`+
         `<tbody>${rows}</tbody>`+
       `</table>`;
     } else {
@@ -104399,7 +104455,6 @@ function fkLoanScheduleRender(){
         `</tr>`;
       }
       tbl.innerHTML = `<table class="fkls-tbl">`+
-        `<colgroup><col style="width:42px"><col><col><col><col></colgroup>`+
         `<thead>`+
           `<tr><th rowspan="2" class="fkls-c">Mês</th><th colspan="2" class="fkls-c fkls-th-price">PRICE</th><th colspan="2" class="fkls-c fkls-th-sac fkls-sep">SAC</th></tr>`+
           `<tr><th class="fkls-r">Parcela</th><th class="fkls-r">Saldo</th><th class="fkls-r fkls-sep">Parcela</th><th class="fkls-r">Saldo</th></tr>`+
