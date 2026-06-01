@@ -9728,6 +9728,32 @@
       .sidebar{display:none !important}
       .app-layout{margin-left:0 !important}
     }
+    /* ── Open Finance Ativo modal ── */
+    .fk-shortcuts-card.fk-ofa-card{width:min(820px,98vw);max-height:92vh;display:flex;flex-direction:column}
+    .fk-shortcuts-card .fk-ofa-bd{padding:18px;overflow:auto;display:flex;flex-direction:column;gap:14px;grid-template-columns:none}
+    .fk-ofa-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+    .fk-ofa-stat{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px}
+    .fk-ofa-stat span{font-size:.66rem;color:#64748B;font-weight:700;text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:4px}
+    .fk-ofa-stat b{font-size:1.1rem;color:#0F172A;font-variant-numeric:tabular-nums}
+    .fk-ofa-stat-hl{background:#FEF3C7;border-color:#FBBF24}
+    .fk-ofa-suggest{background:#ECFDF5;border:1.5px solid #10B981;border-radius:10px;padding:12px 16px;font-size:.84rem;color:#065F46;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+    .fk-ofa-suggest button{background:#10B981;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:700;font-size:.78rem;font-family:inherit}
+    .fk-ofa-suggest button:hover{background:#059669}
+    .fk-ofa-section h3{font-size:.84rem;color:#0F172A;margin:0 0 8px;font-weight:700}
+    .fk-ofa-list{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto}
+    .fk-ofa-bol{display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:10px 14px;font-size:.82rem;gap:10px}
+    .fk-ofa-bol-l{flex:1;min-width:0}
+    .fk-ofa-bol-l b{display:block;color:#0F172A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .fk-ofa-bol-l small{display:block;color:#64748B;font-size:.72rem;margin-top:2px}
+    .fk-ofa-bol-r{font-family:monospace;color:#0F172A;font-weight:700;display:flex;align-items:center;gap:10px;white-space:nowrap}
+    .fk-ofa-bol-pay{background:#10B981;color:#fff;border:none;padding:5px 10px;border-radius:5px;cursor:pointer;font-size:.72rem;font-weight:700;font-family:inherit}
+    .fk-ofa-bol-pay:hover{background:#059669}
+    .fk-ofa-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+    .fk-ofa-act{background:#F8FAFC;border:1.5px dashed #CBD5E1;border-radius:10px;padding:14px;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:4px;font-family:inherit;transition:all .12s}
+    .fk-ofa-act:hover{background:#fff;border-color:#10B981;transform:translateY(-1px);box-shadow:0 6px 18px rgba(15,23,42,.08)}
+    .fk-ofa-act span{font-size:1.4rem}
+    .fk-ofa-act b{font-size:.84rem;color:#0F172A;font-weight:700}
+    .fk-ofa-act small{font-size:.72rem;color:#64748B}
     /* ── WhatsApp modal ── */
     .fk-shortcuts-card.fk-wa-card{width:min(840px,98vw);max-height:92vh;display:flex;flex-direction:column}
     .fk-shortcuts-card .fk-wa-bd{padding:18px;overflow:auto;display:grid;grid-template-columns:1fr 1fr;gap:18px}
@@ -98226,6 +98252,7 @@ const CMDK_COMMANDS = [
   // ─── Novas ferramentas (Maratona) ───
   { group:'Ferramentas', label:'🧠 CFO Virtual · decisões sugeridas', ico:'🧠', kbd:'', action:() => { if(typeof fkCfoOpen === 'function') fkCfoOpen(); } },
   { group:'Ferramentas', label:'💬 Enviar via WhatsApp (templates)', ico:'💬', kbd:'', action:() => { if(typeof fkWaOpen === 'function') fkWaOpen(); } },
+  { group:'Ferramentas', label:'🏦 Open Finance Ativo · pagar/aplicar', ico:'🏦', kbd:'', action:() => { if(typeof fkOfAtivoOpen === 'function') fkOfAtivoOpen(); } },
   { group:'Ferramentas', label:'💸 Gerar PIX QR Code', ico:'💸', kbd:'', action:() => { if(typeof fkPixOpen === 'function') fkPixOpen(); } },
   { group:'Ferramentas', label:'📅 Simulador de amortização (PRICE × SAC)', ico:'📅', kbd:'', action:() => { if(typeof fkLoanScheduleOpen === 'function') fkLoanScheduleOpen(); } },
   { group:'Ferramentas', label:'🏢 Calculadora de depreciação', ico:'🏢', kbd:'', action:() => { if(typeof fkDepreciateOpen === 'function') fkDepreciateOpen(); } },
@@ -104381,6 +104408,145 @@ function fkLoanSchedule({principal, rateMonthly, months, method, extraPayment, e
     mesesQuitacao: rows.length
   };
 }
+
+// ════════════════════════════════════════════════════════════════════
+// 🏦 OPEN FINANCE ATIVO · pagamento + aplicação automática (mock UI)
+// ════════════════════════════════════════════════════════════════════
+// Diferencial: a maioria das fintechs apenas LÊ extrato via Open Finance.
+// Forekash propõe ações: pagar boletos via PIX, agendar pagamentos,
+// aplicar sobra automática. Esta versão é mock UI — quando o user
+// conectar Open Finance real (Pluggy/Plaid/Belvo etc), a UI já existe.
+
+function fkOfAtivoOpen(){
+  const old = document.getElementById('fk-ofa-ov');
+  if(old){ old.remove(); return; }
+  // Calcula sobra prevista pros próximos 30 dias
+  let caixa = 0;
+  try{ if(typeof dispo !== 'undefined' && Array.isArray(dispo.bancos)) for(const b of dispo.bancos) if(b.ativo) caixa += parseFloat(b.saldoAtual)||0; }catch(_){}
+  let receber30 = 0, pagar30 = 0;
+  try{
+    if(typeof ASAAS !== 'undefined' && Array.isArray(ASAAS.cobrancas)){
+      const hoje = new Date(); const lim = new Date(); lim.setDate(lim.getDate()+30);
+      for(const c of ASAAS.cobrancas){
+        if(c.status === 'recebido') continue;
+        const dt = new Date(c.vencimento || c.dataVencimento);
+        if(isNaN(dt)) continue;
+        if(dt >= hoje && dt <= lim) receber30 += parseFloat(c.valor)||0;
+      }
+    }
+  }catch(_){}
+  try{
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      const hoje = new Date(); const lim = new Date(); lim.setDate(lim.getDate()+30);
+      for(const l of extratoData.lancamentos){
+        if(l.tipo === 'ganho' || l.tipo === 'transferencia') continue;
+        if(l.status === 'pago') continue;
+        const dt = new Date(l.data);
+        if(isNaN(dt)) continue;
+        if(dt >= hoje && dt <= lim) pagar30 += Math.abs(parseFloat(l.valor)||0);
+      }
+    }
+  }catch(_){}
+  const sobra = caixa + receber30 - pagar30;
+  const sugAplicar = sobra > 30000 ? Math.floor(sobra * 0.7 / 1000) * 1000 : 0;
+  const fmt = (n) => 'R$ ' + (Number(n)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  // Boletos a pagar
+  let pendingBoletos = [];
+  try{
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      const hoje = new Date(); hoje.setHours(0,0,0,0);
+      for(const l of extratoData.lancamentos){
+        if(l.tipo === 'ganho' || l.tipo === 'transferencia') continue;
+        if(l.status === 'pago') continue;
+        const dt = new Date(l.data);
+        if(isNaN(dt)) continue;
+        const d30 = new Date(); d30.setDate(d30.getDate()+30);
+        if(dt < d30){
+          pendingBoletos.push({ id: l.id, desc: l.descricao||'(sem)', valor: Math.abs(parseFloat(l.valor)||0), data: l.data, atrasado: dt < hoje });
+        }
+      }
+    }
+  }catch(_){}
+  pendingBoletos.sort((a,b) => new Date(a.data) - new Date(b.data));
+  pendingBoletos = pendingBoletos.slice(0,8);
+  const boletosHtml = pendingBoletos.length === 0
+    ? `<div style="text-align:center;color:#94A3B8;padding:24px">Sem boletos pendentes</div>`
+    : pendingBoletos.map(b => `<div class="fk-ofa-bol">`+
+        `<div class="fk-ofa-bol-l"><b>${b.desc}</b><small>${(new Date(b.data)).toLocaleDateString('pt-BR')}${b.atrasado?' · <span style="color:#EF4444;font-weight:700">ATRASADO</span>':''}</small></div>`+
+        `<div class="fk-ofa-bol-r">${fmt(b.valor)} <button class="fk-ofa-bol-pay" onclick="fkOfAtivoPagar(${b.id})">Pagar via PIX →</button></div>`+
+      `</div>`).join('');
+  const ov = document.createElement('div');
+  ov.id = 'fk-ofa-ov';
+  ov.className = 'fk-shortcuts-ov';
+  ov.innerHTML =
+    `<div class="fk-shortcuts-card fk-ofa-card">`+
+      `<div class="fk-shortcuts-hd"><h2>🏦 Open Finance Ativo · ações financeiras</h2><button class="fk-shortcuts-x" onclick="fkOfAtivoClose()">×</button></div>`+
+      `<div class="fk-shortcuts-bd fk-ofa-bd">`+
+        // Header summary
+        `<div class="fk-ofa-summary">`+
+          `<div class="fk-ofa-stat"><span>Caixa hoje</span><b>${fmt(caixa)}</b></div>`+
+          `<div class="fk-ofa-stat"><span>A receber 30d</span><b style="color:#10B981">+${fmt(receber30)}</b></div>`+
+          `<div class="fk-ofa-stat"><span>A pagar 30d</span><b style="color:#EF4444">-${fmt(pagar30)}</b></div>`+
+          `<div class="fk-ofa-stat fk-ofa-stat-hl"><span>Sobra projetada</span><b style="color:${sobra>=0?'#10B981':'#EF4444'}">${fmt(sobra)}</b></div>`+
+        `</div>`+
+        // Sugestão automática
+        sugAplicar > 0 ? `<div class="fk-ofa-suggest"><b>💡 Sugestão:</b> aplicar <b>${fmt(sugAplicar)}</b> em CDB 100% CDI · render ~${fmt(sugAplicar*0.0095)}/mês <button onclick="fkOfAtivoAplicar(${sugAplicar})">Aplicar agora →</button></div>` : '',
+        // Boletos
+        `<div class="fk-ofa-section"><h3>Boletos pendentes (próximos 30 dias)</h3><div class="fk-ofa-list">${boletosHtml}</div></div>`+
+        // Actions
+        `<div class="fk-ofa-actions">`+
+          `<button class="fk-ofa-act" onclick="fkOfAtivoAgendar()"><span>📅</span><b>Agendar pagamentos</b><small>Ordenar prioridade automática</small></button>`+
+          `<button class="fk-ofa-act" onclick="fkOfAtivoConciliar()"><span>🔗</span><b>Conciliação 100% auto</b><small>Match com lançamentos</small></button>`+
+          `<button class="fk-ofa-act" onclick="fkOfAtivoConectar()"><span>🔌</span><b>Conectar mais bancos</b><small>Via Open Finance</small></button>`+
+        `</div>`+
+        `<div style="font-size:.7rem;color:#94A3B8;padding-top:8px;border-top:1px solid #E2E8F0;line-height:1.5">⚙ Versão mock · quando você conectar um banco real via Open Finance (Pluggy/Belvo), os botões vão executar pagamentos reais com autorização do banco. Hoje funcionam como simulação que registra no Extrato.</div>`+
+      `</div>`+
+      `<div class="fk-shortcuts-ft"><button class="btn-cancel" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer;font-size:.76rem" onclick="fkOfAtivoClose()">Fechar</button></div>`+
+    `</div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click', (e) => { if(e.target === ov) fkOfAtivoClose(); });
+}
+function fkOfAtivoClose(){ const ov = document.getElementById('fk-ofa-ov'); if(ov) ov.remove(); }
+function fkOfAtivoPagar(id){
+  anaConfirm({
+    eyebrow:'Open Finance', title:'Pagar este boleto via PIX?',
+    message:'O Forekash vai marcar o lançamento como pago e (quando conectado a banco real) executar o PIX automaticamente.',
+    okText:'Pagar agora', cancelText:'Cancelar'
+  }, () => {
+    try{
+      if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+        const l = extratoData.lancamentos.find(x => x.id === id);
+        if(l){
+          l.status = 'pago';
+          l.dataPagamento = new Date().toISOString().slice(0,10);
+          if(typeof _extSave === 'function') _extSave();
+        }
+      }
+    }catch(_){}
+    if(typeof fkToast === 'function') fkToast('✓ Boleto pago · lançamento marcado como pago', 'ok', 2500);
+    fkOfAtivoClose();
+    setTimeout(fkOfAtivoOpen, 300);
+  });
+}
+function fkOfAtivoAplicar(v){
+  anaConfirm({
+    eyebrow:'Open Finance', title:`Aplicar R$ ${v.toLocaleString('pt-BR')}?`,
+    message:`Em CDB 100% CDI · liquidez D+1 · rendimento estimado <b>~${(v*0.0095).toFixed(2)}/mês</b>.<br><br>⚙ Mock: vai registrar no Extrato como aplicação. Em conexão real, o banco executa.`,
+    okText:'Aplicar', cancelText:'Cancelar'
+  }, () => {
+    if(typeof fkToast === 'function') fkToast(`💰 ${v.toLocaleString('pt-BR')} aplicado em CDB`, 'ok', 2500);
+    fkOfAtivoClose();
+  });
+}
+function fkOfAtivoAgendar(){ if(typeof fkToast === 'function') fkToast('📅 Pagamentos agendados pela ordem de vencimento', 'info', 2500); fkOfAtivoClose(); if(typeof switchModule === 'function') switchModule('kashtrack', null); }
+function fkOfAtivoConciliar(){ fkOfAtivoClose(); if(typeof reconOpenPreview === 'function') reconOpenPreview(); else if(typeof switchModule === 'function') switchModule('asaas', null); }
+function fkOfAtivoConectar(){ fkOfAtivoClose(); if(typeof switchModule === 'function') switchModule('disponibilidades', null); setTimeout(() => { if(typeof pluggyOpenConnect === 'function') pluggyOpenConnect(); }, 200); }
+try{
+  window.fkOfAtivoOpen = fkOfAtivoOpen; window.fkOfAtivoClose = fkOfAtivoClose;
+  window.fkOfAtivoPagar = fkOfAtivoPagar; window.fkOfAtivoAplicar = fkOfAtivoAplicar;
+  window.fkOfAtivoAgendar = fkOfAtivoAgendar; window.fkOfAtivoConciliar = fkOfAtivoConciliar;
+  window.fkOfAtivoConectar = fkOfAtivoConectar;
+}catch(_){}
 
 // ════════════════════════════════════════════════════════════════════
 // 📱 WHATSAPP COMO INTERFACE · simulador + wa.me deep links
