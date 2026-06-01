@@ -870,6 +870,38 @@
       .rep-preview-wrap{background:none;padding:0}
       @page{size:A4;margin:0}
     }
+    /* ── PRINT MODE GLOBAL (acionado via body.print-mode) ── */
+    @media print{
+      body.print-mode .sidebar,
+      body.print-mode .header,
+      body.print-mode header,
+      body.print-mode nav,
+      body.print-mode .modal-overlay,
+      body.print-mode .toast-container,
+      body.print-mode .fk-shortcuts-ov,
+      body.print-mode .plan-status-bar,
+      body.print-mode .plan-tabs-strip,
+      body.print-mode .plan-toolbar,
+      body.print-mode .plan-formula-bar,
+      body.print-mode .plan-editor-hd,
+      body.print-mode .plan-help,
+      body.print-mode .tabs,
+      body.print-mode .ext-toolbar,
+      body.print-mode .ext-hd-actions,
+      body.print-mode button,
+      body.print-mode .pg-title-actions,
+      body.print-mode .ana-confirm-overlay,
+      body.print-mode .fk-no-print { display:none !important; visibility:hidden !important; }
+      body.print-mode .mod:not(.active) { display:none !important; }
+      body.print-mode .mod { padding:0 !important; margin:0 !important; }
+      body.print-mode { background:#fff !important; color:#000 !important; padding:0 !important; }
+      body.print-mode .pg-title { color:#000 !important; font-size:18pt !important; margin:0 0 4mm 0 !important; }
+      body.print-mode .pg-sub { color:#555 !important; font-size:9pt !important; margin:0 0 6mm 0 !important; }
+      body.print-mode table { page-break-inside:auto !important; }
+      body.print-mode tr { page-break-inside:avoid !important; page-break-after:auto !important; }
+      body.print-mode thead { display:table-header-group !important; }
+      @page{size:A4;margin:12mm 10mm}
+    }
 
     @keyframes glitchFlash{
       0%{opacity:0;transform:translateX(-2px)}
@@ -103707,6 +103739,33 @@ function fkToast(msg, type, duration){
     setTimeout(() => t.remove(), 350);
   }, duration);
 }
+
+// ════════════════════════════════════════════════════════════════════
+// 🖨 PRINT MODE · alterna body.print-mode e chama window.print()
+// ════════════════════════════════════════════════════════════════════
+function fkPrintCurrentView(){
+  document.body.classList.add('print-mode');
+  // dá um tick pro CSS aplicar antes do print dialog
+  setTimeout(() => {
+    window.print();
+    // remove a classe depois (mesmo se cancelar)
+    setTimeout(() => document.body.classList.remove('print-mode'), 200);
+  }, 50);
+}
+try{ window.fkPrintCurrentView = fkPrintCurrentView; }catch(_){}
+
+// Hook em Ctrl+P pra usar nosso print mode em vez do default
+document.addEventListener('keydown', (e) => {
+  if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p'){
+    // Não interfere em modais com forms próprios de print
+    const tag = (e.target && e.target.tagName) || '';
+    if(/^(INPUT|TEXTAREA|SELECT)$/.test(tag)) return;
+    // Se há overlay/modal próprio (recibo, etc), deixa o default
+    if(document.querySelector('.rep-preview, #ext-modal-ov, #plan-find-ov')) return;
+    e.preventDefault();
+    fkPrintCurrentView();
+  }
+}, true);
 
 // ════════════════════════════════════════════════════════════════════
 // 📅 CRONOGRAMA DE AMORTIZAÇÃO (PRICE × SAC) + simulador
