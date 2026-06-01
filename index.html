@@ -9728,10 +9728,48 @@
       .sidebar{display:none !important}
       .app-layout{margin-left:0 !important}
     }
-    /* ── Tabs do simulador de amortização ── */
-    .fkls-tab{background:transparent;border:none;padding:6px 14px;border-radius:5px;font-size:.78rem;font-weight:600;color:#64748B;cursor:pointer;font-family:inherit;transition:all .12s}
+    /* ── Simulador de Amortização (fkls) ── */
+    .fkls-card{width:min(960px,98vw);max-height:92vh;display:flex;flex-direction:column}
+    .fkls-bd{padding:16px 18px;overflow:auto;display:flex;flex-direction:column;gap:12px}
+    .fkls-inputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+    .fkls-fld{display:flex;flex-direction:column;gap:3px;min-width:0}
+    .fkls-fld>span{font-size:.7rem;color:#475569;font-weight:600;letter-spacing:.02em}
+    .fkls-fld>input{padding:7px 9px;border:1.5px solid #CBD5E1;border-radius:5px;font-size:.82rem;font-family:inherit;color:#0F172A;width:100%;box-sizing:border-box;min-width:0}
+    .fkls-fld>input:focus{outline:none;border-color:#10B981;box-shadow:0 0 0 2px rgba(16,185,129,.15)}
+    .fkls-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:space-between}
+    .fkls-tabs-wrap{display:flex;gap:0;background:#F1F5F9;border-radius:7px;padding:3px}
+    .fkls-tab{background:transparent;border:none;padding:7px 16px;border-radius:5px;font-size:.78rem;font-weight:600;color:#64748B;cursor:pointer;font-family:inherit;transition:all .12s;white-space:nowrap}
     .fkls-tab:hover{color:#10B981}
     .fkls-tab-on{background:#fff;color:#10B981;box-shadow:0 1px 3px rgba(15,23,42,.12)}
+    .fkls-calc-btn{padding:8px 18px;background:#10B981;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:.82rem;font-family:inherit;white-space:nowrap}
+    .fkls-calc-btn:hover{background:#059669}
+    /* Summary cards */
+    .fkls-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}
+    .fkls-sumcard{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px;min-width:0}
+    .fkls-sumcard-title{font-size:.7rem;font-weight:800;letter-spacing:.08em;margin-bottom:8px}
+    .fkls-sumcard-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;min-width:0}
+    .fkls-stat{min-width:0;overflow:hidden}
+    .fkls-stat .lbl{font-size:.66rem;color:#64748B;font-weight:600;text-transform:uppercase;letter-spacing:.02em;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .fkls-stat .val{font-size:.92rem;font-weight:700;color:#0F172A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+    .fkls-stat .val small{font-size:.7em;color:#64748B;margin-left:1px}
+    /* Tabela */
+    .fkls-table-wrap{overflow:auto;max-height:40vh;border:1px solid #E2E8F0;border-radius:8px}
+    .fkls-tbl{width:100%;border-collapse:collapse;font-size:.76rem;table-layout:fixed}
+    .fkls-tbl thead{background:#F1F5F9;position:sticky;top:0;z-index:2}
+    .fkls-tbl th{padding:7px 8px;font-weight:700;color:#475569;font-size:.7rem;text-transform:uppercase;letter-spacing:.04em}
+    .fkls-tbl td{padding:6px 8px;border-top:1px solid #F1F5F9;color:#0F172A;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .fkls-tbl .fkls-c{text-align:center}
+    .fkls-tbl .fkls-r{text-align:right}
+    .fkls-tbl .fkls-sep{border-left:2px solid #E2E8F0}
+    .fkls-tbl .fkls-th-price{background:#DBEAFE;color:#1E3A8A}
+    .fkls-tbl .fkls-th-sac{background:#FEF3C7;color:#92400E}
+    .fkls-tbl tbody tr:hover td{background:#F8FAFC}
+    @media(max-width:640px){
+      .fkls-sumcard-grid{grid-template-columns:repeat(2,1fr)}
+      .fkls-stat .val{font-size:.84rem}
+      .fkls-tbl{font-size:.7rem}
+      .fkls-tbl th,.fkls-tbl td{padding:5px 6px}
+    }
     /* ── Atalhos cheatsheet ── */
     .fk-shortcuts-ov{position:fixed;inset:0;background:rgba(15,23,42,.7);backdrop-filter:blur(4px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;animation:planFade .15s}
     .fk-shortcuts-card{background:#fff;border-radius:14px;width:min(720px,96vw);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 30px 80px rgba(15,23,42,.5);overflow:hidden}
@@ -97662,7 +97700,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780342657';
+      const CACHE = 'forekash-v1780344258';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -104257,22 +104295,26 @@ function fkLoanScheduleOpen(initial){
   ov.id = 'fk-loan-sched-ov';
   ov.className = 'fk-shortcuts-ov';
   ov.innerHTML =
-    `<div class="fk-shortcuts-card" style="width:min(960px,98vw);max-height:92vh">`+
+    `<div class="fk-shortcuts-card fkls-card">`+
       `<div class="fk-shortcuts-hd"><h2>📅 Cronograma de Amortização · PRICE × SAC</h2><button class="fk-shortcuts-x" onclick="fkLoanScheduleClose()">×</button></div>`+
-      `<div class="fk-shortcuts-bd" style="padding:18px;overflow:auto">`+
-        `<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px">`+
-          `<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#475569;font-weight:600">Principal (R$)<input id="fkls-pv" type="number" step="0.01" value="${initial.principal||100000}" style="padding:7px;border:1.5px solid #CBD5E1;border-radius:5px;font-size:.84rem"></label>`+
-          `<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#475569;font-weight:600">Taxa mensal (%)<input id="fkls-rate" type="number" step="0.01" value="${initial.rate||1.5}" style="padding:7px;border:1.5px solid #CBD5E1;border-radius:5px;font-size:.84rem"></label>`+
-          `<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#475569;font-weight:600">Parcelas<input id="fkls-n" type="number" step="1" value="${initial.months||24}" style="padding:7px;border:1.5px solid #CBD5E1;border-radius:5px;font-size:.84rem"></label>`+
-          `<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#475569;font-weight:600">Pgto extra (R$)<input id="fkls-extra" type="number" step="0.01" value="0" placeholder="opcional" style="padding:7px;border:1.5px solid #CBD5E1;border-radius:5px;font-size:.84rem"></label>`+
-          `<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#475569;font-weight:600">A cada N meses<input id="fkls-every" type="number" step="1" value="1" min="1" style="padding:7px;border:1.5px solid #CBD5E1;border-radius:5px;font-size:.84rem"></label>`+
+      `<div class="fk-shortcuts-bd fkls-bd">`+
+        // ─── Linha 1: 5 inputs em grid responsivo ───
+        `<div class="fkls-inputs">`+
+          `<label class="fkls-fld"><span>Principal (R$)</span><input id="fkls-pv" type="number" step="0.01" value="${initial.principal||100000}"></label>`+
+          `<label class="fkls-fld"><span>Taxa mensal (%)</span><input id="fkls-rate" type="number" step="0.01" value="${initial.rate||1.5}"></label>`+
+          `<label class="fkls-fld"><span>Parcelas</span><input id="fkls-n" type="number" step="1" value="${initial.months||24}"></label>`+
+          `<label class="fkls-fld"><span>Pgto extra (R$)</span><input id="fkls-extra" type="number" step="0.01" value="0" placeholder="opcional"></label>`+
+          `<label class="fkls-fld"><span>A cada N meses</span><input id="fkls-every" type="number" step="1" value="1" min="1"></label>`+
         `</div>`+
-        `<div style="display:flex;gap:10px;justify-content:space-between;align-items:center;margin-bottom:12px">`+
-          `<div style="display:flex;gap:0;background:#F1F5F9;border-radius:7px;padding:3px"><button id="fkls-method-price" class="fkls-tab fkls-tab-on" onclick="fkLoanScheduleSetMethod('PRICE')">PRICE (parcela fixa)</button><button id="fkls-method-sac" class="fkls-tab" onclick="fkLoanScheduleSetMethod('SAC')">SAC (parcela decresce)</button><button id="fkls-method-both" class="fkls-tab" onclick="fkLoanScheduleSetMethod('BOTH')">Comparar</button></div>`+
-          `<button class="btn-p" style="padding:8px 16px;background:#10B981;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:.84rem" onclick="fkLoanScheduleRender()">⟳ Calcular</button>`+
+        // ─── Linha 2: tabs + botão Calcular ───
+        `<div class="fkls-toolbar">`+
+          `<div class="fkls-tabs-wrap"><button id="fkls-method-price" class="fkls-tab fkls-tab-on" onclick="fkLoanScheduleSetMethod('PRICE')">PRICE</button><button id="fkls-method-sac" class="fkls-tab" onclick="fkLoanScheduleSetMethod('SAC')">SAC</button><button id="fkls-method-both" class="fkls-tab" onclick="fkLoanScheduleSetMethod('BOTH')">Comparar</button></div>`+
+          `<button class="fkls-calc-btn" onclick="fkLoanScheduleRender()">⟳ Calcular</button>`+
         `</div>`+
-        `<div id="fkls-summary" style="margin-bottom:14px"></div>`+
-        `<div id="fkls-table" style="overflow:auto;max-height:50vh;border:1px solid #E2E8F0;border-radius:8px"></div>`+
+        // ─── Sumário (cards) ───
+        `<div id="fkls-summary" class="fkls-summary"></div>`+
+        // ─── Tabela ───
+        `<div id="fkls-table" class="fkls-table-wrap"></div>`+
       `</div>`+
       `<div class="fk-shortcuts-ft"><button class="btn-cancel" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer;font-size:.76rem" onclick="fkLoanScheduleClose()">Fechar</button></div>`+
     `</div>`;
@@ -104291,6 +104333,12 @@ function fkLoanScheduleSetMethod(m){
   fkLoanScheduleRender();
 }
 function _fklsFmtBRL(v){ return 'R$ ' + (Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function _fklsFmtBRLShort(v){
+  const n = Number(v)||0;
+  if(Math.abs(n) >= 1000000) return 'R$ ' + (n/1000000).toLocaleString('pt-BR',{maximumFractionDigits:2}) + 'M';
+  if(Math.abs(n) >= 10000)   return 'R$ ' + (n/1000).toLocaleString('pt-BR',{maximumFractionDigits:1}) + 'k';
+  return _fklsFmtBRL(n);
+}
 function fkLoanScheduleRender(){
   const pv = parseFloat(document.getElementById('fkls-pv')?.value)||0;
   const rate = (parseFloat(document.getElementById('fkls-rate')?.value)||0) / 100;
@@ -104299,43 +104347,65 @@ function fkLoanScheduleRender(){
   const every = parseInt(document.getElementById('fkls-every')?.value)||1;
   const methods = _fklsMethod === 'BOTH' ? ['PRICE','SAC'] : [_fklsMethod];
   const results = methods.map(m => ({ m, r: fkLoanSchedule({principal:pv, rateMonthly:rate, months:n, method:m, extraPayment:extra, extraEveryMonth:every}) }));
-  // Summary
+  // ─── Summary cards (grid auto-fit · wrap automaticamente) ───
   const sumEl = document.getElementById('fkls-summary');
   if(sumEl){
     const cards = results.map(x => {
       const r = x.r;
-      const ec = pv > 0 ? Math.max(0, (extra > 0 ? (x.m === 'PRICE' ? (pv * rate * n / (rate>0?1:1)) : pv) - r.totalJuros : 0)) : 0;
-      return `<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:14px;flex:1">`+
-        `<div style="font-size:.7rem;color:#94A3B8;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">${x.m}</div>`+
-        `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;font-size:.78rem">`+
-          `<div><div style="color:#64748B">Quitação em</div><div style="font-weight:700;color:#0F172A;font-size:.92rem">${r.mesesQuitacao} ${r.mesesQuitacao===1?'mês':'meses'}</div></div>`+
-          `<div><div style="color:#64748B">Parcela média</div><div style="font-weight:700;color:#0F172A;font-size:.92rem">${_fklsFmtBRL(r.parcelaMedia)}</div></div>`+
-          `<div><div style="color:#64748B">Total juros</div><div style="font-weight:700;color:#EF4444;font-size:.92rem">${_fklsFmtBRL(r.totalJuros)}</div></div>`+
-          `<div><div style="color:#64748B">Total pago</div><div style="font-weight:700;color:#0F172A;font-size:.92rem">${_fklsFmtBRL(r.totalPago)}</div></div>`+
+      const cor = x.m === 'PRICE' ? '#3B82F6' : '#F59E0B';
+      return `<div class="fkls-sumcard" style="border-top:3px solid ${cor}">`+
+        `<div class="fkls-sumcard-title" style="color:${cor}">${x.m}</div>`+
+        `<div class="fkls-sumcard-grid">`+
+          `<div class="fkls-stat"><div class="lbl">Quitação</div><div class="val">${r.mesesQuitacao}<small>m</small></div></div>`+
+          `<div class="fkls-stat"><div class="lbl">Parcela média</div><div class="val">${_fklsFmtBRLShort(r.parcelaMedia)}</div></div>`+
+          `<div class="fkls-stat"><div class="lbl">Total juros</div><div class="val" style="color:#DC2626">${_fklsFmtBRLShort(r.totalJuros)}</div></div>`+
+          `<div class="fkls-stat"><div class="lbl">Total pago</div><div class="val">${_fklsFmtBRLShort(r.totalPago)}</div></div>`+
         `</div></div>`;
     }).join('');
-    sumEl.innerHTML = `<div style="display:flex;gap:10px">${cards}</div>`;
+    sumEl.innerHTML = cards;
   }
-  // Table
+  // ─── Tabela ───
   const tbl = document.getElementById('fkls-table');
   if(tbl){
     if(results.length === 1){
+      // Single method · 6 cols com larguras fixas
       const rows = results[0].r.rows.map(r =>
-        `<tr><td style="text-align:center">${r.m}</td><td>${_fklsFmtBRL(r.parcela)}</td><td>${_fklsFmtBRL(r.juros)}</td><td>${_fklsFmtBRL(r.amort)}</td><td>${r.amortExtra>0?'<span style="color:#10B981;font-weight:600">'+_fklsFmtBRL(r.amortExtra)+'</span>':'—'}</td><td>${_fklsFmtBRL(r.saldo)}</td></tr>`
+        `<tr>`+
+          `<td class="fkls-c">${r.m}</td>`+
+          `<td class="fkls-r">${_fklsFmtBRL(r.parcela)}</td>`+
+          `<td class="fkls-r">${_fklsFmtBRL(r.juros)}</td>`+
+          `<td class="fkls-r">${_fklsFmtBRL(r.amort)}</td>`+
+          `<td class="fkls-r">${r.amortExtra>0?'<span style="color:#10B981;font-weight:600">'+_fklsFmtBRL(r.amortExtra)+'</span>':'—'}</td>`+
+          `<td class="fkls-r">${_fklsFmtBRL(r.saldo)}</td>`+
+        `</tr>`
       ).join('');
-      tbl.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:.78rem"><thead style="background:#F1F5F9;position:sticky;top:0"><tr><th style="padding:8px;text-align:center">Mês</th><th style="padding:8px;text-align:right">Parcela</th><th style="padding:8px;text-align:right">Juros</th><th style="padding:8px;text-align:right">Amortização</th><th style="padding:8px;text-align:right">Pgto Extra</th><th style="padding:8px;text-align:right">Saldo Devedor</th></tr></thead><tbody>${rows}</tbody></table>`;
-      // Aplica estilo direito ALL TDs
-      tbl.querySelectorAll('tbody td').forEach((td,i) => { if(i%6!==0) td.style.textAlign='right'; td.style.padding='6px 8px'; td.style.borderTop='1px solid #F1F5F9'; });
+      tbl.innerHTML = `<table class="fkls-tbl">`+
+        `<colgroup><col style="width:48px"><col><col><col><col><col></colgroup>`+
+        `<thead><tr><th class="fkls-c">Mês</th><th class="fkls-r">Parcela</th><th class="fkls-r">Juros</th><th class="fkls-r">Amort.</th><th class="fkls-r">Extra</th><th class="fkls-r">Saldo</th></tr></thead>`+
+        `<tbody>${rows}</tbody>`+
+      `</table>`;
     } else {
-      // BOTH side by side
+      // BOTH side by side · 5 cols com larguras fixas
       const maxN = Math.max(results[0].r.rows.length, results[1].r.rows.length);
       let rowsHtml = '';
       for(let m=0; m<maxN; m++){
         const a = results[0].r.rows[m]; const b = results[1].r.rows[m];
-        rowsHtml += `<tr><td style="text-align:center">${m+1}</td><td>${a?_fklsFmtBRL(a.parcela):'—'}</td><td>${a?_fklsFmtBRL(a.saldo):'—'}</td><td style="border-left:2px solid #E2E8F0">${b?_fklsFmtBRL(b.parcela):'—'}</td><td>${b?_fklsFmtBRL(b.saldo):'—'}</td></tr>`;
+        rowsHtml += `<tr>`+
+          `<td class="fkls-c">${m+1}</td>`+
+          `<td class="fkls-r">${a?_fklsFmtBRL(a.parcela):'—'}</td>`+
+          `<td class="fkls-r">${a?_fklsFmtBRL(a.saldo):'—'}</td>`+
+          `<td class="fkls-r fkls-sep">${b?_fklsFmtBRL(b.parcela):'—'}</td>`+
+          `<td class="fkls-r">${b?_fklsFmtBRL(b.saldo):'—'}</td>`+
+        `</tr>`;
       }
-      tbl.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:.78rem"><thead style="background:#F1F5F9;position:sticky;top:0"><tr><th rowspan="2" style="padding:8px;text-align:center">Mês</th><th colspan="2" style="padding:8px;text-align:center;background:#DBEAFE">PRICE</th><th colspan="2" style="padding:8px;text-align:center;background:#FEF3C7;border-left:2px solid #E2E8F0">SAC</th></tr><tr><th style="padding:6px;text-align:right">Parcela</th><th style="padding:6px;text-align:right">Saldo</th><th style="padding:6px;text-align:right;border-left:2px solid #E2E8F0">Parcela</th><th style="padding:6px;text-align:right">Saldo</th></tr></thead><tbody>${rowsHtml}</tbody></table>`;
-      tbl.querySelectorAll('tbody td').forEach((td,i) => { if(i%5!==0) td.style.textAlign='right'; td.style.padding='6px 8px'; td.style.borderTop='1px solid #F1F5F9'; });
+      tbl.innerHTML = `<table class="fkls-tbl">`+
+        `<colgroup><col style="width:42px"><col><col><col><col></colgroup>`+
+        `<thead>`+
+          `<tr><th rowspan="2" class="fkls-c">Mês</th><th colspan="2" class="fkls-c fkls-th-price">PRICE</th><th colspan="2" class="fkls-c fkls-th-sac fkls-sep">SAC</th></tr>`+
+          `<tr><th class="fkls-r">Parcela</th><th class="fkls-r">Saldo</th><th class="fkls-r fkls-sep">Parcela</th><th class="fkls-r">Saldo</th></tr>`+
+        `</thead>`+
+        `<tbody>${rowsHtml}</tbody>`+
+      `</table>`;
     }
   }
 }
