@@ -9596,6 +9596,8 @@
     .ana-confirm-btn-ok:active{transform:translateY(0);box-shadow:none}
     @keyframes anaConfirmFade{ from{opacity:0} to{opacity:1} }
     @keyframes anaConfirmRise{ from{opacity:0;transform:translateY(12px) scale(.96)} to{opacity:1;transform:translateY(0) scale(1)} }
+    .ana-prompt-input{width:100%;box-sizing:border-box;padding:10px 12px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:.92rem;font-family:inherit;outline:none;color:#0F172A;background:#fff;transition:border-color .15s,box-shadow .15s}
+    .ana-prompt-input:focus{border-color:#10B981;box-shadow:0 0 0 3px rgba(16,185,129,.15)}
     /* Variante destrutiva (cancelar/excluir) */
     .ana-confirm-card.is-danger .ana-confirm-head::after{background:#DC2626}
     .ana-confirm-card.is-danger .ana-confirm-btn-ok{background:#DC2626;border-color:#DC2626}
@@ -26800,6 +26802,76 @@ function anaConfirmAsync(opts){
   return new Promise(resolve => anaConfirm(opts, () => resolve(true), () => resolve(false)));
 }
 try{ window.anaConfirmAsync = anaConfirmAsync; }catch(e){}
+
+// ───────── anaPrompt · substitui window.prompt() nativo ─────────
+function anaPrompt(opts, onOk, onCancel){
+  if(typeof opts === 'string') opts = { message: opts };
+  const cfg = Object.assign({
+    eyebrow: 'Entrada',
+    title: 'Digite um valor',
+    message: '',
+    placeholder: '',
+    defaultValue: '',
+    okText: 'OK',
+    cancelText: 'Cancelar'
+  }, opts || {});
+  if(typeof onCancel !== 'function' && typeof cfg.onCancel === 'function') onCancel = cfg.onCancel;
+  const old = document.getElementById('ana-confirm-overlay');
+  if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'ana-confirm-overlay';
+  ov.className = 'ana-confirm-overlay';
+  const safeStr = (s) => (s||'').toString().replace(/[<>&]/g, m => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[m]));
+  ov.innerHTML =
+      '<div class="ana-confirm-card" role="dialog" aria-modal="true">'
+    +   '<div class="ana-confirm-head">'
+    +     '<div class="ana-confirm-eyebrow">' + safeStr(cfg.eyebrow) + '</div>'
+    +     '<h3 class="ana-confirm-title">' + safeStr(cfg.title) + '</h3>'
+    +   '</div>'
+    +   '<div class="ana-confirm-body">'
+    +     (cfg.message ? '<p style="margin:0 0 10px;color:#475569;font-size:.86rem">' + safeStr(cfg.message) + '</p>' : '')
+    +     '<input type="text" class="ana-prompt-input" id="ana-prompt-input" '
+    +       'value="' + safeStr(cfg.defaultValue).replace(/"/g,'&quot;') + '" '
+    +       'placeholder="' + safeStr(cfg.placeholder).replace(/"/g,'&quot;') + '" '
+    +       'autocomplete="off" spellcheck="false">'
+    +   '</div>'
+    +   '<div class="ana-confirm-foot">'
+    +     '<button type="button" class="ana-confirm-btn ana-confirm-btn-cancel" data-act="cancel">' + cfg.cancelText + '</button>'
+    +     '<button type="button" class="ana-confirm-btn ana-confirm-btn-ok" data-act="ok">' + cfg.okText + '</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  const close = () => { try{ ov.remove(); }catch(e){} document.removeEventListener('keydown', escHandler, true); };
+  const cancel = () => { close(); if(typeof onCancel === 'function') onCancel(); };
+  const okAction = () => {
+    const inp = document.getElementById('ana-prompt-input');
+    const val = inp ? inp.value : '';
+    close();
+    if(typeof onOk === 'function') onOk(val);
+  };
+  const escHandler = (e) => {
+    if(e.key === 'Escape'){ e.preventDefault(); cancel(); }
+    else if(e.key === 'Enter'){ e.preventDefault(); okAction(); }
+  };
+  ov.addEventListener('click', (e) => {
+    const t = e.target;
+    if(t === ov){ cancel(); return; }
+    const act = t.getAttribute && t.getAttribute('data-act');
+    if(act === 'cancel'){ cancel(); }
+    else if(act === 'ok'){ okAction(); }
+  });
+  document.addEventListener('keydown', escHandler, true);
+  setTimeout(() => {
+    const inp = document.getElementById('ana-prompt-input');
+    if(inp){ inp.focus(); inp.select(); }
+  }, 50);
+}
+try{ window.anaPrompt = anaPrompt; }catch(e){}
+
+function anaPromptAsync(opts){
+  return new Promise(resolve => anaPrompt(opts, (v) => resolve(v), () => resolve(null)));
+}
+try{ window.anaPromptAsync = anaPromptAsync; }catch(e){}
 
 // ═══════════════════════════════════════════════════════════════════════
 // Alert in-app (variante do anaConfirm sem botão Cancelar) — usado pra
@@ -55091,25 +55163,45 @@ function planRenderList(mount){
 }
 
 function planNewPrompt(){
-  const nome = (window.prompt || prompt)('Nome da planilha:', 'Planilha sem título');
-  if(nome === null) return;
-  const p = planCreate(nome.trim() || 'Planilha sem título');
-  planOpen(p.id);
+  anaPrompt({
+    eyebrow:'Nova planilha',
+    title:'Como vai chamar a planilha?',
+    placeholder:'Ex: DRE 2026',
+    defaultValue:'Planilha sem título',
+    okText:'Criar'
+  }, (nome) => {
+    if(nome === null || nome === undefined) return;
+    const p = planCreate((nome||'').trim() || 'Planilha sem título');
+    planOpen(p.id);
+  });
 }
 
 function planRename(id){
   const p = PLAN.list.find(x => x.id === id); if(!p) return;
-  const nome = prompt('Renomear planilha:', p.nome);
-  if(nome === null || !nome.trim()) return;
-  p.nome = nome.trim();
-  p.updatedAt = Date.now();
-  planSave(); planRender();
+  anaPrompt({
+    eyebrow:'Renomear',
+    title:'Novo nome da planilha',
+    defaultValue:p.nome,
+    okText:'Salvar'
+  }, (nome) => {
+    if(!nome || !nome.trim()) return;
+    p.nome = nome.trim();
+    p.updatedAt = Date.now();
+    planSave(); planRender();
+  });
 }
 
 function planDelete(id){
-  if(!confirm('Apagar essa planilha? Esta ação não pode ser desfeita.')) return;
-  PLAN.list = PLAN.list.filter(x => x.id !== id);
-  planSave(); planRender();
+  const p = PLAN.list.find(x => x.id === id);
+  anaConfirm({
+    eyebrow:'Atenção',
+    title:'Apagar planilha?',
+    message:'A planilha <b>'+ (p?p.nome:'') +'</b> e todas as suas páginas serão removidas. Esta ação não pode ser desfeita.',
+    okText:'Apagar', cancelText:'Cancelar', danger:true
+  }, () => {
+    PLAN.list = PLAN.list.filter(x => x.id !== id);
+    planSave(); planRender();
+  });
 }
 
 // ─── Editor ────────────────────────────────────────────────────────
@@ -55488,23 +55580,42 @@ window.planAddSheet = planAddSheet;
 function planRenameSheet(idx){
   const p = PLAN.list.find(x => x.id === PLAN.curId); if(!p) return;
   const s = p.sheets[idx]; if(!s) return;
-  const name = prompt('Nome da página:', s.name);
-  if(name === null || !name.trim()) return;
-  s.name = name.trim();
-  p.updatedAt = Date.now();
-  planSave(); planRender();
+  anaPrompt({
+    eyebrow:'Renomear página',
+    title:'Novo nome da página',
+    defaultValue:s.name,
+    okText:'Salvar'
+  }, (name) => {
+    if(!name || !name.trim()) return;
+    s.name = name.trim();
+    p.updatedAt = Date.now();
+    planSave(); planRender();
+  });
 }
 window.planRenameSheet = planRenameSheet;
 
 function planDeleteSheet(idx){
   const p = PLAN.list.find(x => x.id === PLAN.curId); if(!p) return;
-  if(p.sheets.length === 1){ alert('Toda planilha precisa ter pelo menos 1 página.'); return; }
-  if(!confirm('Apagar a página "' + p.sheets[idx].name + '"?')) return;
-  p.sheets.splice(idx, 1);
-  PLAN.sel.sheet = Math.min(PLAN.sel.sheet, p.sheets.length - 1);
-  p.curSheet = PLAN.sel.sheet;
-  p.updatedAt = Date.now();
-  planSave(); planRender();
+  if(p.sheets.length === 1){
+    anaConfirm({
+      eyebrow:'Aviso', title:'Não pode apagar',
+      message:'Toda planilha precisa ter pelo menos 1 página.',
+      okText:'OK', cancelText:''
+    });
+    return;
+  }
+  anaConfirm({
+    eyebrow:'Atenção',
+    title:'Apagar página?',
+    message:'A página <b>' + (p.sheets[idx].name||'') + '</b> e todo o conteúdo dela serão removidos.',
+    okText:'Apagar', cancelText:'Cancelar', danger:true
+  }, () => {
+    p.sheets.splice(idx, 1);
+    PLAN.sel.sheet = Math.min(PLAN.sel.sheet, p.sheets.length - 1);
+    p.curSheet = PLAN.sel.sheet;
+    p.updatedAt = Date.now();
+    planSave(); planRender();
+  });
 }
 window.planDeleteSheet = planDeleteSheet;
 
@@ -95407,7 +95518,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780327702';
+      const CACHE = 'forekash-v1780328201';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
