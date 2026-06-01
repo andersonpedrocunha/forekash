@@ -56094,20 +56094,129 @@ window.planClearCell = planClearCell;
 function planCopyCell(){
   const p = PLAN.list.find(x => x.id === PLAN.curId); if(!p) return;
   const sheet = p.sheets[PLAN.sel.sheet];
-  const ref = _planCellRef(PLAN.sel.r, PLAN.sel.c);
-  const c = sheet.cells[ref];
-  PLAN.copy = c ? { v: c.v, s: Object.assign({}, c.s||{}) } : null;
+  const r1 = Math.min(PLAN.sel.r, PLAN.sel.r2);
+  const r2 = Math.max(PLAN.sel.r, PLAN.sel.r2);
+  const c1 = Math.min(PLAN.sel.c, PLAN.sel.c2);
+  const c2 = Math.max(PLAN.sel.c, PLAN.sel.c2);
+  const rows = [];
+  const tsvRows = [];
+  for(let r = r1; r <= r2; r++){
+    const row = []; const tsv = [];
+    for(let c = c1; c <= c2; c++){
+      const cell = sheet.cells[_planCellRef(r, c)];
+      if(cell){
+        row.push({ v: cell.v, s: Object.assign({}, cell.s||{}) });
+        let display = cell.v;
+        if(typeof cell.v === 'string' && cell.v.startsWith('=')){
+          const ev = _planEval(cell.v.slice(1), sheet);
+          display = (typeof ev === 'object' && ev && ev.__err) ? '#'+ev.__err : (ev == null ? '' : ev);
+        }
+        // TSV escape — substitui tab e newline
+        let txt = String(display == null ? '' : display).replace(/\t/g,' ').replace(/\n/g,' ');
+        tsv.push(txt);
+      } else {
+        row.push(null);
+        tsv.push('');
+      }
+    }
+    rows.push(row);
+    tsvRows.push(tsv.join('\t'));
+  }
+  PLAN.copyRange = { rows, rs: r2-r1+1, cs: c2-c1+1 };
+  // Single-cell backwards-compat
+  if(rows.length === 1 && rows[0].length === 1) PLAN.copy = rows[0][0];
+  else PLAN.copy = null;
+  // Tenta colocar no clipboard do sistema (pra Ctrl+V em outros apps)
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(tsvRows.join('\n'));
+    }
+  }catch(_){}
 }
 
 function planPasteCell(){
-  if(!PLAN.copy) return;
+  const p = PLAN.list.find(x => x.id === PLAN.curId); if(!p) return;
+  // Tenta primeiro o clipboard do sistema (pode ter vindo de Excel/Sheets)
+  if(navigator.clipboard && navigator.clipboard.readText){
+    navigator.clipboard.readText().then(txt => {
+      if(txt && (txt.includes('\t') || txt.includes('\n'))){
+        _planPasteTsv(txt);
+        return;
+      }
+      _planPasteInternal();
+    }).catch(() => _planPasteInternal());
+  } else {
+    _planPasteInternal();
+  }
+}
+
+function _planPasteInternal(){
   const p = PLAN.list.find(x => x.id === PLAN.curId); if(!p) return;
   const sheet = p.sheets[PLAN.sel.sheet];
-  const ref = _planCellRef(PLAN.sel.r, PLAN.sel.c);
-  sheet.cells[ref] = { v: PLAN.copy.v, s: Object.assign({}, PLAN.copy.s) };
+  _planSnap();
+  if(PLAN.copyRange){
+    // Cola range respeitando posição da seleção
+    const startR = PLAN.sel.r, startC = PLAN.sel.c;
+    for(let i = 0; i < PLAN.copyRange.rows.length; i++){
+      for(let j = 0; j < PLAN.copyRange.rows[i].length; j++){
+        const src = PLAN.copyRange.rows[i][j];
+        const dstRef = _planCellRef(startR + i, startC + j);
+        if(src) sheet.cells[dstRef] = { v: src.v, s: Object.assign({}, src.s||{}) };
+        else delete sheet.cells[dstRef];
+      }
+    }
+    // Cresce sheet se necessário
+    sheet.rows = Math.max(sheet.rows, startR + PLAN.copyRange.rs);
+    sheet.cols = Math.max(sheet.cols, startC + PLAN.copyRange.cs);
+    p.updatedAt = Date.now();
+    planSave(); planRender();
+  } else if(PLAN.copy){
+    const ref = _planCellRef(PLAN.sel.r, PLAN.sel.c);
+    sheet.cells[ref] = { v: PLAN.copy.v, s: Object.assign({}, PLAN.copy.s) };
+    p.updatedAt = Date.now();
+    planSave(); planRender();
+  }
+}
+
+// Cola TSV/CSV do clipboard externo (Excel, Google Sheets, etc)
+function _planPasteTsv(text){
+  const p = PLAN.list.find(x => x.id === PLAN.curId); if(!p) return;
+  _planSnap();
+  const sheet = p.sheets[PLAN.sel.sheet];
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
+  // remove última linha vazia
+  while(lines.length && lines[lines.length-1] === '') lines.pop();
+  // Detecta separador: TSV (\t) vs CSV (;,)
+  const firstLine = lines[0] || '';
+  let sep = '\t';
+  if(!firstLine.includes('\t')){
+    sep = firstLine.split(';').length > firstLine.split(',').length ? ';' : ',';
+  }
+  const startR = PLAN.sel.r, startC = PLAN.sel.c;
+  let maxC = 0;
+  for(let i = 0; i < lines.length; i++){
+    const cells = sep === '\t' ? lines[i].split('\t') : _planParseCsvLine(lines[i], sep);
+    if(cells.length > maxC) maxC = cells.length;
+    for(let j = 0; j < cells.length; j++){
+      let v = cells[j];
+      // Auto-converte número BR → número JS quando claro
+      if(/^-?\d{1,3}(\.\d{3})*,\d+$/.test(v) || /^-?\d+,\d+$/.test(v)){
+        const num = parseFloat(v.replace(/\./g,'').replace(',','.'));
+        if(!isNaN(num)) v = num;
+      } else if(/^-?\d+(\.\d+)?$/.test(v)){
+        const num = parseFloat(v);
+        if(!isNaN(num)) v = num;
+      }
+      const ref = _planCellRef(startR + i, startC + j);
+      if(v === '' || v == null) delete sheet.cells[ref];
+      else sheet.cells[ref] = { v: typeof v === 'number' ? v : String(v), s:{} };
+    }
+  }
+  sheet.rows = Math.max(sheet.rows, startR + lines.length + 2);
+  sheet.cols = Math.max(sheet.cols, startC + maxC + 1);
   p.updatedAt = Date.now();
-  planSave();
-  planRender();
+  planSave(); planRender();
+  if(typeof fkToast === 'function') fkToast(`📥 Coladas ${lines.length} linhas × ${maxC} col(s)`, 'ok', 2200);
 }
 
 function planFormat(kind, arg){
