@@ -103700,6 +103700,130 @@ function fkToast(msg, type, duration){
 }
 
 // ════════════════════════════════════════════════════════════════════
+// 💸 PIX BR CODE GENERATOR (EMV padrão Bacen)
+// ════════════════════════════════════════════════════════════════════
+// Gera o payload PIX no formato EMV/BR Code + renderiza QR via qrserver
+// Como usar: fkPixOpen({ chave, nome, cidade, valor, descricao, txid })
+function _pixField(id, val){
+  const v = String(val||'');
+  const len = String(v.length).padStart(2,'0');
+  return id + len + v;
+}
+function _pixNormalize(s, maxLen){
+  // Remove acentos · caps · trim · limita
+  return String(s||'')
+    .normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s\-_.,]/g,'')
+    .trim()
+    .slice(0, maxLen||25);
+}
+function _pixCrc16(payload){
+  // CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF, no reflection, no XOR)
+  let crc = 0xFFFF;
+  for(let i = 0; i < payload.length; i++){
+    crc ^= payload.charCodeAt(i) << 8;
+    for(let j = 0; j < 8; j++){
+      if(crc & 0x8000) crc = ((crc << 1) ^ 0x1021) & 0xFFFF;
+      else crc = (crc << 1) & 0xFFFF;
+    }
+  }
+  return crc.toString(16).toUpperCase().padStart(4,'0');
+}
+function fkPixGeneratePayload({chave, nome, cidade, valor, descricao, txid}){
+  if(!chave) throw new Error('Chave PIX obrigatória');
+  // Monta Merchant Account Info (id 26)
+  let mai = '0014BR.GOV.BCB.PIX' + _pixField('01', chave);
+  if(descricao){
+    mai += _pixField('02', String(descricao).slice(0, 72));
+  }
+  let payload = '';
+  payload += _pixField('00', '01');           // Payload Format Indicator
+  payload += _pixField('26', mai);            // Merchant Account Info (PIX)
+  payload += _pixField('52', '0000');         // Merchant Category Code
+  payload += _pixField('53', '986');          // Transaction Currency = BRL
+  if(valor && Number(valor) > 0){
+    payload += _pixField('54', Number(valor).toFixed(2));
+  }
+  payload += _pixField('58', 'BR');           // Country Code
+  payload += _pixField('59', _pixNormalize(nome||'PAGADOR', 25));
+  payload += _pixField('60', _pixNormalize(cidade||'SAO PAULO', 15));
+  // Additional Data Field (txid)
+  const tid = _pixNormalize(txid || '***', 25).replace(/\s/g,'');
+  payload += _pixField('62', _pixField('05', tid || '***'));
+  // CRC
+  const withCrc = payload + '6304';
+  const crc = _pixCrc16(withCrc);
+  return withCrc + crc;
+}
+
+function fkPixOpen(initial){
+  const old = document.getElementById('fk-pix-ov');
+  if(old) old.remove();
+  initial = initial || {};
+  const ov = document.createElement('div');
+  ov.id = 'fk-pix-ov';
+  ov.className = 'fk-shortcuts-ov';
+  ov.innerHTML =
+    `<div class="fk-shortcuts-card" style="width:min(540px,96vw)">`+
+      `<div class="fk-shortcuts-hd"><h2>💸 Gerar PIX QR Code</h2><button class="fk-shortcuts-x" onclick="fkPixClose()">×</button></div>`+
+      `<div class="fk-shortcuts-bd" style="display:flex;flex-direction:column;gap:12px;padding:18px">`+
+        `<label style="display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:#475569;font-weight:600">Chave PIX <input id="fkpix-chave" type="text" placeholder="CPF, CNPJ, email, telefone ou aleatória" value="${(initial.chave||'').replace(/"/g,'&quot;')}" style="padding:8px;border:1.5px solid #CBD5E1;border-radius:6px;font-size:.86rem"></label>`+
+        `<div style="display:flex;gap:10px"><label style="display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:#475569;font-weight:600;flex:2">Nome do beneficiário <input id="fkpix-nome" type="text" maxlength="25" placeholder="Razão social / nome" value="${(initial.nome||'').replace(/"/g,'&quot;')}" style="padding:8px;border:1.5px solid #CBD5E1;border-radius:6px;font-size:.86rem"></label><label style="display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:#475569;font-weight:600;flex:1">Cidade <input id="fkpix-cidade" type="text" maxlength="15" placeholder="Sao Paulo" value="${(initial.cidade||'').replace(/"/g,'&quot;')}" style="padding:8px;border:1.5px solid #CBD5E1;border-radius:6px;font-size:.86rem"></label></div>`+
+        `<div style="display:flex;gap:10px"><label style="display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:#475569;font-weight:600;flex:1">Valor (R$) <input id="fkpix-valor" type="number" step="0.01" min="0" placeholder="0,00 (opcional)" value="${initial.valor||''}" style="padding:8px;border:1.5px solid #CBD5E1;border-radius:6px;font-size:.86rem"></label><label style="display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:#475569;font-weight:600;flex:1">ID Transação <input id="fkpix-txid" type="text" maxlength="25" placeholder="*** ou TXID" value="${(initial.txid||'').replace(/"/g,'&quot;')}" style="padding:8px;border:1.5px solid #CBD5E1;border-radius:6px;font-size:.86rem"></label></div>`+
+        `<label style="display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:#475569;font-weight:600">Descrição (opcional) <input id="fkpix-desc" type="text" maxlength="72" placeholder="Ex: Mensalidade Plano Pro" value="${(initial.descricao||'').replace(/"/g,'&quot;')}" style="padding:8px;border:1.5px solid #CBD5E1;border-radius:6px;font-size:.86rem"></label>`+
+        `<div style="display:flex;gap:14px;align-items:center;padding:14px;background:#F8FAFC;border-radius:10px;margin-top:6px">`+
+          `<div id="fkpix-qr-img" style="width:200px;height:200px;background:#fff;border:1px solid #E2E8F0;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#94A3B8;font-size:.72rem">Preencha os campos pra gerar</div>`+
+          `<div style="flex:1"><div style="font-size:.7rem;color:#64748B;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">PIX Copia e Cola</div><textarea id="fkpix-cc" readonly style="width:100%;min-height:120px;padding:8px;font-family:'JetBrains Mono','Courier New',monospace;font-size:.7rem;border:1px solid #CBD5E1;border-radius:6px;background:#fff;resize:none" placeholder=""></textarea><button class="btn btn-sec" style="margin-top:6px;width:100%;font-size:.74rem" onclick="fkPixCopy()">📋 Copiar Copia-e-Cola</button></div>`+
+        `</div>`+
+      `</div>`+
+      `<div class="fk-shortcuts-ft"><button class="btn-cancel" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer;font-size:.76rem;margin-right:6px" onclick="fkPixClose()">Fechar</button><button class="btn-p" style="padding:7px 14px;border-radius:6px;background:#10B981;color:#fff;border:none;cursor:pointer;font-size:.76rem;font-weight:600" onclick="fkPixGen()">Gerar QR</button></div>`+
+    `</div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click', (e) => { if(e.target === ov) fkPixClose(); });
+  setTimeout(() => { const i = document.getElementById('fkpix-chave'); if(i) i.focus(); }, 30);
+}
+function fkPixClose(){
+  const ov = document.getElementById('fk-pix-ov');
+  if(ov) ov.remove();
+}
+function fkPixGen(){
+  try{
+    const chave = (document.getElementById('fkpix-chave')||{}).value || '';
+    const nome  = (document.getElementById('fkpix-nome')||{}).value || '';
+    const cidade= (document.getElementById('fkpix-cidade')||{}).value || '';
+    const valor = parseFloat((document.getElementById('fkpix-valor')||{}).value) || 0;
+    const txid  = (document.getElementById('fkpix-txid')||{}).value || '***';
+    const descricao = (document.getElementById('fkpix-desc')||{}).value || '';
+    if(!chave){ if(typeof fkToast === 'function') fkToast('Informe a chave PIX', 'warn'); return; }
+    const payload = fkPixGeneratePayload({ chave, nome, cidade, valor, descricao, txid });
+    // Render QR
+    const qrEl = document.getElementById('fkpix-qr-img');
+    if(qrEl){
+      const url = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&qzone=1&data=' + encodeURIComponent(payload);
+      qrEl.innerHTML = `<img src="${url}" alt="PIX QR" style="width:100%;height:100%;border-radius:4px">`;
+    }
+    const cc = document.getElementById('fkpix-cc');
+    if(cc) cc.value = payload;
+  }catch(e){
+    if(typeof fkToast === 'function') fkToast('Erro: ' + e.message, 'err');
+  }
+}
+function fkPixCopy(){
+  const cc = document.getElementById('fkpix-cc');
+  if(!cc || !cc.value){ if(typeof fkToast === 'function') fkToast('Gere o QR primeiro', 'warn'); return; }
+  cc.select();
+  try{
+    if(navigator.clipboard) navigator.clipboard.writeText(cc.value);
+    else document.execCommand('copy');
+    if(typeof fkToast === 'function') fkToast('📋 Copia-e-Cola copiado', 'ok');
+  }catch(e){
+    if(typeof fkToast === 'function') fkToast('Falha ao copiar', 'err');
+  }
+}
+try{ window.fkPixOpen = fkPixOpen; window.fkPixClose = fkPixClose; window.fkPixGen = fkPixGen; window.fkPixCopy = fkPixCopy; window.fkPixGeneratePayload = fkPixGeneratePayload; }catch(_){}
+
+// ════════════════════════════════════════════════════════════════════
 // ⌨ ATALHOS CHEATSHEET (tecla ?  abre modal global)
 // ════════════════════════════════════════════════════════════════════
 const FK_SHORTCUTS = {
