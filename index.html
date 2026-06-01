@@ -103788,6 +103788,181 @@ function fkToast(msg, type, duration){
 }
 
 // ════════════════════════════════════════════════════════════════════
+// 💼 COMISSÃO DE VENDEDOR · calculadora de regras
+// ════════════════════════════════════════════════════════════════════
+function fkCommissionCalc({receita, custoVar, meta, regra, pctSobre, valorFixo, escalonado}){
+  const rec = Number(receita)||0;
+  const cv = Number(custoVar)||0;
+  const margem = rec - cv;
+  const m = Number(meta)||0;
+  const pct = (Number(pctSobre)||0) / 100;
+  const fix = Number(valorFixo)||0;
+  let base = 0; let comissao = 0;
+  if(regra === 'pct-receita'){ base = rec; comissao = base * pct; }
+  else if(regra === 'pct-margem'){ base = margem; comissao = Math.max(0, base) * pct; }
+  else if(regra === 'fixo-mais-var'){ base = rec; comissao = fix + base * pct; }
+  else if(regra === 'so-fixo'){ base = 0; comissao = fix; }
+  else if(regra === 'escalonado'){
+    // escalonado: lista [{atePct, taxa}] cumulativo sobre receita
+    base = rec;
+    const atingPct = m > 0 ? rec / m : 0;
+    // Default progressivo: <80%=2%, 80-100%=3%, 100-120%=5%, >120%=8%
+    const tiers = escalonado || [
+      { ate: 0.80, taxa: 0.02 },
+      { ate: 1.00, taxa: 0.03 },
+      { ate: 1.20, taxa: 0.05 },
+      { ate: Infinity, taxa: 0.08 }
+    ];
+    let last = 0;
+    for(const t of tiers){
+      const cap = Math.min(atingPct, t.ate);
+      if(cap > last){
+        comissao += (cap - last) * m * t.taxa;
+        last = cap;
+      }
+    }
+  }
+  const atingPct = m > 0 ? rec / m : 0;
+  return { comissao, base, margem, atingMeta: atingPct, percEfetivo: rec > 0 ? comissao/rec : 0 };
+}
+
+function fkCommissionOpen(){
+  const old = document.getElementById('fk-com-ov');
+  if(old){ old.remove(); return; }
+  const ov = document.createElement('div');
+  ov.id = 'fk-com-ov';
+  ov.className = 'fk-shortcuts-ov';
+  ov.innerHTML =
+    `<div class="fk-shortcuts-card" style="width:min(680px,98vw);max-height:92vh">`+
+      `<div class="fk-shortcuts-hd"><h2>💼 Calculadora de Comissão</h2><button class="fk-shortcuts-x" onclick="fkCommissionClose()">×</button></div>`+
+      `<div class="fk-shortcuts-bd" style="padding:18px">`+
+        `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px">`+
+          `<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#475569;font-weight:600">Regra de cálculo<select id="fkcom-regra" style="padding:7px;border:1.5px solid #CBD5E1;border-radius:5px;font-family:inherit"><option value="pct-receita">% sobre Receita</option><option value="pct-margem">% sobre Margem (Receita − Custo)</option><option value="fixo-mais-var">Fixo + Variável (% receita)</option><option value="so-fixo">Só Fixo</option><option value="escalonado">Escalonada por meta (2/3/5/8%)</option></select></label>`+
+          `<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#475569;font-weight:600">Receita vendida (R$)<input id="fkcom-rec" type="number" step="0.01" value="50000" style="padding:7px;border:1.5px solid #CBD5E1;border-radius:5px"></label>`+
+          `<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#475569;font-weight:600">Custo variável (R$)<input id="fkcom-cv" type="number" step="0.01" value="20000" placeholder="opcional" style="padding:7px;border:1.5px solid #CBD5E1;border-radius:5px"></label>`+
+          `<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#475569;font-weight:600">Meta (R$)<input id="fkcom-meta" type="number" step="0.01" value="40000" style="padding:7px;border:1.5px solid #CBD5E1;border-radius:5px"></label>`+
+          `<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#475569;font-weight:600">% comissão<input id="fkcom-pct" type="number" step="0.1" value="5" style="padding:7px;border:1.5px solid #CBD5E1;border-radius:5px"></label>`+
+          `<label style="display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:#475569;font-weight:600">Valor fixo (R$)<input id="fkcom-fix" type="number" step="0.01" value="0" placeholder="usado em Fixo+Var ou Só Fixo" style="padding:7px;border:1.5px solid #CBD5E1;border-radius:5px"></label>`+
+        `</div>`+
+        `<button class="btn-p" style="padding:9px 16px;background:#10B981;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:.84rem;width:100%;margin-bottom:14px" onclick="fkCommissionRun()">⟳ Calcular comissão</button>`+
+        `<div id="fkcom-result"></div>`+
+      `</div>`+
+      `<div class="fk-shortcuts-ft"><button class="btn-cancel" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer;font-size:.76rem" onclick="fkCommissionClose()">Fechar</button></div>`+
+    `</div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click', (e) => { if(e.target === ov) fkCommissionClose(); });
+  fkCommissionRun();
+}
+function fkCommissionClose(){ const ov=document.getElementById('fk-com-ov'); if(ov) ov.remove(); }
+function fkCommissionRun(){
+  const r = fkCommissionCalc({
+    receita: parseFloat(document.getElementById('fkcom-rec')?.value)||0,
+    custoVar: parseFloat(document.getElementById('fkcom-cv')?.value)||0,
+    meta: parseFloat(document.getElementById('fkcom-meta')?.value)||0,
+    regra: document.getElementById('fkcom-regra')?.value,
+    pctSobre: parseFloat(document.getElementById('fkcom-pct')?.value)||0,
+    valorFixo: parseFloat(document.getElementById('fkcom-fix')?.value)||0
+  });
+  const fmt = (n) => 'R$ ' + (Number(n)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const pf = (n) => (n*100).toFixed(1) + '%';
+  const out = document.getElementById('fkcom-result');
+  if(!out) return;
+  out.innerHTML = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">`+
+    `<div style="background:#ECFDF5;padding:14px;border-radius:10px;border:1px solid #A7F3D0"><div style="font-size:.7rem;color:#065F46;font-weight:700">COMISSÃO TOTAL</div><div style="font-size:1.5rem;font-weight:900;color:#065F46;margin-top:4px">${fmt(r.comissao)}</div></div>`+
+    `<div style="background:#F8FAFC;padding:14px;border-radius:10px"><div style="font-size:.7rem;color:#64748B;font-weight:700">MARGEM BRUTA</div><div style="font-size:1.2rem;font-weight:700;color:#0F172A;margin-top:4px">${fmt(r.margem)}</div></div>`+
+    `<div style="background:#F8FAFC;padding:14px;border-radius:10px"><div style="font-size:.7rem;color:#64748B;font-weight:700">ATINGIMENTO META</div><div style="font-size:1.2rem;font-weight:700;color:${r.atingMeta>=1?'#10B981':r.atingMeta>=.8?'#F59E0B':'#EF4444'};margin-top:4px">${pf(r.atingMeta)}</div></div>`+
+  `</div>`+
+  `<div style="background:#F1F5F9;padding:12px;border-radius:8px;font-size:.78rem;color:#475569;margin-top:12px">💡 % efetivo sobre receita: <b>${pf(r.percEfetivo)}</b> · use isso pra comparar regras diferentes</div>`;
+}
+try{ window.fkCommissionOpen = fkCommissionOpen; window.fkCommissionClose = fkCommissionClose; window.fkCommissionRun = fkCommissionRun; window.fkCommissionCalc = fkCommissionCalc; }catch(_){}
+
+// ════════════════════════════════════════════════════════════════════
+// 🚨 DETECÇÃO DE ANOMALIAS NO EXTRATO
+// ════════════════════════════════════════════════════════════════════
+function fkAnomaliasDetect(){
+  if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return [];
+  const lan = extratoData.lancamentos;
+  const out = [];
+  // Anomalia 1: duplicatas potenciais (mesmo valor + mesma data + mesma descrição)
+  const seen = new Map();
+  for(const l of lan){
+    const key = `${l.data}|${l.valor}|${(l.descricao||'').slice(0,40).toLowerCase()}`;
+    if(seen.has(key)){
+      out.push({
+        type:'duplicata',
+        severity:'warn',
+        titulo:'Possível duplicata',
+        msg:`"${l.descricao || '—'}" em ${l.data} · R$ ${Math.abs(l.valor||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}`,
+        ids:[seen.get(key), l.id]
+      });
+    } else {
+      seen.set(key, l.id);
+    }
+  }
+  // Anomalia 2: outliers por categoria (>3× mediana)
+  const porCat = new Map();
+  for(const l of lan){
+    const v = Math.abs(l.valor||0); if(v <= 0) continue;
+    const cat = l.categoria || '(sem)';
+    if(!porCat.has(cat)) porCat.set(cat, []);
+    porCat.get(cat).push({ v, lanc: l });
+  }
+  for(const [cat, arr] of porCat){
+    if(arr.length < 4) continue;
+    const sorted = arr.map(x=>x.v).sort((a,b)=>a-b);
+    const med = sorted[Math.floor(sorted.length/2)];
+    if(med <= 0) continue;
+    for(const x of arr){
+      if(x.v > med * 3.5){
+        out.push({
+          type:'outlier',
+          severity:'info',
+          titulo:'Valor muito alto pra categoria',
+          msg:`"${x.lanc.descricao || '—'}" em ${cat} · R$ ${x.v.toLocaleString('pt-BR',{minimumFractionDigits:2})} (${(x.v/med).toFixed(1)}× a mediana)`,
+          ids:[x.lanc.id]
+        });
+      }
+    }
+  }
+  // Anomalia 3: sem categoria
+  const semCat = lan.filter(l => !l.categoria || l.categoria === '(sem)' || l.categoria === '').length;
+  if(semCat > 0){
+    out.push({
+      type:'sem-cat',
+      severity:'info',
+      titulo:`${semCat} lançamento(s) sem categoria`,
+      msg:'Categorize pra melhorar relatórios e DRE'
+    });
+  }
+  return out;
+}
+function fkAnomaliasOpen(){
+  const old = document.getElementById('fk-anom-ov');
+  if(old){ old.remove(); return; }
+  const anomalias = fkAnomaliasDetect();
+  const ov = document.createElement('div');
+  ov.id = 'fk-anom-ov';
+  ov.className = 'fk-shortcuts-ov';
+  const cards = anomalias.length === 0
+    ? `<div style="text-align:center;padding:40px 20px;color:#10B981"><div style="font-size:3rem">✓</div><h3 style="margin:10px 0 4px">Nenhuma anomalia encontrada</h3><p style="color:#64748B;font-size:.86rem">Seu extrato tá limpo · sem duplicatas, outliers ou lançamentos sem categoria.</p></div>`
+    : anomalias.map(a =>
+        `<div class="fk-anom-card" style="background:${a.severity==='warn'?'#FEF3C7':'#F8FAFC'};border-left:3px solid ${a.severity==='warn'?'#F59E0B':'#3B82F6'};border-radius:6px;padding:12px 14px;margin-bottom:8px">`+
+          `<div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-size:.84rem;font-weight:700;color:#0F172A">${a.titulo}</div><div style="font-size:.76rem;color:#475569;margin-top:3px">${a.msg}</div></div><span style="font-size:.7rem;color:#94A3B8;text-transform:uppercase;font-weight:700">${a.type}</span></div>`+
+        `</div>`
+      ).join('');
+  ov.innerHTML =
+    `<div class="fk-shortcuts-card" style="width:min(640px,98vw);max-height:92vh">`+
+      `<div class="fk-shortcuts-hd"><h2>🚨 Detector de Anomalias · Extrato</h2><button class="fk-shortcuts-x" onclick="fkAnomaliasClose()">×</button></div>`+
+      `<div class="fk-shortcuts-bd" style="padding:18px">${cards}</div>`+
+      `<div class="fk-shortcuts-ft"><span style="margin-right:auto;font-size:.74rem;color:#64748B">${anomalias.length} anomalia(s) detectada(s)</span><button class="btn-cancel" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer;font-size:.76rem" onclick="fkAnomaliasClose()">Fechar</button></div>`+
+    `</div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click', (e) => { if(e.target === ov) fkAnomaliasClose(); });
+}
+function fkAnomaliasClose(){ const ov=document.getElementById('fk-anom-ov'); if(ov) ov.remove(); }
+try{ window.fkAnomaliasDetect = fkAnomaliasDetect; window.fkAnomaliasOpen = fkAnomaliasOpen; window.fkAnomaliasClose = fkAnomaliasClose; }catch(_){}
+
+// ════════════════════════════════════════════════════════════════════
 // 🏢 PATRIMÔNIO · calculadora de depreciação (linear · padrões fiscais BR)
 // ════════════════════════════════════════════════════════════════════
 const FK_DEPR_TYPES = [
