@@ -9728,6 +9728,25 @@
       .sidebar{display:none !important}
       .app-layout{margin-left:0 !important}
     }
+    /* ── CFO Virtual modal ── */
+    .fk-shortcuts-card.fk-cfo-card-wrap{width:min(680px,98vw);max-height:92vh;display:flex;flex-direction:column}
+    .fk-shortcuts-card .fk-cfo-bd{padding:18px;overflow:auto;display:flex;flex-direction:column;gap:14px;grid-template-columns:none}
+    .fk-cfo-intro{font-size:.78rem;color:#64748B;padding:10px 14px;background:#F1F5F9;border-radius:8px;line-height:1.5}
+    .fk-cfo-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .fk-cfo-action-audio,.fk-cfo-action-refresh{background:#fff;border:1.5px solid #CBD5E1;padding:7px 14px;border-radius:7px;cursor:pointer;font-size:.78rem;font-weight:600;color:#475569;font-family:inherit;transition:all .12s}
+    .fk-cfo-action-audio:hover,.fk-cfo-action-refresh:hover{border-color:#10B981;color:#10B981;background:#ECFDF5}
+    .fk-cfo-action-audio{background:#10B981;color:#fff;border-color:#10B981}
+    .fk-cfo-action-audio:hover{background:#059669;color:#fff}
+    .fk-cfo-cards{display:flex;flex-direction:column;gap:10px}
+    .fk-cfo-card{display:flex;gap:12px;background:#F8FAFC;border-radius:10px;padding:14px;transition:transform .12s,box-shadow .12s}
+    .fk-cfo-card:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(15,23,42,.08)}
+    .fk-cfo-card-icon{width:42px;height:42px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;flex-shrink:0}
+    .fk-cfo-card-body{flex:1;min-width:0}
+    .fk-cfo-card-title{font-weight:700;color:#0F172A;font-size:.88rem;margin-bottom:4px}
+    .fk-cfo-card-msg{font-size:.78rem;color:#475569;line-height:1.5;margin-bottom:8px}
+    .fk-cfo-card-msg b{color:#0F172A}
+    .fk-cfo-card-btn{background:transparent;border:1.5px solid;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:.74rem;font-weight:700;font-family:inherit;transition:all .12s}
+    .fk-cfo-card-btn:hover{transform:translateX(2px)}
     /* ── Simulador de Amortização (fkls) ──
        Selectors específicos pra sobrescrever .fk-shortcuts-card e .fk-shortcuts-bd */
     .fk-shortcuts-card.fkls-card{width:min(1100px,98vw);max-height:92vh;display:flex;flex-direction:column}
@@ -98187,6 +98206,7 @@ const CMDK_COMMANDS = [
   { group:'Ações',   label:'🏢 Comparar empresas do grupo', ico:'🏢', kbd:'', action:() => { if(typeof empresasComparar==='function') empresasComparar(); } },
   { group:'Ações',   label:'Gerar Daily Briefing agora', ico:'🌅', kbd:'', action:() => { if(typeof dailyBriefingNow === 'function') dailyBriefingNow(); } },
   // ─── Novas ferramentas (Maratona) ───
+  { group:'Ferramentas', label:'🧠 CFO Virtual · decisões sugeridas', ico:'🧠', kbd:'', action:() => { if(typeof fkCfoOpen === 'function') fkCfoOpen(); } },
   { group:'Ferramentas', label:'💸 Gerar PIX QR Code', ico:'💸', kbd:'', action:() => { if(typeof fkPixOpen === 'function') fkPixOpen(); } },
   { group:'Ferramentas', label:'📅 Simulador de amortização (PRICE × SAC)', ico:'📅', kbd:'', action:() => { if(typeof fkLoanScheduleOpen === 'function') fkLoanScheduleOpen(); } },
   { group:'Ferramentas', label:'🏢 Calculadora de depreciação', ico:'🏢', kbd:'', action:() => { if(typeof fkDepreciateOpen === 'function') fkDepreciateOpen(); } },
@@ -104342,6 +104362,221 @@ function fkLoanSchedule({principal, rateMonthly, months, method, extraPayment, e
     mesesQuitacao: rows.length
   };
 }
+
+// ════════════════════════════════════════════════════════════════════
+// 🧠 CFO VIRTUAL · painel de decisões acionáveis + briefing em áudio
+// ════════════════════════════════════════════════════════════════════
+function fkCfoGenerateDecisions(){
+  const out = [];
+  const fmt = (n) => 'R$ ' + (Number(n)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  // ─── 1. Caixa ocioso ───
+  let caixaTotal = 0;
+  try{
+    if(typeof dispo !== 'undefined' && Array.isArray(dispo.bancos)){
+      for(const b of dispo.bancos) if(b.ativo) caixaTotal += parseFloat(b.saldoAtual)||0;
+    }
+  }catch(_){}
+  if(caixaTotal > 50000){
+    const sugerido = Math.floor(caixaTotal * 0.7);
+    const rendMes = Math.round(sugerido * 0.0095);
+    out.push({tipo:'aplicacao',severity:'info',icon:'💰',titulo:'Caixa ocioso · sugerir aplicação',msg:`Você tem <b>${fmt(caixaTotal)}</b> livre. Aplicar <b>${fmt(sugerido)}</b> em CDB 100% CDI renderia <b>+${fmt(rendMes)}/mês</b>.`,acao:'Simular aplicação',handler:'fkCfoSimulateInvest('+sugerido+')'});
+  }
+  // ─── 2. Cobranças atrasadas ───
+  let cobAt = 0, vCob = 0;
+  try{
+    if(typeof ASAAS !== 'undefined' && Array.isArray(ASAAS.cobrancas)){
+      const h = new Date(); h.setHours(0,0,0,0);
+      for(const c of ASAAS.cobrancas){
+        if(c.status === 'recebido') continue;
+        const dt = new Date(c.vencimento || c.dataVencimento);
+        if(!isNaN(dt) && dt < h){ cobAt++; vCob += parseFloat(c.valor)||0; }
+      }
+    }
+  }catch(_){}
+  if(cobAt > 0){
+    out.push({tipo:'cobranca',severity:'warn',icon:'⚠',titulo:`${cobAt} cobrança(s) em atraso`,msg:`Total atrasado: <b>${fmt(vCob)}</b>. Lembretes automáticos via WhatsApp/Email recuperam ~70% em 7 dias.`,acao:'Enviar lembretes',handler:'fkCfoSendReminders()'});
+  }
+  // ─── 3. Runway ───
+  try{
+    const queima = _fkCfoQueimaMensal();
+    if(queima > 0 && caixaTotal > 0){
+      const meses = caixaTotal / queima;
+      if(meses < 6){
+        const dias = Math.floor(meses * 30);
+        const sev = meses < 2 ? 'danger' : (meses < 4 ? 'warn' : 'info');
+        out.push({tipo:'runway',severity:sev,icon: meses<2?'🔥':'⏰',titulo:`Runway: ${dias} dias até zerar`,msg:`Queima atual <b>${fmt(queima)}/mês</b> → caixa zera em <b>${meses.toFixed(1)} meses</b>. Veja 3 alavancas pra estender.`,acao:'Ver plano de runway',handler:'fkCfoRunwayPlan('+caixaTotal+','+queima+')'});
+      }
+    }
+  }catch(_){}
+  // ─── 4. Tributário ───
+  try{
+    const recA = _fkCfoReceitaUltimos12();
+    if(recA > 200000 && recA < 4800000){
+      out.push({tipo:'tributario',severity:'info',icon:'📊',titulo:'Revisar regime tributário',msg:`Faturamento últimos 12m: <b>${fmt(recA)}</b>. Cruzar Lucro Presumido × Simples pode revelar economia anual.`,acao:'Simular regimes',handler:'fkCfoSimulateRegime('+recA+')'});
+    }
+  }catch(_){}
+  // ─── 5. Anomalias ───
+  try{
+    const an = (typeof fkAnomaliasDetect === 'function') ? fkAnomaliasDetect() : [];
+    if(an.length > 2){
+      out.push({tipo:'anomalia',severity:'warn',icon:'🚨',titulo:`${an.length} anomalia(s) no extrato`,msg:`Duplicatas, outliers ou lançamentos sem categoria. Resolver agora evita retrabalho no imposto.`,acao:'Revisar anomalias',handler:'fkAnomaliasOpen()'});
+    }
+  }catch(_){}
+  // ─── 6. Concentração ───
+  try{
+    const conc = _fkCfoConcentracaoReceita();
+    if(conc && conc.topCliPct > 0.30){
+      out.push({tipo:'concentracao',severity:'warn',icon:'🎯',titulo:`Concentração em ${conc.topCliNome}`,msg:`<b>${conc.topCliNome}</b> é <b>${(conc.topCliPct*100).toFixed(0)}%</b> da receita. Perder esse cliente derrubaria o caixa.`,acao:'Ver pareto',handler:'fkCfoOpenPareto()'});
+    }
+  }catch(_){}
+  return out;
+}
+function _fkCfoQueimaMensal(){
+  if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return 0;
+  const now = new Date(); let tot = 0, cnt = 0;
+  for(let m = 0; m < 3; m++){
+    const d = new Date(now.getFullYear(), now.getMonth() - m, 1);
+    const ym = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    let mt = 0;
+    for(const l of extratoData.lancamentos){
+      if(l.tipo === 'ganho' || l.tipo === 'transferencia') continue;
+      if(!l.data || !l.data.startsWith(ym)) continue;
+      mt += Math.abs(parseFloat(l.valor)||0);
+    }
+    if(mt > 0){ tot += mt; cnt++; }
+  }
+  return cnt ? tot/cnt : 0;
+}
+function _fkCfoReceitaUltimos12(){
+  if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return 0;
+  const lim = new Date(); lim.setFullYear(lim.getFullYear()-1);
+  let tot = 0;
+  for(const l of extratoData.lancamentos){
+    if(l.tipo !== 'ganho') continue;
+    const dt = new Date(l.data);
+    if(isNaN(dt) || dt < lim) continue;
+    tot += Math.abs(parseFloat(l.valor)||0);
+  }
+  return tot;
+}
+function _fkCfoConcentracaoReceita(){
+  if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return null;
+  const m = new Map(); let tot = 0;
+  for(const l of extratoData.lancamentos){
+    if(l.tipo !== 'ganho') continue;
+    const cli = l.contraparte || '(sem)';
+    const v = Math.abs(parseFloat(l.valor)||0);
+    m.set(cli, (m.get(cli)||0)+v); tot += v;
+  }
+  if(!tot) return null;
+  let nm = null, mx = 0;
+  for(const [c, v] of m) if(v > mx){ mx = v; nm = c; }
+  return { topCliNome: nm, topCliPct: mx/tot, total: tot };
+}
+function fkCfoOpen(){
+  const old = document.getElementById('fk-cfo-ov'); if(old){ old.remove(); return; }
+  const decisions = fkCfoGenerateDecisions();
+  const ov = document.createElement('div');
+  ov.id = 'fk-cfo-ov';
+  ov.className = 'fk-shortcuts-ov';
+  const cards = decisions.length === 0
+    ? `<div style="text-align:center;padding:40px 20px"><div style="font-size:3rem">🎯</div><h3 style="margin:10px 0 4px;color:#10B981">Tudo sob controle</h3><p style="color:#64748B;font-size:.86rem">Nenhuma decisão urgente no momento.</p></div>`
+    : decisions.map(d => {
+        const colors = { danger:'#EF4444', warn:'#F59E0B', info:'#3B82F6' };
+        const c = colors[d.severity] || '#3B82F6';
+        return `<div class="fk-cfo-card" style="border-left:4px solid ${c}">`+
+          `<div class="fk-cfo-card-icon" style="background:${c}20;color:${c}">${d.icon}</div>`+
+          `<div class="fk-cfo-card-body">`+
+            `<div class="fk-cfo-card-title">${d.titulo}</div>`+
+            `<div class="fk-cfo-card-msg">${d.msg}</div>`+
+            (d.acao ? `<button class="fk-cfo-card-btn" onclick="${d.handler}" style="border-color:${c};color:${c}">${d.acao} →</button>` : '')+
+          `</div></div>`;
+      }).join('');
+  ov.innerHTML =
+    `<div class="fk-shortcuts-card fk-cfo-card-wrap">`+
+      `<div class="fk-shortcuts-hd"><h2>🧠 MR KASH · CFO Virtual</h2><button class="fk-shortcuts-x" onclick="fkCfoClose()">×</button></div>`+
+      `<div class="fk-shortcuts-bd fk-cfo-bd">`+
+        `<div class="fk-cfo-intro">Decisões sugeridas com base nos seus dados de hoje. Tudo é só sugestão — você decide.</div>`+
+        `<div class="fk-cfo-actions"><button class="fk-cfo-action-audio" onclick="fkCfoPlayBriefing()">🎧 Ouvir briefing</button><button class="fk-cfo-action-refresh" onclick="fkCfoOpen()">⟳ Atualizar</button></div>`+
+        `<div class="fk-cfo-cards">${cards}</div>`+
+      `</div>`+
+      `<div class="fk-shortcuts-ft"><span style="margin-right:auto;font-size:.74rem;color:#64748B">${decisions.length} sugestão(ões)</span><button class="btn-cancel" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer;font-size:.76rem" onclick="fkCfoClose()">Fechar</button></div>`+
+    `</div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click', (e) => { if(e.target === ov) fkCfoClose(); });
+}
+function fkCfoClose(){ const ov = document.getElementById('fk-cfo-ov'); if(ov) ov.remove(); fkCfoStopBriefing(); }
+function fkCfoSimulateInvest(v){ fkCfoClose(); if(typeof fkLoanScheduleOpen === 'function') fkLoanScheduleOpen({ principal: v, rate: 0.95, months: 12 }); }
+function fkCfoSendReminders(){ if(typeof fkToast === 'function') fkToast('💬 Veja Asaas pra enviar lembretes', 'ok', 2500); if(typeof switchModule === 'function') switchModule('asaas', null); fkCfoClose(); }
+function fkCfoRunwayPlan(caixa, queima){
+  const meses = caixa/queima; fkCfoClose();
+  const fmt = n => 'R$ ' + Math.round(n).toLocaleString('pt-BR');
+  anaAlert({ eyebrow:'Plano de Runway', title:`Caixa zera em ${meses.toFixed(1)} meses`, message:
+    `<div style="text-align:left;font-size:.84rem;line-height:1.5">`+
+    `<b>🎯 3 alavancas pra estender:</b><br><br>`+
+    `<b>1. Cortar despesas variáveis 20%</b><br>→ ~${(meses*1.25).toFixed(1)} meses de runway<br><br>`+
+    `<b>2. Antecipar 50% dos recebíveis (taxa 2,5%)</b><br>→ +${fmt(caixa*0.3)} no caixa imediato<br><br>`+
+    `<b>3. Captar R$ ${fmt(queima*6)} de empréstimo</b><br>→ Compra ~6 meses · custo ~1,5% a.m.<br><br>`+
+    `<small style="color:#64748B">Recomendação: 1+2 antes de 3.</small></div>`,
+    okText:'Entendi' });
+}
+function fkCfoSimulateRegime(rec){ fkCfoClose(); if(typeof switchModule === 'function') switchModule('impostos', null); if(typeof fkToast === 'function') fkToast('📊 Veja simulador de regime na aba Fiscal', 'info', 2500); }
+function fkCfoOpenPareto(){
+  fkCfoClose();
+  if(typeof extratoData === 'undefined') return;
+  const m = new Map(); let tot = 0;
+  for(const l of (extratoData.lancamentos||[])){
+    if(l.tipo !== 'ganho') continue;
+    const c = l.contraparte || '(sem)'; const v = Math.abs(parseFloat(l.valor)||0);
+    m.set(c, (m.get(c)||0)+v); tot += v;
+  }
+  const arr = Array.from(m.entries()).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  const lines = arr.map((x,i)=>{
+    const pct = tot>0 ? (x[1]/tot*100).toFixed(1) : 0;
+    return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #F1F5F9"><span>${i+1}. ${x[0]}</span><span style="font-family:monospace"><b>R$ ${x[1].toLocaleString('pt-BR',{minimumFractionDigits:2})}</b> · ${pct}%</span></div>`;
+  }).join('');
+  anaAlert({ eyebrow:'Pareto', title:'Top 10 clientes por receita', message:`<div style="text-align:left;font-size:.84rem;max-height:50vh;overflow:auto">${lines}</div>`, okText:'OK' });
+}
+let _fkCfoUtter = null;
+function fkCfoBuildBriefingText(){
+  const decisions = fkCfoGenerateDecisions();
+  const fmt = n => 'R$ ' + (Number(n)||0).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
+  let txt = 'Olá! Aqui é o Mister Kash com seu briefing diário. ';
+  let caixa = 0;
+  try{ if(typeof dispo!=='undefined' && Array.isArray(dispo.bancos)) for(const b of dispo.bancos) if(b.ativo) caixa += parseFloat(b.saldoAtual)||0; }catch(_){}
+  if(caixa > 0) txt += `Você tem ${fmt(caixa)} disponíveis no caixa. `;
+  if(decisions.length === 0){ txt += 'Não detectei nenhuma decisão urgente hoje. Continue assim. '; }
+  else {
+    txt += `Tenho ${decisions.length} ${decisions.length===1?'sugestão':'sugestões'} pra você. `;
+    for(let i=0;i<Math.min(decisions.length,4);i++){
+      const d = decisions[i];
+      const limpo = (d.msg||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+      txt += `Item ${i+1}: ${d.titulo}. ${limpo} `;
+    }
+  }
+  txt += 'Bom dia e até a próxima!';
+  return txt;
+}
+function fkCfoPlayBriefing(){
+  if(!('speechSynthesis' in window)){ if(typeof fkToast === 'function') fkToast('Áudio não suportado nesse navegador', 'warn'); return; }
+  fkCfoStopBriefing();
+  const u = new SpeechSynthesisUtterance(fkCfoBuildBriefingText());
+  u.lang = 'pt-BR'; u.rate = 1.05;
+  const voices = window.speechSynthesis.getVoices();
+  const v = voices.find(x => /pt-BR|pt_BR/i.test(x.lang)) || voices.find(x => /^pt/i.test(x.lang));
+  if(v) u.voice = v;
+  _fkCfoUtter = u;
+  window.speechSynthesis.speak(u);
+  if(typeof fkToast === 'function') fkToast('🎧 Tocando briefing...', 'info', 2200);
+}
+function fkCfoStopBriefing(){ try{ if('speechSynthesis' in window) window.speechSynthesis.cancel(); }catch(_){} _fkCfoUtter = null; }
+try{
+  window.fkCfoOpen = fkCfoOpen; window.fkCfoClose = fkCfoClose;
+  window.fkCfoPlayBriefing = fkCfoPlayBriefing; window.fkCfoStopBriefing = fkCfoStopBriefing;
+  window.fkCfoSimulateInvest = fkCfoSimulateInvest; window.fkCfoSendReminders = fkCfoSendReminders;
+  window.fkCfoRunwayPlan = fkCfoRunwayPlan; window.fkCfoSimulateRegime = fkCfoSimulateRegime;
+  window.fkCfoOpenPareto = fkCfoOpenPareto; window.fkCfoGenerateDecisions = fkCfoGenerateDecisions;
+}catch(_){}
 
 function fkLoanScheduleOpen(initial){
   const old = document.getElementById('fk-loan-sched-ov');
