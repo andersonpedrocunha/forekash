@@ -4047,6 +4047,45 @@
     .ks-chart-tip.show{display:block}
     .ks-chart-tip b{color:#10B981;font-weight:700}
 
+    /* SCORE FOREKASH · benchmark setorial (tema terminal/Matrix) */
+    .ks-bench{background:#0F172A;border:1px solid #1E293B;border-radius:14px;
+              padding:18px 22px;margin:22px 0;cursor:pointer;
+              font-family:'JetBrains Mono','Courier New',monospace;
+              box-shadow:inset 0 0 40px rgba(16,185,129,.04);
+              transition:border-color .15s,transform .15s,box-shadow .15s}
+    .ks-bench:hover{border-color:#10B981;transform:translateY(-1px);
+                    box-shadow:inset 0 0 60px rgba(16,185,129,.08),0 6px 20px rgba(16,185,129,.12)}
+    .ks-bench-hd{display:flex;justify-content:space-between;align-items:center;
+                 padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid #1E293B}
+    .ks-bench-eyebrow{font-size:.7rem;color:#10B981;font-weight:700;
+                      letter-spacing:.08em;text-transform:uppercase}
+    .ks-bench-sec{font-size:.7rem;color:#64748B;font-weight:600;letter-spacing:.04em}
+    .ks-bench-body{display:flex;align-items:center;gap:24px;margin-bottom:16px}
+    .ks-bench-num{font-size:3.4rem;font-weight:900;line-height:1;
+                  font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+    .ks-bench-meta{flex:1;display:flex;flex-direction:column;gap:4px}
+    .ks-bench-nivel{font-size:1.1rem;font-weight:800;letter-spacing:.06em}
+    .ks-bench-desc{font-size:.78rem;color:#94A3B8;line-height:1.4}
+    .ks-bench-bar{height:6px;background:#1E293B;border-radius:3px;overflow:hidden;margin-top:6px}
+    .ks-bench-bar-fill{height:100%;border-radius:3px;transition:width .5s}
+    .ks-bench-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+    .ks-bench-stat{background:#0B1220;border:1px solid #1E293B;border-radius:8px;padding:10px 12px}
+    .ks-bench-stat .lbl{font-size:.62rem;color:#64748B;font-weight:700;
+                        letter-spacing:.08em;display:block;margin-bottom:6px}
+    .ks-bench-stat .row{display:flex;justify-content:space-between;align-items:center;
+                        gap:10px;flex-wrap:wrap}
+    .ks-bench-stat .own{font-size:.96rem;color:#E2E8F0;font-weight:700;
+                        font-variant-numeric:tabular-nums}
+    .ks-bench-stat .bench{font-size:.7rem;color:#64748B}
+    .ks-bench-stat .cmp{font-size:.72rem;font-weight:700;letter-spacing:.02em}
+    .ks-bench-foot{font-size:.7rem;color:#475569;text-align:right;
+                   padding-top:10px;border-top:1px dashed #1E293B}
+    @media(max-width:600px){
+      .ks-bench-body{flex-direction:column;align-items:flex-start;gap:10px}
+      .ks-bench-num{font-size:2.6rem}
+      .ks-bench-grid{grid-template-columns:1fr}
+    }
+
     /* Breakdown */
     /* Vitals · v3 cards clínicos (substitui ks-vet) */
     .ks-vitals{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -69101,19 +69140,45 @@ function _ksRenderPanel(){
     +   '</div>'
     + '</div>';
 
-  // ─── 📊 Score Forekash · benchmark setorial ──
+  // ─── 📊 SCORE FOREKASH · benchmark setorial (tema terminal, igual aos vitals) ──
   try{
     if(typeof fkBenchScore === 'function'){
       const bench = fkBenchScore();
-      html += '<div class="ks-bench-card" onclick="fkBenchOpen()" style="background:linear-gradient(135deg,'+bench.nivel.cor+'15,'+bench.nivel.cor+'05);border:1.5px solid '+bench.nivel.cor+';border-radius:12px;padding:16px 20px;margin:18px 0;cursor:pointer;display:flex;align-items:center;gap:18px;transition:transform .12s">'
-        +'<div style="font-size:2.6rem;font-weight:900;color:'+bench.nivel.cor+';line-height:1;font-variant-numeric:tabular-nums">'+bench.score+'</div>'
-        +'<div style="flex:1">'
-          +'<div style="font-size:.7rem;color:#64748B;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">📊 SCORE FOREKASH · vs Mercado</div>'
-          +'<div style="font-size:1.05rem;font-weight:700;color:'+bench.nivel.cor+'">'+bench.nivel.nome+'</div>'
-          +'<div style="font-size:.78rem;color:#475569;margin-top:2px">'+bench.nivel.desc+' · setor: '+(bench.bench.label||'—')+'</div>'
-        +'</div>'
-        +'<div style="font-size:.78rem;color:#64748B;font-weight:600">Ver detalhes →</div>'
-      +'</div>';
+      const fmt = (n) => n == null ? '—' : (typeof n === 'number' ? n.toFixed(1)+'%' : n);
+      const cmp = (own, target, inv) => {
+        if(own == null) return { lbl:'sem dados', cor:'#64748B' };
+        const diff = ((own - target) / target) * 100;
+        if(inv){
+          if(diff < -10) return { lbl:`▲ ${Math.abs(diff).toFixed(0)}% melhor`, cor:'#10B981' };
+          if(diff > 10) return { lbl:`▼ ${diff.toFixed(0)}% pior`, cor:'#EF4444' };
+          return { lbl:`= em linha`, cor:'#F59E0B' };
+        } else {
+          if(diff > 10) return { lbl:`▲ +${diff.toFixed(0)}%`, cor:'#10B981' };
+          if(diff < -10) return { lbl:`▼ ${diff.toFixed(0)}%`, cor:'#EF4444' };
+          return { lbl:`= em linha`, cor:'#F59E0B' };
+        }
+      };
+      const cMargem = cmp(bench.own.margem, bench.bench.margem, false);
+      const cInad   = cmp(bench.own.inad,   bench.bench.inad,   true);
+      html += '<div class="ks-bench" onclick="fkBenchOpen()">'
+        + '<div class="ks-bench-hd">'
+          + '<div class="ks-bench-eyebrow">📊 SCORE FOREKASH · BENCHMARK SETORIAL</div>'
+          + '<div class="ks-bench-sec">setor · '+(bench.bench.label||'—')+'</div>'
+        + '</div>'
+        + '<div class="ks-bench-body">'
+          + '<div class="ks-bench-num" style="color:'+bench.nivel.cor+';text-shadow:0 0 18px '+bench.nivel.cor+'55">'+bench.score+'</div>'
+          + '<div class="ks-bench-meta">'
+            + '<div class="ks-bench-nivel" style="color:'+bench.nivel.cor+'">'+bench.nivel.nome.toUpperCase()+'</div>'
+            + '<div class="ks-bench-desc">'+bench.nivel.desc+'</div>'
+            + '<div class="ks-bench-bar"><div class="ks-bench-bar-fill" style="width:'+(bench.score/10)+'%;background:'+bench.nivel.cor+'"></div></div>'
+          + '</div>'
+        + '</div>'
+        + '<div class="ks-bench-grid">'
+          + '<div class="ks-bench-stat"><span class="lbl">MARGEM</span><div class="row"><span class="own">'+fmt(bench.own.margem)+'</span><span class="bench">setor: '+fmt(bench.bench.margem)+'</span><span class="cmp" style="color:'+cMargem.cor+'">'+cMargem.lbl+'</span></div></div>'
+          + '<div class="ks-bench-stat"><span class="lbl">INADIMPLÊNCIA</span><div class="row"><span class="own">'+fmt(bench.own.inad)+'</span><span class="bench">setor: '+fmt(bench.bench.inad)+'</span><span class="cmp" style="color:'+cInad.cor+'">'+cInad.lbl+'</span></div></div>'
+        + '</div>'
+        + '<div class="ks-bench-foot">› clique pra ver comparativo completo + escolher seu setor</div>'
+      + '</div>';
     }
   }catch(_){}
 
@@ -97985,7 +98050,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780349341';
+      const CACHE = 'forekash-v1780349532';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
