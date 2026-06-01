@@ -9728,6 +9728,24 @@
       .sidebar{display:none !important}
       .app-layout{margin-left:0 !important}
     }
+    /* ── WhatsApp modal ── */
+    .fk-shortcuts-card.fk-wa-card{width:min(840px,98vw);max-height:92vh;display:flex;flex-direction:column}
+    .fk-shortcuts-card .fk-wa-bd{padding:18px;overflow:auto;display:grid;grid-template-columns:1fr 1fr;gap:18px}
+    .fk-wa-left{display:flex;flex-direction:column;gap:10px}
+    .fk-wa-fld{display:flex;flex-direction:column;gap:3px}
+    .fk-wa-fld>span{font-size:.72rem;color:#475569;font-weight:600}
+    .fk-wa-fld>input,.fk-wa-fld>select,.fk-wa-fld>textarea{padding:8px 10px;border:1.5px solid #CBD5E1;border-radius:6px;font-size:.84rem;font-family:inherit;color:#0F172A;width:100%;box-sizing:border-box}
+    .fk-wa-fld>input:focus,.fk-wa-fld>select:focus,.fk-wa-fld>textarea:focus{outline:none;border-color:#25D366;box-shadow:0 0 0 2px rgba(37,211,102,.15)}
+    .fk-wa-fld>textarea{resize:vertical;font-family:inherit}
+    .fk-wa-var{padding-left:14px;border-left:2px solid #25D366}
+    .fk-wa-right{display:flex;flex-direction:column}
+    .fk-wa-preview-hd{font-size:.7rem;color:#64748B;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+    .fk-wa-preview{background:#ECE5DD;border-radius:10px;padding:18px;flex:1;min-height:280px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cpath fill='%23DCD5C9' fill-opacity='.4' d='M20 20.5l-2-2-2 2 2 2zm-12 0l-2-2-2 2 2 2zm24 0l-2-2-2 2 2 2zm-18 6l-2-2-2 2 2 2zm12 0l-2-2-2 2 2 2zM14 14.5l-2-2-2 2 2 2zm12 0l-2-2-2 2 2 2z'/%3E%3C/svg%3E")}
+    .fk-wa-bubble{background:#DCF8C6;border-radius:7px;padding:10px 12px;max-width:90%;font-size:.86rem;color:#0F172A;line-height:1.4;box-shadow:0 1px 1px rgba(0,0,0,.13);position:relative}
+    .fk-wa-bubble::after{content:'';position:absolute;top:0;right:-8px;width:0;height:0;border-style:solid;border-width:0 0 10px 10px;border-color:transparent transparent transparent #DCF8C6}
+    @media(max-width:700px){
+      .fk-shortcuts-card .fk-wa-bd{grid-template-columns:1fr}
+    }
     /* ── CFO Virtual modal ── */
     .fk-shortcuts-card.fk-cfo-card-wrap{width:min(680px,98vw);max-height:92vh;display:flex;flex-direction:column}
     .fk-shortcuts-card .fk-cfo-bd{padding:18px;overflow:auto;display:flex;flex-direction:column;gap:14px;grid-template-columns:none}
@@ -98207,6 +98225,7 @@ const CMDK_COMMANDS = [
   { group:'Ações',   label:'Gerar Daily Briefing agora', ico:'🌅', kbd:'', action:() => { if(typeof dailyBriefingNow === 'function') dailyBriefingNow(); } },
   // ─── Novas ferramentas (Maratona) ───
   { group:'Ferramentas', label:'🧠 CFO Virtual · decisões sugeridas', ico:'🧠', kbd:'', action:() => { if(typeof fkCfoOpen === 'function') fkCfoOpen(); } },
+  { group:'Ferramentas', label:'💬 Enviar via WhatsApp (templates)', ico:'💬', kbd:'', action:() => { if(typeof fkWaOpen === 'function') fkWaOpen(); } },
   { group:'Ferramentas', label:'💸 Gerar PIX QR Code', ico:'💸', kbd:'', action:() => { if(typeof fkPixOpen === 'function') fkPixOpen(); } },
   { group:'Ferramentas', label:'📅 Simulador de amortização (PRICE × SAC)', ico:'📅', kbd:'', action:() => { if(typeof fkLoanScheduleOpen === 'function') fkLoanScheduleOpen(); } },
   { group:'Ferramentas', label:'🏢 Calculadora de depreciação', ico:'🏢', kbd:'', action:() => { if(typeof fkDepreciateOpen === 'function') fkDepreciateOpen(); } },
@@ -104362,6 +104381,172 @@ function fkLoanSchedule({principal, rateMonthly, months, method, extraPayment, e
     mesesQuitacao: rows.length
   };
 }
+
+// ════════════════════════════════════════════════════════════════════
+// 📱 WHATSAPP COMO INTERFACE · simulador + wa.me deep links
+// ════════════════════════════════════════════════════════════════════
+// Diferencial: Forekash gera mensagens prontas pra enviar via WhatsApp
+// (link wa.me) e simula no app como ficaria. Quando o user clica, abre
+// WhatsApp Web/App já com mensagem preenchida.
+
+const FK_WA_KEY = 'forekash:wa-history:v1';
+function _fkWaSan(num){
+  if(!num) return '';
+  let n = String(num).replace(/\D/g,'');
+  // Se começa com 0 ou tem 10/11 dígitos (DDD+número BR), prefixa 55
+  if(n.length === 10 || n.length === 11) n = '55' + n;
+  return n;
+}
+function fkWaLink(num, msg){
+  const n = _fkWaSan(num);
+  const m = encodeURIComponent(String(msg||''));
+  return n ? `https://wa.me/${n}?text=${m}` : `https://wa.me/?text=${m}`;
+}
+function fkWaSend(num, msg, label){
+  const url = fkWaLink(num, msg);
+  window.open(url, '_blank', 'noopener');
+  // log
+  try{
+    const arr = JSON.parse(localStorage.getItem(FK_WA_KEY)||'[]');
+    arr.unshift({ ts: Date.now(), num: _fkWaSan(num), msg, label: label||'' });
+    if(arr.length > 50) arr.length = 50;
+    localStorage.setItem(FK_WA_KEY, JSON.stringify(arr));
+  }catch(_){}
+  if(typeof fkToast === 'function') fkToast('💬 WhatsApp aberto', 'ok', 1800);
+}
+
+// Templates prontos
+const FK_WA_TEMPLATES = [
+  {
+    id:'cobranca-vencida',
+    nome:'Cobrança vencida',
+    icon:'⚠',
+    needs:['cliente','valor','vencimento','pix'],
+    text:({cliente,valor,vencimento,pix}) =>
+      `Olá ${cliente}! 👋\n\nIdentificamos que sua cobrança de *R$ ${valor}* venceu em *${vencimento}*.\n\nPra regularizar, segue o PIX:\n\n\`${pix}\`\n\nQualquer dúvida estou à disposição.\nObrigado!`
+  },
+  {
+    id:'cobranca-amigavel',
+    nome:'Lembrete amigável',
+    icon:'🙂',
+    needs:['cliente','valor','vencimento'],
+    text:({cliente,valor,vencimento}) =>
+      `Oi ${cliente}! Tudo bem? 😊\n\nLembrete amigável: sua fatura de *R$ ${valor}* vence em *${vencimento}*.\n\nPosso te ajudar com algo?`
+  },
+  {
+    id:'recibo',
+    nome:'Confirmação de recebimento',
+    icon:'✓',
+    needs:['cliente','valor','data'],
+    text:({cliente,valor,data}) =>
+      `Olá ${cliente}! ✅\n\nConfirmamos o recebimento de *R$ ${valor}* em ${data}.\n\nMuito obrigado pela parceria!`
+  },
+  {
+    id:'aprovacao',
+    nome:'Pedido de aprovação',
+    icon:'👀',
+    needs:['responsavel','desc','valor'],
+    text:({responsavel,desc,valor}) =>
+      `Oi ${responsavel}! 🔍\n\nPreciso da sua aprovação:\n\n📌 *${desc}*\n💰 Valor: R$ ${valor}\n\nResponde com 👍 pra aprovar ou 👎 pra recusar.`
+  },
+  {
+    id:'reuniao',
+    nome:'Marcar reunião financeira',
+    icon:'📅',
+    needs:['responsavel','data','assunto'],
+    text:({responsavel,data,assunto}) =>
+      `Oi ${responsavel}! 📊\n\nVamos marcar uma rápida pra falar sobre *${assunto}*?\n\nProponho ${data}. Te serve?`
+  },
+  {
+    id:'briefing',
+    nome:'Compartilhar resumo (sócio)',
+    icon:'📊',
+    needs:['responsavel','caixa','receita','despesa'],
+    text:({responsavel,caixa,receita,despesa}) =>
+      `Oi ${responsavel}! Aqui é seu briefing rápido:\n\n💰 *Caixa atual*: R$ ${caixa}\n📈 *Receita mês*: R$ ${receita}\n📉 *Despesa mês*: R$ ${despesa}\n\n_Detalhes completos no Forekash._`
+  }
+];
+
+function fkWaOpen(prefill){
+  const old = document.getElementById('fk-wa-ov');
+  if(old){ old.remove(); return; }
+  prefill = prefill || {};
+  const ov = document.createElement('div');
+  ov.id = 'fk-wa-ov';
+  ov.className = 'fk-shortcuts-ov';
+  const tplOpts = FK_WA_TEMPLATES.map(t => `<option value="${t.id}">${t.icon} ${t.nome}</option>`).join('');
+  ov.innerHTML =
+    `<div class="fk-shortcuts-card fk-wa-card">`+
+      `<div class="fk-shortcuts-hd"><h2>💬 WhatsApp · enviar mensagem</h2><button class="fk-shortcuts-x" onclick="fkWaClose()">×</button></div>`+
+      `<div class="fk-shortcuts-bd fk-wa-bd">`+
+        `<div class="fk-wa-left">`+
+          `<label class="fk-wa-fld"><span>Para (número com DDD)</span><input id="fkwa-num" type="text" value="${(prefill.num||'').replace(/"/g,'&quot;')}" placeholder="11 9XXXX-XXXX"></label>`+
+          `<label class="fk-wa-fld"><span>Modelo</span><select id="fkwa-tpl" onchange="fkWaPickTpl()"><option value="">-- mensagem livre --</option>${tplOpts}</select></label>`+
+          `<div id="fkwa-vars"></div>`+
+          `<label class="fk-wa-fld"><span>Mensagem</span><textarea id="fkwa-msg" rows="10" placeholder="Digite ou escolha um modelo acima">${(prefill.msg||'').replace(/</g,'&lt;')}</textarea></label>`+
+        `</div>`+
+        `<div class="fk-wa-right">`+
+          `<div class="fk-wa-preview-hd"><span>Pré-visualização</span></div>`+
+          `<div class="fk-wa-preview"><div class="fk-wa-bubble" id="fkwa-bubble">Preencha a mensagem...</div></div>`+
+        `</div>`+
+      `</div>`+
+      `<div class="fk-shortcuts-ft"><button class="btn-cancel" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer;font-size:.76rem" onclick="fkWaClose()">Cancelar</button><button class="btn-p" style="padding:8px 18px;background:#25D366;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:.84rem" onclick="fkWaSubmit()">📤 Enviar via WhatsApp</button></div>`+
+    `</div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click', (e) => { if(e.target === ov) fkWaClose(); });
+  const msgEl = document.getElementById('fkwa-msg');
+  if(msgEl){
+    msgEl.addEventListener('input', () => _fkWaUpdatePreview());
+    _fkWaUpdatePreview();
+  }
+}
+function fkWaClose(){ const ov = document.getElementById('fk-wa-ov'); if(ov) ov.remove(); }
+function _fkWaUpdatePreview(){
+  const msg = document.getElementById('fkwa-msg')?.value || '';
+  const bub = document.getElementById('fkwa-bubble');
+  if(bub){
+    bub.innerHTML = msg
+      ? msg.replace(/&/g,'&amp;').replace(/</g,'&lt;')
+           .replace(/\*([^*\n]+)\*/g,'<b>$1</b>')
+           .replace(/_([^_\n]+)_/g,'<i>$1</i>')
+           .replace(/`([^`\n]+)`/g,'<code style="background:rgba(0,0,0,.05);padding:1px 4px;border-radius:3px;font-family:monospace;font-size:.86em">$1</code>')
+           .replace(/\n/g,'<br>')
+      : '<span style="opacity:.4">Preencha a mensagem...</span>';
+  }
+}
+function fkWaPickTpl(){
+  const tplId = document.getElementById('fkwa-tpl')?.value;
+  if(!tplId){ document.getElementById('fkwa-vars').innerHTML = ''; return; }
+  const tpl = FK_WA_TEMPLATES.find(t => t.id === tplId);
+  if(!tpl) return;
+  const varsHtml = tpl.needs.map(k =>
+    `<label class="fk-wa-fld fk-wa-var"><span>${k}</span><input type="text" id="fkwa-var-${k}" data-key="${k}" oninput="_fkWaRenderTpl('${tpl.id}')"></label>`
+  ).join('');
+  document.getElementById('fkwa-vars').innerHTML = varsHtml;
+  _fkWaRenderTpl(tpl.id);
+}
+function _fkWaRenderTpl(id){
+  const tpl = FK_WA_TEMPLATES.find(t => t.id === id);
+  if(!tpl) return;
+  const vars = {};
+  tpl.needs.forEach(k => { vars[k] = (document.getElementById('fkwa-var-'+k)||{}).value || ('{'+k+'}'); });
+  const txt = tpl.text(vars);
+  const msgEl = document.getElementById('fkwa-msg');
+  if(msgEl){ msgEl.value = txt; _fkWaUpdatePreview(); }
+}
+function fkWaSubmit(){
+  const num = document.getElementById('fkwa-num')?.value;
+  const msg = document.getElementById('fkwa-msg')?.value;
+  if(!msg || !msg.trim()){ if(typeof fkToast === 'function') fkToast('Mensagem vazia', 'warn'); return; }
+  fkWaSend(num, msg, 'manual');
+  fkWaClose();
+}
+try{
+  window.fkWaOpen = fkWaOpen; window.fkWaClose = fkWaClose;
+  window.fkWaPickTpl = fkWaPickTpl; window.fkWaSubmit = fkWaSubmit;
+  window.fkWaSend = fkWaSend; window.fkWaLink = fkWaLink;
+  window._fkWaUpdatePreview = _fkWaUpdatePreview; window._fkWaRenderTpl = _fkWaRenderTpl;
+}catch(_){}
 
 // ════════════════════════════════════════════════════════════════════
 // 🧠 CFO VIRTUAL · painel de decisões acionáveis + briefing em áudio
