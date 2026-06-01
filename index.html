@@ -9705,6 +9705,14 @@
     [contenteditable="true"][data-singleline]{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
     /* ── Custom confirm modal (substitui confirm() do browser) ── */
+    /* ── Cartões · calendário 6 meses ── */
+    .fk-cardcal-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+    .fk-cardcal-month{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px}
+    .fk-cardcal-mlabel{font-size:.72rem;color:#64748B;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
+    .fk-cardcal-mtotal{font-size:1.02rem;font-weight:700;color:#0F172A;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #E2E8F0}
+    .fk-cardcal-mitems{display:flex;flex-direction:column;gap:6px;font-size:.74rem;max-height:200px;overflow:auto}
+    .fk-cardcal-fat{display:flex;justify-content:space-between;gap:8px;color:#475569}
+    .fk-cardcal-fat b{color:#0F172A;font-weight:600;font-family:'JetBrains Mono','Courier New',monospace}
     /* ── Mobile bottom nav (hidden on desktop) ── */
     .fk-mob-nav{display:none}
     @media(max-width:768px){
@@ -59318,6 +59326,7 @@ function renderCartoes(){
   html += '<div class="cart-hd">'
     + '<div class="cart-hd-tit"><h2>💳 Cartões de Crédito</h2><p>Gerencie cartões, faturas e lançamentos. Faturas pagas aparecem no Extrato Financeiro.</p></div>'
     + '<div class="cart-hd-actions">'
+      + '<button type="button" class="cart-btn" onclick="fkCardCalendarOpen()" title="Próximos 6 meses de faturas">📅 Calendário 6m</button>'
       + '<button type="button" class="cart-btn cart-btn-primary" onclick="cartOpenModal()">+ Novo cartão</button>'
     + '</div>'
   + '</div>';
@@ -103777,6 +103786,91 @@ function fkToast(msg, type, duration){
     setTimeout(() => t.remove(), 350);
   }, duration);
 }
+
+// ════════════════════════════════════════════════════════════════════
+// 💳 CARTÕES · detecção de bandeira por BIN + calendário 6 meses
+// ════════════════════════════════════════════════════════════════════
+function fkCardBrand(numStr){
+  const n = String(numStr||'').replace(/\D/g,'');
+  if(!n) return { brand:null, label:'—', color:'#94A3B8' };
+  // Amex
+  if(/^3[47]/.test(n)) return { brand:'amex', label:'Amex', color:'#2E77BB' };
+  // Visa
+  if(/^4/.test(n)) return { brand:'visa', label:'Visa', color:'#1A1F71' };
+  // Mastercard
+  if(/^5[1-5]/.test(n) || /^2(2[2-9][1-9]|[3-6]\d{2}|7[01]\d|720)/.test(n))
+    return { brand:'mastercard', label:'Mastercard', color:'#EB001B' };
+  // Elo
+  if(/^(4011|4312|4389|4514|4576|5041|5066|5067|509|6277|6363|650|6516|6550)/.test(n))
+    return { brand:'elo', label:'Elo', color:'#FFC700' };
+  // Hipercard
+  if(/^(606282|3841)/.test(n))
+    return { brand:'hipercard', label:'Hipercard', color:'#8E1A35' };
+  // Discover
+  if(/^6011|^65|^64[4-9]/.test(n))
+    return { brand:'discover', label:'Discover', color:'#FF6000' };
+  // Diners
+  if(/^(30[0-5]|36|38)/.test(n))
+    return { brand:'diners', label:'Diners', color:'#0079BE' };
+  return { brand:null, label:'?', color:'#94A3B8' };
+}
+try{ window.fkCardBrand = fkCardBrand; }catch(_){}
+
+function fkCardCalendarOpen(){
+  const old = document.getElementById('fk-card-cal-ov');
+  if(old){ old.remove(); return; }
+  const ov = document.createElement('div');
+  ov.id = 'fk-card-cal-ov';
+  ov.className = 'fk-shortcuts-ov';
+  // Calcula próximos 6 meses
+  const now = new Date();
+  const months = [];
+  for(let i = 0; i < 6; i++){
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    months.push({ y: d.getFullYear(), m: d.getMonth(), label: d.toLocaleString('pt-BR',{month:'short',year:'2-digit'}).toUpperCase() });
+  }
+  // Agrega faturas por (y, m) de cartoes.faturas + lancamentos pendentes
+  let total6m = 0;
+  const cards = months.map(mo => {
+    let items = [];
+    let totalMonth = 0;
+    if(typeof cartoes !== 'undefined' && Array.isArray(cartoes.faturas)){
+      for(const f of cartoes.faturas){
+        const dStr = f.vencimento || f.dataVencimento || '';
+        if(!dStr) continue;
+        const dt = new Date(dStr);
+        if(isNaN(dt)) continue;
+        if(dt.getFullYear() === mo.y && dt.getMonth() === mo.m){
+          const val = parseFloat(f.valor||f.total||0) || 0;
+          totalMonth += val;
+          items.push({ apelido: f.apelido || f.cartaoApelido || 'Cartão', valor: val, status: f.status, data: dStr });
+        }
+      }
+    }
+    total6m += totalMonth;
+    const isHi = totalMonth > 0 && totalMonth >= (total6m / Math.max(1, months.indexOf(mo)+1)) * 1.4;
+    return `<div class="fk-cardcal-month">
+      <div class="fk-cardcal-mlabel">${mo.label}</div>
+      <div class="fk-cardcal-mtotal" style="${isHi?'color:#EF4444':''}">R$ ${totalMonth.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+      <div class="fk-cardcal-mitems">${items.length === 0 ? '<span style="opacity:.4">—</span>' :
+        items.map(it => `<div class="fk-cardcal-fat" style="${it.status==='paga'?'opacity:.4;text-decoration:line-through':''}"><span>${it.apelido}</span><b>R$ ${it.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}</b></div>`).join('')
+      }</div>
+    </div>`;
+  }).join('');
+  ov.innerHTML =
+    `<div class="fk-shortcuts-card" style="width:min(960px,98vw);max-height:92vh">`+
+      `<div class="fk-shortcuts-hd"><h2>💳 Próximos 6 meses · Faturas de Cartão</h2><button class="fk-shortcuts-x" onclick="fkCardCalendarClose()">×</button></div>`+
+      `<div class="fk-shortcuts-bd" style="padding:18px">`+
+        `<div style="font-size:.78rem;color:#475569;margin-bottom:14px">Total a pagar nos próximos 6 meses: <b style="color:#0F172A">R$ ${total6m.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}</b> · meses em <span style="color:#EF4444">vermelho</span> estão acima da média</div>`+
+        `<div class="fk-cardcal-grid">${cards}</div>`+
+      `</div>`+
+      `<div class="fk-shortcuts-ft"><button class="btn-cancel" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer;font-size:.76rem" onclick="fkCardCalendarClose()">Fechar</button></div>`+
+    `</div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click', (e) => { if(e.target === ov) fkCardCalendarClose(); });
+}
+function fkCardCalendarClose(){ const ov=document.getElementById('fk-card-cal-ov'); if(ov) ov.remove(); }
+try{ window.fkCardCalendarOpen = fkCardCalendarOpen; window.fkCardCalendarClose = fkCardCalendarClose; }catch(_){}
 
 // ════════════════════════════════════════════════════════════════════
 // 📱 MOBILE BOTTOM NAV — sincroniza com módulo ativo
