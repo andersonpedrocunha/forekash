@@ -105305,6 +105305,20 @@ function commAdd(modulo, id, texto, autor){
   COMMENTS[k].push(item);
   commSave();
   if(typeof auditLog === 'function') auditLog('comentario', `comentou em ${modulo}/${id}: "${item.texto.slice(0,40)}..."`);
+  // ─── Detecta @menções e notifica ───
+  try{
+    const mentions = (item.texto.match(/@(\w+)/g) || []).map(m => m.slice(1));
+    if(mentions.length && typeof notifPush === 'function'){
+      for(const who of mentions){
+        notifPush({
+          titulo:`@${who} foi mencionado(a)`,
+          msg:`${_autor} em ${modulo}: "${item.texto.slice(0,80)}${item.texto.length>80?'...':''}"`,
+          type:'info',
+          icon:'💬'
+        });
+      }
+    }
+  }catch(_){}
   return item;
 }
 function commRemove(modulo, id, commId){
@@ -105331,13 +105345,13 @@ function commOpen(modulo, id, titulo){
           <b style="color:#10B981;font-size:.78rem">${_esc(c.autor)}</b>
           <span style="color:#64748B;font-size:.7rem">${tempo}</span>
         </div>
-        <div style="color:#E5E7EB;line-height:1.4">${_esc(c.texto)}</div>
+        <div style="color:#E5E7EB;line-height:1.4">${_esc(c.texto).replace(/@(\w+)/g,'<span style="color:#3B82F6;font-weight:600;background:rgba(59,130,246,.1);padding:1px 4px;border-radius:3px">@$1</span>')}</div>
         <button style="background:transparent;border:none;color:#64748B;cursor:pointer;font-size:.7rem;padding:2px 0;margin-top:4px" onclick="commRemoveAndRefresh('${modulo}','${id}','${c.id}','${_esc(titulo||'')}')">remover</button>
       </div>`;
     });
   }
   html += `</div>
-    <textarea id="comm-input" placeholder="Escreve um comentário..." style="width:100%;padding:10px;background:#0F172A;border:1px solid #334155;border-radius:8px;color:#E5E7EB;font-size:.84rem;min-height:60px;resize:vertical"></textarea>
+    <textarea id="comm-input" placeholder="Escreve um comentário... use @nome pra mencionar" style="width:100%;padding:10px;background:#0F172A;border:1px solid #334155;border-radius:8px;color:#E5E7EB;font-size:.84rem;min-height:60px;resize:vertical"></textarea>
     <button class="btn btn-p" style="width:100%;margin-top:8px" onclick="commAddAndRefresh('${modulo}','${id}','${_esc(titulo||'')}')">+ Adicionar comentário</button>
   </div>`;
   if(typeof _fkModal === 'function') _fkModal('Comentários', html, () => true);
