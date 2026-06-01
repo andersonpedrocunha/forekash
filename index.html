@@ -26917,9 +26917,14 @@ function anaAlert(opts, onOk){
 try{ window.anaAlert = anaAlert; }catch(e){}
 
 // ═══════════════════════════════════════════════════════════════════════
-// Monkey-patch global em window.alert() — qualquer alert nativo no app
-// passa a usar o modal in-app bonito. Não interfere com browser/native
-// (mantém apenas o aviso visual, sem bloquear thread como o original).
+// Monkey-patch global em window.alert() / .confirm() / .prompt()
+// — qualquer dialog nativo no app passa a usar modal in-app bonito.
+// confirm() e prompt() são sync no nativo (retornam boolean/string).
+// Como o modal in-app é async, retornamos o "fail-safe":
+//   confirm → false (não executa ação destrutiva acidental)
+//   prompt  → null
+// E disparamos o modal pra usuário ver mesmo assim. Toda chamada que
+// importar deve ser convertida pra anaConfirm/anaPrompt com callback.
 // ═══════════════════════════════════════════════════════════════════════
 try {
   if(!window._fkOrigAlert){
@@ -26927,6 +26932,37 @@ try {
     window.alert = function(msg){
       try { anaAlert({ message: String(msg||'').replace(/\n/g,'<br>') }); }
       catch(e){ window._fkOrigAlert(msg); }
+    };
+  }
+  if(!window._fkOrigConfirm){
+    window._fkOrigConfirm = window.confirm;
+    window.confirm = function(msg){
+      try {
+        anaConfirm({
+          eyebrow:'Confirmar',
+          title:'Confirme a ação',
+          message: String(msg||'').replace(/\n/g,'<br>'),
+          okText:'OK', cancelText:'Cancelar'
+        }, () => {}, () => {});
+        try { console.warn('[Forekash] confirm() nativo interceptado · converta pra anaConfirm com callback:', msg); } catch(_){}
+      } catch(e){}
+      return false; // fail-safe
+    };
+  }
+  if(!window._fkOrigPrompt){
+    window._fkOrigPrompt = window.prompt;
+    window.prompt = function(msg, def){
+      try {
+        anaPrompt({
+          eyebrow:'Entrada',
+          title:'Digite um valor',
+          message: String(msg||'').replace(/\n/g,'<br>'),
+          defaultValue: def == null ? '' : String(def),
+          okText:'OK', cancelText:'Cancelar'
+        }, () => {}, () => {});
+        try { console.warn('[Forekash] prompt() nativo interceptado · converta pra anaPrompt com callback:', msg); } catch(_){}
+      } catch(e){}
+      return null; // fail-safe
     };
   }
 } catch(e){}
@@ -28066,7 +28102,7 @@ function _regReabrirBaixa(loanId, mes, btn){
     html: conteudo,
     okText: 'Sim, reabrir baixa',
     cancelText: 'Cancelar'
-  }) : Promise.resolve(confirm('Reabrir baixa?'));
+  }) : (typeof anaConfirmAsync === 'function' ? anaConfirmAsync({eyebrow:'Reabrir', title:'Reabrir baixa?', message:conteudo, okText:'Sim, reabrir baixa', cancelText:'Cancelar'}) : Promise.resolve(false));
   Promise.resolve(conf).then(ok => {
     if(!ok) return;
     // Limpa dados da baixa
@@ -28117,7 +28153,7 @@ function _regReabrirSaldo(loanId, mes, btn){
     html: conteudo,
     okText: 'Sim, reabrir',
     cancelText: 'Cancelar'
-  }) : Promise.resolve(confirm('Reabrir saldo?'));
+  }) : (typeof anaConfirmAsync === 'function' ? anaConfirmAsync({eyebrow:'Reabrir', title:'Reabrir saldo devedor?', message:conteudo, okText:'Sim, reabrir', cancelText:'Cancelar'}) : Promise.resolve(false));
   Promise.resolve(conf).then(ok => {
     if(!ok) return;
     reg.saldoData = '';
@@ -33950,12 +33986,12 @@ function recKbNotaDelete(idx){
   if(!cell) return;
   const list = _recKbNormalizeNotas(cell);
   if(idx < 0 || idx >= list.length) return;
-  const ok = (typeof confirm === 'function') ? confirm('Excluir esta nota?') : true;
-  if(!ok) return;
-  list.splice(idx, 1);
-  if(typeof receitaSave === 'function') receitaSave();
-  _recKbNotesRenderInline();
-  recRenderKanban();
+  anaConfirm({eyebrow:'Receita · Notas', title:'Excluir esta nota?', message:'Esta ação não pode ser desfeita.', okText:'Excluir', cancelText:'Cancelar', danger:true}, () => {
+    list.splice(idx, 1);
+    if(typeof receitaSave === 'function') receitaSave();
+    _recKbNotesRenderInline();
+    recRenderKanban();
+  });
 }
 
 function recKbNotaAnexoView(idx){
@@ -38492,7 +38528,7 @@ async function delOrcYear(y){
       message: msg, okText:'Excluir ano', cancelText:'Cancelar', danger:true
     });
   } else {
-    ok = confirm('Excluir ano '+y+'? Todas as versões serão removidas.');
+    ok = false; // sem helper async disponível — aborta safe (preferível a dialog nativo)
   }
   if(!ok) return;
   delete orcamento.years[y];
@@ -38636,7 +38672,7 @@ async function orcLimparAnoAtual(){
         message:'Vai zerar o previsto da versão ativa do ano ' + (orcActiveYear||'?') + '.\n\nContinuar?',
         danger:true
       })
-    : confirm('Limpar?');
+    : false;
   if(!ok) return;
   const blk = orcamento.years[orcActiveYear];
   if(!blk) return;
@@ -39163,44 +39199,47 @@ function orcCloseVersionMenuOnEsc(e){ if(e.key === 'Escape') orcCloseVersionMenu
 
 function orcNewVersion(){
   const blk = orcGetYearBlock(orcActiveYear);
-  const nome = prompt('Nome da nova versão:', 'Revisão '+new Date().toLocaleDateString('pt-BR',{month:'short'}));
-  if(nome === null) return;
-  const v = orcMakeEmptyVersion(nome.trim() || 'Nova versão');
-  blk.versions.push(v);
-  blk.ativa = v.id;
-  orcActiveVerId = v.id;
-  orcamentoSave();
-  orcCloseVersionMenu();
-  renderOrcamento();
-  toast('✅ Versão "'+v.nome+'" criada');
+  anaPrompt({eyebrow:'Orçamento', title:'Nova versão', message:'Dê um nome pra essa revisão.', placeholder:'Ex: Revisão Q2', defaultValue:'Revisão '+new Date().toLocaleDateString('pt-BR',{month:'short'}), okText:'Criar'}, (nome) => {
+    if(nome === null) return;
+    const v = orcMakeEmptyVersion((nome||'').trim() || 'Nova versão');
+    blk.versions.push(v);
+    blk.ativa = v.id;
+    orcActiveVerId = v.id;
+    orcamentoSave();
+    orcCloseVersionMenu();
+    renderOrcamento();
+    toast('✅ Versão "'+v.nome+'" criada');
+  });
 }
 function orcDuplicateVersion(){
   const blk = orcGetYearBlock(orcActiveYear);
   const cur = orcGetVersion();
-  const nome = prompt('Nome da nova versão:', cur.nome + ' (cópia)');
-  if(nome === null) return;
-  const novo = JSON.parse(JSON.stringify(cur));
-  novo.id = 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
-  novo.nome = nome.trim() || (cur.nome + ' (cópia)');
-  novo.criadoEm = new Date().toISOString();
-  novo.congelado = null;
-  blk.versions.push(novo);
-  blk.ativa = novo.id;
-  orcActiveVerId = novo.id;
-  orcamentoSave();
-  orcCloseVersionMenu();
-  renderOrcamento();
-  toast('✅ Versão duplicada');
+  anaPrompt({eyebrow:'Orçamento', title:'Duplicar versão', message:'Como vai chamar a cópia?', placeholder:'Nome da cópia', defaultValue: cur.nome + ' (cópia)', okText:'Duplicar'}, (nome) => {
+    if(nome === null) return;
+    const novo = JSON.parse(JSON.stringify(cur));
+    novo.id = 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+    novo.nome = (nome||'').trim() || (cur.nome + ' (cópia)');
+    novo.criadoEm = new Date().toISOString();
+    novo.congelado = null;
+    blk.versions.push(novo);
+    blk.ativa = novo.id;
+    orcActiveVerId = novo.id;
+    orcamentoSave();
+    orcCloseVersionMenu();
+    renderOrcamento();
+    toast('✅ Versão duplicada');
+  });
 }
 function orcRenameVersion(){
   const cur = orcGetVersion();
-  const nome = prompt('Renomear versão:', cur.nome);
-  if(nome === null) return;
-  cur.nome = nome.trim() || cur.nome;
-  orcamentoSave();
-  orcCloseVersionMenu();
-  renderOrcVersionSelect();
-  toast('✅ Renomeado');
+  anaPrompt({eyebrow:'Orçamento', title:'Renomear versão', message:'Novo nome:', placeholder:'Nome', defaultValue: cur.nome, okText:'Salvar'}, (nome) => {
+    if(nome === null) return;
+    cur.nome = (nome||'').trim() || cur.nome;
+    orcamentoSave();
+    orcCloseVersionMenu();
+    renderOrcVersionSelect();
+    toast('✅ Renomeado');
+  });
 }
 function orcToggleFreeze(){
   const cur = orcGetVersion();
@@ -39573,7 +39612,7 @@ async function orcReProjetarFuturo(){
     title:'Re-projetar com run-rate?',
     message:'Os meses futuros do '+y+' serão preenchidos na versão atual ('+ver.nome+') com a média realizada até agora (run-rate). Meses já fechados não são alterados.',
     confirmLabel:'Re-projetar agora'
-  }) : Promise.resolve(confirm('Re-projetar meses futuros com run-rate?')));
+  }) : (typeof anaConfirmAsync === 'function' ? anaConfirmAsync({eyebrow:'Orçamento', title:'Re-projetar com run-rate?', message:'Os meses futuros do '+y+' serão preenchidos com a média realizada até agora.', okText:'Re-projetar', cancelText:'Cancelar'}) : Promise.resolve(false)));
   if(!ok) return;
   let changed = 0;
   for(const c of ORC_CATS){
@@ -46688,7 +46727,7 @@ async function outrasOpLimparTudo(){
         message:'Vai apagar:\n• Todos os VALORES lançados (todos os anos)\n• Categorias com moduloId outrasRec/outrasDesp do catmap\n\nNão mexe em categorias mapeadas pra outros módulos.\n\nContinuar?',
         danger:true
       })
-    : confirm('Limpar tudo?');
+    : false;
   if(!ok) return;
   outrasOp.valores = {};
   outrasOp.nextId = 1;
@@ -58448,7 +58487,7 @@ function cartReabrirFatura(faturaId){
     html: html,
     okText: 'Sim, reabrir fatura',
     cancelText: 'Cancelar'
-  }) : Promise.resolve(confirm('Reabrir a fatura?'));
+  }) : (typeof anaConfirmAsync === 'function' ? anaConfirmAsync({eyebrow:'Cartão', title:'Reabrir fatura?', message:html, okText:'Sim, reabrir fatura', cancelText:'Cancelar'}) : Promise.resolve(false));
   Promise.resolve(conf).then(ok => {
     if(!ok) return;
     fat.status = 'aberta';
@@ -63156,25 +63195,25 @@ function extSaveModal(tipo){
 }
 function extDeleteManual(){
   if(!_extEditingId) return;
-  const ok = (typeof confirm === 'function') ? confirm('Excluir este lançamento?') : true;
-  if(!ok) return;
-  const realId = parseInt(_extEditingId.replace(/^m:/, ''), 10);
-  extratoData.lancamentos = (extratoData.lancamentos || []).filter(l => l.id !== realId);
-  _extSave();
-  extCloseModal();
-  renderExtrato();
-  if(typeof toast === 'function') toast('Lançamento excluído');
+  anaConfirm({eyebrow:'Extrato', title:'Excluir este lançamento?', message:'A ação não pode ser desfeita.', okText:'Excluir', cancelText:'Cancelar', danger:true}, () => {
+    const realId = parseInt(_extEditingId.replace(/^m:/, ''), 10);
+    extratoData.lancamentos = (extratoData.lancamentos || []).filter(l => l.id !== realId);
+    _extSave();
+    extCloseModal();
+    renderExtrato();
+    if(typeof toast === 'function') toast('Lançamento excluído');
+  });
 }
 function extDeleteGroup(){
   if(!_extEditingId || typeof _extEditingId !== 'string' || !_extEditingId.startsWith('grp:')) return;
   const gp = (typeof _extParseGroupId === 'function') ? _extParseGroupId(_extEditingId) : null;
   if(!gp) return;
-  const ok = (typeof confirm === 'function') ? confirm('Excluir todos os itens deste grupo?') : true;
-  if(!ok) return;
-  const removed = (typeof _extDeleteGroup === 'function') ? _extDeleteGroup(gp.grupoId, gp.data) : 0;
-  extCloseModal();
-  renderExtrato();
-  if(typeof toast === 'function') toast('Grupo excluído (' + removed + ' itens)');
+  anaConfirm({eyebrow:'Extrato', title:'Excluir grupo?', message:'Todos os itens deste grupo serão removidos.', okText:'Excluir grupo', cancelText:'Cancelar', danger:true}, () => {
+    const removed = (typeof _extDeleteGroup === 'function') ? _extDeleteGroup(gp.grupoId, gp.data) : 0;
+    extCloseModal();
+    renderExtrato();
+    if(typeof toast === 'function') toast('Grupo excluído (' + removed + ' itens)');
+  });
 }
 try { window.extDeleteGroup = extDeleteGroup; } catch(e){}
 // ── Menu 3-pontos do Extrato: Editar / Cobrança / NF ─────────────
@@ -63817,7 +63856,7 @@ async function ccDelete(id){
     });
     if(!ok) return;
   } else {
-    if(!confirm('Excluir centro de custo "' + c.nome + '"?')) return;
+    return; // sem anaConfirmAsync: aborta safe
   }
   centrosCusto = centrosCusto.filter(x => x.id !== id);
   // Limpa referências em lançamentos manuais
@@ -64879,7 +64918,7 @@ async function catmapDelete(id){
     });
     if(!ok) return;
   } else {
-    if(!confirm('Excluir categoria "' + c.nome + '"?' + (usos > 0 ? ' (' + usos + ' lançamentos afetados)' : ''))) return;
+    return; // sem anaConfirmAsync: aborta safe
   }
   // Remove tag em estrutura (se userCreated)
   if(c.userCreated && tagId != null && typeof estrutura !== 'undefined'){
@@ -87494,9 +87533,7 @@ function openPessoaPicker(rowId, btn, event){
                 }, doMerge);
                 return;
               }
-              if(!confirm(`Já existe uma pessoa "${lim}". Mesclar "${r.nome}" (${n1} linha${n1===1?'':'s'}) em "${lim}"?`)) return;
-              pesReassignReg(r.id, existe.id);
-              pesDeleteRegIfOrphan(r.id);
+              return; // sem anaConfirm: aborta safe
             } else {
               r.nome = lim;
             }
@@ -94875,12 +94912,16 @@ async function fkcOpenRestoreModal(){
       </span>
       <span style="color:#3B82F6;font-size:.82rem">Restaurar →</span>
     `;
-    row.addEventListener('click', async () => {
-      const conf = confirm('Restaurar backup de ' + dt.toLocaleString('pt-BR') +
-        ' (' + sizeKb + ' KB)?\n\nIsso sobrescreve os dados locais atuais.');
-      if (!conf) return;
-      ov.remove();
-      await fkcRestoreFromBackup(b.id);
+    row.addEventListener('click', () => {
+      anaConfirm({
+        eyebrow:'Backup',
+        title:'Restaurar backup?',
+        message:'Backup de <strong>' + dt.toLocaleString('pt-BR') + '</strong> (' + sizeKb + ' KB).<br><br>⚠ Isso sobrescreve os dados locais atuais.',
+        okText:'Restaurar', cancelText:'Cancelar', danger:true
+      }, async () => {
+        ov.remove();
+        await fkcRestoreFromBackup(b.id);
+      });
     });
     listEl.appendChild(row);
   });
@@ -95062,19 +95103,15 @@ async function fkcMenuRestore(){
 }
 // Escape hatch: força local mode no próximo reload
 function fkcForceLocalMode(){
-  const conf = confirm(
-    'Reverter pra MODO LOCAL neste dispositivo?\n\n' +
-    'Isso significa:\n' +
-    '• Dados ficam só no localStorage deste navegador\n' +
-    '• Sem sincronização entre devices\n' +
-    '• Sem backup automático na nuvem\n\n' +
-    'Use apenas pra debug ou em caso de problema com a nuvem. ' +
-    'Pode reverter pelo console com:\n' +
-    'localStorage.removeItem(\'fk_force_local\'); location.reload();'
-  );
-  if (!conf) return;
-  try { localStorage.setItem('fk_force_local', '1'); } catch(_){}
-  location.reload();
+  anaConfirm({
+    eyebrow:'Modo local',
+    title:'Reverter pra MODO LOCAL neste dispositivo?',
+    message:'Isso significa:<br>• Dados ficam só no localStorage deste navegador<br>• Sem sincronização entre devices<br>• Sem backup automático na nuvem<br><br>Use apenas pra debug ou em caso de problema com a nuvem.',
+    okText:'Reverter pra local', cancelText:'Cancelar', danger:true
+  }, () => {
+    try { localStorage.setItem('fk_force_local', '1'); } catch(_){}
+    location.reload();
+  });
 }
 window.fkcMenuBackupNow = fkcMenuBackupNow;
 window.fkcMenuRestore = fkcMenuRestore;
@@ -95518,7 +95555,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780328201';
+      const CACHE = 'forekash-v1780328922';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -99096,14 +99133,20 @@ function comPipeEdit(id){
     p.descricao = (document.getElementById('com-pipe-edit-desc').value||'').trim();
     p.atualizadoEm = Date.now();
     if(novoEst === 'ganhou' && p.estagio !== 'ganhou'){
-      // Converte em assinatura
-      if(confirm(`Converter "${p.cliente}" em assinatura recorrente de ${_comFmtBRL(p.valorEstimado)}/mês?`)){
+      // Converte em assinatura (perguntando in-app)
+      anaConfirm({
+        eyebrow:'Comercial',
+        title:'Converter em assinatura?',
+        message:'<strong>"' + p.cliente + '"</strong> vira assinatura recorrente de <strong>' + _comFmtBRL(p.valorEstimado) + '/mês</strong>?',
+        okText:'Converter', cancelText:'Só atualizar status'
+      }, () => {
         const ass = { id:_comId(), cliente:p.cliente, valor:p.valorEstimado, diaVenc:5, descricao:p.descricao||'Assinatura mensal', ativa:true, ultimaGer:null, hist:[], changes:[], receitaLinks:[], criadoEm:Date.now(), autoEmitNF:false, reajusteIdx:null, reajusteMes:1 };
         COM.assinaturas.push(ass);
         comRecGerarPrevisoesReceita(ass);
         p.assinaturaId = ass.id;
         if(typeof notifPush==='function') notifPush({titulo:'🎉 Proposta convertida!', msg:`${p.cliente} virou assinatura`});
-      }
+        comSave(); comPipeRender();
+      });
     }
     p.estagio = novoEst;
     comSave(); comPipeRender();
@@ -99111,12 +99154,13 @@ function comPipeEdit(id){
   });
 }
 function comPipeRemove(id){
-  if(!confirm('Remover proposta? Ação não pode ser desfeita.')) return;
-  COM.propostas = COM.propostas.filter(x => x.id!==id);
-  comSave(); comPipeRender();
-  // fecha modal aberto
-  const ov = document.querySelector('[style*="position:fixed"][style*="rgba(0,0,0,.7)"]');
-  if(ov && ov.querySelector('#_fkmod-cancel')) ov.remove();
+  anaConfirm({eyebrow:'Comercial', title:'Remover proposta?', message:'A ação não pode ser desfeita.', okText:'Remover', cancelText:'Cancelar', danger:true}, () => {
+    COM.propostas = COM.propostas.filter(x => x.id!==id);
+    comSave(); comPipeRender();
+    // fecha modal aberto
+    const ov = document.querySelector('[style*="position:fixed"][style*="rgba(0,0,0,.7)"]');
+    if(ov && ov.querySelector('#_fkmod-cancel')) ov.remove();
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -99259,8 +99303,9 @@ function comReciboPrint(id){
   w.document.close();
 }
 function comReciboRemove(id){
-  if(!confirm('Remover este recibo? Ação não pode ser desfeita.')) return;
-  COM.recibos = COM.recibos.filter(x => x.id!==id); comSave(); comReciboListRender();
+  anaConfirm({eyebrow:'Recibos', title:'Remover este recibo?', message:'A ação não pode ser desfeita.', okText:'Remover', cancelText:'Cancelar', danger:true}, () => {
+    COM.recibos = COM.recibos.filter(x => x.id!==id); comSave(); comReciboListRender();
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -101906,7 +101951,7 @@ function reconOpenPreview(){
       return true;
     });
   } else {
-    if(confirm(`${r.matches.length} matches detectados. Aplicar?`)) reconAsaasApplyAll();
+    anaConfirm({eyebrow:'Reconciliação', title:`${r.matches.length} matches detectados`, message:'Aplicar todos agora?', okText:'Aplicar', cancelText:'Cancelar'}, () => reconAsaasApplyAll());
   }
 }
 try{ window.reconAsaasExtrato = reconAsaasExtrato; window.reconAsaasApplyAll = reconAsaasApplyAll; window.reconOpenPreview = reconOpenPreview; }catch(_){}
@@ -102226,9 +102271,10 @@ function bulkUpdateBar(){
   `;
 }
 function bulkOpenCategorize(){
-  const cat = prompt(`Aplicar categoria em ${BULK_SELECTED.size} lançamento(s):`);
-  if(!cat) return;
-  bulkApplyCategory(cat);
+  anaPrompt({eyebrow:'Extrato', title:`Categorizar ${BULK_SELECTED.size} lançamento(s)`, message:'Qual categoria aplicar?', placeholder:'Ex: Software', okText:'Aplicar'}, (cat) => {
+    if(!cat) return;
+    bulkApplyCategory(cat);
+  });
 }
 function bulkApplyCategory(cat){
   if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return;
@@ -102260,16 +102306,18 @@ function bulkSmartCat(){
   try{ if(typeof renderExtrato === 'function') renderExtrato(); }catch(_){}
 }
 function bulkDelete(){
-  if(!confirm(`Excluir ${BULK_SELECTED.size} lançamento(s)? Ação não pode ser desfeita.`)) return;
-  if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return;
-  const antes = extratoData.lancamentos.length;
-  extratoData.lancamentos = extratoData.lancamentos.filter(l => !BULK_SELECTED.has(l.id));
-  const removidos = antes - extratoData.lancamentos.length;
-  try{ if(typeof saveExtrato === 'function') saveExtrato(); else localStorage.setItem('forekash:extrato:v1', JSON.stringify(extratoData)); }catch(_){}
-  fkToast(`🗑 ${removidos} lançamento(s) excluído(s)`, 'ok');
-  if(typeof auditLog==='function') auditLog('extrato', `bulk-delete: ${removidos}`);
-  bulkClear();
-  try{ if(typeof renderExtrato === 'function') renderExtrato(); }catch(_){}
+  const n = BULK_SELECTED.size;
+  anaConfirm({eyebrow:'Extrato', title:`Excluir ${n} lançamento(s)?`, message:'A ação não pode ser desfeita.', okText:'Excluir', cancelText:'Cancelar', danger:true}, () => {
+    if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return;
+    const antes = extratoData.lancamentos.length;
+    extratoData.lancamentos = extratoData.lancamentos.filter(l => !BULK_SELECTED.has(l.id));
+    const removidos = antes - extratoData.lancamentos.length;
+    try{ if(typeof saveExtrato === 'function') saveExtrato(); else localStorage.setItem('forekash:extrato:v1', JSON.stringify(extratoData)); }catch(_){}
+    fkToast(`🗑 ${removidos} lançamento(s) excluído(s)`, 'ok');
+    if(typeof auditLog==='function') auditLog('extrato', `bulk-delete: ${removidos}`);
+    bulkClear();
+    try{ if(typeof renderExtrato === 'function') renderExtrato(); }catch(_){}
+  });
 }
 try{ window.bulkToggle = bulkToggle; window.bulkSelectAll = bulkSelectAll; window.bulkClear = bulkClear; window.bulkOpenCategorize = bulkOpenCategorize; window.bulkApplyCategory = bulkApplyCategory; window.bulkSmartCat = bulkSmartCat; window.bulkDelete = bulkDelete; }catch(_){}
 
@@ -102437,11 +102485,12 @@ function commAddAndRefresh(modulo, id, titulo){
   fkToast('💬 Comentário adicionado', 'ok', 1800);
 }
 function commRemoveAndRefresh(modulo, id, commId, titulo){
-  if(!confirm('Remover este comentário?')) return;
-  commRemove(modulo, id, commId);
-  const ov = document.querySelector('[style*="position:fixed"][style*="rgba(0,0,0,.7)"]');
-  if(ov && ov.querySelector('#_fkmod-cancel')) ov.remove();
-  setTimeout(() => commOpen(modulo, id, titulo), 100);
+  anaConfirm({eyebrow:'Comentários', title:'Remover este comentário?', message:'Não dá pra desfazer.', okText:'Remover', cancelText:'Cancelar', danger:true}, () => {
+    commRemove(modulo, id, commId);
+    const ov = document.querySelector('[style*="position:fixed"][style*="rgba(0,0,0,.7)"]');
+    if(ov && ov.querySelector('#_fkmod-cancel')) ov.remove();
+    setTimeout(() => commOpen(modulo, id, titulo), 100);
+  });
 }
 function _commTimeAgo(ts){
   const diff = Date.now() - ts;
@@ -102555,13 +102604,14 @@ function auditExportCsv(){
   fkToast('📥 CSV exportado', 'ok', 2000);
 }
 function auditClearAll(){
-  if(!confirm('Limpar TODOS os eventos do audit log? Ação não pode ser desfeita.')) return;
-  try{
-    if(typeof AUDIT_LOG !== 'undefined') AUDIT_LOG.length = 0;
-    localStorage.removeItem('forekash:audit:v1');
-  }catch(_){}
-  fkToast('🗑 Audit log limpo', 'ok', 2000);
-  auditRenderFiltered();
+  anaConfirm({eyebrow:'Audit log', title:'Limpar TODOS os eventos?', message:'A ação não pode ser desfeita.', okText:'Limpar tudo', cancelText:'Cancelar', danger:true}, () => {
+    try{
+      if(typeof AUDIT_LOG !== 'undefined') AUDIT_LOG.length = 0;
+      localStorage.removeItem('forekash:audit:v1');
+    }catch(_){}
+    fkToast('🗑 Audit log limpo', 'ok', 2000);
+    auditRenderFiltered();
+  });
 }
 try{ window.auditOpenRich = auditOpenRich; window.auditRenderFiltered = auditRenderFiltered; window.auditExportCsv = auditExportCsv; window.auditClearAll = auditClearAll; }catch(_){}
 
@@ -102876,7 +102926,14 @@ try{ window.commOpenContextual = commOpenContextual; window.commPickFromList = c
 // 🚀 DEMO DATASET · "Startup SaaS crescendo" — popula caso completo
 // ═════════════════════════════════════════════════════════════════════
 function demoSaasLoad(){
-  if(!confirm('Carregar dataset DEMO "Startup SaaS"?\n\nIsso vai POPULAR:\n• Comercial: 8 assinaturas + 3 propostas + 2 contratos\n• Asaas: 6 cobranças variadas\n• NF: 4 notas emitidas\n• Comentários em algumas entidades\n\n⚠ NÃO sobrescreve dados existentes — só adiciona.')) return;
+  anaConfirm({
+    eyebrow:'Demo',
+    title:'Carregar dataset "Startup SaaS"?',
+    message:'Vai POPULAR:<br>• Comercial: 8 assinaturas + 3 propostas + 2 contratos<br>• Asaas: 6 cobranças variadas<br>• NF: 4 notas emitidas<br>• Comentários em algumas entidades<br><br>⚠ NÃO sobrescreve dados existentes — só adiciona.',
+    okText:'Carregar demo', cancelText:'Cancelar'
+  }, _demoSaasLoadConfirmed);
+}
+function _demoSaasLoadConfirmed(){
   let adicionados = { assinaturas:0, propostas:0, contratos:0, cobrancas:0, nf:0 };
   try{
     // ASSINATURAS
@@ -103353,12 +103410,25 @@ function lgpdExportAll(){
   }
 }
 function lgpdForgetMe(){
-  if(!confirm('⚠ APAGAR CONTA + TODOS OS DADOS?\n\nIsso é irreversível. Recomendamos exportar primeiro.\n\nContinuar?')) return;
-  if(!confirm('Tem CERTEZA? Vai apagar tudo do localStorage do Forekash.')) return;
-  const keys = Object.keys(localStorage).filter(k => k.startsWith('forekash:'));
-  keys.forEach(k => localStorage.removeItem(k));
-  alert(`✅ ${keys.length} chaves apagadas. Recarregando...`);
-  setTimeout(() => location.reload(), 1500);
+  anaConfirm({
+    eyebrow:'LGPD · Apagar conta',
+    title:'⚠ APAGAR CONTA + TODOS OS DADOS?',
+    message:'Isso é <strong>irreversível</strong>. Recomendamos exportar primeiro.',
+    okText:'Quero apagar', cancelText:'Cancelar', danger:true
+  }, () => {
+    anaConfirm({
+      eyebrow:'Confirmação dupla',
+      title:'Tem CERTEZA absoluta?',
+      message:'Vai apagar tudo do localStorage do Forekash. Não dá pra voltar atrás.',
+      okText:'Apagar tudo agora', cancelText:'Não, voltei pra calma', danger:true
+    }, () => {
+      const keys = Object.keys(localStorage).filter(k => k.startsWith('forekash:'));
+      keys.forEach(k => localStorage.removeItem(k));
+      anaAlert({eyebrow:'LGPD', title:'Conta apagada', message:`✅ ${keys.length} chaves apagadas. Recarregando...`}, () => {
+        setTimeout(() => location.reload(), 600);
+      });
+    });
+  });
 }
 try{ window.lgpdOpen = lgpdOpen; window.lgpdExportAll = lgpdExportAll; window.lgpdForgetMe = lgpdForgetMe; }catch(_){}
 
@@ -103623,7 +103693,7 @@ function integrationsLogOpen(){
       }).join('')}
     </div>
     <div style="margin-top:12px">
-      <button class="btn btn-sec" onclick="if(confirm('Limpar logs?')){ INTEG_LOG=[]; _integLogSave(); document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove(); }" style="padding:6px 12px;font-size:.74rem;color:#EF4444">🗑 Limpar</button>
+      <button class="btn btn-sec" onclick="anaConfirm({eyebrow:'Integrações',title:'Limpar logs?',message:'Os logs ficarão zerados.',okText:'Limpar',cancelText:'Cancelar',danger:true},()=>{ INTEG_LOG=[]; _integLogSave(); document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove(); })" style="padding:6px 12px;font-size:.74rem;color:#EF4444">🗑 Limpar</button>
     </div>
   </div>`;
   if(typeof _fkModal === 'function') _fkModal('📋 Logs de Integrações', html, () => true);
@@ -103994,9 +104064,9 @@ function llmGetKey(){
     if(typeof fkToast==='function') fkToast('Selecione um provider primeiro', 'info', 2500);
     return;
   }
-  if(confirm(instr + '\n\nAbrir página agora?')){
+  anaConfirm({eyebrow:'API Key', title:'Como pegar sua key', message: String(instr||'').replace(/\n/g,'<br>') + '<br><br>Abrir página agora?', okText:'Abrir', cancelText:'Depois'}, () => {
     window.open(url, '_blank');
-  }
+  });
 }
 // Função pra MR KASH chamar LLM real (substitui mrkLocalRespond se LLM ativo)
 async function llmAsk(prompt, contextData){
@@ -104176,8 +104246,8 @@ function tfaOpenManage(){
     </div>
     <div style="display:flex;flex-direction:column;gap:8px">
       <button class="btn btn-sec" onclick="tfaShowBackupCodes()" style="padding:10px;text-align:left">📋 Ver códigos de backup</button>
-      <button class="btn btn-sec" onclick="if(confirm('Regenerar códigos? Os antigos vão parar de funcionar.')){ TFA_STATE.backupCodes = _tfaGenBackupCodes(); localStorage.setItem(TFA_KEY, JSON.stringify(TFA_STATE)); tfaShowBackupCodes(); }" style="padding:10px;text-align:left">🔄 Regenerar códigos</button>
-      <button class="btn btn-sec" onclick="if(confirm('Desativar 2FA? Sua conta ficará menos segura.')){ TFA_STATE.enabled=false; TFA_STATE.secret=''; TFA_STATE.backupCodes=[]; localStorage.setItem(TFA_KEY, JSON.stringify(TFA_STATE)); if(typeof fkToast==='function') fkToast('2FA desativado', 'warn', 3000); document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove(); }" style="padding:10px;text-align:left;color:#EF4444">⚠ Desativar 2FA</button>
+      <button class="btn btn-sec" onclick="anaConfirm({eyebrow:'2FA',title:'Regenerar códigos?',message:'Os códigos antigos vão parar de funcionar.',okText:'Regenerar',cancelText:'Cancelar',danger:true},()=>{ TFA_STATE.backupCodes = _tfaGenBackupCodes(); localStorage.setItem(TFA_KEY, JSON.stringify(TFA_STATE)); tfaShowBackupCodes(); })" style="padding:10px;text-align:left">🔄 Regenerar códigos</button>
+      <button class="btn btn-sec" onclick="anaConfirm({eyebrow:'2FA',title:'Desativar 2FA?',message:'Sua conta ficará menos segura.',okText:'Desativar',cancelText:'Cancelar',danger:true},()=>{ TFA_STATE.enabled=false; TFA_STATE.secret=''; TFA_STATE.backupCodes=[]; localStorage.setItem(TFA_KEY, JSON.stringify(TFA_STATE)); if(typeof fkToast==='function') fkToast('2FA desativado', 'warn', 3000); document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove(); })" style="padding:10px;text-align:left;color:#EF4444">⚠ Desativar 2FA</button>
     </div>
   </div>`;
   if(typeof _fkModal === 'function') _fkModal('🔐 Gerenciar 2FA', html, () => true);
@@ -104301,7 +104371,7 @@ function accessLogOpen(){
       }).join('')}
     </div>
     <div style="margin-top:12px;display:flex;gap:8px">
-      <button class="btn btn-sec" onclick="if(confirm('Limpar logs?')){ localStorage.removeItem('${ACCESS_LOG_KEY}'); document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove(); }" style="padding:6px 12px;font-size:.74rem;color:#EF4444">🗑 Limpar histórico</button>
+      <button class="btn btn-sec" onclick="anaConfirm({eyebrow:'Acesso',title:'Limpar histórico de acesso?',message:'Os logs ficarão zerados.',okText:'Limpar',cancelText:'Cancelar',danger:true},()=>{ localStorage.removeItem('${ACCESS_LOG_KEY}'); document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove(); })" style="padding:6px 12px;font-size:.74rem;color:#EF4444">🗑 Limpar histórico</button>
     </div>
     <p style="margin-top:14px;font-size:.7rem;color:#64748B;line-height:1.4;font-style:italic">⚠ Logs salvos localmente. Em produção cloud, IP geolocalizado vem do servidor.</p>
   </div>`;
@@ -104408,11 +104478,12 @@ function wfToggle(id){
   setTimeout(wfOpen, 100);
 }
 function wfRemove(id){
-  if(!confirm('Remover automação?')) return;
-  WORKFLOWS = WORKFLOWS.filter(x => x.id!==id);
-  wfSave();
-  document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove();
-  setTimeout(wfOpen, 100);
+  anaConfirm({eyebrow:'Automação', title:'Remover automação?', message:'Vai parar de rodar.', okText:'Remover', cancelText:'Cancelar', danger:true}, () => {
+    WORKFLOWS = WORKFLOWS.filter(x => x.id!==id);
+    wfSave();
+    document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove();
+    setTimeout(wfOpen, 100);
+  });
 }
 try{ window.wfLoad = wfLoad; window.wfOpen = wfOpen; window.wfOpenCreate = wfOpenCreate; window.wfToggle = wfToggle; window.wfRemove = wfRemove; }catch(_){}
 
@@ -104476,11 +104547,12 @@ function rtaskToggle(id){
   setTimeout(rtaskOpen, 100);
 }
 function rtaskRemove(id){
-  if(!confirm('Remover tarefa?')) return;
-  RTASKS = RTASKS.filter(x => x.id!==id);
-  rtaskSave();
-  document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove();
-  setTimeout(rtaskOpen, 100);
+  anaConfirm({eyebrow:'Tarefas', title:'Remover tarefa?', message:'Vai parar de aparecer no calendário.', okText:'Remover', cancelText:'Cancelar', danger:true}, () => {
+    RTASKS = RTASKS.filter(x => x.id!==id);
+    rtaskSave();
+    document.querySelector('[id^=_fkmod]')?.closest('[style*=fixed]')?.remove();
+    setTimeout(rtaskOpen, 100);
+  });
 }
 // Check periódico — se hoje é dia X de tarefa ativa, dispara toast
 function rtaskCheck(){
@@ -105083,9 +105155,10 @@ function snipAdd(){
   if(typeof auditLog === 'function') auditLog('config', `snippet criado: /${key}`);
 }
 function snipRemove(key){
-  if(!confirm(`Remover snippet /${key}?`)) return;
-  delete SNIPPETS[key];
-  snipSave(); snipRender();
+  anaConfirm({eyebrow:'Snippets', title:`Remover snippet /${key}?`, message:'Vai parar de funcionar nos campos.', okText:'Remover', cancelText:'Cancelar', danger:true}, () => {
+    delete SNIPPETS[key];
+    snipSave(); snipRender();
+  });
 }
 function snipRender(){
   const el = document.getElementById('snippets-list');
@@ -105438,14 +105511,20 @@ function apiConfigSave(){
   try{ localStorage.setItem(API_KEY_LS, JSON.stringify(API_CFG)); }catch(_){}
 }
 function apiKeyGenerate(){
-  if(API_CFG.key && !confirm('Já existe uma API key. Gerar nova vai invalidar a anterior — integrações ativas vão quebrar. Continuar?')) return;
-  const key = 'fk_live_' + Array.from(crypto.getRandomValues(new Uint8Array(24))).map(b => b.toString(16).padStart(2,'0')).join('');
-  API_CFG.key = key;
-  try{ localStorage.setItem(API_KEY_LS, JSON.stringify(API_CFG)); }catch(_){}
-  const el = document.getElementById('cfg-api-key');
-  if(el) el.value = key;
-  if(typeof auditLog==='function') auditLog('api', 'gerou nova API key');
-  alert('✅ API key gerada!\n\nGuarde em local seguro — ela não será mostrada de novo se você sair desta tela.');
+  const doGen = () => {
+    const key = 'fk_live_' + Array.from(crypto.getRandomValues(new Uint8Array(24))).map(b => b.toString(16).padStart(2,'0')).join('');
+    API_CFG.key = key;
+    try{ localStorage.setItem(API_KEY_LS, JSON.stringify(API_CFG)); }catch(_){}
+    const el = document.getElementById('cfg-api-key');
+    if(el) el.value = key;
+    if(typeof auditLog==='function') auditLog('api', 'gerou nova API key');
+    anaAlert({eyebrow:'API', title:'API key gerada!', message:'✅ Guarde em local seguro — ela não será mostrada de novo se você sair desta tela.'});
+  };
+  if(API_CFG.key){
+    anaConfirm({eyebrow:'API', title:'Já existe uma API key', message:'Gerar nova vai <strong>invalidar a anterior</strong> — integrações ativas vão quebrar. Continuar?', okText:'Gerar nova', cancelText:'Cancelar', danger:true}, doGen);
+  } else {
+    doGen();
+  }
 }
 function apiKeyCopy(){
   const el = document.getElementById('cfg-api-key');
@@ -105617,13 +105696,15 @@ function wlClientsRender(){
   </div>`).join('');
 }
 function wlAddClient(){
-  const nome = prompt('Nome da PJ-cliente:');
-  if(!nome) return;
-  const cnpj = prompt('CNPJ (opcional):') || '';
-  WL.clients.push({ nome, cnpj, criadoEm:Date.now() });
-  try{ localStorage.setItem(WL_KEY, JSON.stringify(WL)); }catch(_){}
-  wlClientsRender();
-  if(typeof auditLog==='function') auditLog('whitelabel', 'adicionou cliente PJ: '+nome);
+  anaPrompt({eyebrow:'White-label', title:'Adicionar PJ-cliente', message:'Nome da PJ:', placeholder:'Ex: Acme Corp', okText:'Próximo'}, (nome) => {
+    if(!nome || !nome.trim()) return;
+    anaPrompt({eyebrow:'White-label', title:'CNPJ', message:'CNPJ (opcional):', placeholder:'00.000.000/0001-00', okText:'Adicionar'}, (cnpj) => {
+      WL.clients.push({ nome: nome.trim(), cnpj: (cnpj||'').trim(), criadoEm:Date.now() });
+      try{ localStorage.setItem(WL_KEY, JSON.stringify(WL)); }catch(_){}
+      wlClientsRender();
+      if(typeof auditLog==='function') auditLog('whitelabel', 'adicionou cliente PJ: '+nome);
+    });
+  });
 }
 function wlApply(){
   // Aplica white-label se ativo
