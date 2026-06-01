@@ -3743,6 +3743,15 @@
     .plan-find-ft .btn-p{background:#10B981;color:#fff;border-color:#10B981}
     .plan-find-ft .btn-p:hover{background:#059669}
     .plan-find-ft .btn-sec:hover,.plan-find-ft .btn-cancel:hover{border-color:#10B981;color:#10B981}
+    /* ── Templates ── */
+    .plan-btn-sec{background:#fff !important;color:#10B981 !important;border:1px solid #10B981 !important}
+    .plan-btn-sec:hover{background:#ECFDF5 !important}
+    .plan-tpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+    .plan-tpl-card{background:#F8FAFC;border:1.5px solid #E2E8F0;border-radius:10px;padding:18px 14px;cursor:pointer;transition:all .12s;text-align:center}
+    .plan-tpl-card:hover{border-color:#10B981;background:#ECFDF5;transform:translateY(-2px);box-shadow:0 6px 16px rgba(16,185,129,.18)}
+    .plan-tpl-icon{font-size:2.2rem;margin-bottom:8px}
+    .plan-tpl-card h4{margin:0 0 4px;font-size:.86rem;color:#0F172A;font-weight:700}
+    .plan-tpl-card p{margin:0;font-size:.72rem;color:#64748B;line-height:1.4}
     .plan-tabs-spacer{flex:1}
     .plan-grid-add-row,.plan-grid-add-col{background:transparent;border:1px dashed #CBD5E1;color:#94A3B8;cursor:pointer;padding:5px 12px;border-radius:5px;font-size:.74rem;font-family:inherit;margin-left:4px}
     .plan-grid-add-row:hover,.plan-grid-add-col:hover{border-color:#10B981;color:#10B981;background:#ECFDF5}
@@ -55325,7 +55334,10 @@ function planRenderList(mount){
           <h2>📊 Planilhas</h2>
           <p style="color:#64748B;margin:4px 0 0;font-size:.86rem">Tabelas com fórmulas. Inspirado em Sheets. Cada planilha pode ter várias páginas.</p>
         </div>
-        <button class="plan-btn-new" onclick="planNewPrompt()">+ Nova planilha</button>
+        <div style="display:flex;gap:8px">
+          <button class="plan-btn-new plan-btn-sec" onclick="planOpenTemplates()">📋 Modelos</button>
+          <button class="plan-btn-new" onclick="planNewPrompt()">+ Nova planilha</button>
+        </div>
       </div>
       ${items.length ? `<div class="plan-list">${cards}</div>` : `
         <div class="plan-empty">
@@ -55351,6 +55363,218 @@ function planNewPrompt(){
     planOpen(p.id);
   });
 }
+
+// ════════════════════════════════════════════════════════════════════
+// 📋 BIBLIOTECA DE MODELOS
+// ════════════════════════════════════════════════════════════════════
+const PLAN_TEMPLATES = [
+  {
+    id:'dre-simples', nome:'DRE Simples', emoji:'📊',
+    desc:'Receita, custos, despesas e resultado em 12 meses',
+    build:() => {
+      const cells = {};
+      const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+      cells['A1'] = { v:'DRE 2026', s:{bold:true, size:16} };
+      cells['A3'] = { v:'Categoria', s:{bold:true, bg:'#1E293B', fg:'#fff'} };
+      for(let i=0;i<12;i++){ cells[_planColLetter(i+1)+'3'] = { v:meses[i], s:{bold:true, bg:'#1E293B', fg:'#fff', align:'C'} }; }
+      cells['N3'] = { v:'Total', s:{bold:true, bg:'#10B981', fg:'#fff', align:'C'} };
+      const linhas = [
+        ['(+) Receita Bruta', '#D1FAE5'],
+        ['(-) Impostos s/ Receita', '#FEE2E2'],
+        ['(=) Receita Líquida', '#FEF3C7'],
+        ['(-) Custos (CMV/CSV)', '#FEE2E2'],
+        ['(=) Lucro Bruto', '#FEF3C7'],
+        ['(-) Despesas Pessoal', '#FEE2E2'],
+        ['(-) Despesas Operacionais', '#FEE2E2'],
+        ['(-) Despesas Administrativas', '#FEE2E2'],
+        ['(=) EBITDA', '#FEF3C7'],
+        ['(-) Despesas Financeiras', '#FEE2E2'],
+        ['(=) Lucro Líquido', '#10B981']
+      ];
+      for(let i=0; i<linhas.length; i++){
+        const r = i + 4;
+        const [nome, bg] = linhas[i];
+        cells['A'+r] = { v:nome, s:{bold: nome.startsWith('('), bg, align:'L'} };
+        for(let j=1; j<=12; j++){
+          cells[_planColLetter(j)+r] = { v:0, s:{fmt:'BRL'} };
+        }
+        cells['N'+r] = { v:'=SUM(B'+r+':M'+r+')', s:{fmt:'BRL', bold:true, bg:'#F1F5F9'} };
+      }
+      return { name:'DRE', cols:14, rows:50, cells, colW:{0:200,13:120}, rowH:{} };
+    }
+  },
+  {
+    id:'fluxo-13semanas', nome:'Fluxo 13 Semanas', emoji:'💵',
+    desc:'Caixa projetado semana a semana (rolling forecast)',
+    build:() => {
+      const cells = {};
+      cells['A1'] = { v:'Fluxo de Caixa · 13 Semanas', s:{bold:true, size:16} };
+      cells['A3'] = { v:'Item', s:{bold:true, bg:'#1E293B', fg:'#fff'} };
+      for(let w=1; w<=13; w++) cells[_planColLetter(w)+'3'] = { v:'S'+w, s:{bold:true, bg:'#1E293B', fg:'#fff', align:'C'} };
+      cells['O3'] = { v:'Total', s:{bold:true, bg:'#10B981', fg:'#fff', align:'C'} };
+      const linhas = [
+        {l:'Saldo Inicial', fmt:'BRL', bg:'#FEF3C7', bold:true},
+        {l:'(+) Receitas', fmt:'BRL'},
+        {l:'   Vendas à vista', fmt:'BRL'},
+        {l:'   Recebimentos a prazo', fmt:'BRL'},
+        {l:'(=) Total Entradas', fmt:'BRL', bg:'#D1FAE5', bold:true, formula:true},
+        {l:'(-) Pessoal', fmt:'BRL'},
+        {l:'(-) Fornecedores', fmt:'BRL'},
+        {l:'(-) Impostos', fmt:'BRL'},
+        {l:'(-) Estrutura', fmt:'BRL'},
+        {l:'(=) Total Saídas', fmt:'BRL', bg:'#FEE2E2', bold:true, formula:true},
+        {l:'Saldo Final', fmt:'BRL', bg:'#10B981', fg:'#fff', bold:true, formula:'saldo'}
+      ];
+      for(let i=0; i<linhas.length; i++){
+        const r = i + 4;
+        const ln = linhas[i];
+        cells['A'+r] = { v:ln.l, s:{bold:ln.bold, bg:ln.bg, fg:ln.fg, align:'L'} };
+        for(let w=1; w<=13; w++){
+          const col = _planColLetter(w);
+          if(ln.formula === true){
+            if(ln.l.includes('Entradas')) cells[col+r] = { v:`=SUM(${col}6:${col}7)`, s:{fmt:'BRL', bold:true, bg:ln.bg} };
+            else cells[col+r] = { v:`=SUM(${col}9:${col}12)`, s:{fmt:'BRL', bold:true, bg:ln.bg} };
+          } else if(ln.formula === 'saldo'){
+            cells[col+r] = { v:`=${col}4+${col}8-${col}13`, s:{fmt:'BRL', bold:true, bg:'#10B981', fg:'#fff'} };
+          } else {
+            cells[col+r] = { v:0, s:{fmt:'BRL', bg:ln.bg, fg:ln.fg, bold:ln.bold} };
+          }
+        }
+        cells['O'+r] = { v:`=SUM(B${r}:N${r})`, s:{fmt:'BRL', bold:true, bg:'#F1F5F9'} };
+      }
+      return { name:'Fluxo 13s', cols:15, rows:50, cells, colW:{0:230}, rowH:{} };
+    }
+  },
+  {
+    id:'controle-viagem', nome:'Controle de Viagem', emoji:'✈',
+    desc:'Despesas com transporte, hospedagem e alimentação',
+    build:() => {
+      const cells = {};
+      cells['A1'] = { v:'Controle de Viagem', s:{bold:true, size:16} };
+      cells['A3'] = { v:'Data', s:{bold:true, bg:'#1E293B', fg:'#fff', align:'C'} };
+      cells['B3'] = { v:'Descrição', s:{bold:true, bg:'#1E293B', fg:'#fff', align:'L'} };
+      cells['C3'] = { v:'Categoria', s:{bold:true, bg:'#1E293B', fg:'#fff', align:'C'} };
+      cells['D3'] = { v:'Forma Pgto', s:{bold:true, bg:'#1E293B', fg:'#fff', align:'C'} };
+      cells['E3'] = { v:'Valor', s:{bold:true, bg:'#1E293B', fg:'#fff', align:'C'} };
+      cells['F3'] = { v:'Anexo', s:{bold:true, bg:'#1E293B', fg:'#fff', align:'C'} };
+      // Linhas de exemplo
+      for(let r = 4; r <= 30; r++){
+        cells['E'+r] = { v:0, s:{fmt:'BRL'} };
+      }
+      cells['A32'] = { v:'TOTAL', s:{bold:true, bg:'#FEF3C7'} };
+      cells['E32'] = { v:'=SUM(E4:E30)', s:{fmt:'BRL', bold:true, bg:'#10B981', fg:'#fff'} };
+      return { name:'Viagem', cols:6, rows:40, cells, colW:{0:90,1:280,2:140,3:140,4:120,5:80}, rowH:{} };
+    }
+  },
+  {
+    id:'comissao-vendedor', nome:'Comissão por Vendedor', emoji:'💼',
+    desc:'Cálculo de comissão sobre receita por vendedor',
+    build:() => {
+      const cells = {};
+      cells['A1'] = { v:'Comissão de Vendedores', s:{bold:true, size:16} };
+      const hd = ['Vendedor','Meta','Realizado','% Atingido','% Comissão','Valor Comissão'];
+      for(let i=0;i<hd.length;i++){ cells[_planColLetter(i)+'3'] = { v:hd[i], s:{bold:true, bg:'#1E293B', fg:'#fff', align:'C'} }; }
+      for(let r=4; r<=15; r++){
+        cells['B'+r] = { v:0, s:{fmt:'BRL'} };
+        cells['C'+r] = { v:0, s:{fmt:'BRL'} };
+        cells['D'+r] = { v:`=IFERROR(C${r}/B${r},0)`, s:{fmt:'PCT'} };
+        cells['E'+r] = { v:0.05, s:{fmt:'PCT'} };
+        cells['F'+r] = { v:`=C${r}*E${r}`, s:{fmt:'BRL', bold:true} };
+      }
+      cells['A17'] = { v:'TOTAL', s:{bold:true, bg:'#FEF3C7'} };
+      cells['C17'] = { v:'=SUM(C4:C15)', s:{fmt:'BRL', bold:true, bg:'#FEF3C7'} };
+      cells['F17'] = { v:'=SUM(F4:F15)', s:{fmt:'BRL', bold:true, bg:'#10B981', fg:'#fff'} };
+      return { name:'Comissão', cols:6, rows:25, cells, colW:{0:160,1:120,2:120,3:110,4:110,5:140}, rowH:{} };
+    }
+  },
+  {
+    id:'orcamento-pessoal', nome:'Orçamento Pessoal', emoji:'🏠',
+    desc:'Controle de receitas e despesas mensais',
+    build:() => {
+      const cells = {};
+      cells['A1'] = { v:'Orçamento Pessoal', s:{bold:true, size:16} };
+      cells['A3'] = { v:'Categoria', s:{bold:true, bg:'#1E293B', fg:'#fff'} };
+      cells['B3'] = { v:'Previsto', s:{bold:true, bg:'#1E293B', fg:'#fff', align:'C'} };
+      cells['C3'] = { v:'Realizado', s:{bold:true, bg:'#1E293B', fg:'#fff', align:'C'} };
+      cells['D3'] = { v:'Saldo', s:{bold:true, bg:'#1E293B', fg:'#fff', align:'C'} };
+      const cats = [
+        ['RECEITAS', '#D1FAE5', true],
+        ['Salário', null, false],
+        ['Freelance', null, false],
+        ['Investimentos', null, false],
+        ['', null, false],
+        ['DESPESAS FIXAS', '#FEE2E2', true],
+        ['Aluguel/Financiamento', null, false],
+        ['Contas (água/luz/net)', null, false],
+        ['Plano de saúde', null, false],
+        ['', null, false],
+        ['DESPESAS VARIÁVEIS', '#FEE2E2', true],
+        ['Mercado', null, false],
+        ['Transporte', null, false],
+        ['Lazer', null, false],
+        ['Outros', null, false]
+      ];
+      for(let i=0;i<cats.length;i++){
+        const r = i+4;
+        const [nome, bg, bold] = cats[i];
+        cells['A'+r] = { v:nome, s:{bold, bg, align:'L'} };
+        if(nome && !bold){
+          cells['B'+r] = { v:0, s:{fmt:'BRL'} };
+          cells['C'+r] = { v:0, s:{fmt:'BRL'} };
+          cells['D'+r] = { v:`=B${r}-C${r}`, s:{fmt:'BRL', bold:true} };
+        }
+      }
+      return { name:'Orçamento', cols:4, rows:25, cells, colW:{0:200,1:140,2:140,3:140}, rowH:{} };
+    }
+  }
+];
+
+function planOpenTemplates(){
+  const old = document.getElementById('plan-tpl-ov');
+  if(old){ old.remove(); return; }
+  const ov = document.createElement('div');
+  ov.id = 'plan-tpl-ov';
+  ov.className = 'plan-find-ov';
+  const cards = PLAN_TEMPLATES.map(t =>
+    `<div class="plan-tpl-card" onclick="planUseTemplate('${t.id}')">`+
+      `<div class="plan-tpl-icon">${t.emoji}</div>`+
+      `<h4>${t.nome}</h4>`+
+      `<p>${t.desc}</p>`+
+    `</div>`
+  ).join('');
+  ov.innerHTML =
+    `<div class="plan-find-card" style="width:min(720px,96vw)">`+
+      `<div class="plan-find-hd"><span>📋 Modelos de planilha</span><button class="plan-find-x" onclick="planCloseTemplates()">×</button></div>`+
+      `<div class="plan-find-bd"><div class="plan-tpl-grid">${cards}</div></div>`+
+      `<div class="plan-find-ft"><button class="btn-cancel" onclick="planCloseTemplates()">Cancelar</button></div>`+
+    `</div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click', (e) => { if(e.target === ov) planCloseTemplates(); });
+}
+window.planOpenTemplates = planOpenTemplates;
+function planCloseTemplates(){
+  const ov = document.getElementById('plan-tpl-ov');
+  if(ov) ov.remove();
+}
+window.planCloseTemplates = planCloseTemplates;
+function planUseTemplate(id){
+  const t = PLAN_TEMPLATES.find(x => x.id === id);
+  if(!t) return;
+  const sheet = t.build();
+  const p = {
+    id: _planUid(),
+    nome: t.nome,
+    sheets: [{ name: sheet.name, rows: sheet.rows, cols: sheet.cols, cells: sheet.cells, colW: sheet.colW||{}, rowH: sheet.rowH||{} }],
+    curSheet: 0,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  PLAN.list.push(p);
+  planSave();
+  planCloseTemplates();
+  planOpen(p.id);
+}
+window.planUseTemplate = planUseTemplate;
 
 function planRename(id){
   const p = PLAN.list.find(x => x.id === id); if(!p) return;
