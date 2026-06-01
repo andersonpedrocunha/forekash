@@ -9775,6 +9775,7 @@
     .fk-mc-stat span{font-size:.7rem;color:#64748B;font-weight:600;display:block;margin-bottom:3px}
     .fk-mc-stat b{font-size:1rem;color:#0F172A;font-variant-numeric:tabular-nums}
     .fk-mc-scenario{background:#F8FAFC;border-radius:8px;padding:12px 14px}
+    .fk-mc-saved-item{background:#F8FAFC;border-radius:8px;padding:12px 14px;font-size:.82rem}
     /* ── KASH ACADEMY ── */
     .fk-shortcuts-card.fk-aca-card{width:min(920px,98vw);max-height:92vh;display:flex;flex-direction:column}
     .fk-shortcuts-card .fk-aca-bd{padding:18px;overflow:auto;display:flex;flex-direction:column;gap:14px;grid-template-columns:none}
@@ -97927,7 +97928,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780347541';
+      const CACHE = 'forekash-v1780348373';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -104610,7 +104611,7 @@ function fkShareCreate(tipo){
       tipo, scope: m.scope,
       criado: Date.now(),
       expira: exp.toISOString(),
-      url: `${window.location.origin}/share/${id}`
+      url: `${window.location.origin}${window.location.pathname}?share=${id}`
     };
     links.unshift(link);
     _fkShareSave(links);
@@ -104686,11 +104687,82 @@ function fkDdGenerate(){
   setTimeout(() => { if(typeof repSetType === 'function') repSetType('investor', document.querySelector('[data-rep=investor]')); }, 200);
 }
 
+// ─── Viewer page real · valida URL ?share=ID ──
+function fkShareCheckUrl(){
+  try{
+    const params = new URLSearchParams(window.location.search);
+    const shareId = params.get('share');
+    if(!shareId) return;
+    const links = _fkShareLoad();
+    const link = links.find(l => l.id === shareId);
+    if(!link){ fkShareInvalidPage('Link inválido ou expirado.'); return; }
+    if(new Date(link.expira) < new Date()){ fkShareInvalidPage('Link expirado em ' + new Date(link.expira).toLocaleDateString('pt-BR')); return; }
+    // Aplica modo shared
+    fkShareApplyMode(link);
+  }catch(_){}
+}
+function fkShareInvalidPage(msg){
+  document.body.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#0F172A;color:#fff;font-family:system-ui;text-align:center;padding:20px"><div style="font-size:4rem;margin-bottom:18px">🔒</div><h1 style="margin:0 0 10px;font-size:1.4rem">Acesso negado</h1><p style="color:#94A3B8;max-width:400px">${msg}</p><button onclick="window.location.search=''" style="margin-top:20px;padding:10px 22px;background:#10B981;border:none;color:#fff;border-radius:8px;cursor:pointer;font-weight:600">Voltar ao Forekash</button></div>`;
+}
+function fkShareApplyMode(link){
+  // Banner no topo + restringe sidebar baseado no scope
+  document.body.setAttribute('data-share-mode', link.tipo);
+  const banner = document.createElement('div');
+  banner.id = 'fk-share-banner';
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:linear-gradient(90deg,#1E293B,#0F172A);color:#fff;padding:8px 18px;text-align:center;font-size:.78rem;z-index:100000;display:flex;justify-content:center;align-items:center;gap:14px;box-shadow:0 2px 8px rgba(0,0,0,.2)';
+  const mode = FK_SHARE_MODES[link.tipo] || { label: link.tipo };
+  banner.innerHTML = `<span>${mode.icon||'🔗'} <b>Modo ${mode.label}</b> · acesso read-only · "${link.nome}" · expira em ${new Date(link.expira).toLocaleDateString('pt-BR')}</span><button onclick="document.getElementById('fk-share-banner').remove();window.location.search=''" style="padding:4px 10px;background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:5px;cursor:pointer;font-size:.72rem">Sair</button>`;
+  document.body.appendChild(banner);
+  document.body.style.paddingTop = '40px';
+
+  // Aplica CSS pra esconder elementos fora do scope
+  const scope = link.scope || [];
+  const allModules = ['dashboard','kashtrack','extrato','disponibilidades','cartoes','receita','notasfiscais','comercial','outras-op','colaboradores','asaas','emprestimos','patrimonio','impostos','fluxo','orcamento','estrutura','presentacao','relatorios','fklab','viagens','board','support','configuracoes','workflows','kashsociety'];
+  // Mapeamento scope → módulos
+  const scopeMap = {
+    dre: ['fluxo','orcamento','relatorios'],
+    drc: ['fluxo','relatorios'],
+    extrato: ['extrato','outras-op','disponibilidades'],
+    impostos: ['impostos','estrutura'],
+    contas: ['disponibilidades','cartoes','emprestimos'],
+    docs: ['notasfiscais','workflows'],
+    kpis: ['dashboard','kashtrack'],
+    fluxo: ['fluxo'],
+    snapshots: ['patrimonio'],
+    patrim: ['patrimonio'],
+    endividamento: ['emprestimos','cartoes'],
+    asaas: ['asaas']
+  };
+  const visible = new Set();
+  for(const s of scope){
+    const mods = scopeMap[s] || [];
+    for(const m of mods) visible.add(m);
+  }
+  // Sempre visível
+  visible.add('dashboard');
+  // Esconde sidebar items
+  const style = document.createElement('style');
+  let css = '';
+  for(const mod of allModules){
+    if(!visible.has(mod)) css += `.sb-item[data-module="${mod}"],.mod#mod-${mod}{display:none !important}`;
+  }
+  // Bloqueia edição
+  css += `input,select,textarea,button.btn-p,.ext-btn,.cart-btn-primary{pointer-events:none !important;opacity:.6 !important}`;
+  css += `.fk-mob-nav,#fk-cfo-ov,#fk-wa-ov,.modal-overlay button[onclick*="Save"],.modal-overlay button[onclick*="Submit"]{display:none !important}`;
+  style.id = 'fk-share-css';
+  style.textContent = css;
+  document.head.appendChild(style);
+  if(typeof fkToast === 'function') fkToast(`🔒 Modo ${mode.label} ativo · sem permissão de edição`, 'info', 4000);
+}
+// Roda check 1s após boot
+setTimeout(fkShareCheckUrl, 1000);
+
 try{
   window.fkShareOpen = fkShareOpen; window.fkShareClose = fkShareClose;
   window.fkShareCreate = fkShareCreate; window.fkShareCopy = fkShareCopy;
   window.fkShareRevoke = fkShareRevoke;
   window.fkDdPackOpen = fkDdPackOpen; window.fkDdClose = fkDdClose; window.fkDdGenerate = fkDdGenerate;
+  window.fkShareCheckUrl = fkShareCheckUrl; window.fkShareApplyMode = fkShareApplyMode;
 }catch(_){}
 
 // ════════════════════════════════════════════════════════════════════
@@ -104805,7 +104877,7 @@ function fkMcOpen(){
           `<label class="fk-mc-fld"><span>Meses</span><input id="fkmc-meses" type="number" step="1" value="6"></label>`+
           `<label class="fk-mc-fld"><span>Simulações</span><select id="fkmc-runs"><option value="1000">1000</option><option value="5000" selected>5000</option><option value="10000">10000</option></select></label>`+
         `</div>`+
-        `<div style="display:flex;gap:10px"><button onclick="fkMcRun()" style="flex:1;padding:10px 18px;background:#10B981;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:.86rem;font-family:inherit">▶ Rodar simulação</button><button onclick="fkMcStress()" style="padding:10px 18px;background:#fff;color:#EF4444;border:2px solid #EF4444;border-radius:6px;cursor:pointer;font-weight:700;font-size:.86rem;font-family:inherit">🔥 Stress test</button></div>`+
+        `<div style="display:flex;gap:8px;flex-wrap:wrap"><button onclick="fkMcRun()" style="flex:1;min-width:120px;padding:10px 18px;background:#10B981;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:.86rem;font-family:inherit">▶ Rodar simulação</button><button onclick="fkMcStress()" style="padding:10px 14px;background:#fff;color:#EF4444;border:2px solid #EF4444;border-radius:6px;cursor:pointer;font-weight:700;font-size:.82rem;font-family:inherit">🔥 Stress</button><button onclick="fkMcSaveScenario()" style="padding:10px 14px;background:#fff;color:#3B82F6;border:2px solid #3B82F6;border-radius:6px;cursor:pointer;font-weight:700;font-size:.82rem;font-family:inherit">💾 Salvar</button><button onclick="fkMcOpenSaved()" style="padding:10px 14px;background:#fff;color:#64748B;border:2px solid #CBD5E1;border-radius:6px;cursor:pointer;font-weight:700;font-size:.82rem;font-family:inherit">📂 Cenários</button></div>`+
         `<div id="fk-mc-result"></div>`+
       `</div>`+
       `<div class="fk-shortcuts-ft"><button class="btn-cancel" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer;font-size:.76rem" onclick="fkMcClose()">Fechar</button></div>`+
@@ -104932,9 +105004,77 @@ function fkMcStress(){
   document.getElementById('fk-mc-result').innerHTML = `<div style="margin-bottom:10px;font-size:.84rem;color:#0F172A;font-weight:600">🔥 Stress test · 5 cenários × 2000 simulações</div><div style="display:flex;flex-direction:column;gap:8px">${html}</div>`;
 }
 
+// Salva cenário Monte Carlo
+function fkMcSaveScenario(){
+  const opts = {
+    caixaInicial: parseFloat(document.getElementById('fkmc-caixa')?.value)||0,
+    receitaMedia: parseFloat(document.getElementById('fkmc-rec')?.value)||0,
+    receitaStd: parseFloat(document.getElementById('fkmc-recstd')?.value)||0,
+    despMedia: parseFloat(document.getElementById('fkmc-des')?.value)||0,
+    despStd: parseFloat(document.getElementById('fkmc-desstd')?.value)||0,
+    meses: parseInt(document.getElementById('fkmc-meses')?.value)||6
+  };
+  anaPrompt({eyebrow:'Monte Carlo', title:'Nome do cenário', placeholder:'Ex: Plano A · realista', okText:'Salvar'}, (nome) => {
+    if(!nome) return;
+    const arr = (() => { try{ return JSON.parse(localStorage.getItem('forekash:mc-scenarios:v1')||'[]'); }catch(_){ return []; } })();
+    const r = _fkMcSimulate({...opts, runs: 2000});
+    arr.unshift({
+      id: 'mc_'+Date.now().toString(36),
+      nome: nome.trim(),
+      opts, criadoEm: Date.now(),
+      summary: { probSeguro: 1 - r.probRunGoNegative, p50: r.final.p50, p10: r.final.p10, p90: r.final.p90 }
+    });
+    if(arr.length > 30) arr.length = 30;
+    localStorage.setItem('forekash:mc-scenarios:v1', JSON.stringify(arr));
+    if(typeof fkToast === 'function') fkToast('💾 Cenário salvo · '+nome, 'ok', 2000);
+  });
+}
+function fkMcOpenSaved(){
+  const old = document.getElementById('fk-mc-saved-ov');
+  if(old){ old.remove(); return; }
+  const arr = (() => { try{ return JSON.parse(localStorage.getItem('forekash:mc-scenarios:v1')||'[]'); }catch(_){ return []; } })();
+  const fmt = (n) => 'R$ ' + Math.round(n).toLocaleString('pt-BR');
+  const html = arr.length === 0 ? `<div style="text-align:center;color:#94A3B8;padding:30px">Nenhum cenário salvo. Rode uma simulação e clique em "Salvar cenário".</div>` :
+    arr.map(s => `<div class="fk-mc-saved-item">`+
+      `<div style="display:flex;justify-content:space-between;align-items:center"><b>${s.nome}</b><small style="color:#64748B">${new Date(s.criadoEm).toLocaleDateString('pt-BR')}</small></div>`+
+      `<div style="display:flex;gap:14px;font-size:.74rem;margin-top:6px;color:#475569"><span>Prob.seguro: <b style="color:${s.summary.probSeguro>0.8?'#10B981':'#F59E0B'}">${(s.summary.probSeguro*100).toFixed(1)}%</b></span><span>P50: ${fmt(s.summary.p50)}</span><span>${s.opts.meses}m</span></div>`+
+      `<div style="display:flex;gap:6px;margin-top:8px"><button onclick="fkMcLoadScenario('${s.id}')" style="padding:5px 12px;background:#10B981;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:.74rem">Carregar</button><button onclick="fkMcDeleteScenario('${s.id}')" style="padding:5px 12px;background:#fff;border:1px solid #EF4444;color:#EF4444;border-radius:5px;cursor:pointer;font-size:.74rem">Apagar</button></div>`+
+    `</div>`).join('');
+  const ov = document.createElement('div');
+  ov.id = 'fk-mc-saved-ov';
+  ov.className = 'fk-shortcuts-ov';
+  ov.style.zIndex = '100000';
+  ov.innerHTML = `<div class="fk-shortcuts-card" style="width:min(540px,98vw);max-height:90vh">`+
+    `<div class="fk-shortcuts-hd"><h2>💾 Cenários salvos (${arr.length})</h2><button class="fk-shortcuts-x" onclick="document.getElementById('fk-mc-saved-ov').remove()">×</button></div>`+
+    `<div style="padding:18px;overflow:auto;display:flex;flex-direction:column;gap:8px">${html}</div>`+
+    `<div class="fk-shortcuts-ft"><button onclick="document.getElementById('fk-mc-saved-ov').remove()" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer">Fechar</button></div>`+
+  `</div>`;
+  document.body.appendChild(ov);
+}
+function fkMcLoadScenario(id){
+  const arr = (() => { try{ return JSON.parse(localStorage.getItem('forekash:mc-scenarios:v1')||'[]'); }catch(_){ return []; } })();
+  const s = arr.find(x => x.id === id); if(!s) return;
+  ['caixa','rec','recstd','des','desstd','meses'].forEach(k => {
+    const map = {caixa:'caixaInicial', rec:'receitaMedia', recstd:'receitaStd', des:'despMedia', desstd:'despStd', meses:'meses'};
+    const el = document.getElementById('fkmc-'+k);
+    if(el && s.opts[map[k]] != null) el.value = s.opts[map[k]];
+  });
+  document.getElementById('fk-mc-saved-ov')?.remove();
+  fkMcRun();
+  if(typeof fkToast === 'function') fkToast('📂 Cenário carregado', 'ok', 1500);
+}
+function fkMcDeleteScenario(id){
+  let arr = (() => { try{ return JSON.parse(localStorage.getItem('forekash:mc-scenarios:v1')||'[]'); }catch(_){ return []; } })();
+  arr = arr.filter(x => x.id !== id);
+  localStorage.setItem('forekash:mc-scenarios:v1', JSON.stringify(arr));
+  document.getElementById('fk-mc-saved-ov')?.remove();
+  setTimeout(fkMcOpenSaved, 100);
+}
 try{
   window.fkMcOpen = fkMcOpen; window.fkMcClose = fkMcClose;
   window.fkMcRun = fkMcRun; window.fkMcStress = fkMcStress;
+  window.fkMcSaveScenario = fkMcSaveScenario; window.fkMcOpenSaved = fkMcOpenSaved;
+  window.fkMcLoadScenario = fkMcLoadScenario; window.fkMcDeleteScenario = fkMcDeleteScenario;
 }catch(_){}
 
 // ════════════════════════════════════════════════════════════════════
@@ -105047,14 +105187,23 @@ function fkAcademyTab(t){
     ).join('');
     c.innerHTML = `<div style="padding-bottom:10px"><input type="text" id="fk-aca-gloss-search" placeholder="🔎 Buscar termo..." oninput="fkAcademyGlossFilter(this.value)" style="width:100%;padding:10px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:.86rem;font-family:inherit;box-sizing:border-box"></div><div id="fk-aca-gloss-list" class="fk-aca-gloss">${html}</div>`;
   } else if(t === 'mkt'){
-    c.innerHTML = `<div style="text-align:center;padding:40px 20px"><div style="font-size:3.5rem">🛒</div><h3 style="margin:14px 0 6px;color:#0F172A">Marketplace de Templates</h3><p style="color:#475569;font-size:.86rem;line-height:1.6;max-width:480px;margin:0 auto 18px">Compartilhe seus dashboards, planilhas e relatórios com a comunidade · ou baixe templates prontos de outros usuários.</p>`+
-      `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:20px">`+
-        `<div class="fk-aca-mkt-item">📊 DRE Gerencial Pro<br><small>Por João S. · ⭐ 4.8 (124)</small><button>Baixar</button></div>`+
-        `<div class="fk-aca-mkt-item">💰 Fluxo Semanal Detalhado<br><small>Por Maria O. · ⭐ 4.9 (89)</small><button>Baixar</button></div>`+
-        `<div class="fk-aca-mkt-item">📈 Dashboard Comercial<br><small>Por Pedro M. · ⭐ 4.7 (203)</small><button>Baixar</button></div>`+
-        `<div class="fk-aca-mkt-item">🎯 Análise de Clientes ABC<br><small>Por Ana L. · ⭐ 5.0 (45)</small><button>Baixar</button></div>`+
-      `</div>`+
-      `<button onclick="fkToast && fkToast('Em breve · publique seus templates pra comunidade','info',3000)" style="margin-top:24px;padding:10px 22px;background:#10B981;color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:700;font-size:.86rem">+ Publicar meu template</button>`+
+    // Marketplace funcional · export/import de templates
+    const builtins = (typeof PLAN_TEMPLATES !== 'undefined') ? PLAN_TEMPLATES.map(t => ({
+      id: t.id, nome: t.nome, emoji: t.emoji, desc: t.desc, isBuiltin: true, autor:'Forekash · Oficial'
+    })) : [];
+    // Templates do user (planilhas que ele exportou como template)
+    const userTpls = (() => { try{ return JSON.parse(localStorage.getItem('forekash:user-templates:v1')||'[]'); }catch(_){ return []; } })();
+    const allTpls = [...builtins, ...userTpls];
+    const html = allTpls.map(t => `<div class="fk-aca-mkt-item">`+
+      `<div style="font-size:1.6rem">${t.emoji||'📊'}</div>`+
+      `<b style="display:block;margin-top:6px">${t.nome}</b>`+
+      `<small style="display:block;margin:4px 0">${t.desc||''}<br>${t.autor||'Anônimo'}</small>`+
+      `<div style="display:flex;gap:4px"><button onclick="fkAcademyMktUse('${t.id}')">Usar</button>${!t.isBuiltin?`<button onclick="fkAcademyMktDelete('${t.id}')" style="background:#EF4444">🗑</button>`:''}</div>`+
+    `</div>`).join('');
+    c.innerHTML = `<div>`+
+      `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0;font-size:.94rem;color:#0F172A">🛒 ${allTpls.length} templates disponíveis</h3><div style="display:flex;gap:6px"><button onclick="fkAcademyMktImport()" style="padding:7px 12px;background:#fff;border:1.5px solid #10B981;color:#10B981;border-radius:6px;cursor:pointer;font-weight:600;font-size:.78rem">📤 Importar .json</button><button onclick="fkAcademyMktPublish()" style="padding:7px 12px;background:#10B981;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:.78rem">+ Publicar planilha atual</button></div></div>`+
+      `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">${html}</div>`+
+      `<div style="margin-top:18px;font-size:.74rem;color:#64748B;background:#F8FAFC;padding:10px;border-radius:6px;line-height:1.5">💡 Templates do usuário ficam no seu device por enquanto. Em breve: pool compartilhado da comunidade Forekash com rating e download cross-device.</div>`+
     `</div>`;
   } else if(t === 'cert'){
     const aca = _fkAcaLoad();
@@ -105152,10 +105301,96 @@ function fkAcademyLessonDone(id){
   fkAcademyClose(); setTimeout(fkAcademyOpen, 100);
 }
 
+function fkAcademyMktUse(id){
+  // Tenta usar template builtin primeiro
+  if(typeof planUseTemplate === 'function' && (typeof PLAN_TEMPLATES !== 'undefined') && PLAN_TEMPLATES.find(x => x.id === id)){
+    fkAcademyClose();
+    planUseTemplate(id);
+    return;
+  }
+  // Senão, é user template
+  const arr = (() => { try{ return JSON.parse(localStorage.getItem('forekash:user-templates:v1')||'[]'); }catch(_){ return []; } })();
+  const t = arr.find(x => x.id === id);
+  if(!t || !t.sheet){ if(typeof fkToast === 'function') fkToast('Template inválido', 'err'); return; }
+  // Cria nova planilha com o sheet salvo
+  if(typeof PLAN !== 'undefined' && typeof planSave === 'function' && typeof planOpen === 'function'){
+    const p = {
+      id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2,6),
+      nome: t.nome,
+      sheets: [t.sheet],
+      curSheet: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    PLAN.list.push(p);
+    planSave();
+    fkAcademyClose();
+    planOpen(p.id);
+  }
+}
+function fkAcademyMktDelete(id){
+  anaConfirm({eyebrow:'Marketplace', title:'Remover template?', okText:'Remover', cancelText:'Cancelar', danger:true}, () => {
+    let arr = (() => { try{ return JSON.parse(localStorage.getItem('forekash:user-templates:v1')||'[]'); }catch(_){ return []; } })();
+    arr = arr.filter(x => x.id !== id);
+    localStorage.setItem('forekash:user-templates:v1', JSON.stringify(arr));
+    fkAcademyTab('mkt');
+  });
+}
+function fkAcademyMktPublish(){
+  // Pega a planilha atualmente aberta
+  if(typeof PLAN === 'undefined' || !PLAN.curId){
+    if(typeof fkToast === 'function') fkToast('Abra uma planilha primeiro pra publicar', 'warn', 3000);
+    return;
+  }
+  const p = PLAN.list.find(x => x.id === PLAN.curId);
+  if(!p){ if(typeof fkToast === 'function') fkToast('Planilha não encontrada', 'err'); return; }
+  anaPrompt({eyebrow:'Marketplace', title:'Nome do template público', placeholder:'Ex: DRE Gerencial Pro', defaultValue: p.nome, okText:'Próximo'}, (nome) => {
+    if(!nome) return;
+    anaPrompt({eyebrow:'Marketplace', title:'Descrição rápida', placeholder:'O que faz / pra quem é útil', okText:'Publicar'}, (desc) => {
+      const arr = (() => { try{ return JSON.parse(localStorage.getItem('forekash:user-templates:v1')||'[]'); }catch(_){ return []; } })();
+      const id = 'ut_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+      const sheet = p.sheets[p.curSheet || 0];
+      arr.unshift({
+        id, nome: nome.trim(), desc: (desc||'').trim() || 'Template publicado pela comunidade',
+        emoji:'⭐', autor: 'Você',
+        sheet: JSON.parse(JSON.stringify(sheet)),
+        criadoEm: Date.now()
+      });
+      localStorage.setItem('forekash:user-templates:v1', JSON.stringify(arr));
+      if(typeof fkToast === 'function') fkToast('⭐ Template publicado · disponível no marketplace', 'ok', 2500);
+      fkAcademyTab('mkt');
+    });
+  });
+}
+function fkAcademyMktImport(){
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.json,application/json';
+  inp.onchange = () => {
+    const f = inp.files && inp.files[0]; if(!f) return;
+    const r = new FileReader();
+    r.onload = (e) => {
+      try{
+        const data = JSON.parse(e.target.result);
+        if(!data.sheet || !data.nome){ if(typeof fkToast === 'function') fkToast('Arquivo inválido · esperado {nome, desc, sheet}', 'err'); return; }
+        const arr = (() => { try{ return JSON.parse(localStorage.getItem('forekash:user-templates:v1')||'[]'); }catch(_){ return []; } })();
+        data.id = 'ut_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+        data.autor = data.autor || 'Importado';
+        arr.unshift(data);
+        localStorage.setItem('forekash:user-templates:v1', JSON.stringify(arr));
+        if(typeof fkToast === 'function') fkToast('📥 Template importado', 'ok', 2500);
+        fkAcademyTab('mkt');
+      }catch(err){ if(typeof fkToast === 'function') fkToast('Erro: '+err.message, 'err'); }
+    };
+    r.readAsText(f);
+  };
+  inp.click();
+}
 try{
   window.fkAcademyOpen = fkAcademyOpen; window.fkAcademyClose = fkAcademyClose;
   window.fkAcademyTab = fkAcademyTab; window.fkAcademyGlossFilter = fkAcademyGlossFilter;
   window.fkAcademyLessonOpen = fkAcademyLessonOpen; window.fkAcademyLessonDone = fkAcademyLessonDone;
+  window.fkAcademyMktUse = fkAcademyMktUse; window.fkAcademyMktDelete = fkAcademyMktDelete;
+  window.fkAcademyMktPublish = fkAcademyMktPublish; window.fkAcademyMktImport = fkAcademyMktImport;
   window.FK_GLOSSARIO = FK_GLOSSARIO;
 }catch(_){}
 
@@ -105177,12 +105412,41 @@ const FK_BENCHMARK_CNAES = {
   'construcao':        { label:'Construção Civil',           margem:9,   crescimento:5, ticket:120000,conversao:5,  churn:2,  inad:8,   liquidez:1.1, endiv:62 },
   'restaurante':       { label:'Restaurante / Bar',          margem:6,   crescimento:7, ticket:85,   conversao:35,  churn:2,  inad:1,   liquidez:0.9, endiv:55 },
   'tecnologia':        { label:'Tecnologia / Software',      margem:24,  crescimento:18,ticket:980,  conversao:9,   churn:5,  inad:4,   liquidez:2.5, endiv:15 },
+  'saas':              { label:'SaaS / Software como Serviço',margem:30, crescimento:25,ticket:480,  conversao:8,   churn:4,  inad:2,   liquidez:3.0, endiv:10 },
+  'ecommerce':         { label:'E-commerce',                 margem:10,  crescimento:15,ticket:220,  conversao:1.8, churn:7,  inad:6,   liquidez:1.4, endiv:30 },
   'saude':             { label:'Saúde / Clínicas',           margem:16,  crescimento:9, ticket:420,  conversao:42,  churn:12, inad:7,   liquidez:1.6, endiv:30 },
   'educacao':          { label:'Educação / Cursos',          margem:14,  crescimento:5, ticket:340,  conversao:11,  churn:18, inad:11,  liquidez:1.3, endiv:35 },
   'agencia':           { label:'Agência (Marketing/Publi)',  margem:20,  crescimento:8, ticket:6500, conversao:14,  churn:9,  inad:5,   liquidez:2.0, endiv:22 },
   'logistica':         { label:'Logística / Transporte',     margem:7,   crescimento:5, ticket:2400, conversao:22,  churn:4,  inad:3,   liquidez:1.2, endiv:52 },
+  'agronegocio':       { label:'Agronegócio',                margem:11,  crescimento:6, ticket:18000,conversao:25,  churn:3,  inad:2,   liquidez:1.3, endiv:58 },
+  'imobiliario':       { label:'Imobiliário',                margem:15,  crescimento:4, ticket:80000,conversao:3,   churn:1,  inad:4,   liquidez:1.0, endiv:65 },
+  'turismo':           { label:'Turismo / Hotelaria',        margem:13,  crescimento:6, ticket:1200, conversao:18,  churn:8,  inad:5,   liquidez:1.4, endiv:42 },
+  'financeiro':        { label:'Serviços Financeiros',       margem:28,  crescimento:10,ticket:4200, conversao:18,  churn:4,  inad:9,   liquidez:2.4, endiv:28 },
+  'juridico':          { label:'Escritório de Advocacia',    margem:25,  crescimento:7, ticket:8500, conversao:30,  churn:5,  inad:8,   liquidez:2.5, endiv:12 },
+  'contabilidade':     { label:'Contabilidade',              margem:23,  crescimento:6, ticket:980,  conversao:25,  churn:4,  inad:3,   liquidez:2.3, endiv:15 },
   'outro':             { label:'Outro / Diversos',           margem:12,  crescimento:6, ticket:1500, conversao:15,  churn:6,  inad:5,   liquidez:1.5, endiv:35 }
 };
+
+// Persiste histórico de score por dia
+const FK_BENCH_HIST = 'forekash:bench-history:v1';
+function fkBenchSaveSnapshot(){
+  try{
+    const arr = JSON.parse(localStorage.getItem(FK_BENCH_HIST)||'[]');
+    const r = fkBenchScore();
+    const today = new Date().toISOString().slice(0,10);
+    if(arr.length > 0 && arr[arr.length-1].dia === today){
+      arr[arr.length-1] = { dia: today, score: r.score, ts: Date.now() };
+    } else {
+      arr.push({ dia: today, score: r.score, ts: Date.now() });
+    }
+    // Mantém últimos 365 dias
+    if(arr.length > 365) arr.splice(0, arr.length - 365);
+    localStorage.setItem(FK_BENCH_HIST, JSON.stringify(arr));
+  }catch(_){}
+}
+function fkBenchLoadHistory(){ try{ return JSON.parse(localStorage.getItem(FK_BENCH_HIST)||'[]'); }catch(_){ return []; } }
+// Salva snapshot diário automaticamente
+setTimeout(() => { try { fkBenchSaveSnapshot(); } catch(_){} }, 30000);
 
 const FK_BENCH_KEY = 'forekash:setor:v1';
 function fkBenchGetSetor(){
@@ -105332,10 +105596,11 @@ function fkBenchOpen(){
     `<div class="fk-shortcuts-card fk-bench-card">`+
       `<div class="fk-shortcuts-hd"><h2>📊 Inteligência de Mercado · Benchmark Setorial</h2><button class="fk-shortcuts-x" onclick="fkBenchClose()">×</button></div>`+
       `<div class="fk-shortcuts-bd fk-bench-bd">`+
-        // Score
+        // Score com sparkline
         `<div class="fk-bench-score" style="border:3px solid ${r.nivel.cor}">`+
           `<div class="fk-bench-score-num" style="color:${r.nivel.cor}">${r.score}</div>`+
-          `<div><div class="fk-bench-score-nivel" style="color:${r.nivel.cor}">${r.nivel.nome}</div><div class="fk-bench-score-desc">${r.nivel.desc}</div><small style="color:#94A3B8">Score Forekash · 0-1000 · estilo Serasa para PJ</small></div>`+
+          `<div style="flex:1"><div class="fk-bench-score-nivel" style="color:${r.nivel.cor}">${r.nivel.nome}</div><div class="fk-bench-score-desc">${r.nivel.desc}</div><small style="color:#94A3B8">Score Forekash · 0-1000 · estilo Serasa para PJ</small></div>`+
+          `<div style="margin-left:auto">${_fkBenchSparkline()}</div>`+
         `</div>`+
         // Setor picker
         `<label class="fk-bench-fld"><span>Seu setor de atuação</span><select id="fkbench-setor" onchange="fkBenchSetSetorAndReload(this.value)">${setorOpts}</select></label>`+
@@ -105383,6 +105648,21 @@ function fkBenchOpen(){
   ov.addEventListener('click', (e) => { if(e.target === ov) fkBenchClose(); });
 }
 function fkBenchClose(){ const ov = document.getElementById('fk-bench-ov'); if(ov) ov.remove(); }
+function _fkBenchSparkline(){
+  const hist = fkBenchLoadHistory();
+  if(hist.length < 2) return `<small style="color:#94A3B8;font-size:.7rem">📈 Histórico será criado<br>nos próximos dias</small>`;
+  const W = 120, H = 50;
+  const recent = hist.slice(-30);
+  const vals = recent.map(x => x.score);
+  const mn = Math.min(...vals), mx = Math.max(...vals);
+  const range = (mx - mn) || 1;
+  const xStep = W / (vals.length - 1);
+  const pts = vals.map((v,i) => `${i*xStep},${H - ((v-mn)/range)*H}`).join(' ');
+  const trend = vals[vals.length-1] - vals[0];
+  const trendCor = trend >= 0 ? '#10B981' : '#EF4444';
+  const trendIcon = trend > 0 ? '↑' : (trend < 0 ? '↓' : '→');
+  return `<div style="text-align:center"><svg viewBox="0 0 ${W} ${H}" style="width:${W}px;height:${H}px"><polyline points="${pts}" fill="none" stroke="${trendCor}" stroke-width="2"/></svg><div style="font-size:.7rem;color:${trendCor};font-weight:700">${trendIcon} ${Math.abs(trend)} pts em ${recent.length}d</div></div>`;
+}
 function fkBenchSetSetorAndReload(s){ fkBenchSetSetor(s); fkBenchClose(); setTimeout(fkBenchOpen, 100); }
 try{
   window.fkBenchOpen = fkBenchOpen; window.fkBenchClose = fkBenchClose;
@@ -105519,7 +105799,53 @@ function fkOfAtivoAplicar(v){
     fkOfAtivoClose();
   });
 }
-function fkOfAtivoAgendar(){ if(typeof fkToast === 'function') fkToast('📅 Pagamentos agendados pela ordem de vencimento', 'info', 2500); fkOfAtivoClose(); if(typeof switchModule === 'function') switchModule('kashtrack', null); }
+function fkOfAtivoAgendar(){
+  // Modal de agendamento real · ordena boletos por urgência e mostra ordem ótima de pagamento
+  fkOfAtivoClose();
+  if(typeof extratoData === 'undefined') return;
+  const pendentes = [];
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  for(const l of extratoData.lancamentos||[]){
+    if(l.tipo === 'ganho' || l.tipo === 'transferencia') continue;
+    if(l.status === 'pago') continue;
+    const dt = new Date(l.data); if(isNaN(dt)) continue;
+    const d30 = new Date(); d30.setDate(d30.getDate()+30);
+    if(dt < d30){
+      const atras = dt < hoje;
+      const dias = Math.ceil((dt - hoje) / 86400000);
+      pendentes.push({ id: l.id, desc: l.descricao||'(sem)', valor: Math.abs(parseFloat(l.valor)||0), data: l.data, atras, dias });
+    }
+  }
+  // Score de urgência: atrasado vale muito, próximo vence em breve vale mais
+  pendentes.sort((a,b) => {
+    if(a.atras && !b.atras) return -1;
+    if(!a.atras && b.atras) return 1;
+    return a.dias - b.dias;
+  });
+  if(pendentes.length === 0){ if(typeof fkToast === 'function') fkToast('Sem boletos pendentes', 'info'); return; }
+  let caixa = 0;
+  try{ if(typeof dispo!=='undefined' && Array.isArray(dispo.bancos)) for(const b of dispo.bancos) if(b.ativo) caixa += parseFloat(b.saldoAtual)||0; }catch(_){}
+  let restante = caixa;
+  const html = pendentes.map((p,i) => {
+    const fundosOk = restante >= p.valor;
+    if(fundosOk) restante -= p.valor;
+    const cor = p.atras ? '#EF4444' : (p.dias <= 3 ? '#F59E0B' : '#10B981');
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px;background:#fff;border-radius:6px;border-left:3px solid ${cor};margin-bottom:6px;font-size:.82rem">`+
+      `<div><b>${i+1}. ${p.desc}</b><div style="font-size:.72rem;color:#64748B">${p.atras?'⚠ ATRASADO':'em '+p.dias+' dias'} · ${(new Date(p.data)).toLocaleDateString('pt-BR')}</div></div>`+
+      `<div style="font-family:monospace;font-weight:700">R$ ${p.valor.toLocaleString('pt-BR',{minimumFractionDigits:2})}${!fundosOk?' <span style="color:#EF4444;font-size:.7rem">SEM FUNDOS</span>':''}</div>`+
+    `</div>`;
+  }).join('');
+  const totalPag = pendentes.reduce((s,p) => s+p.valor, 0);
+  anaAlert({
+    eyebrow:'Open Finance', title:`Ordem ótima de pagamento (${pendentes.length} boletos)`,
+    message:`<div style="text-align:left;font-size:.82rem;max-height:60vh;overflow:auto">`+
+      `<div style="background:#F1F5F9;padding:10px;border-radius:6px;margin-bottom:12px;font-size:.78rem"><b>💰 Caixa:</b> R$ ${caixa.toLocaleString('pt-BR',{minimumFractionDigits:2})} · <b>Pagamentos:</b> R$ ${totalPag.toLocaleString('pt-BR',{minimumFractionDigits:2})} · <b>Sobra:</b> R$ ${(caixa-totalPag).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>`+
+      html+
+      `<div style="margin-top:10px;font-size:.74rem;color:#64748B">Ordem priorizada: atrasados primeiro, depois por proximidade do vencimento.</div>`+
+    `</div>`,
+    okText:'Entendi'
+  });
+}
 function fkOfAtivoConciliar(){ fkOfAtivoClose(); if(typeof reconOpenPreview === 'function') reconOpenPreview(); else if(typeof switchModule === 'function') switchModule('asaas', null); }
 function fkOfAtivoConectar(){ fkOfAtivoClose(); if(typeof switchModule === 'function') switchModule('disponibilidades', null); setTimeout(() => { if(typeof pluggyOpenConnect === 'function') pluggyOpenConnect(); }, 200); }
 try{
