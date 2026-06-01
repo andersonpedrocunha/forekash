@@ -3676,16 +3676,36 @@
     .plan-fb-fx{font-family:Georgia,serif;font-style:italic;color:#94A3B8;font-size:.84rem}
     .plan-fb-input{flex:1;background:transparent;border:1px solid #E2E8F0;padding:5px 10px;border-radius:4px;font-family:'JetBrains Mono','Courier New',monospace;font-size:.84rem;color:#0F172A;outline:none}
     .plan-fb-input:focus{border-color:#10B981;box-shadow:0 0 0 2px rgba(16,185,129,.15)}
-    .plan-grid-wrap{flex:1;overflow:auto;background:#fff;outline:none}
+    .plan-grid-wrap{flex:1;overflow:auto;background:#fff;outline:none;user-select:none}
     .plan-grid{border-collapse:collapse;font-family:'JetBrains Mono','Courier New',monospace;font-size:.78rem;table-layout:fixed}
-    .plan-grid th,.plan-grid td{border:1px solid #E2E8F0;padding:5px 8px;height:24px;min-width:90px;background:#fff;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .plan-grid th{background:#F1F5F9;color:#64748B;font-weight:600;font-size:.72rem;text-align:center;position:sticky;top:0;z-index:2}
-    .plan-grid .plan-row-h{position:sticky;left:0;z-index:1;min-width:42px;max-width:42px;text-align:center}
-    .plan-grid .plan-cell-corner{position:sticky;left:0;top:0;z-index:3;min-width:42px;max-width:42px;background:#E2E8F0}
+    .plan-grid th,.plan-grid td{border:1px solid #E2E8F0;padding:4px 8px;background:#fff;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-sizing:border-box}
+    .plan-grid th{background:#F1F5F9;color:#64748B;font-weight:600;font-size:.72rem;text-align:center;position:sticky;top:0;z-index:2;padding:0;cursor:default;user-select:none;position:relative}
+    .plan-grid th.plan-col-h{position:sticky;top:0;height:26px}
+    .plan-grid th.plan-col-h .plan-col-h-label{display:inline-block;padding:6px 8px;pointer-events:none}
+    .plan-grid th.plan-col-h:hover{background:#E2E8F0;color:#1E293B}
+    .plan-grid .plan-row-h{position:sticky;left:0;z-index:1;text-align:center;height:auto;padding:0}
+    .plan-grid .plan-row-h .plan-row-h-label{display:inline-block;width:100%;padding:4px 6px;pointer-events:none}
+    .plan-grid .plan-row-h:hover{background:#E2E8F0;color:#1E293B}
+    .plan-grid .plan-cell-corner{position:sticky;left:0;top:0;z-index:3;background:#E2E8F0;cursor:pointer}
+    .plan-grid .plan-cell-corner:hover{background:#CBD5E1}
+    /* ── Resize handles ── */
+    .plan-col-resize{position:absolute;right:-3px;top:0;bottom:0;width:7px;cursor:col-resize;z-index:10;background:transparent}
+    .plan-col-resize:hover,.plan-col-resize:active{background:linear-gradient(90deg,transparent 0,transparent 2px,#10B981 2px,#10B981 5px,transparent 5px,transparent 7px)}
+    .plan-row-resize{position:absolute;left:0;right:0;bottom:-3px;height:7px;cursor:row-resize;z-index:10;background:transparent}
+    .plan-row-resize:hover,.plan-row-resize:active{background:linear-gradient(0deg,transparent 0,transparent 2px,#10B981 2px,#10B981 5px,transparent 5px,transparent 7px)}
+    /* ── Células ── */
     .plan-cell{cursor:cell;color:#0F172A}
     .plan-cell.selected{outline:2px solid #10B981;outline-offset:-2px;background:#ECFDF5;z-index:5;position:relative}
     .plan-cell.in-range{background:#D1FAE5}
-    .plan-cell:hover:not(.selected){background:#F8FAFC}
+    .plan-cell:hover:not(.selected):not(.pick-anchor){background:#F8FAFC}
+    /* ── Pick-ref mode (durante edição de fórmula) ── */
+    .plan-cell.pick-anchor{outline:2px dashed #3B82F6;outline-offset:-2px;background:#DBEAFE !important;z-index:6;position:relative}
+    .plan-cell.pick-range{background:#EFF6FF !important}
+    /* ── Refs destacadas durante digitação (parser do formula bar) ── */
+    .plan-cell.ref-hl{outline:1.5px dashed #8B5CF6;outline-offset:-2px;background:rgba(139,92,246,.06) !important;position:relative}
+    .plan-tabs-spacer{flex:1}
+    .plan-grid-add-row,.plan-grid-add-col{background:transparent;border:1px dashed #CBD5E1;color:#94A3B8;cursor:pointer;padding:5px 12px;border-radius:5px;font-size:.74rem;font-family:inherit;margin-left:4px}
+    .plan-grid-add-row:hover,.plan-grid-add-col:hover{border-color:#10B981;color:#10B981;background:#ECFDF5}
     .plan-tabs-strip{display:flex;align-items:center;gap:2px;padding:6px 10px;background:#F8FAFC;border-top:1px solid #E2E8F0;overflow-x:auto}
     .plan-tab{padding:6px 14px;border:1px solid #E2E8F0;border-radius:5px 5px 0 0;background:#fff;color:#64748B;cursor:pointer;font-size:.78rem;font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap;border-bottom-color:#fff;margin-bottom:-1px;transition:all .15s}
     .plan-tab:hover{color:#10B981}
@@ -55099,14 +55119,25 @@ try { window.switchWfTab = switchWfTab; } catch(e){}
 //   editing: false
 // }
 const PLAN_KEY = 'forekash:planilhas:v1';
-const PLAN_DEFAULT_ROWS = 50;
+const PLAN_DEFAULT_ROWS = 100;
 const PLAN_DEFAULT_COLS = 26;  // A-Z
+const PLAN_DEFAULT_COL_W = 100;  // px
+const PLAN_DEFAULT_ROW_H = 26;   // px
+const PLAN_HEADER_W = 46;        // largura dos números de linha
+const PLAN_MIN_COL_W = 32;
+const PLAN_MIN_ROW_H = 20;
 let PLAN = {
   list: [],
   curId: null,
   sel: null,
   editing: false,
-  copy: null  // { v, s } pra paste
+  copy: null,    // { v, s } pra paste
+  // Picker de células enquanto edita fórmula no formula bar
+  // { anchor:{r,c}, head:{r,c} } enquanto picker ativo (mostra outline tracejado)
+  refPick: null,
+  // Estado interno do drag de mouse pra range
+  dragSel: null,         // { startR, startC } quando user está arrastando no grid
+  dragRefPick: null      // { startR, startC, insertedAt } quando arrasta enquanto edita fórmula
 };
 
 function planLoad(){
@@ -55117,6 +55148,14 @@ function planLoad(){
       if(parsed && Array.isArray(parsed.list)) PLAN.list = parsed.list;
     }
   }catch(_){}
+  // Migra planilhas antigas que não tinham colW/rowH
+  for(const p of PLAN.list){
+    if(!Array.isArray(p.sheets)) continue;
+    for(const s of p.sheets){
+      if(!s.colW) s.colW = {};
+      if(!s.rowH) s.rowH = {};
+    }
+  }
 }
 function planSave(){
   try{ localStorage.setItem(PLAN_KEY, JSON.stringify({ list: PLAN.list })); }catch(_){}
@@ -55129,7 +55168,7 @@ function planCreate(nome){
   const p = {
     id: _planUid(),
     nome: nome || 'Planilha sem título',
-    sheets: [ { name: 'Página 1', rows: PLAN_DEFAULT_ROWS, cols: PLAN_DEFAULT_COLS, cells: {} } ],
+    sheets: [ { name: 'Página 1', rows: PLAN_DEFAULT_ROWS, cols: PLAN_DEFAULT_COLS, cells: {}, colW:{}, rowH:{} } ],
     curSheet: 0,
     createdAt: Date.now(),
     updatedAt: Date.now()
@@ -55280,28 +55319,47 @@ function planRenderEditor(mount){
     <input type="text" id="plan-fb-input" class="plan-fb-input" value="${_planEsc(curRaw)}" oninput="planFbChange(this.value)" onkeydown="planFbKey(event)" placeholder="">
   </div>`;
 
-  // Grid
-  const colsHtml = ['<th class="plan-cell-corner"></th>'];
+  // Colgroup — define largura de cada coluna (Google Sheets style)
+  const colgroupHtml = [`<col style="width:${PLAN_HEADER_W}px">`];
+  for(let c = 0; c < sheet.cols; c++){
+    const w = (sheet.colW && sheet.colW[c]) || PLAN_DEFAULT_COL_W;
+    colgroupHtml.push(`<col data-c="${c}" style="width:${w}px">`);
+  }
+
+  // Cabeçalhos de coluna com handle de resize
+  const colsHtml = ['<th class="plan-cell-corner" onclick="planSelectAll()"></th>'];
   for(let c = 0; c < sheet.cols; c++){
     const letter = _planColLetter(c);
-    colsHtml.push(`<th class="plan-col-h">${letter}</th>`);
+    colsHtml.push(`<th class="plan-col-h" data-c="${c}" onmousedown="planColHeaderDown(${c},event)"><span class="plan-col-h-label">${letter}</span><div class="plan-col-resize" data-c="${c}" onmousedown="planColResizeStart(${c},event)"></div></th>`);
   }
+
+  // Refs destacadas (parse da fórmula que está sendo editada)
+  const refHl = _planParseRefsInFormula(curRaw);  // Set of "r:c" strings
+
+  // Linhas — altura customizável + handle de resize na linha (no cabeçalho)
   const rowsHtml = [];
   for(let r = 0; r < sheet.rows; r++){
-    const cells = [`<th class="plan-row-h">${r+1}</th>`];
+    const h = (sheet.rowH && sheet.rowH[r]) || PLAN_DEFAULT_ROW_H;
+    const cells = [`<th class="plan-row-h" data-r="${r}" onmousedown="planRowHeaderDown(${r},event)"><span class="plan-row-h-label">${r+1}</span><div class="plan-row-resize" data-r="${r}" onmousedown="planRowResizeStart(${r},event)"></div></th>`];
     for(let c = 0; c < sheet.cols; c++){
       const ref = _planCellRef(r, c);
       const cellData = sheet.cells[ref];
       const isSel = (r === PLAN.sel.r && c === PLAN.sel.c);
       const inRange = _planInRange(r, c);
+      const isPickAnchor = PLAN.refPick && PLAN.refPick.head && PLAN.refPick.head.r===r && PLAN.refPick.head.c===c;
+      const isPickRange = PLAN.refPick && _planInPickRange(r, c);
+      const isRefHl = refHl && refHl.has(r+':'+c);
       const display = cellData ? _planDisplayValue(cellData, sheet) : '';
       const style = cellData ? _planStyleCss(cellData.s) : '';
       const classes = ['plan-cell'];
       if(isSel) classes.push('selected');
       if(inRange && !isSel) classes.push('in-range');
-      cells.push(`<td class="${classes.join(' ')}" data-r="${r}" data-c="${c}" style="${style}" onclick="planSelectCell(${r},${c},event)" ondblclick="planStartEdit()">${display}</td>`);
+      if(isPickAnchor) classes.push('pick-anchor');
+      if(isPickRange && !isPickAnchor) classes.push('pick-range');
+      if(isRefHl && !isSel && !isPickAnchor) classes.push('ref-hl');
+      cells.push(`<td class="${classes.join(' ')}" data-r="${r}" data-c="${c}" style="${style}" onmousedown="planCellMouseDown(${r},${c},event)" onmouseenter="planCellMouseEnter(${r},${c},event)" ondblclick="planStartEdit()">${display}</td>`);
     }
-    rowsHtml.push(`<tr>${cells.join('')}</tr>`);
+    rowsHtml.push(`<tr style="height:${h}px">${cells.join('')}</tr>`);
   }
 
   // Tabs no rodapé
@@ -55320,7 +55378,8 @@ function planRenderEditor(mount){
       ${toolbar}
       ${formulaBar}
       <div class="plan-grid-wrap" id="plan-grid-wrap" tabindex="0" onkeydown="planGridKey(event)">
-        <table class="plan-grid">
+        <table class="plan-grid" id="plan-grid-table">
+          <colgroup>${colgroupHtml.join('')}</colgroup>
           <thead><tr>${colsHtml.join('')}</tr></thead>
           <tbody>${rowsHtml.join('')}</tbody>
         </table>
@@ -55328,9 +55387,12 @@ function planRenderEditor(mount){
       <div class="plan-tabs-strip">
         ${tabs}
         <button class="plan-tab-add" onclick="planAddSheet()" title="Adicionar página">+</button>
+        <span class="plan-tabs-spacer"></span>
+        <button class="plan-grid-add-row" onclick="planAddRows(50)" title="+50 linhas">+ linhas</button>
+        <button class="plan-grid-add-col" onclick="planAddCols(10)" title="+10 colunas">+ colunas</button>
       </div>
       <div class="plan-help">
-        <small>${PLAN_FN_NAMES.length} fórmulas · cell refs (A1, $A$1) · ranges (A1:B5) · operadores (+ − × ÷ ^) · Tab/Enter pra navegar · F2 ou duplo-click pra editar · Del pra limpar</small>
+        <small>${PLAN_FN_NAMES.length} fórmulas · ao digitar <code>=</code>, clique nas células pra inserir referências · arraste pra selecionar range · borda dos cabeçalhos pra redimensionar · Tab/Enter navega · F2 edita · Del limpa</small>
       </div>
     </div>
   `;
@@ -55411,20 +55473,311 @@ function _planDisplayValue(cell, sheet){
 }
 
 // ─── Seleção e navegação ───────────────────────────────────────────
+// Helper: detecta se o formula bar está em modo de edição de fórmula (=...)
+function _planIsFormulaEditing(){
+  const inp = document.getElementById('plan-fb-input');
+  if(!inp) return false;
+  if(document.activeElement !== inp) return false;
+  return (inp.value||'').trimStart().startsWith('=');
+}
+
+// Insere uma cell ref na posição atual do cursor do formula bar
+// Sem re-render do grid (preserva foco/cursor); só atualiza highlights via DOM direto
+function _planInsertRefAt(r, c, asRange){
+  const inp = document.getElementById('plan-fb-input');
+  if(!inp) return;
+  const ref = _planCellRef(r, c);
+  const start = inp.selectionStart || 0;
+  const end = inp.selectionEnd || 0;
+  const before = inp.value.slice(0, start);
+  const after = inp.value.slice(end);
+  let newVal, pos;
+  if(asRange){
+    // Se já tem um ref imediatamente antes do cursor, vira range com `:`
+    const m = before.match(/(\$?[A-Z]+\$?\d+)$/i);
+    if(m){
+      const before2 = before.slice(0, before.length - m[1].length);
+      const m2 = before2.match(/(\$?[A-Z]+\$?\d+):$/i);
+      if(m2){
+        // já é range — só substitui o lado direito
+        newVal = before2 + m[1] + ':' + ref + after;
+        pos = before2.length + m[1].length + 1 + ref.length;
+      } else {
+        newVal = before + ':' + ref + after;
+        pos = before.length + 1 + ref.length;
+      }
+    } else {
+      newVal = before + ref + after;
+      pos = before.length + ref.length;
+    }
+  } else {
+    // Se o último token antes do cursor já é um ref/range, SUBSTITUI (drag inicial)
+    const tail = before.match(/(\$?[A-Z]+\$?\d+(?::\$?[A-Z]+\$?\d+)?)$/i);
+    if(tail){
+      const cutFrom = before.length - tail[1].length;
+      newVal = before.slice(0, cutFrom) + ref + after;
+      pos = cutFrom + ref.length;
+    } else {
+      newVal = before + ref + after;
+      pos = before.length + ref.length;
+    }
+  }
+  inp.value = newVal;
+  inp.setSelectionRange(pos, pos);
+  inp.focus();
+  // Atualiza highlights sem re-renderizar grid (preserva foco)
+  _planUpdateRefHighlights(newVal);
+  _planUpdatePickAnchor(r, c);
+}
+
+// Atualiza visualmente a célula "pick-anchor" sem re-render
+function _planUpdatePickAnchor(r, c){
+  const tbl = document.getElementById('plan-grid-table');
+  if(!tbl) return;
+  tbl.querySelectorAll('td.pick-anchor').forEach(td => td.classList.remove('pick-anchor'));
+  tbl.querySelectorAll('td.pick-range').forEach(td => td.classList.remove('pick-range'));
+  const td = tbl.querySelector('td.plan-cell[data-r="'+r+'"][data-c="'+c+'"]');
+  if(td) td.classList.add('pick-anchor');
+  // Range visual
+  if(PLAN.refPick && PLAN.refPick.anchor && PLAN.refPick.head){
+    const a = PLAN.refPick.anchor, h = PLAN.refPick.head;
+    if(a.r !== h.r || a.c !== h.c){
+      const rMin = Math.min(a.r,h.r), rMax = Math.max(a.r,h.r);
+      const cMin = Math.min(a.c,h.c), cMax = Math.max(a.c,h.c);
+      for(let rr=rMin;rr<=rMax;rr++){
+        for(let cc=cMin;cc<=cMax;cc++){
+          if(rr===h.r && cc===h.c) continue;
+          const td2 = tbl.querySelector('td.plan-cell[data-r="'+rr+'"][data-c="'+cc+'"]');
+          if(td2) td2.classList.add('pick-range');
+        }
+      }
+    }
+  }
+}
+
+// Parser leve pra extrair refs de uma fórmula (pra highlight visual)
+function _planParseRefsInFormula(raw){
+  if(!raw || !raw.startsWith('=')) return null;
+  const out = new Set();
+  const txt = raw.slice(1);
+  // Match cell refs (A1, $A$1) e ranges (A1:B5)
+  const re = /(\$?[A-Z]+\$?\d+)(?::(\$?[A-Z]+\$?\d+))?/gi;
+  let m;
+  while((m = re.exec(txt)) !== null){
+    const a = _planParseRef(m[1]);
+    if(!a) continue;
+    if(m[2]){
+      const b = _planParseRef(m[2]);
+      if(!b){ out.add(a.r+':'+a.c); continue; }
+      const rMin = Math.min(a.r,b.r), rMax = Math.max(a.r,b.r);
+      const cMin = Math.min(a.c,b.c), cMax = Math.max(a.c,b.c);
+      for(let r=rMin;r<=rMax;r++) for(let c=cMin;c<=cMax;c++) out.add(r+':'+c);
+    } else {
+      out.add(a.r+':'+a.c);
+    }
+  }
+  return out;
+}
+
+function _planInPickRange(r, c){
+  if(!PLAN.refPick) return false;
+  const {anchor, head} = PLAN.refPick;
+  if(!anchor || !head) return false;
+  const rMin = Math.min(anchor.r, head.r), rMax = Math.max(anchor.r, head.r);
+  const cMin = Math.min(anchor.c, head.c), cMax = Math.max(anchor.c, head.c);
+  return r >= rMin && r <= rMax && c >= cMin && c <= cMax;
+}
+
+// Compatibilidade: API antiga (alguns lugares chamavam planSelectCell)
 function planSelectCell(r, c, ev){
   if(PLAN.editing) planCommitEdit();
   PLAN.sel.r = r; PLAN.sel.c = c;
-  if(ev && ev.shiftKey){
-    // Range
-    PLAN.sel.r2 = r; PLAN.sel.c2 = c;
-    // mantém o anchor original — não, na verdade shift-click expande do anchor original
-    // Simplificado: trata r,c como segundo ponto, r1,c1 fica como anchor anterior (não setamos r1)
-  } else {
-    PLAN.sel.r2 = r; PLAN.sel.c2 = c;
-  }
+  PLAN.sel.r2 = r; PLAN.sel.c2 = c;
   planRender();
 }
 window.planSelectCell = planSelectCell;
+
+// ─── Mouse interaction (click + drag pra range) ───────────────────
+function planCellMouseDown(r, c, ev){
+  // Botão direito: deixa o browser tratar
+  if(ev && ev.button === 2) return;
+  ev && ev.preventDefault();
+  // Se está editando fórmula → modo "pick ref"
+  if(_planIsFormulaEditing()){
+    PLAN.refPick = { anchor:{r,c}, head:{r,c} };
+    _planInsertRefAt(r, c, false);
+    // Drag pra range refpick
+    _planAttachDragRefPick();
+    return;
+  }
+  // Modo normal: commit (se estava editando texto sem `=`) e começa seleção/drag
+  if(PLAN.editing) planCommitEdit();
+  PLAN.sel.r = r; PLAN.sel.c = c;
+  PLAN.sel.r2 = r; PLAN.sel.c2 = c;
+  if(ev && ev.shiftKey){
+    // shift-click: mantém anchor, estende range
+    // (sel.r/c já é o head; vamos manter o "anchor" como o ponto antigo via r2/c2)
+    // Simplificado: shift-click define um range do clique anterior até este
+    // Como não temos anchor separado, repurposamos: r2/c2 = ponto antigo, r/c = novo
+    // Mas pra manter consistência, deixamos r/c = head e r2/c2 = anchor antigo
+    // Pra evitar bug, só reseto se SHIFT não estiver pressionado (acima)
+  }
+  PLAN.dragSel = { startR:r, startC:c };
+  planRender();
+  _planAttachDragSel();
+}
+window.planCellMouseDown = planCellMouseDown;
+
+function planCellMouseEnter(r, c, ev){
+  // Drag de seleção normal
+  if(PLAN.dragSel){
+    const {startR, startC} = PLAN.dragSel;
+    PLAN.sel.r = startR; PLAN.sel.c = startC;
+    PLAN.sel.r2 = r; PLAN.sel.c2 = c;
+    planRender();
+    return;
+  }
+  // Drag de pick-ref enquanto edita fórmula
+  if(PLAN.refPick && PLAN.dragRefPick){
+    PLAN.refPick.head = {r, c};
+    _planInsertRefAt(r, c, true);
+    return;
+  }
+}
+window.planCellMouseEnter = planCellMouseEnter;
+
+function _planAttachDragSel(){
+  const up = () => {
+    PLAN.dragSel = null;
+    document.removeEventListener('mouseup', up, true);
+  };
+  document.addEventListener('mouseup', up, true);
+}
+function _planAttachDragRefPick(){
+  PLAN.dragRefPick = true;
+  const up = () => {
+    PLAN.dragRefPick = false;
+    // Mantém refPick.anchor visível até o próximo click (não nullifica)
+    document.removeEventListener('mouseup', up, true);
+    // Devolve foco pro formula bar pra continuar editando
+    setTimeout(() => { const i = document.getElementById('plan-fb-input'); if(i) i.focus(); }, 0);
+  };
+  document.addEventListener('mouseup', up, true);
+}
+
+// Seleciona linha inteira ao clicar no header de linha
+function planRowHeaderDown(r, ev){
+  if(ev && ev.target && ev.target.classList && ev.target.classList.contains('plan-row-resize')) return;
+  if(_planIsFormulaEditing()) return; // header de linha não interage com pick
+  const p = PLAN.list.find(x => x.id === PLAN.curId); if(!p) return;
+  const sheet = p.sheets[PLAN.sel.sheet];
+  PLAN.sel.r = r; PLAN.sel.c = 0;
+  PLAN.sel.r2 = r; PLAN.sel.c2 = sheet.cols - 1;
+  planRender();
+}
+window.planRowHeaderDown = planRowHeaderDown;
+
+// Seleciona coluna inteira ao clicar no header de coluna
+function planColHeaderDown(c, ev){
+  if(ev && ev.target && ev.target.classList && ev.target.classList.contains('plan-col-resize')) return;
+  if(_planIsFormulaEditing()) return;
+  const p = PLAN.list.find(x => x.id === PLAN.curId); if(!p) return;
+  const sheet = p.sheets[PLAN.sel.sheet];
+  PLAN.sel.r = 0; PLAN.sel.c = c;
+  PLAN.sel.r2 = sheet.rows - 1; PLAN.sel.c2 = c;
+  planRender();
+}
+window.planColHeaderDown = planColHeaderDown;
+
+// Seleciona TUDO (canto superior esquerdo)
+function planSelectAll(){
+  const p = PLAN.list.find(x => x.id === PLAN.curId); if(!p) return;
+  const sheet = p.sheets[PLAN.sel.sheet];
+  PLAN.sel.r = 0; PLAN.sel.c = 0;
+  PLAN.sel.r2 = sheet.rows - 1; PLAN.sel.c2 = sheet.cols - 1;
+  planRender();
+}
+window.planSelectAll = planSelectAll;
+
+// ─── Resize de colunas (drag no handle do header) ─────────────────
+function planColResizeStart(c, ev){
+  ev.preventDefault();
+  ev.stopPropagation();
+  const p = PLAN.list.find(x => x.id === PLAN.curId); if(!p) return;
+  const sheet = p.sheets[PLAN.sel.sheet];
+  const startX = ev.clientX;
+  const startW = (sheet.colW && sheet.colW[c]) || PLAN_DEFAULT_COL_W;
+  const colEl = document.querySelector('#plan-grid-table colgroup col[data-c="'+c+'"]');
+  const move = (e) => {
+    const w = Math.max(PLAN_MIN_COL_W, startW + (e.clientX - startX));
+    if(colEl) colEl.style.width = w + 'px';
+  };
+  const up = (e) => {
+    document.removeEventListener('mousemove', move, true);
+    document.removeEventListener('mouseup', up, true);
+    document.body.style.cursor = '';
+    const w = Math.max(PLAN_MIN_COL_W, startW + (e.clientX - startX));
+    sheet.colW = sheet.colW || {};
+    sheet.colW[c] = Math.round(w);
+    p.updatedAt = Date.now();
+    planSave();
+    // Não precisa re-renderizar tudo · o <col> já tá com width certo
+  };
+  document.addEventListener('mousemove', move, true);
+  document.addEventListener('mouseup', up, true);
+  document.body.style.cursor = 'col-resize';
+}
+window.planColResizeStart = planColResizeStart;
+
+// ─── Resize de linhas (drag no handle do header de linha) ─────────
+function planRowResizeStart(r, ev){
+  ev.preventDefault();
+  ev.stopPropagation();
+  const p = PLAN.list.find(x => x.id === PLAN.curId); if(!p) return;
+  const sheet = p.sheets[PLAN.sel.sheet];
+  const startY = ev.clientY;
+  const startH = (sheet.rowH && sheet.rowH[r]) || PLAN_DEFAULT_ROW_H;
+  // O <tr> da linha — busca pela posição r no tbody
+  const tbl = document.getElementById('plan-grid-table');
+  const trEl = tbl ? tbl.querySelectorAll('tbody tr')[r] : null;
+  const move = (e) => {
+    const h = Math.max(PLAN_MIN_ROW_H, startH + (e.clientY - startY));
+    if(trEl) trEl.style.height = h + 'px';
+  };
+  const up = (e) => {
+    document.removeEventListener('mousemove', move, true);
+    document.removeEventListener('mouseup', up, true);
+    document.body.style.cursor = '';
+    const h = Math.max(PLAN_MIN_ROW_H, startH + (e.clientY - startY));
+    sheet.rowH = sheet.rowH || {};
+    sheet.rowH[r] = Math.round(h);
+    p.updatedAt = Date.now();
+    planSave();
+  };
+  document.addEventListener('mousemove', move, true);
+  document.addEventListener('mouseup', up, true);
+  document.body.style.cursor = 'row-resize';
+}
+window.planRowResizeStart = planRowResizeStart;
+
+// ─── Adicionar linhas / colunas ───────────────────────────────────
+function planAddRows(n){
+  const p = PLAN.list.find(x => x.id === PLAN.curId); if(!p) return;
+  const sheet = p.sheets[PLAN.sel.sheet];
+  sheet.rows = Math.min(5000, (sheet.rows||0) + (n||50));
+  p.updatedAt = Date.now();
+  planSave(); planRender();
+}
+window.planAddRows = planAddRows;
+
+function planAddCols(n){
+  const p = PLAN.list.find(x => x.id === PLAN.curId); if(!p) return;
+  const sheet = p.sheets[PLAN.sel.sheet];
+  sheet.cols = Math.min(702, (sheet.cols||0) + (n||10));  // ZZ = 702
+  p.updatedAt = Date.now();
+  planSave(); planRender();
+}
+window.planAddCols = planAddCols;
 
 function planGridKey(ev){
   if(PLAN.editing) return;
@@ -55477,9 +55830,24 @@ window.planStartEdit = planStartEdit;
 
 function planFbChange(val){
   PLAN.editing = true;
-  // Apenas atualiza o input · commit acontece em Enter/blur
+  // Atualiza só os destaques (DOM direto, sem re-render → cursor e foco preservados)
+  _planUpdateRefHighlights(val);
 }
 window.planFbChange = planFbChange;
+
+// Atualiza só os destaques de refs no grid (sem re-renderizar a árvore inteira)
+function _planUpdateRefHighlights(val){
+  const refs = _planParseRefsInFormula(val);
+  const tbl = document.getElementById('plan-grid-table');
+  if(!tbl) return;
+  tbl.querySelectorAll('td.plan-cell.ref-hl').forEach(td => td.classList.remove('ref-hl'));
+  if(!refs) return;
+  refs.forEach(key => {
+    const [r, c] = key.split(':');
+    const td = tbl.querySelector('td.plan-cell[data-r="'+r+'"][data-c="'+c+'"]');
+    if(td && !td.classList.contains('selected') && !td.classList.contains('pick-anchor')) td.classList.add('ref-hl');
+  });
+}
 
 function planFbKey(ev){
   if(ev.key === 'Enter'){
@@ -55505,6 +55873,7 @@ function planFbKey(ev){
     planRender();
   } else if(ev.key === 'Escape'){
     PLAN.editing = false;
+    PLAN.refPick = null;
     planRender();
   }
 }
@@ -55512,7 +55881,7 @@ window.planFbKey = planFbKey;
 
 function planCommitEdit(){
   const inp = document.getElementById('plan-fb-input');
-  if(!inp) { PLAN.editing = false; return; }
+  if(!inp) { PLAN.editing = false; PLAN.refPick = null; return; }
   const p = PLAN.list.find(x => x.id === PLAN.curId); if(!p) return;
   const sheet = p.sheets[PLAN.sel.sheet];
   const ref = _planCellRef(PLAN.sel.r, PLAN.sel.c);
@@ -55524,6 +55893,7 @@ function planCommitEdit(){
     else sheet.cells[ref].v = v;
   }
   PLAN.editing = false;
+  PLAN.refPick = null;
   p.updatedAt = Date.now();
   planSave();
 }
@@ -55608,7 +55978,7 @@ window.planSwitchSheet = planSwitchSheet;
 function planAddSheet(){
   const p = PLAN.list.find(x => x.id === PLAN.curId); if(!p) return;
   const n = p.sheets.length + 1;
-  p.sheets.push({ name: 'Página '+n, rows: PLAN_DEFAULT_ROWS, cols: PLAN_DEFAULT_COLS, cells: {} });
+  p.sheets.push({ name: 'Página '+n, rows: PLAN_DEFAULT_ROWS, cols: PLAN_DEFAULT_COLS, cells: {}, colW:{}, rowH:{} });
   PLAN.sel.sheet = p.sheets.length - 1;
   p.curSheet = PLAN.sel.sheet;
   p.updatedAt = Date.now();
@@ -95555,7 +95925,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780328922';
+      const CACHE = 'forekash-v1780329462';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
