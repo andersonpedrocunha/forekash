@@ -9868,6 +9868,9 @@
     .fk-wa-preview{background:#ECE5DD;border-radius:10px;padding:18px;flex:1;min-height:280px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cpath fill='%23DCD5C9' fill-opacity='.4' d='M20 20.5l-2-2-2 2 2 2zm-12 0l-2-2-2 2 2 2zm24 0l-2-2-2 2 2 2zm-18 6l-2-2-2 2 2 2zm12 0l-2-2-2 2 2 2zM14 14.5l-2-2-2 2 2 2zm12 0l-2-2-2 2 2 2z'/%3E%3C/svg%3E")}
     .fk-wa-bubble{background:#DCF8C6;border-radius:7px;padding:10px 12px;max-width:90%;font-size:.86rem;color:#0F172A;line-height:1.4;box-shadow:0 1px 1px rgba(0,0,0,.13);position:relative}
     .fk-wa-bubble::after{content:'';position:absolute;top:0;right:-8px;width:0;height:0;border-style:solid;border-width:0 0 10px 10px;border-color:transparent transparent transparent #DCF8C6}
+    .fk-wa-hist-item{background:#F8FAFC;border-radius:7px;padding:8px 10px;font-size:.78rem}
+    .fk-wa-hist-item b{display:block;color:#0F172A;font-size:.8rem}
+    .fk-wa-hist-item small{color:#64748B;font-size:.7rem}
     @media(max-width:700px){
       .fk-shortcuts-card .fk-wa-bd{grid-template-columns:1fr}
     }
@@ -105611,6 +105614,132 @@ const FK_WA_TEMPLATES = [
   }
 ];
 
+// ─── Contact book persistente ──
+const FK_WA_CONTACTS = 'forekash:wa-contacts:v1';
+function fkWaContactsLoad(){ try{ return JSON.parse(localStorage.getItem(FK_WA_CONTACTS)||'[]'); }catch(_){ return []; } }
+function fkWaContactsSave(arr){ try{ localStorage.setItem(FK_WA_CONTACTS, JSON.stringify(arr)); }catch(_){} }
+function fkWaContactAdd(nome, num){
+  const arr = fkWaContactsLoad();
+  const n = _fkWaSan(num);
+  if(!nome || !n) return;
+  if(arr.some(x => x.num === n)){ return; } // dup
+  arr.unshift({ nome: nome.trim(), num: n, addedAt: Date.now() });
+  fkWaContactsSave(arr);
+}
+function fkWaContactsAutoFromExtrato(){
+  // Extrai contatos das contrapartes recentes do extrato
+  if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return;
+  const arr = fkWaContactsLoad();
+  const known = new Set(arr.map(x => x.nome.toLowerCase()));
+  const seen = new Set();
+  for(const l of extratoData.lancamentos){
+    const nm = (l.contraparte || '').trim();
+    if(!nm || seen.has(nm.toLowerCase()) || known.has(nm.toLowerCase())) continue;
+    seen.add(nm.toLowerCase());
+    // Não adiciona automaticamente, mas registra como sugestão
+  }
+}
+
+// ─── Agendamento de mensagens ──
+const FK_WA_SCHED = 'forekash:wa-scheduled:v1';
+function fkWaSchedLoad(){ try{ return JSON.parse(localStorage.getItem(FK_WA_SCHED)||'[]'); }catch(_){ return []; } }
+function fkWaSchedSave(arr){ try{ localStorage.setItem(FK_WA_SCHED, JSON.stringify(arr)); }catch(_){} }
+function fkWaScheduleSend(num, msg, sendAt, label){
+  const arr = fkWaSchedLoad();
+  arr.push({ id: 'ws_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), num: _fkWaSan(num), msg, sendAt: new Date(sendAt).toISOString(), label: label||'', status:'pending' });
+  fkWaSchedSave(arr);
+  if(typeof fkToast === 'function') fkToast('📅 Mensagem agendada', 'ok', 2000);
+}
+function fkWaSchedCheck(){
+  // Verifica mensagens agendadas que devem ser enviadas agora (abre tab quando chegar na hora)
+  const arr = fkWaSchedLoad();
+  const now = new Date();
+  let changed = false;
+  for(const s of arr){
+    if(s.status !== 'pending') continue;
+    const due = new Date(s.sendAt);
+    if(due <= now){
+      // Notifica via push e abre janela com link
+      if(typeof notifPush === 'function'){
+        notifPush({
+          titulo:'📅 Mensagem WhatsApp agendada',
+          msg:`Pra ${s.num} · "${s.msg.slice(0,60)}${s.msg.length>60?'...':''}"`,
+          type:'info', icon:'💬'
+        });
+      }
+      // Auto-abre WhatsApp em nova aba
+      window.open(fkWaLink(s.num, s.msg), '_blank', 'noopener');
+      s.status = 'sent';
+      s.sentAt = Date.now();
+      changed = true;
+    }
+  }
+  if(changed) fkWaSchedSave(arr);
+}
+setInterval(() => { try{ fkWaSchedCheck(); }catch(_){} }, 60*1000); // 1 min
+setTimeout(fkWaSchedCheck, 5000);
+
+function fkWaHistoryOpen(){
+  const old = document.getElementById('fk-wa-hist-ov');
+  if(old){ old.remove(); return; }
+  const hist = (() => { try{ return JSON.parse(localStorage.getItem(FK_WA_KEY)||'[]'); }catch(_){ return []; } })();
+  const sched = fkWaSchedLoad();
+  const contacts = fkWaContactsLoad();
+  const ov = document.createElement('div');
+  ov.id = 'fk-wa-hist-ov';
+  ov.className = 'fk-shortcuts-ov';
+  ov.style.zIndex = '100000';
+  const histHtml = hist.length === 0 ? `<div style="color:#94A3B8;text-align:center;padding:20px">Nenhum envio ainda</div>` :
+    hist.slice(0,30).map(h => `<div class="fk-wa-hist-item"><b>${h.label||'manual'}</b> · <small>${new Date(h.ts).toLocaleString('pt-BR')}</small><div style="font-size:.74rem;color:#475569;margin-top:4px">→ ${h.num||'(sem)'}</div></div>`).join('');
+  const schedHtml = sched.filter(s => s.status === 'pending').length === 0 ? `<div style="color:#94A3B8;text-align:center;padding:20px">Nenhum agendamento</div>` :
+    sched.filter(s => s.status === 'pending').map(s => `<div class="fk-wa-hist-item"><b>${s.label||'agendado'}</b> · <small>${new Date(s.sendAt).toLocaleString('pt-BR')}</small><div style="font-size:.74rem;color:#475569;margin-top:4px">→ ${s.num} · "${s.msg.slice(0,50)}..."</div><button onclick="fkWaSchedCancel('${s.id}')" style="margin-top:6px;padding:3px 8px;background:transparent;border:1px solid #EF4444;color:#EF4444;border-radius:5px;cursor:pointer;font-size:.7rem">Cancelar</button></div>`).join('');
+  const contactsHtml = contacts.length === 0 ? `<div style="color:#94A3B8;text-align:center;padding:20px">Nenhum contato salvo</div>` :
+    contacts.map(c => `<div class="fk-wa-hist-item"><b>${c.nome}</b><div style="font-size:.74rem;color:#475569;margin-top:4px">+${c.num}</div><div style="display:flex;gap:4px;margin-top:6px"><button onclick="fkWaOpen({num:'${c.num}'})" style="padding:3px 8px;background:#25D366;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:.7rem">📤 Enviar</button><button onclick="fkWaContactRemove('${c.num}')" style="padding:3px 8px;background:transparent;border:1px solid #EF4444;color:#EF4444;border-radius:5px;cursor:pointer;font-size:.7rem">🗑</button></div></div>`).join('');
+  ov.innerHTML = `<div class="fk-shortcuts-card" style="width:min(720px,98vw);max-height:92vh">`+
+    `<div class="fk-shortcuts-hd"><h2>📒 WhatsApp · Histórico, Agendados e Contatos</h2><button class="fk-shortcuts-x" onclick="document.getElementById('fk-wa-hist-ov').remove()">×</button></div>`+
+    `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:18px;overflow:auto">`+
+      `<div><h4 style="margin:0 0 10px;font-size:.82rem">📨 Enviados (${hist.length})</h4><div style="display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow:auto">${histHtml}</div></div>`+
+      `<div><h4 style="margin:0 0 10px;font-size:.82rem">📅 Agendados (${sched.filter(s=>s.status==='pending').length})</h4><div style="display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow:auto">${schedHtml}</div></div>`+
+      `<div><h4 style="margin:0 0 10px;font-size:.82rem">👥 Contatos (${contacts.length})</h4><div style="display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow:auto">${contactsHtml}</div><button onclick="fkWaContactAddPrompt()" style="margin-top:8px;width:100%;padding:6px;background:#25D366;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:.74rem">+ Novo contato</button></div>`+
+    `</div>`+
+    `<div class="fk-shortcuts-ft"><button onclick="document.getElementById('fk-wa-hist-ov').remove()" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer">Fechar</button></div>`+
+  `</div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click', (e) => { if(e.target === ov) ov.remove(); });
+}
+function fkWaSchedCancel(id){
+  const arr = fkWaSchedLoad();
+  const i = arr.findIndex(x => x.id === id);
+  if(i >= 0){ arr.splice(i,1); fkWaSchedSave(arr); }
+  if(typeof fkToast === 'function') fkToast('Agendamento cancelado', 'info', 1500);
+  document.getElementById('fk-wa-hist-ov')?.remove();
+  setTimeout(fkWaHistoryOpen, 100);
+}
+function fkWaContactRemove(num){
+  let arr = fkWaContactsLoad();
+  arr = arr.filter(x => x.num !== num);
+  fkWaContactsSave(arr);
+  document.getElementById('fk-wa-hist-ov')?.remove();
+  setTimeout(fkWaHistoryOpen, 100);
+}
+function fkWaContactAddPrompt(){
+  anaPrompt({eyebrow:'Contato', title:'Nome', placeholder:'Ex: Acme Corp', okText:'Próximo'}, (nome) => {
+    if(!nome) return;
+    anaPrompt({eyebrow:'Contato', title:'Número (com DDD)', placeholder:'11 9XXXX-XXXX', okText:'Adicionar'}, (num) => {
+      if(!num) return;
+      fkWaContactAdd(nome, num);
+      if(typeof fkToast === 'function') fkToast('👥 Contato salvo', 'ok', 1500);
+      document.getElementById('fk-wa-hist-ov')?.remove();
+      setTimeout(fkWaHistoryOpen, 100);
+    });
+  });
+}
+try{
+  window.fkWaHistoryOpen = fkWaHistoryOpen; window.fkWaSchedCancel = fkWaSchedCancel;
+  window.fkWaContactRemove = fkWaContactRemove; window.fkWaContactAddPrompt = fkWaContactAddPrompt;
+  window.fkWaScheduleSend = fkWaScheduleSend;
+}catch(_){}
+
 function fkWaOpen(prefill){
   const old = document.getElementById('fk-wa-ov');
   if(old){ old.remove(); return; }
@@ -105634,7 +105763,7 @@ function fkWaOpen(prefill){
           `<div class="fk-wa-preview"><div class="fk-wa-bubble" id="fkwa-bubble">Preencha a mensagem...</div></div>`+
         `</div>`+
       `</div>`+
-      `<div class="fk-shortcuts-ft"><button class="btn-cancel" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer;font-size:.76rem" onclick="fkWaClose()">Cancelar</button><button class="btn-p" style="padding:8px 18px;background:#25D366;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:.84rem" onclick="fkWaSubmit()">📤 Enviar via WhatsApp</button></div>`+
+      `<div class="fk-shortcuts-ft"><button onclick="fkWaHistoryOpen()" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer;font-size:.76rem">📒 Histórico</button><button onclick="fkWaScheduleOpen()" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer;font-size:.76rem">📅 Agendar</button><button class="btn-cancel" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer;font-size:.76rem" onclick="fkWaClose()">Cancelar</button><button class="btn-p" style="padding:8px 18px;background:#25D366;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:.84rem" onclick="fkWaSubmit()">📤 Enviar agora</button></div>`+
     `</div>`;
   document.body.appendChild(ov);
   ov.addEventListener('click', (e) => { if(e.target === ov) fkWaClose(); });
@@ -105683,8 +105812,51 @@ function fkWaSubmit(){
   const msg = document.getElementById('fkwa-msg')?.value;
   if(!msg || !msg.trim()){ if(typeof fkToast === 'function') fkToast('Mensagem vazia', 'warn'); return; }
   fkWaSend(num, msg, 'manual');
+  // Auto-salva contato se número tem nome inferido do template
   fkWaClose();
 }
+function fkWaScheduleOpen(){
+  const num = document.getElementById('fkwa-num')?.value;
+  const msg = document.getElementById('fkwa-msg')?.value;
+  if(!msg || !msg.trim()){ if(typeof fkToast === 'function') fkToast('Mensagem vazia', 'warn'); return; }
+  if(!num){ if(typeof fkToast === 'function') fkToast('Informe o número', 'warn'); return; }
+  // Modal de agendamento
+  const old = document.getElementById('fk-wa-sched-ov');
+  if(old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'fk-wa-sched-ov';
+  ov.className = 'fk-shortcuts-ov';
+  ov.style.zIndex = '100001';
+  const now = new Date();
+  const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate()+1); tomorrow.setHours(9,0,0,0);
+  const tomorrowStr = tomorrow.toISOString().slice(0,16);
+  ov.innerHTML = `<div class="fk-shortcuts-card" style="width:min(440px,98vw)">`+
+    `<div class="fk-shortcuts-hd"><h2>📅 Agendar envio</h2><button class="fk-shortcuts-x" onclick="document.getElementById('fk-wa-sched-ov').remove()">×</button></div>`+
+    `<div style="padding:18px;display:flex;flex-direction:column;gap:12px">`+
+      `<div style="font-size:.82rem;color:#475569">A mensagem será disparada automaticamente na data/hora escolhida (precisa do Forekash aberto naquele momento).</div>`+
+      `<label style="display:flex;flex-direction:column;gap:4px;font-size:.74rem;color:#475569;font-weight:600">Quando enviar?<input type="datetime-local" id="fkwa-sched-when" value="${tomorrowStr}" style="padding:8px;border:1.5px solid #CBD5E1;border-radius:6px;font-size:.84rem;font-family:inherit"></label>`+
+      `<div style="display:flex;gap:8px;flex-wrap:wrap"><button onclick="_fkWaSchedQuick(1)" style="padding:6px 10px;background:#F1F5F9;border:none;border-radius:5px;cursor:pointer;font-size:.74rem">+1h</button><button onclick="_fkWaSchedQuick(24)" style="padding:6px 10px;background:#F1F5F9;border:none;border-radius:5px;cursor:pointer;font-size:.74rem">Amanhã 9h</button><button onclick="_fkWaSchedQuick(168)" style="padding:6px 10px;background:#F1F5F9;border:none;border-radius:5px;cursor:pointer;font-size:.74rem">+1 semana</button></div>`+
+    `</div>`+
+    `<div class="fk-shortcuts-ft"><button onclick="document.getElementById('fk-wa-sched-ov').remove()" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer">Cancelar</button><button onclick="_fkWaSchedConfirm()" style="padding:8px 18px;background:#10B981;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700">📅 Agendar</button></div>`+
+  `</div>`;
+  document.body.appendChild(ov);
+}
+function _fkWaSchedQuick(h){
+  const d = new Date(); d.setHours(d.getHours()+h);
+  if(h === 24){ d.setHours(9,0,0,0); }
+  const el = document.getElementById('fkwa-sched-when');
+  if(el) el.value = d.toISOString().slice(0,16);
+}
+function _fkWaSchedConfirm(){
+  const when = document.getElementById('fkwa-sched-when')?.value;
+  if(!when){ if(typeof fkToast === 'function') fkToast('Informe a data', 'warn'); return; }
+  const num = document.getElementById('fkwa-num')?.value;
+  const msg = document.getElementById('fkwa-msg')?.value;
+  fkWaScheduleSend(num, msg, when, 'agendado');
+  document.getElementById('fk-wa-sched-ov')?.remove();
+  fkWaClose();
+}
+try{ window.fkWaScheduleOpen = fkWaScheduleOpen; window._fkWaSchedQuick = _fkWaSchedQuick; window._fkWaSchedConfirm = _fkWaSchedConfirm; }catch(_){}
 try{
   window.fkWaOpen = fkWaOpen; window.fkWaClose = fkWaClose;
   window.fkWaPickTpl = fkWaPickTpl; window.fkWaSubmit = fkWaSubmit;
