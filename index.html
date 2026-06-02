@@ -16022,9 +16022,12 @@
     .kt-week-col-wd{font-size:.62rem;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:.08em;display:flex;justify-content:space-between;align-items:center}
     .kt-week-col-wd .ico{font-size:1rem}
     .kt-week-col-date{font-size:1.4rem;font-weight:800;color:#111827;line-height:1}
-    .kt-week-col-net{font-size:.74rem;font-weight:700;letter-spacing:-.01em}
-    .kt-week-col-net.positive{color:#10B981}
-    .kt-week-col-net.negative{color:#EF4444}
+    .kt-week-col-balance{font-size:.86rem;font-weight:800;letter-spacing:-.015em;line-height:1.15}
+    .kt-week-col-balance.positive{color:#0F172A}
+    .kt-week-col-balance.negative{color:#DC2626}
+    .kt-week-col-net{font-size:.7rem;font-weight:600;letter-spacing:-.01em;opacity:.78}
+    .kt-week-col-net.positive{color:#059669}
+    .kt-week-col-net.negative{color:#DC2626}
     .kt-week-col-net.zero{color:#9CA3AF}
     .kt-week-col-body{padding:6px 8px;display:flex;flex-direction:column;gap:4px;flex:1}
     .kt-week-evt{padding:6px 8px;border-radius:6px;border-left:3px solid #E5E7EB;background:#F9FAFB;font-size:.72rem;line-height:1.3;cursor:pointer;transition:transform .1s}
@@ -16139,9 +16142,12 @@
     .kt-day.has-events{font-weight:600}
     .kt-day-num{font-size:.82rem;font-weight:700;color:#111827;display:flex;align-items:center;justify-content:space-between}
     .kt-day-num .kt-weather{font-size:1.05rem}
-    .kt-day-net{font-size:.78rem;font-weight:700;letter-spacing:-.01em}
-    .kt-day-net.positive{color:#10B981}
-    .kt-day-net.negative{color:#EF4444}
+    .kt-day-balance{font-size:.86rem;font-weight:800;letter-spacing:-.015em;line-height:1.1}
+    .kt-day-balance.positive{color:#0F172A}
+    .kt-day-balance.negative{color:#DC2626}
+    .kt-day-net{font-size:.7rem;font-weight:600;letter-spacing:-.01em;opacity:.78}
+    .kt-day-net.positive{color:#059669}
+    .kt-day-net.negative{color:#DC2626}
     .kt-day-counts{display:flex;gap:4px;flex-wrap:wrap;margin-top:auto}
     .kt-day-badge{display:inline-flex;align-items:center;gap:2px;padding:1px 6px;border-radius:8px;font-size:.65rem;font-weight:700}
     .kt-day-badge.in{background:#D1FAE5;color:#065F46}
@@ -16227,7 +16233,8 @@
       .kt-cal-grid{grid-auto-rows:minmax(72px,auto)}
       .kt-day{min-height:72px;padding:4px 6px}
       .kt-day-num{font-size:.74rem}
-      .kt-day-net{font-size:.7rem}
+      .kt-day-balance{font-size:.76rem}
+      .kt-day-net{font-size:.66rem}
     }
 
     /* ════════════════════════════════════════════════════════════════
@@ -46029,6 +46036,75 @@ function kashtrackWeather(net){
   return { ico:'🌧️',  kind:'storm',  label:'Temporal' };
 }
 
+// ─── Saldo acumulado dia-a-dia · fluxo de caixa diário REAL ───
+// Retorna { 'YYYY-MM-DD': saldoFimDeDia } pra cada dia entre startKey e endKey.
+// Ancora em HOJE = _ktSaldoInicial() (saldo atual em conta) e propaga pra ambos lados.
+function kashtrackBalanceByDay(byDay, startKey, endKey){
+  const result = {};
+  if (!startKey || !endKey) return result;
+  const start = _ktParseKey(startKey);
+  const end   = _ktParseKey(endKey);
+  if (!start || !end || start > end) return result;
+  const saldoStart = _ktSaldoInicial();
+  const todayKey = _ktDateKey(new Date());
+  // Lista ordenada de chaves
+  const dates = [];
+  const cur = new Date(start);
+  while (cur <= end){
+    dates.push(_ktDateKey(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  if (dates.length === 0) return result;
+  const todayIdx = dates.indexOf(todayKey);
+  if (todayIdx >= 0){
+    // Today é a âncora · END-OF-DAY[today] = saldoStart (saldo atual em conta hoje)
+    result[todayKey] = saldoStart;
+    // Forward
+    let bal = saldoStart;
+    for (let i = todayIdx + 1; i < dates.length; i++){
+      const slot = byDay[dates[i]];
+      bal += slot ? (slot.inflow - slot.outflow) : 0;
+      result[dates[i]] = bal;
+    }
+    // Backward · END[i] = END[i+1] - net[i+1]
+    bal = saldoStart;
+    for (let i = todayIdx - 1; i >= 0; i--){
+      const nextSlot = byDay[dates[i+1]];
+      const nextNet = nextSlot ? (nextSlot.inflow - nextSlot.outflow) : 0;
+      bal -= nextNet;
+      result[dates[i]] = bal;
+    }
+  } else if (todayKey < dates[0]){
+    // Range entirely in future · ignora gap (assume net 0) e projeta a partir do saldoStart
+    let bal = saldoStart;
+    for (const k of dates){
+      const slot = byDay[k];
+      bal += slot ? (slot.inflow - slot.outflow) : 0;
+      result[k] = bal;
+    }
+  } else {
+    // Range entirely in past · trabalha de trás pra frente a partir do saldoStart
+    let bal = saldoStart;
+    for (let i = dates.length - 1; i >= 0; i--){
+      result[dates[i]] = bal;
+      const slot = byDay[dates[i]];
+      bal -= slot ? (slot.inflow - slot.outflow) : 0;
+    }
+  }
+  return result;
+}
+
+// Clima baseado no SALDO acumulado (fluxo de caixa diário), não no net do dia.
+// monthOpex = soma de despesas do mês visível (referência pra "cobertura")
+function kashtrackWeatherBalance(balance, monthOpex){
+  if (balance == null || isNaN(balance)) return { ico:'', kind:'', label:'' };
+  const ref = (monthOpex && monthOpex > 5000) ? monthOpex : 5000;
+  if (balance >= ref)         return { ico:'☀️', kind:'sunny',  label:'Caixa saudável' };
+  if (balance >= ref * 0.25)  return { ico:'⛅', kind:'cloudy', label:'Caixa apertado' };
+  if (balance > 0)            return { ico:'🌧️', kind:'storm',  label:'Caixa crítico' };
+  return { ico:'⛈️', kind:'storm', label:'Caixa negativo' };
+}
+
 // ─── Renderização ───
 function kashtrackRender(){
   kashtrackEnsureMonth();
@@ -46074,17 +46150,28 @@ function kashtrackRenderMonth(){
   const startKey = _ktDateKey(new Date(y, m, -prevMonthDays + 1));
   const endKey   = _ktDateKey(new Date(y, m, daysInMonth + (totalCells - prevMonthDays - daysInMonth)));
   const byDay    = kashtrackAggregateByDay(startKey, endKey);
+  // Saldo acumulado dia-a-dia · este é o fluxo de caixa diário REAL
+  const balanceByDay = kashtrackBalanceByDay(byDay, startKey, endKey);
+  // Despesa total do mês corrente · referência pra avaliar "saúde" do saldo
+  let monthOutRef = 0;
+  for (let i = 0; i < daysInMonth; i++){
+    const k = _ktDateKey(new Date(y, m, i + 1));
+    const slot = byDay[k]; if (slot) monthOutRef += (slot.outflow || 0);
+  }
 
   const todayKey = _ktDateKey(new Date());
   let html = '';
   let monthIn = 0, monthOut = 0;
+  let lastDayBalance = null; // saldo no último dia do mês (pra KPI)
   for (let i = 0; i < totalCells; i++){
     const cellDate = new Date(y, m, i - prevMonthDays + 1);
     const isOther  = (cellDate.getMonth() !== m);
     const k = _ktDateKey(cellDate);
     const slot = byDay[k] || null;
     const net = slot ? (slot.inflow - slot.outflow) : null;
-    const w = (slot ? kashtrackWeather(net) : { ico:'', kind:'', label:'' });
+    const balance = balanceByDay[k];
+    // Weather agora reflete o SALDO acumulado (fluxo de caixa diário), não o net do dia
+    const w = (balance != null) ? kashtrackWeatherBalance(balance, monthOutRef) : { ico:'', kind:'', label:'' };
     const isToday = (k === todayKey);
     const classes = ['kt-day'];
     if (isOther) classes.push('other-month');
@@ -46095,35 +46182,38 @@ function kashtrackRenderMonth(){
     // contagens
     const inCount = slot ? slot.items.filter(it => it.kind === 'receita').length : 0;
     const outCount = slot ? slot.items.filter(it => it.kind !== 'receita').length : 0;
+    const balCls = (balance != null && balance < 0) ? 'negative' : 'positive';
 
     html += '<div class="' + classes.join(' ') + '" '
          +  'onclick="' + (isOther ? '' : 'kashtrackOpenDay(\'' + k + '\')') + '">'
          +    '<div class="kt-day-num"><span>' + cellDate.getDate() + '</span>'
          +      (w.ico ? '<span class="kt-weather" title="' + w.label + '">' + w.ico + '</span>' : '')
          +    '</div>'
-         +    (slot ? '<div class="kt-day-net ' + (net >= 0 ? 'positive' : 'negative') + '">' + _ktFmtBRL(net) + '</div>' : '')
+         +    (balance != null ? '<div class="kt-day-balance ' + balCls + '" title="Saldo de caixa fim do dia">' + _ktFmtBRL(balance) + '</div>' : '')
+         +    (slot ? '<div class="kt-day-net ' + (net >= 0 ? 'positive' : 'negative') + '" title="Resultado do dia (receita − despesa)">Δ ' + _ktFmtBRL(net) + '</div>' : '')
          +    (slot ? ('<div class="kt-day-counts">'
                        + (inCount  > 0 ? '<span class="kt-day-badge in">↑' + inCount + '</span>' : '')
                        + (outCount > 0 ? '<span class="kt-day-badge out">↓' + outCount + '</span>' : '')
                        + '</div>') : '')
          +  '</div>';
 
-    if (!isOther && slot){
-      monthIn  += slot.inflow;
-      monthOut += slot.outflow;
+    if (!isOther){
+      if (slot){ monthIn += slot.inflow; monthOut += slot.outflow; }
+      if (balance != null) lastDayBalance = balance;
     }
   }
   grid.innerHTML = html;
 
-  // KPIs do mês
+  // KPIs do mês · "Clima geral" agora usa o SALDO no fim do mês, não o net
   const monthNet = monthIn - monthOut;
+  const climaMes = kashtrackWeatherBalance(lastDayBalance, monthOut);
   const kpis = document.getElementById('kt-kpis');
   if (kpis){
     kpis.innerHTML = ''
       + '<div class="kt-kpi income"><span class="kt-kpi-lbl">↑ Receitas do mês</span><span class="kt-kpi-val">' + _ktFmtBRL(monthIn) + '</span><span class="kt-kpi-sub">' + KASHTRACK_MONTH_NAMES[m] + '/' + y + '</span></div>'
       + '<div class="kt-kpi expense"><span class="kt-kpi-lbl">↓ Despesas do mês</span><span class="kt-kpi-val">' + _ktFmtBRL(monthOut) + '</span><span class="kt-kpi-sub">' + KASHTRACK_MONTH_NAMES[m] + '/' + y + '</span></div>'
       + '<div class="kt-kpi net"><span class="kt-kpi-lbl">≡ Resultado líquido</span><span class="kt-kpi-val ' + (monthNet >= 0 ? 'positive' : 'negative') + '">' + _ktFmtBRL(monthNet) + '</span><span class="kt-kpi-sub">receita − despesa</span></div>'
-      + '<div class="kt-kpi"><span class="kt-kpi-lbl">☀️ Clima geral</span><span class="kt-kpi-val">' + (kashtrackWeather(monthNet).ico || '⛅') + '</span><span class="kt-kpi-sub">' + (kashtrackWeather(monthNet).label || 'Aguardando dados') + '</span></div>';
+      + '<div class="kt-kpi"><span class="kt-kpi-lbl">☀️ Clima geral</span><span class="kt-kpi-val">' + (climaMes.ico || '⛅') + '</span><span class="kt-kpi-sub">' + (climaMes.label || 'Aguardando dados') + (lastDayBalance != null ? ' · ' + _ktFmtBRL(lastDayBalance) : '') + '</span></div>';
   }
 }
 
@@ -46221,15 +46311,23 @@ function kashtrackRenderWeek(){
   const startKey = _ktDateKey(start);
   const endKey   = _ktDateKey(end);
   const byDay    = kashtrackAggregateByDay(startKey, endKey);
+  const balanceByDay = kashtrackBalanceByDay(byDay, startKey, endKey);
+  const weekOpex = Object.values(byDay).reduce((s, x) => s + (x.outflow || 0), 0);
+  // Referência: usa despesa da semana × 4 como proxy de despesa mensal (mais estável que da semana só)
+  const monthRef = weekOpex * 4;
   const todayKey = _ktDateKey(new Date());
 
   let html = '';
+  let lastBal = null;
   for (let i = 0; i < 7; i++){
     const d = new Date(start); d.setDate(d.getDate() + i);
     const k = _ktDateKey(d);
     const slot = byDay[k];
     const net = slot ? (slot.inflow - slot.outflow) : 0;
-    const w = slot ? kashtrackWeather(net) : { ico:'', kind:'', label:'' };
+    const balance = balanceByDay[k];
+    // Weather agora reflete o SALDO acumulado
+    const w = (balance != null) ? kashtrackWeatherBalance(balance, monthRef) : { ico:'', kind:'', label:'' };
+    if (balance != null) lastBal = balance;
     const isToday = (k === todayKey);
     const hdClasses = ['kt-week-col-hd'];
     if (isToday) hdClasses.push('today-week');
@@ -46254,11 +46352,13 @@ function kashtrackRenderWeek(){
     }
 
     const netCls = !slot || net === 0 ? 'zero' : (net > 0 ? 'positive' : 'negative');
+    const balCls = (balance != null && balance < 0) ? 'negative' : 'positive';
     html += '<div class="kt-week-col">'
          +    '<div class="' + hdClasses.join(' ') + '">'
          +      '<div class="kt-week-col-wd"><span>' + KASHTRACK_FC_WEEKDAYS[d.getDay()] + (isToday ? ' · HOJE' : '') + '</span><span class="ico">' + (w.ico || '·') + '</span></div>'
          +      '<div class="kt-week-col-date">' + d.getDate() + '</div>'
-         +      '<div class="kt-week-col-net ' + netCls + '">' + (slot ? _ktFmtBRL(net) : '—') + '</div>'
+         +      (balance != null ? '<div class="kt-week-col-balance ' + balCls + '" title="Saldo de caixa fim do dia">' + _ktFmtBRL(balance) + '</div>' : '')
+         +      '<div class="kt-week-col-net ' + netCls + '" title="Resultado do dia">' + (slot ? 'Δ ' + _ktFmtBRL(net) : '—') + '</div>'
          +    '</div>'
          +    '<div class="kt-week-col-body">' + bodyHtml + '</div>'
          +  '</div>';
@@ -46268,7 +46368,7 @@ function kashtrackRenderWeek(){
   // KPIs da SEMANA (substitui temporariamente os KPIs do mês)
   const sumIn = Object.values(byDay).reduce((s, x) => s + (x.inflow || 0), 0);
   const sumOut = Object.values(byDay).reduce((s, x) => s + (x.outflow || 0), 0);
-  _ktSetKpis('Semana ' + fmt(start) + '–' + fmt(end), sumIn, sumOut);
+  _ktSetKpis('Semana ' + fmt(start) + '–' + fmt(end), sumIn, sumOut, lastBal, monthRef);
 }
 
 // ── View: Dia ──
@@ -46282,10 +46382,23 @@ function kashtrackRenderDay(){
   if (monthEl) monthEl.textContent = dStr;
 
   const k = _ktDateKey(d);
-  const byDay = kashtrackAggregateByDay(k, k);
-  const slot = byDay[k] || { inflow:0, outflow:0, items:[], pago:0, pendente:0 };
+  // Janela maior pra calcular saldo do dia (precisa de today como âncora)
+  const todayKey = _ktDateKey(new Date());
+  const lo = k < todayKey ? k : todayKey;
+  const hi = k > todayKey ? k : todayKey;
+  const byDayWide = kashtrackAggregateByDay(lo, hi);
+  const balanceByDay = kashtrackBalanceByDay(byDayWide, lo, hi);
+  const slot = byDayWide[k] || { inflow:0, outflow:0, items:[], pago:0, pendente:0 };
   const net = slot.inflow - slot.outflow;
-  const w = kashtrackWeather(slot.items.length === 0 ? null : net);
+  const balance = balanceByDay[k];
+  // Despesa do mês visível pra referência de clima
+  const yMon = d.getFullYear(), mMon = d.getMonth();
+  const mStart = _ktDateKey(new Date(yMon, mMon, 1));
+  const mEnd   = _ktDateKey(new Date(yMon, mMon + 1, 0));
+  const byDayMonth = kashtrackAggregateByDay(mStart, mEnd);
+  const monthOpex = Object.values(byDayMonth).reduce((s,x) => s + (x.outflow||0), 0);
+  // Weather agora reflete o SALDO acumulado · não o net do dia
+  const w = (balance != null) ? kashtrackWeatherBalance(balance, monthOpex) : kashtrackWeather(slot.items.length === 0 ? null : net);
 
   const dateNum = d.getDate();
   const monthName = KASHTRACK_MONTH_NAMES[d.getMonth()];
@@ -46304,12 +46417,14 @@ function kashtrackRenderDay(){
     +   '<div class="kt-dayview-hero-weather' + (w.kind ? ' weather-' + w.kind : '') + '">'
     +     '<div class="ico">' + (w.ico || '·') + '</div>'
     +     '<div class="lbl">' + (w.label || 'Sem dados') + '</div>'
+    +     (balance != null ? '<div style="font-size:.78rem;font-weight:800;color:' + (balance < 0 ? '#DC2626' : '#0F172A') + ';margin-top:4px">' + _ktFmtBRL(balance) + '</div>' : '')
     +   '</div>'
     + '</div>'
     + '<div class="kt-dayview-sums">'
     +   '<div class="kt-dayview-sum in"><b>↑ Recebimentos</b><span>' + _ktFmtBRL(slot.inflow) + '</span></div>'
     +   '<div class="kt-dayview-sum out"><b>↓ Pagamentos</b><span>' + _ktFmtBRL(slot.outflow) + '</span></div>'
-    +   '<div class="kt-dayview-sum net"><b>≡ Líquido</b><span class="' + (net >= 0 ? 'positive' : 'negative') + '">' + _ktFmtBRL(net) + '</span></div>'
+    +   '<div class="kt-dayview-sum net"><b>≡ Líquido (dia)</b><span class="' + (net >= 0 ? 'positive' : 'negative') + '">' + _ktFmtBRL(net) + '</span></div>'
+    +   (balance != null ? '<div class="kt-dayview-sum net"><b>💰 Saldo fim do dia</b><span class="' + (balance >= 0 ? 'positive' : 'negative') + '">' + _ktFmtBRL(balance) + '</span></div>' : '')
     + '</div>';
 
   if (slot.items.length === 0){
@@ -46335,7 +46450,7 @@ function kashtrackRenderDay(){
   wrap.innerHTML = html;
 
   // KPIs do DIA (substitui os KPIs do mês quando estamos em day view)
-  _ktSetKpis(dStr, slot.inflow, slot.outflow);
+  _ktSetKpis(dStr, slot.inflow, slot.outflow, balance, monthOpex);
 }
 
 function _ktDayEventCard(it, sign){
@@ -46444,6 +46559,9 @@ function kashtrackRenderTracker(){
     days.forEach(d => { b += d.net; d.balance = b; });
   }
 
+  // Referência de despesa pra clima (despesa total da janela visível)
+  const winOpex = days.reduce((s, x) => s + (x.slot ? x.slot.outflow : 0), 0);
+  const monthRef = winOpex * (30 / Math.max(1, days.length));
   // Render strip
   let html = '';
   let sumIn = 0, sumOut = 0, sumNet = 0, daysWithStorm = 0;
@@ -46454,7 +46572,8 @@ function kashtrackRenderTracker(){
     const isMonthStart = (d.date.getDate() === 1) || (lastMonth !== -1 && d.date.getMonth() !== lastMonth);
     lastMonth = d.date.getMonth();
     const slot = d.slot;
-    const w = slot ? kashtrackWeather(d.net) : { ico:'', kind:'' };
+    // Weather agora reflete o SALDO acumulado · não o net do dia
+    const w = (d.balance != null) ? kashtrackWeatherBalance(d.balance, monthRef) : { ico:'', kind:'' };
     const classes = ['kt-tt-cell'];
     if (isToday) classes.push('today');
     if (isPast)  classes.push('past');
@@ -46576,16 +46695,22 @@ function kashtrackRenderTracker(){
   }
 }
 
-function _ktSetKpis(periodLabel, inflow, outflow){
+function _ktSetKpis(periodLabel, inflow, outflow, balanceRef, monthRef){
   const kpis = document.getElementById('kt-kpis');
   if (!kpis) return;
   const net = inflow - outflow;
-  const w = kashtrackWeather(net);
+  // Clima agora prefere SALDO (fluxo de caixa real) · cai pra net legado se balance não vier
+  const w = (balanceRef != null)
+    ? kashtrackWeatherBalance(balanceRef, monthRef || outflow)
+    : kashtrackWeather(net);
+  const sub = (balanceRef != null)
+    ? ((w.label || 'Aguardando dados') + ' · ' + _ktFmtBRL(balanceRef))
+    : (w.label || 'Aguardando dados');
   kpis.innerHTML = ''
     + '<div class="kt-kpi income"><span class="kt-kpi-lbl">↑ Recebimentos</span><span class="kt-kpi-val">' + _ktFmtBRL(inflow) + '</span><span class="kt-kpi-sub">' + periodLabel + '</span></div>'
     + '<div class="kt-kpi expense"><span class="kt-kpi-lbl">↓ Pagamentos</span><span class="kt-kpi-val">' + _ktFmtBRL(outflow) + '</span><span class="kt-kpi-sub">' + periodLabel + '</span></div>'
     + '<div class="kt-kpi net"><span class="kt-kpi-lbl">≡ Resultado</span><span class="kt-kpi-val ' + (net >= 0 ? 'positive' : 'negative') + '">' + _ktFmtBRL(net) + '</span><span class="kt-kpi-sub">receita − despesa</span></div>'
-    + '<div class="kt-kpi"><span class="kt-kpi-lbl">☀️ Clima</span><span class="kt-kpi-val">' + (w.ico || '⛅') + '</span><span class="kt-kpi-sub">' + (w.label || 'Aguardando dados') + '</span></div>';
+    + '<div class="kt-kpi"><span class="kt-kpi-lbl">☀️ Clima</span><span class="kt-kpi-val">' + (w.ico || '⛅') + '</span><span class="kt-kpi-sub">' + sub + '</span></div>';
 }
 
 // ── Weather Forecast tab ──
@@ -97970,7 +98095,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780430112';
+      const CACHE = 'forekash-v1780431574';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
