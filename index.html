@@ -46478,19 +46478,24 @@ function kashtrackSetTrackerRange(days, btn){
 }
 
 // Soma o saldo total disponível atual (Disponibilidades — banco/conta corrente)
-// Lê do c.saldos[YYYY-MM] (formato canônico do app) · fallback pra c.saldoInicial
+// Ordem de prioridade (do mais "fresco" pro mais "antigo"):
+//   1. c.saldos[YYYY-MM] mais recente <= mês atual (saldo lançado manualmente)
+//   2. snapshot mais recente <= mês atual (âncora confirmada pelo usuário)
+//   3. c.saldoInicial (ponto de partida) se cYm <= mês atual
+//   4. fallback amplo: qualquer c.saldos[k] em qualquer mês
 function _ktSaldoInicial(){
   try {
     if (typeof dispo === 'undefined' || !dispo || !Array.isArray(dispo.contas)) return 0;
     const today = new Date();
     const curYear  = today.getFullYear();
     const curMonth = today.getMonth(); // 0..11
+    const curYm = curYear + '-' + String(curMonth+1).padStart(2,'0');
     let total = 0;
     for (const c of dispo.contas){
       if (c.ativo === false) continue;
       const saldos = c.saldos || {};
       let lastV = null;
-      // 1) Procura último saldo lançado <= mês atual, varrendo até 5 anos atrás
+      // 1) c.saldos[ym] mais recente <= mês atual (varre 5 anos atrás)
       for (let yOff = 0; yOff <= 5 && lastV === null; yOff++){
         const y = curYear - yOff;
         const mStart = (yOff === 0) ? curMonth : 11;
@@ -46500,20 +46505,30 @@ function _ktSaldoInicial(){
           if (isFinite(v) && v !== 0){ lastV = v; break; }
         }
       }
-      // 2) Fallback: qualquer saldo registrado (mais recente em ordem desc)
+      // 2) Snapshot mais recente <= curYm (confirmado pelo usuário no modal de Dispo)
+      if (lastV === null && Array.isArray(c.snapshots) && c.snapshots.length){
+        const snapsValid = c.snapshots
+          .filter(s => s && s.ym && (s.ym.slice(0,7) <= curYm))
+          .sort((a,b) => (b.ym || '').localeCompare(a.ym || ''));
+        if (snapsValid.length){
+          const v = parseFloat(snapsValid[0].valor);
+          if (isFinite(v)) lastV = v;
+        }
+      }
+      // 3) Saldo inicial (ponto de partida) se a data já chegou
+      if (lastV === null){
+        const cYm = (c.saldoInicialMes || '').slice(0,7);
+        if (cYm && cYm <= curYm && c.saldoInicial){
+          const v = parseFloat(c.saldoInicial);
+          if (isFinite(v)) lastV = v;
+        }
+      }
+      // 4) Fallback amplo: qualquer c.saldos[k] em qualquer mês (mais recente em ordem desc)
       if (lastV === null){
         const keys = Object.keys(saldos).sort().reverse();
         for (const k of keys){
           const v = parseFloat(saldos[k]);
           if (isFinite(v) && v !== 0){ lastV = v; break; }
-        }
-      }
-      // 3) Fallback: saldo inicial (ponto de partida) se já é "presente ou passado"
-      if (lastV === null){
-        const cYm = (c.saldoInicialMes || '').slice(0,7);
-        const curYm = curYear + '-' + String(curMonth+1).padStart(2,'0');
-        if (cYm && cYm <= curYm && c.saldoInicial){
-          lastV = parseFloat(c.saldoInicial) || 0;
         }
       }
       if (lastV != null) total += lastV;
@@ -98116,7 +98131,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780435371';
+      const CACHE = 'forekash-v1780438588';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
