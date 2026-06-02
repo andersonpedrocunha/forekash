@@ -9897,10 +9897,8 @@
     .fk-shortcuts-card .fk-cfo-bd{padding:18px;overflow:auto;display:flex;flex-direction:column;gap:14px;grid-template-columns:none}
     .fk-cfo-intro{font-size:.78rem;color:#64748B;padding:10px 14px;background:#F1F5F9;border-radius:8px;line-height:1.5}
     .fk-cfo-actions{display:flex;gap:8px;flex-wrap:wrap}
-    .fk-cfo-action-audio,.fk-cfo-action-refresh{background:#fff;border:1.5px solid #CBD5E1;padding:7px 14px;border-radius:7px;cursor:pointer;font-size:.78rem;font-weight:600;color:#475569;font-family:inherit;transition:all .12s}
-    .fk-cfo-action-audio:hover,.fk-cfo-action-refresh:hover{border-color:#10B981;color:#10B981;background:#ECFDF5}
-    .fk-cfo-action-audio{background:#10B981;color:#fff;border-color:#10B981}
-    .fk-cfo-action-audio:hover{background:#059669;color:#fff}
+    .fk-cfo-action-refresh{background:#fff;border:1.5px solid #CBD5E1;padding:7px 14px;border-radius:7px;cursor:pointer;font-size:.78rem;font-weight:600;color:#475569;font-family:inherit;transition:all .12s}
+    .fk-cfo-action-refresh:hover{border-color:#10B981;color:#10B981;background:#ECFDF5}
     .fk-cfo-cards{display:flex;flex-direction:column;gap:10px}
     .fk-cfo-card{display:flex;gap:12px;background:#F8FAFC;border-radius:10px;padding:14px;transition:transform .12s,box-shadow .12s}
     .fk-cfo-card:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(15,23,42,.08)}
@@ -97960,7 +97958,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780419892';
+      const CACHE = 'forekash-v1780421916';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -106146,7 +106144,7 @@ function fkCfoOpen(){
       `<div class="fk-shortcuts-hd"><h2>🧠 MR KASH · CFO Virtual</h2><button class="fk-shortcuts-x" onclick="fkCfoClose()">×</button></div>`+
       `<div class="fk-shortcuts-bd fk-cfo-bd">`+
         `<div class="fk-cfo-intro">Decisões sugeridas com base nos seus dados de hoje. Tudo é só sugestão — você decide.</div>`+
-        `<div class="fk-cfo-actions"><button class="fk-cfo-action-audio" onclick="fkCfoPlayBriefing()">🎧 Ouvir briefing</button><button class="fk-cfo-action-refresh" onclick="fkCfoOpen()">⟳ Atualizar</button><button class="fk-cfo-action-refresh" onclick="fkCfoHistoryOpen()">📚 Histórico</button></div>`+
+        `<div class="fk-cfo-actions"><button class="fk-cfo-action-refresh" onclick="fkCfoOpen()">⟳ Atualizar</button><button class="fk-cfo-action-refresh" onclick="fkCfoHistoryOpen()">📚 Histórico</button></div>`+
         `<div class="fk-cfo-cards">${cards}</div>`+
       `</div>`+
       `<div class="fk-shortcuts-ft"><span style="margin-right:auto;font-size:.74rem;color:#64748B">${decisions.length} sugestão(ões)</span><button class="btn-cancel" style="padding:7px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;cursor:pointer;font-size:.76rem" onclick="fkCfoClose()">Fechar</button></div>`+
@@ -106154,7 +106152,7 @@ function fkCfoOpen(){
   document.body.appendChild(ov);
   ov.addEventListener('click', (e) => { if(e.target === ov) fkCfoClose(); });
 }
-function fkCfoClose(){ const ov = document.getElementById('fk-cfo-ov'); if(ov) ov.remove(); fkCfoStopBriefing(); }
+function fkCfoClose(){ const ov = document.getElementById('fk-cfo-ov'); if(ov) ov.remove(); }
 function fkCfoSimulateInvest(v){ fkCfoClose(); if(typeof fkLoanScheduleOpen === 'function') fkLoanScheduleOpen({ principal: v, rate: 0.95, months: 12 }); }
 function fkCfoSendReminders(){ if(typeof fkToast === 'function') fkToast('💬 Veja Asaas pra enviar lembretes', 'ok', 2500); if(typeof switchModule === 'function') switchModule('asaas', null); fkCfoClose(); }
 function fkCfoRunwayPlan(caixa, queima){
@@ -106186,123 +106184,8 @@ function fkCfoOpenPareto(){
   }).join('');
   anaAlert({ eyebrow:'Pareto', title:'Top 10 clientes por receita', message:`<div style="text-align:left;font-size:.84rem;max-height:50vh;overflow:auto">${lines}</div>`, okText:'OK' });
 }
-let _fkCfoUtter = null;
-function fkCfoBuildBriefingText(){
-  // Text com pausas naturais (vírgulas + pontos forçam o TTS a respirar)
-  const decisions = fkCfoGenerateDecisions();
-  const fmt = n => 'R$ ' + (Number(n)||0).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
-  // Formata números pra falar melhor (ex: 1.500 → "mil e quinhentos reais") — deixa o número escrito,
-  // o TTS leu por extenso melhor que com "R$"
-  const speakReais = n => {
-    const v = Number(n)||0;
-    if(v >= 1000000) return (v/1000000).toFixed(1).replace('.', ' vírgula ') + ' milhões de reais';
-    if(v >= 1000) return Math.round(v/1000) + ' mil reais';
-    return Math.round(v) + ' reais';
-  };
-  const parts = [];
-  // Saudação adaptada ao horário
-  const hora = new Date().getHours();
-  const saud = hora < 12 ? 'Bom dia' : (hora < 18 ? 'Boa tarde' : 'Boa noite');
-  parts.push(`${saud}! Aqui é o Mister Kash, com seu briefing.`);
-  let caixa = 0;
-  try{ if(typeof dispo!=='undefined' && Array.isArray(dispo.bancos)) for(const b of dispo.bancos) if(b.ativo) caixa += parseFloat(b.saldoAtual)||0; }catch(_){}
-  if(caixa > 0){
-    parts.push(`Seu caixa atual é de ${speakReais(caixa)}.`);
-  }
-  if(decisions.length === 0){
-    parts.push('Não identifiquei nenhuma decisão urgente.');
-    parts.push('Está indo muito bem, continue assim.');
-  } else {
-    parts.push(`Tenho ${decisions.length} ${decisions.length===1?'recomendação':'recomendações'} pra você.`);
-    for(let i = 0; i < Math.min(decisions.length, 3); i++){
-      const d = decisions[i];
-      let limpo = (d.msg||'').replace(/<[^>]+>/g,' ').replace(/R\$\s*/g,'').replace(/\s+/g,' ').trim();
-      // Limita pra não ficar arrastado
-      if(limpo.length > 160) limpo = limpo.substring(0, 160) + '...';
-      parts.push(`${d.titulo}.`);
-      parts.push(limpo);
-    }
-  }
-  parts.push('Bons negócios, e até a próxima.');
-  // Junta com pausas longas entre frases (3 espaços + ponto força respiração no TTS)
-  return parts.join('   ');
-}
-
-// Ranking inteligente de voz · prefere neural/premium/Google/Microsoft
-function _fkCfoPickBestVoice(){
-  const voices = window.speechSynthesis.getVoices() || [];
-  if(!voices.length) return null;
-  // Apenas vozes PT-BR ou PT genérico
-  const ptVoices = voices.filter(v => /pt-BR|pt_BR|pt-br/i.test(v.lang) || /^pt/i.test(v.lang));
-  if(!ptVoices.length) return null;
-  // Score por qualidade (maior = melhor)
-  const score = (v) => {
-    const n = (v.name||'').toLowerCase();
-    let s = 0;
-    // Google (Chrome) — vozes neurais de altíssima qualidade
-    if(/google/i.test(n)) s += 100;
-    // Microsoft Online / Natural / Neural (Edge) — premium qualidade
-    if(/microsoft.*(online|natural|neural)/i.test(n)) s += 95;
-    if(/online.*natural/i.test(n)) s += 90;
-    // Vozes femininas (Francisca, Brenda, Letícia, Maria, Joana, Camila)
-    if(/francisca|brenda|let[ií]cia|maria|joana|camila|raquel|ana|fernanda|carla/i.test(n)) s += 30;
-    // Vozes masculinas premium (Antonio, Daniel)
-    else if(/ant[ôo]nio|daniel|ricardo|jo[ãa]o/i.test(n)) s += 25;
-    // Apple Premium / Enhanced (macOS/iOS)
-    if(/premium|enhanced/i.test(n)) s += 80;
-    // Apple Luciana é a default brasileira — ok mas não premium
-    if(/luciana/i.test(n)) s += 20;
-    // Penaliza vozes "Compact" ou "eSpeak" (sons robóticos antigos)
-    if(/compact|espeak|microsoft (maria|daniel)/i.test(n)) s -= 30;
-    // Bonus pra pt-BR exato vs só "pt"
-    if(/pt-BR|pt_BR/i.test(v.lang)) s += 10;
-    // Bonus pra localService=false (vozes online, geralmente mais naturais)
-    if(v.localService === false) s += 15;
-    return s;
-  };
-  const ranked = ptVoices.slice().sort((a,b) => score(b) - score(a));
-  return ranked[0];
-}
-
-function fkCfoPlayBriefing(){
-  if(!('speechSynthesis' in window)){ if(typeof fkToast === 'function') fkToast('Áudio não suportado nesse navegador', 'warn'); return; }
-  fkCfoStopBriefing();
-  // Garante que as vozes carregaram (assíncrono em alguns browsers)
-  const playNow = () => {
-    const text = fkCfoBuildBriefingText();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'pt-BR';
-    // Tuning premium: rate ligeiramente devagar, pitch ligeiramente abaixo (mais grave/calmo),
-    // volume cheio. Vozes neurais soam muito melhor nessa faixa.
-    u.rate = 0.95;
-    u.pitch = 0.95;
-    u.volume = 1.0;
-    const best = _fkCfoPickBestVoice();
-    if(best){ u.voice = best; }
-    _fkCfoUtter = u;
-    window.speechSynthesis.speak(u);
-    if(typeof fkToast === 'function'){
-      const label = best ? `🎧 ${best.name.replace(/microsoft\s+/i,'').replace(/google\s+/i,'').slice(0,28)}` : '🎧 Tocando briefing';
-      fkToast(label, 'info', 2400);
-    }
-  };
-  // Se voices já carregaram, toca direto
-  if(window.speechSynthesis.getVoices().length){
-    playNow();
-  } else {
-    // Espera o evento voiceschanged (ou timeout de 1.5s)
-    let played = false;
-    const onLoad = () => { if(played) return; played = true; window.speechSynthesis.onvoiceschanged = null; playNow(); };
-    window.speechSynthesis.onvoiceschanged = onLoad;
-    setTimeout(() => { if(!played){ played = true; window.speechSynthesis.onvoiceschanged = null; playNow(); } }, 1500);
-  }
-}
-function fkCfoStopBriefing(){ try{ if('speechSynthesis' in window) window.speechSynthesis.cancel(); }catch(_){} _fkCfoUtter = null; }
-// Pre-carrega vozes (Chrome lazy-loads · pre-warm)
-try{ if('speechSynthesis' in window) window.speechSynthesis.getVoices(); }catch(_){}
 try{
   window.fkCfoOpen = fkCfoOpen; window.fkCfoClose = fkCfoClose;
-  window.fkCfoPlayBriefing = fkCfoPlayBriefing; window.fkCfoStopBriefing = fkCfoStopBriefing;
   window.fkCfoSimulateInvest = fkCfoSimulateInvest; window.fkCfoSendReminders = fkCfoSendReminders;
   window.fkCfoRunwayPlan = fkCfoRunwayPlan; window.fkCfoSimulateRegime = fkCfoSimulateRegime;
   window.fkCfoOpenPareto = fkCfoOpenPareto; window.fkCfoGenerateDecisions = fkCfoGenerateDecisions;
