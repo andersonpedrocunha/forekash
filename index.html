@@ -16200,9 +16200,12 @@
     .kt-fc-wd{font-size:.62rem;font-weight:700;letter-spacing:.06em;color:#94A3B8;text-transform:uppercase}
     .kt-fc-date{font-size:.92rem;font-weight:800;color:#F8FAFC}
     .kt-fc-ico{font-size:1.6rem;line-height:1}
-    .kt-fc-net{font-size:.76rem;font-weight:700;color:#CBD5E1}
-    .kt-fc-net.positive{color:#10B981}
-    .kt-fc-net.negative{color:#EF4444}
+    .kt-fc-net{font-size:.82rem;font-weight:800;color:#CBD5E1;letter-spacing:-.015em}
+    .kt-fc-net.positive{color:#34D399}
+    .kt-fc-net.negative{color:#F87171}
+    .kt-fc-delta{font-size:.66rem;font-weight:600;color:#94A3B8;opacity:.85;letter-spacing:-.01em}
+    .kt-fc-delta.positive{color:#86EFAC}
+    .kt-fc-delta.negative{color:#FCA5A5}
     .kt-fc-summary{margin-top:18px;padding-top:14px;border-top:1px solid rgba(248,250,252,.1);display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
     .kt-fc-summary .it{background:rgba(248,250,252,.04);border-radius:8px;padding:9px 10px}
     .kt-fc-summary .it b{display:block;font-size:.6rem;letter-spacing:.06em;color:#94A3B8;text-transform:uppercase}
@@ -46759,6 +46762,11 @@ function kashtrackRenderForecast(){
   const endDate = new Date(today); endDate.setDate(endDate.getDate() + 6);
   const endKey = _ktDateKey(endDate);
   const byDay = kashtrackAggregateByDay(startKey, endKey);
+  // Saldo acumulado dia-a-dia · âncora em HOJE = saldo atual em conta
+  const balanceByDay = kashtrackBalanceByDay(byDay, startKey, endKey);
+  // Despesa total dos 7 dias × ~4 como proxy mensal (referência pro weather)
+  const weekOpex = Object.values(byDay).reduce((s,x) => s + (x.outflow||0), 0);
+  const monthRef = weekOpex * 4;
 
   const todayKey = _ktDateKey(new Date());
   let html = '';
@@ -46769,17 +46777,19 @@ function kashtrackRenderForecast(){
     const k = _ktDateKey(d);
     const slot = byDay[k] || { inflow:0, outflow:0, items:[] };
     const net = slot.inflow - slot.outflow;
+    const balance = balanceByDay[k];
     sumIn += slot.inflow; sumOut += slot.outflow;
-    const w = kashtrackWeather(slot.items.length === 0 ? null : net);
+    // Weather agora reflete o SALDO acumulado · não o net do dia
+    const w = (balance != null) ? kashtrackWeatherBalance(balance, monthRef) : kashtrackWeather(slot.items.length === 0 ? null : net);
     const isToday = (k === todayKey);
     const dayLbl = isToday ? 'Hoje' : KASHTRACK_FC_WEEKDAYS[d.getDay()];
+    const balCls = (balance != null && balance < 0) ? 'negative' : (balance != null && balance > 0 ? 'positive' : '');
     html += '<div class="kt-fc-day' + (isToday ? ' today-fc' : '') + '" onclick="kashtrackOpenDay(\'' + k + '\')">'
          +    '<div class="kt-fc-wd">' + dayLbl + '</div>'
          +    '<div class="kt-fc-date">' + d.getDate() + '/' + String(d.getMonth()+1).padStart(2,'0') + '</div>'
          +    '<div class="kt-fc-ico" title="' + w.label + '">' + (w.ico || '·') + '</div>'
-         +    '<div class="kt-fc-net' + (net > 0 ? ' positive' : (net < 0 ? ' negative' : '')) + '">'
-         +      (slot.items.length === 0 ? '—' : _ktFmtBRL(net))
-         +    '</div>'
+         +    (balance != null ? '<div class="kt-fc-net ' + balCls + '" title="Saldo fim do dia">' + _ktFmtBRL(balance) + '</div>' : '<div class="kt-fc-net">—</div>')
+         +    (slot.items.length > 0 ? '<div class="kt-fc-delta ' + (net > 0 ? 'positive' : (net < 0 ? 'negative' : '')) + '">Δ ' + _ktFmtBRL(net) + '</div>' : '')
          +  '</div>';
 
     // Coleta alertas — voz MR KASH (corte, calculado, ocasionalmente irônico)
@@ -46832,14 +46842,17 @@ function kashtrackRenderForecast(){
   }
   strip.innerHTML = html;
 
-  // Summary do bloco
+  // Summary do bloco · mostra saldo atual + projeção pro fim dos 7 dias
   const summaryEl = document.getElementById('kt-fc-summary');
   if (summaryEl){
     const sumNet = sumIn - sumOut;
+    const saldoHoje = balanceByDay[todayKey];
+    const saldoFim = balanceByDay[endKey];
     summaryEl.innerHTML = ''
+      + '<div class="it"><b>💰 Saldo hoje</b><span style="color:' + (saldoHoje != null && saldoHoje < 0 ? '#FCA5A5' : '#10B981') + '">' + (saldoHoje != null ? _ktFmtBRL(saldoHoje) : '—') + '</span></div>'
       + '<div class="it in"><b>Recebimentos 7d</b><span>' + _ktFmtBRL(sumIn) + '</span></div>'
       + '<div class="it out"><b>Pagamentos 7d</b><span>' + _ktFmtBRL(sumOut) + '</span></div>'
-      + '<div class="it"><b>Saldo líquido</b><span style="color:' + (sumNet >= 0 ? '#10B981' : '#FCA5A5') + '">' + _ktFmtBRL(sumNet) + '</span></div>';
+      + '<div class="it"><b>📈 Saldo em 7d</b><span style="color:' + (saldoFim != null && saldoFim < 0 ? '#FCA5A5' : '#10B981') + '">' + (saldoFim != null ? _ktFmtBRL(saldoFim) : '—') + '</span></div>';
   }
 
   // Alertas
@@ -98131,7 +98144,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780438588';
+      const CACHE = 'forekash-v1780440462';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
