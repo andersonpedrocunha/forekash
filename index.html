@@ -46227,16 +46227,30 @@ function kashtrackOpenDay(key){
   if (!drawer || !body) return;
   const d = _ktParseKey(key);
   if (!d) return;
-  const byDay = kashtrackAggregateByDay(key, key);
-  const slot = byDay[key] || { inflow:0, outflow:0, items:[], pago:0, pendente:0 };
+  // Janela ampla pra ancora em HOJE poder calcular saldo correto
+  const todayKey = _ktDateKey(new Date());
+  const lo = key < todayKey ? key : todayKey;
+  const hi = key > todayKey ? key : todayKey;
+  const byDayWide = kashtrackAggregateByDay(lo, hi);
+  const balanceByDay = kashtrackBalanceByDay(byDayWide, lo, hi);
+  const slot = byDayWide[key] || { inflow:0, outflow:0, items:[], pago:0, pendente:0 };
   const net = slot.inflow - slot.outflow;
-  const w = kashtrackWeather(net);
+  const balance = balanceByDay[key];
+  // Referência: despesa do mês visível
+  const y = d.getFullYear(), m = d.getMonth();
+  const mStart = _ktDateKey(new Date(y, m, 1));
+  const mEnd   = _ktDateKey(new Date(y, m + 1, 0));
+  const byDayMonth = kashtrackAggregateByDay(mStart, mEnd);
+  const monthOpex = Object.values(byDayMonth).reduce((s, x) => s + (x.outflow || 0), 0);
+  // Weather agora reflete o SALDO acumulado · não o net do dia
+  const w = (balance != null) ? kashtrackWeatherBalance(balance, monthOpex) : kashtrackWeather(net);
   const titleStr = w.ico + ' ' + KASHTRACK_FC_WEEKDAYS[d.getDay()] + ', ' + d.getDate() + ' de ' + KASHTRACK_MONTH_NAMES[d.getMonth()].toLowerCase() + ' de ' + d.getFullYear();
   if (titleEl) titleEl.textContent = titleStr;
   let html = '<div class="kt-drawer-sum">'
     + '<div class="item in"><b>Entradas</b><span>' + _ktFmtBRL(slot.inflow) + '</span></div>'
     + '<div class="item out"><b>Saídas</b><span>' + _ktFmtBRL(slot.outflow) + '</span></div>'
-    + '<div class="item net"><b>Líquido</b><span class="' + (net >= 0 ? 'positive' : 'negative') + '">' + _ktFmtBRL(net) + '</span></div>'
+    + '<div class="item net"><b>Líquido dia</b><span class="' + (net >= 0 ? 'positive' : 'negative') + '">' + _ktFmtBRL(net) + '</span></div>'
+    + (balance != null ? '<div class="item net"><b>💰 Saldo fim dia</b><span class="' + (balance >= 0 ? 'positive' : 'negative') + '">' + _ktFmtBRL(balance) + '</span></div>' : '')
   + '</div>';
   if (slot.items.length === 0){
     html += '<div style="color:#9CA3AF;font-size:.84rem;text-align:center;padding:20px">Nenhum lançamento nesta data.</div>';
@@ -98144,7 +98158,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780440462';
+      const CACHE = 'forekash-v1780441477';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
