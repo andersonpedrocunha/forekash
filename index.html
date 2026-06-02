@@ -36100,15 +36100,17 @@ function flxSaldoInicialDeDispo(year){
   for(const c of dispo.contas){
     if(c.ativo === false) continue;
     if(!c.saldoInicialMes || c.saldoInicial == null) continue;
+    // Compara só pela parte YYYY-MM (saldoInicialMes pode ser YYYY-MM ou YYYY-MM-DD)
+    const cYm = c.saldoInicialMes.slice(0, 7);
     // Conta nasceu antes ou em jan do ano? Calcula saldo em jan/year
-    if(c.saldoInicialMes > refYm){
+    if(cYm > refYm){
       // Conta nasceu depois · usa o saldo inicial direto (vai entrar quando o mês chegar)
       // Por enquanto, não inclui no saldo inicial do ano
       continue;
     }
     // Pega o saldo do mês ANTERIOR a jan/year (= dez do year-1)
     // Mas se a conta começa em jan/year, usa o próprio saldoInicial
-    if(c.saldoInicialMes === refYm){
+    if(cYm === refYm){
       total += parseFloat(c.saldoInicial) || 0;
       contas++;
     } else {
@@ -78663,17 +78665,27 @@ function dispoSave(){
 // SALDO INICIAL + SNAPSHOTS · sistema de âncoras e divergência
 // ═══════════════════════════════════════════════════════════════════
 
-// Helper · compara duas chaves YM (formato 'YYYY-MM')
+// Helper · normaliza pra YYYY-MM (aceita YYYY-MM ou YYYY-MM-DD)
+function _dispoToYm(s){ return (s || '').slice(0, 7); }
+// Helper · compara duas chaves (compara só YYYY-MM pra não quebrar com formatos mistos)
 function _dispoYmCmp(a, b){
   if(!a || !b) return 0;
-  return a.localeCompare(b);
+  return _dispoToYm(a).localeCompare(_dispoToYm(b));
 }
 function _dispoNextYm(ym){
-  const m = /^(\d{4})-(\d{2})$/.exec(ym || '');
+  // Aceita YYYY-MM ou YYYY-MM-DD · retorna o YYYY-MM seguinte
+  const m = /^(\d{4})-(\d{2})/.exec(ym || '');
   if(!m) return '';
   let y = parseInt(m[1]), mo = parseInt(m[2]) + 1;
   if(mo > 12){ mo = 1; y++; }
   return y + '-' + String(mo).padStart(2,'0');
+}
+// Formata data DD/MM/YYYY ou MM/YYYY pra exibição
+function _dispoFmtDate(s){
+  if(!s) return '—';
+  if(s.length >= 10) return s.slice(8,10) + '/' + s.slice(5,7) + '/' + s.slice(0,4);
+  if(s.length >= 7)  return s.slice(5,7) + '/' + s.slice(0,4);
+  return s;
 }
 
 // Soma movimentações do Extrato pra uma conta entre dois meses (inclusive)
@@ -78765,10 +78777,10 @@ function dispoCreateSnapshot(contaId, ym, valor, observacao){
   };
   c.snapshots.push(snap);
   c.nextSnapId = snap.id + 1;
-  // Mantém ordenado por ym
+  // Mantém ordenado por ym/data
   c.snapshots.sort((a,b) => (a.ym||'').localeCompare(b.ym||''));
   dispoSave();
-  if(typeof toast === 'function') toast('📸 Snapshot salvo · âncora: ' + ym);
+  if(typeof toast === 'function') toast('📸 Snapshot salvo · âncora: ' + _dispoFmtDate(ym));
   return snap;
 }
 
@@ -78911,11 +78923,11 @@ function dispoRenderSaldoInicial(contaId){
     +     '<div class="dispo-si-fld"><label>Saldo inicial (R$)</label>'
     +       '<input type="text" id="dispo-si-valor" value="' + (c.saldoInicial > 0 ? c.saldoInicial.toLocaleString('pt-BR',{minimumFractionDigits:2}) : '') + '" placeholder="0,00">'
     +     '</div>'
-    +     '<div class="dispo-si-fld"><label>A partir de (mês)</label>'
-    +       '<input type="month" id="dispo-si-mes" value="' + (c.saldoInicialMes || '') + '">'
+    +     '<div class="dispo-si-fld"><label>A partir de (data)</label>'
+    +       '<input type="date" id="dispo-si-mes" value="' + (c.saldoInicialMes && c.saldoInicialMes.length >= 10 ? c.saldoInicialMes : (c.saldoInicialMes ? c.saldoInicialMes + '-01' : '')) + '">'
     +     '</div>'
     +   '</div>'
-    +   '<div class="dispo-si-info">💡 Esse é o ponto zero do cálculo · cada movimentação posterior soma sobre ele · Fluxo de Caixa puxa automático.</div>'
+    +   '<div class="dispo-si-info">💡 Esse é o ponto zero do cálculo · o Fluxo de Caixa Diário começa a contar a partir dessa data · cada movimentação posterior soma sobre ela.</div>'
     + '</div>'
 
     // SEÇÃO 2: Snapshots
@@ -78927,7 +78939,7 @@ function dispoRenderSaldoInicial(contaId){
     html += '<div class="dispo-si-empty">Nenhum snapshot ainda · use abaixo pra registrar âncoras de saldo confirmado em períodos específicos.</div>';
   } else {
     for(const s of snaps){
-      const ymFmt = s.ym ? s.ym.slice(5,7) + '/' + s.ym.slice(0,4) : '—';
+      const ymFmt = _dispoFmtDate(s.ym);
       const dt = s.criadoEm ? s.criadoEm.slice(0,10).split('-').reverse().join('/') : '';
       const hasDiv = s.divergencia && Math.abs(s.divergencia) > 0.50;
       html += '<div class="dispo-si-snap' + (hasDiv ? ' diverg' : '') + '">'
@@ -78942,7 +78954,7 @@ function dispoRenderSaldoInicial(contaId){
     }
   }
   html += '<div class="dispo-si-add">'
-    +   '<input type="month" id="dispo-si-new-ym" placeholder="Mês">'
+    +   '<input type="date" id="dispo-si-new-ym" placeholder="Data">'
     +   '<input type="text" id="dispo-si-new-val" placeholder="Valor (R$)">'
     +   '<input type="text" id="dispo-si-new-obs" placeholder="Observação curta (opcional)" maxlength="80">'
     +   '<button onclick="dispoSnapAddFromInputs(' + contaId + ')">📸 Capturar</button>'
@@ -78954,7 +78966,7 @@ function dispoRenderSaldoInicial(contaId){
     html += '<div class="dispo-si-sect">'
       +   '<h4>⚠ Divergências detectadas (' + divergencias.length + ')</h4>';
     for(const d of divergencias.slice(0, 6)){
-      const ymFmt = d.ym.slice(5,7) + '/' + d.ym.slice(0,4);
+      const ymFmt = _dispoFmtDate(d.ym);
       html += '<div class="dispo-si-snap diverg">'
         +   '<span class="ym">' + ymFmt + '</span>'
         +   '<div><b style="font-size:.78rem">Lançado: R$ ' + d.real.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</b>'
@@ -78980,21 +78992,21 @@ function dispoRenderSaldoInicial(contaId){
 
 function dispoSaveSaldoInicialFromInputs(contaId){
   const v = (document.getElementById('dispo-si-valor')?.value || '').replace(/\./g,'').replace(',','.');
-  const ym = document.getElementById('dispo-si-mes')?.value || '';
+  const dt = document.getElementById('dispo-si-mes')?.value || '';
   const vNum = parseFloat(v) || 0;
-  if(!ym){ if(typeof toast === 'function') toast('⚠ Escolha o mês de partida'); return; }
-  dispoSetSaldoInicial(contaId, vNum, ym);
-  if(typeof toast === 'function') toast('✓ Saldo inicial salvo · ponto de partida: ' + ym);
+  if(!dt){ if(typeof toast === 'function') toast('⚠ Escolha a data de partida'); return; }
+  dispoSetSaldoInicial(contaId, vNum, dt);
+  if(typeof toast === 'function') toast('✓ Saldo inicial salvo · ponto de partida: ' + _dispoFmtDate(dt));
   if(typeof renderDispo === 'function') try{ renderDispo(); }catch(e){}
   dispoCloseSaldoInicial();
 }
 function dispoSnapAddFromInputs(contaId){
-  const ym = document.getElementById('dispo-si-new-ym')?.value || '';
+  const dt = document.getElementById('dispo-si-new-ym')?.value || '';
   const v = (document.getElementById('dispo-si-new-val')?.value || '').replace(/\./g,'').replace(',','.');
   const obs = (document.getElementById('dispo-si-new-obs')?.value || '').trim();
   const vNum = parseFloat(v);
-  if(!ym || !isFinite(vNum)){ if(typeof toast === 'function') toast('⚠ Preencha mês e valor'); return; }
-  dispoCreateSnapshot(contaId, ym, vNum, obs);
+  if(!dt || !isFinite(vNum)){ if(typeof toast === 'function') toast('⚠ Preencha data e valor'); return; }
+  dispoCreateSnapshot(contaId, dt, vNum, obs);
   dispoRenderSaldoInicial(contaId);
 }
 
@@ -88437,7 +88449,7 @@ function renderDispoRow(c, year){
   const hasSaldoIni = c.saldoInicial > 0 && c.saldoInicialMes;
   const siColor = hasSaldoIni ? '#7C3AED' : '#94A3B8';
   const siTitle = hasSaldoIni
-    ? 'Saldo inicial: R$ ' + (c.saldoInicial||0).toLocaleString('pt-BR',{minimumFractionDigits:2}) + ' · ' + c.saldoInicialMes
+    ? 'Saldo inicial: R$ ' + (c.saldoInicial||0).toLocaleString('pt-BR',{minimumFractionDigits:2}) + ' · ' + (typeof _dispoFmtDate === 'function' ? _dispoFmtDate(c.saldoInicialMes) : c.saldoInicialMes)
     : 'Definir saldo inicial · ponto de partida do cálculo';
 
   return `<tr class="${rowCls}" ${rowStyle} data-dispo-row="${c.id}" ${dispoReorderAttrs}>
@@ -97958,7 +97970,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780428328';
+      const CACHE = 'forekash-v1780430112';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
