@@ -18377,7 +18377,7 @@
     <div class="fk-fl-toggle" id="fk-fl-toggle" role="group" aria-label="Flight Level · resolução de dados">
       <button type="button" data-fl="1" onclick="fkFlightSet(1)" title="Flight Level 1 · OPERAÇÃO · visão diária (cockpit do dia)">FL1</button>
       <button type="button" data-fl="2" onclick="fkFlightSet(2)" title="Flight Level 2 · GESTÃO · visão mensal (DRE e fluxo do mês)">FL2</button>
-      <button type="button" data-fl="3" onclick="fkFlightSet(3)" title="Flight Level 3 · ESTRATÉGIA · visão anual (DRE YoY, runway, valuation)">FL3</button>
+      <button type="button" data-fl="3" onclick="fkFlightSet(3)" title="Flight Level 3 · ESTRATÉGIA · visão anual (DRE YoY, runway, top categorias)">FL3</button>
     </div>
 
     <!-- KASH SCORE · widget no header (sparkline + tier) -->
@@ -98177,7 +98177,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780446114';
+      const CACHE = 'forekash-v1780495677';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -119392,7 +119392,7 @@ const KS_LAB_LESSONS = {
         title:'4. ARR projetado',
         desc:'Multiplique por 12 pra ver o anual.',
         query:`from('assinaturas')\n  .where('ativa', true)\n  .sum('valor')\n  .project_months(12)`,
-        hint:'ARR = Annual Recurring Revenue. Valuation B2B SaaS típica = 4-8x ARR.'
+        hint:'ARR = Annual Recurring Revenue · receita recorrente anualizada. É a métrica core de negócios com modelo de assinatura.'
       }
     ],
     veredito:(rows, meta) => {
@@ -119400,8 +119400,8 @@ const KS_LAB_LESSONS = {
       return `<div class="ks-lab-final">
         <h3>💰 Seu ARR projetado</h3>
         <span class="ks-num-big">${_ksFmtBRL(arr)}</span>
-        <p>de receita recorrente anualizada. Em valuation média B2B SaaS (5x ARR), seu negócio vale <strong>${_ksFmtBRL(arr*5)}</strong> hoje.</p>
-        <p style="margin-top:10px;font-style:italic">Quanto mais previsível for esse número, maior o múltiplo.</p>
+        <p>de receita recorrente anualizada · esse é o tamanho da base "previsível" do seu negócio nos próximos 12 meses.</p>
+        <p style="margin-top:10px;font-style:italic">Quanto mais previsível for esse número, mais saudável fica o caixa.</p>
       </div>`;
     }
   },
@@ -126549,7 +126549,7 @@ setTimeout(() => { try{ fkTimeTakeDailySnap(); }catch(_){} }, 3500);
 // ✈ FLIGHT LEVELS · resolução de dados Diário/Mensal/Anual
 // FL1 = OPERAÇÃO  (cockpit do dia · saldo hoje, vencimentos, alertas)
 // FL2 = GESTÃO    (cockpit do mês · receita, despesa, margem, score)
-// FL3 = ESTRATÉGIA (cockpit do ano · DRE YoY, runway, valuation)
+// FL3 = ESTRATÉGIA (cockpit do ano · DRE YoY, runway, top categorias, pendentes)
 // ════════════════════════════════════════════════════════════════════
 const FK_FL_KEY = 'forekash:flight-level:v1';
 function fkFlightGet(){
@@ -126751,10 +126751,7 @@ function _fkFlRenderFL3(){
   const mIdx = today.getMonth() + 1;
   const burnAvg = cur.despesa / Math.max(1, mIdx);
   const runway = burnAvg > 0 ? (saldo / burnAvg) : 99;
-  // Valuation estimado (múltiplo simples · 5x net) — heurística
   const netAno = cur.receita - cur.despesa;
-  const valuationLow = netAno * 3;
-  const valuationHigh = netAno * 6;
   const trend = (a, b, asPct) => {
     if(!b) return '';
     const d = a - b;
@@ -126795,10 +126792,13 @@ function _fkFlRenderFL3(){
         </table>
       </div>
       <div>
-        <div style="background:linear-gradient(135deg,#7C3AED,#5B21B6);border-radius:10px;padding:16px;color:#fff;margin-bottom:10px">
-          <div style="font-size:.68rem;opacity:.85;letter-spacing:.08em;font-weight:800">💎 VALUATION ESTIMADO</div>
-          <div style="font-size:1.5rem;font-weight:800;margin:6px 0;line-height:1.1">R$ ${(valuationLow/1000).toFixed(0)}k − R$ ${(valuationHigh/1000).toFixed(0)}k</div>
-          <div style="font-size:.7rem;opacity:.85">Múltiplo 3-6× resultado líquido anual</div>
+        <div style="background:linear-gradient(135deg,#0F172A,#1E293B);border-radius:10px;padding:16px;color:#fff;margin-bottom:10px">
+          <div style="font-size:.68rem;opacity:.85;letter-spacing:.08em;font-weight:800">📑 PENDENTES NO ANO</div>
+          <div style="display:flex;gap:14px;margin:8px 0">
+            <div style="flex:1"><div style="font-size:.66rem;opacity:.7">↑ A receber</div><div style="font-size:1.15rem;font-weight:800;color:#10B981;font-variant-numeric:tabular-nums">R$ ${cur.pendReceitas.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
+            <div style="flex:1;border-left:1px solid rgba(255,255,255,.15);padding-left:14px"><div style="font-size:.66rem;opacity:.7">↓ A pagar</div><div style="font-size:1.15rem;font-weight:800;color:#EF4444;font-variant-numeric:tabular-nums">R$ ${cur.pendDespesas.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
+          </div>
+          <div style="font-size:.7rem;opacity:.7">Saldo pendente: <b style="color:${(cur.pendReceitas-cur.pendDespesas)>=0?'#10B981':'#EF4444'}">R$ ${(cur.pendReceitas - cur.pendDespesas).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</b></div>
         </div>
         <div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:14px">
           <h4 style="margin:0 0 10px;font-size:.84rem;color:#0F172A">Top 5 categorias · ${yr}</h4>
