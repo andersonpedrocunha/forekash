@@ -3881,6 +3881,18 @@
     .ext-import-pop-it .bd b{font-size:.84rem;font-weight:700;color:#0F172A;letter-spacing:.01em}
     .ext-import-pop-it .bd span{font-size:.72rem;color:#64748B;line-height:1.35}
     /* ═══════════════════════════════════════════════════════════════
+       ✈ FLIGHT LEVEL toggle (FL1/FL2/FL3) · resolução dos dados
+       ═══════════════════════════════════════════════════════════════ */
+    .fk-fl-toggle{display:inline-flex;background:#0F172A;border:1px solid #1F2937;border-radius:8px;padding:3px;gap:2px;margin-right:10px;font-family:'JetBrains Mono','Fira Code',monospace}
+    .fk-fl-toggle button{background:transparent;border:none;color:#94A3B8;font-size:.68rem;font-weight:800;padding:5px 10px;border-radius:5px;cursor:pointer;font-family:inherit;letter-spacing:.04em;transition:all .15s;line-height:1}
+    .fk-fl-toggle button:hover:not(.active){color:#fff;background:rgba(255,255,255,.06)}
+    .fk-fl-toggle button.active{background:linear-gradient(135deg,#10B981,#0F766E);color:#fff;box-shadow:0 2px 8px rgba(16,185,129,.4)}
+    body.fl-1 .fk-fl-toggle button[data-fl="1"]::after,
+    body.fl-2 .fk-fl-toggle button[data-fl="2"]::after,
+    body.fl-3 .fk-fl-toggle button[data-fl="3"]::after{content:"";display:inline-block;width:4px;height:4px;background:#fff;border-radius:50%;margin-left:5px;vertical-align:middle}
+    @media (max-width: 720px){ .fk-fl-toggle{margin-right:6px} .fk-fl-toggle button{padding:4px 7px;font-size:.62rem} }
+
+    /* ═══════════════════════════════════════════════════════════════
        KASH SCORE · gamificação Mr. Robot eterna
        ═══════════════════════════════════════════════════════════════ */
     .ks-chip{display:inline-flex;align-items:center;gap:8px;padding:5px 11px 5px 9px;
@@ -18361,6 +18373,13 @@
   </div>
 
   <div class="hdr-r">
+    <!-- ✈ Flight Level toggle · resolução dos dados (Diário/Mensal/Anual) -->
+    <div class="fk-fl-toggle" id="fk-fl-toggle" role="group" aria-label="Flight Level · resolução de dados">
+      <button type="button" data-fl="1" onclick="fkFlightSet(1)" title="Flight Level 1 · OPERAÇÃO · visão diária (cockpit do dia)">FL1</button>
+      <button type="button" data-fl="2" onclick="fkFlightSet(2)" title="Flight Level 2 · GESTÃO · visão mensal (DRE e fluxo do mês)">FL2</button>
+      <button type="button" data-fl="3" onclick="fkFlightSet(3)" title="Flight Level 3 · ESTRATÉGIA · visão anual (DRE YoY, runway, valuation)">FL3</button>
+    </div>
+
     <!-- KASH SCORE · widget no header (sparkline + tier) -->
     <button type="button" class="ks-chip" id="ks-chip" onclick="ksOpenPanel()" style="display:none" title="Sua nota de saúde do negócio · clique pra ver histórico">
       <span class="ks-chip-icon">⚡</span>
@@ -98158,7 +98177,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780445657';
+      const CACHE = 'forekash-v1780446114';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -98591,6 +98610,7 @@ const CMDK_COMMANDS = [
   // ─── Novas ferramentas (Maratona) ───
   { group:'Ferramentas', label:'🧠 Copiloto Financeiro · decisões sugeridas', ico:'🧠', kbd:'', action:() => { if(typeof fkCfoOpen === 'function') fkCfoOpen(); } },
   { group:'Ferramentas', label:'💬 Enviar via WhatsApp (templates)', ico:'💬', kbd:'', action:() => { if(typeof fkWaOpen === 'function') fkWaOpen(); } },
+  { group:'Ferramentas', label:'✈ Cockpit (Flight Level atual)', ico:'✈', kbd:'', action:() => { if(typeof fkFlightCockpitOpen === 'function') fkFlightCockpitOpen(); } },
   { group:'Ferramentas', label:'⚡ Onboarding em 5 min · OFX + IA', ico:'⚡', kbd:'', action:() => { if(typeof fkOnboardOpen === 'function') fkOnboardOpen(); } },
   { group:'Ferramentas', label:'💸 Régua de Dunning · cobrança automática', ico:'💸', kbd:'', action:() => { if(typeof fkDunnOpen === 'function') fkDunnOpen(); } },
   { group:'Ferramentas', label:'🕰 Time Travel · snapshots históricos', ico:'🕰', kbd:'', action:() => { if(typeof fkTimeOpen === 'function') fkTimeOpen(); } },
@@ -126524,6 +126544,314 @@ try {
 } catch(_){}
 // Snap diário automático no boot
 setTimeout(() => { try{ fkTimeTakeDailySnap(); }catch(_){} }, 3500);
+
+// ════════════════════════════════════════════════════════════════════
+// ✈ FLIGHT LEVELS · resolução de dados Diário/Mensal/Anual
+// FL1 = OPERAÇÃO  (cockpit do dia · saldo hoje, vencimentos, alertas)
+// FL2 = GESTÃO    (cockpit do mês · receita, despesa, margem, score)
+// FL3 = ESTRATÉGIA (cockpit do ano · DRE YoY, runway, valuation)
+// ════════════════════════════════════════════════════════════════════
+const FK_FL_KEY = 'forekash:flight-level:v1';
+function fkFlightGet(){
+  try{ const v = parseInt(localStorage.getItem(FK_FL_KEY)); return (v===1||v===2||v===3) ? v : 2; }catch(_){ return 2; }
+}
+function fkFlightSet(n, opts){
+  n = parseInt(n)||2;
+  if(n<1) n=1; if(n>3) n=3;
+  try{ localStorage.setItem(FK_FL_KEY, String(n)); }catch(_){}
+  // Body class
+  document.body.classList.remove('fl-1','fl-2','fl-3');
+  document.body.classList.add('fl-'+n);
+  // Toggle ARIA + visual active
+  document.querySelectorAll('.fk-fl-toggle button').forEach(b => {
+    const isOn = String(b.getAttribute('data-fl')) === String(n);
+    b.classList.toggle('active', isOn);
+    b.setAttribute('aria-pressed', isOn ? 'true' : 'false');
+  });
+  // Custom event pros módulos reagirem (KASHtrack, Dashboard, etc)
+  try{ window.dispatchEvent(new CustomEvent('forekash:flight-changed', { detail: { level: n } })); }catch(_){}
+  // Abre cockpit se não suprimido
+  if(!opts || !opts.silent){
+    fkFlightCockpitOpen(n);
+  }
+}
+
+// ─── Cockpit por nível · KPIs adequados ao escopo de tempo ───
+function _fkFlSumExtrato(periodFilter){
+  if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return { receita:0, despesa:0, lanc:0, pendReceitas:0, pendDespesas:0 };
+  let receita=0, despesa=0, lanc=0, pendR=0, pendD=0;
+  for(const l of extratoData.lancamentos){
+    if(!l.data) continue;
+    if(!periodFilter(l.data)) continue;
+    lanc++;
+    const v = Math.abs(parseFloat(l.valor)||0);
+    if(l.tipo==='ganho'){
+      if(l.status==='pago') receita += v; else pendR += v;
+    } else {
+      if(l.status==='pago') despesa += v; else pendD += v;
+    }
+  }
+  return { receita, despesa, lanc, pendReceitas:pendR, pendDespesas:pendD };
+}
+function _fkFlSaldoAtual(){
+  // Reusa _ktSaldoInicial (já trata c.saldos + snapshot + saldoInicial)
+  try{ return (typeof _ktSaldoInicial === 'function') ? _ktSaldoInicial() : 0; }catch(_){ return 0; }
+}
+function fkFlightCockpitOpen(level){
+  level = level || fkFlightGet();
+  let ov = document.getElementById('fk-fl-ov');
+  if(ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'fk-fl-ov';
+  ov.className = 'fk-shortcuts-ov';
+  ov.style.zIndex = '99999';
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e => { if(e.target === ov) fkFlightCockpitClose(); });
+  const renderer = level===1 ? _fkFlRenderFL1 : (level===3 ? _fkFlRenderFL3 : _fkFlRenderFL2);
+  const cfg = {
+    1:{ titulo:'COCKPIT · Operação Diária',   sub:'O que importa HOJE',     cor:'#10B981', cor2:'#0F766E', ico:'⚡' },
+    2:{ titulo:'COCKPIT · Gestão Mensal',     sub:'Performance do MÊS',     cor:'#3B82F6', cor2:'#1E40AF', ico:'📊' },
+    3:{ titulo:'COCKPIT · Estratégia Anual',  sub:'Visão do ANO',           cor:'#7C3AED', cor2:'#5B21B6', ico:'🎯' }
+  }[level];
+  ov.innerHTML = `
+    <div class="fk-shortcuts-card" style="width:min(980px,98vw);max-height:94vh;display:flex;flex-direction:column">
+      <div style="padding:18px 24px;background:linear-gradient(135deg,${cfg.cor},${cfg.cor2});color:#fff;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:.7rem;font-weight:800;opacity:.85;letter-spacing:.1em">FLIGHT LEVEL ${level} · ${level===1?'OPERAÇÃO':level===2?'GESTÃO':'ESTRATÉGIA'}</div>
+          <h2 style="margin:4px 0 0;font-size:1.25rem;color:#fff">${cfg.ico} ${cfg.titulo}</h2>
+          <div style="font-size:.78rem;opacity:.9;margin-top:2px">${cfg.sub}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div style="display:inline-flex;background:rgba(0,0,0,.2);border-radius:8px;padding:3px;gap:2px">
+            ${[1,2,3].map(n => `<button onclick="fkFlightSet(${n})" style="background:${n===level?'rgba(255,255,255,.25)':'transparent'};border:none;color:#fff;font-weight:800;padding:5px 10px;border-radius:5px;cursor:pointer;font-family:inherit;font-size:.7rem;letter-spacing:.04em">FL${n}</button>`).join('')}
+          </div>
+          <button onclick="fkFlightCockpitClose()" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:1.3rem;cursor:pointer">×</button>
+        </div>
+      </div>
+      <div style="padding:22px 24px;overflow:auto;flex:1">${renderer()}</div>
+    </div>
+  `;
+}
+function fkFlightCockpitClose(){ const ov = document.getElementById('fk-fl-ov'); if(ov) ov.remove(); }
+
+// FL1 · cockpit do DIA
+function _fkFlRenderFL1(){
+  const today = new Date().toISOString().slice(0,10);
+  const todayBR = today.split('-').reverse().join('/');
+  const sum = _fkFlSumExtrato(d => d === today);
+  const saldo = _fkFlSaldoAtual();
+  const net = sum.receita - sum.despesa;
+  // Vencimentos hoje (pendentes)
+  let vencR=[], vencD=[];
+  if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+    for(const l of extratoData.lancamentos){
+      if(l.data === today && l.status === 'pendente'){
+        if(l.tipo === 'ganho') vencR.push(l);
+        else vencD.push(l);
+      }
+    }
+  }
+  const rowVenc = (l, kind) => {
+    const cor = kind==='in' ? '#10B981' : '#EF4444';
+    const sign = kind==='in' ? '+' : '−';
+    return `<div style="display:flex;justify-content:space-between;padding:7px 12px;border-bottom:1px solid #F1F5F9;font-size:.82rem"><span>${(l.descricao||'').slice(0,32)} <small style="color:#94A3B8">${l.contraparte||''}</small></span><span style="color:${cor};font-weight:800">${sign}R$ ${(parseFloat(l.valor)||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</span></div>`;
+  };
+  return `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">
+      <div style="background:linear-gradient(135deg,#0F172A,#1E293B);color:#fff;border-radius:10px;padding:14px"><div style="font-size:.68rem;opacity:.7;letter-spacing:.06em;font-weight:800">💰 SALDO HOJE</div><div style="font-size:1.5rem;font-weight:800;margin-top:4px">R$ ${saldo.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
+      <div style="background:#ECFDF5;border:1px solid #BBF7D0;border-radius:10px;padding:14px"><div style="font-size:.68rem;color:#065F46;font-weight:800;letter-spacing:.06em">↑ RECEITAS HOJE</div><div style="font-size:1.5rem;font-weight:800;color:#10B981;margin-top:4px">R$ ${sum.receita.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
+      <div style="background:#FEE2E2;border:1px solid #FECACA;border-radius:10px;padding:14px"><div style="font-size:.68rem;color:#991B1B;font-weight:800;letter-spacing:.06em">↓ DESPESAS HOJE</div><div style="font-size:1.5rem;font-weight:800;color:#EF4444;margin-top:4px">R$ ${sum.despesa.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
+      <div style="background:${net>=0?'#EFF6FF':'#FEF3C7'};border:1px solid ${net>=0?'#BFDBFE':'#FDE68A'};border-radius:10px;padding:14px"><div style="font-size:.68rem;color:${net>=0?'#1E3A8A':'#78350F'};font-weight:800;letter-spacing:.06em">≡ NET DO DIA</div><div style="font-size:1.5rem;font-weight:800;color:${net>=0?'#3B82F6':'#F59E0B'};margin-top:4px">${net>=0?'+':''}R$ ${net.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px">
+      <div>
+        <h3 style="margin:0 0 10px;font-size:.92rem;color:#0F172A">📥 Recebimentos hoje <span style="color:#94A3B8;font-weight:400">(${vencR.length})</span></h3>
+        <div style="background:#fff;border:1px solid #E2E8F0;border-radius:8px;max-height:200px;overflow:auto">${vencR.length?vencR.map(l=>rowVenc(l,'in')).join(''):'<div style="padding:20px;text-align:center;color:#94A3B8;font-size:.82rem">Nada hoje</div>'}</div>
+      </div>
+      <div>
+        <h3 style="margin:0 0 10px;font-size:.92rem;color:#0F172A">📤 Pagamentos hoje <span style="color:#94A3B8;font-weight:400">(${vencD.length})</span></h3>
+        <div style="background:#fff;border:1px solid #E2E8F0;border-radius:8px;max-height:200px;overflow:auto">${vencD.length?vencD.map(l=>rowVenc(l,'out')).join(''):'<div style="padding:20px;text-align:center;color:#94A3B8;font-size:.82rem">Nada hoje</div>'}</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+      <button onclick="fkFlightCockpitClose();if(typeof switchModule==='function')switchModule('kashtrack',null);if(typeof kashtrackSetView==='function')setTimeout(()=>kashtrackSetView('dia'),300)" style="padding:14px;background:#fff;border:1px solid #CBD5E1;border-radius:10px;cursor:pointer;text-align:left;font-family:inherit"><div style="font-weight:800;color:#0F172A;font-size:.84rem">🌤 KASHtrack do dia</div><div style="font-size:.72rem;color:#64748B;margin-top:3px">Calendário · view DIA</div></button>
+      <button onclick="fkFlightCockpitClose();if(typeof fkDunnOpen==='function')fkDunnOpen()" style="padding:14px;background:#fff;border:1px solid #CBD5E1;border-radius:10px;cursor:pointer;text-align:left;font-family:inherit"><div style="font-weight:800;color:#0F172A;font-size:.84rem">💸 Régua de Dunning</div><div style="font-size:.72rem;color:#64748B;margin-top:3px">Cobrar quem tá atrasado</div></button>
+      <button onclick="fkFlightCockpitClose();if(typeof fkCfoOpen==='function')fkCfoOpen()" style="padding:14px;background:#fff;border:1px solid #CBD5E1;border-radius:10px;cursor:pointer;text-align:left;font-family:inherit"><div style="font-weight:800;color:#0F172A;font-size:.84rem">🧠 Copiloto MR KASH</div><div style="font-size:.72rem;color:#64748B;margin-top:3px">Decisões sugeridas</div></button>
+    </div>
+  `;
+}
+
+// FL2 · cockpit do MÊS
+function _fkFlRenderFL2(){
+  const today = new Date();
+  const ym = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0');
+  const ymPrev = (() => { const d = new Date(today); d.setMonth(d.getMonth()-1); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'); })();
+  const cur = _fkFlSumExtrato(d => d.startsWith(ym));
+  const prev = _fkFlSumExtrato(d => d.startsWith(ymPrev));
+  const saldo = _fkFlSaldoAtual();
+  const margemBruta = cur.receita > 0 ? ((cur.receita - cur.despesa)/cur.receita)*100 : 0;
+  const margemPrev = prev.receita > 0 ? ((prev.receita - prev.despesa)/prev.receita)*100 : 0;
+  const trend = (cur, prev, asPct) => {
+    if(prev === 0) return '';
+    const d = cur - prev;
+    const pct = (d/Math.abs(prev))*100;
+    const cor = d>=0 ? '#10B981' : '#EF4444';
+    const arrow = d>=0 ? '↑' : '↓';
+    return `<span style="color:${cor};font-size:.72rem;font-weight:700;margin-left:6px">${arrow} ${asPct ? (d>=0?'+':'')+d.toFixed(1)+'pp' : (d>=0?'+':'')+Math.round(pct)+'%'}</span>`;
+  };
+  // KASH SCORE atual (se função existir)
+  let score = '—';
+  try{ if(typeof _ksGet === 'function'){ const s = _ksGet(); if(s && s.score != null) score = s.score; } }catch(_){}
+  const ymBR = String(today.getMonth()+1).padStart(2,'0') + '/' + today.getFullYear();
+  return `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">
+      <div style="background:linear-gradient(135deg,#0F172A,#1E293B);color:#fff;border-radius:10px;padding:14px"><div style="font-size:.68rem;opacity:.7;letter-spacing:.06em;font-weight:800">💰 SALDO ATUAL</div><div style="font-size:1.4rem;font-weight:800;margin-top:4px">R$ ${saldo.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</div><div style="font-size:.66rem;opacity:.7;margin-top:2px">Acumulado em conta</div></div>
+      <div style="background:#ECFDF5;border:1px solid #BBF7D0;border-radius:10px;padding:14px"><div style="font-size:.68rem;color:#065F46;font-weight:800;letter-spacing:.06em">↑ RECEITA ${ymBR}</div><div style="font-size:1.4rem;font-weight:800;color:#10B981;margin-top:4px">R$ ${cur.receita.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})} ${trend(cur.receita, prev.receita)}</div><div style="font-size:.66rem;color:#065F46;margin-top:2px">vs ${ymPrev.split('-').reverse().join('/').slice(0,7)}</div></div>
+      <div style="background:#FEE2E2;border:1px solid #FECACA;border-radius:10px;padding:14px"><div style="font-size:.68rem;color:#991B1B;font-weight:800;letter-spacing:.06em">↓ DESPESA ${ymBR}</div><div style="font-size:1.4rem;font-weight:800;color:#EF4444;margin-top:4px">R$ ${cur.despesa.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})} ${trend(cur.despesa, prev.despesa)}</div><div style="font-size:.66rem;color:#991B1B;margin-top:2px">vs mês anterior</div></div>
+      <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:14px"><div style="font-size:.68rem;color:#1E3A8A;font-weight:800;letter-spacing:.06em">📈 MARGEM</div><div style="font-size:1.4rem;font-weight:800;color:#3B82F6;margin-top:4px">${margemBruta.toFixed(1)}% ${trend(margemBruta, margemPrev, true)}</div><div style="font-size:.66rem;color:#1E3A8A;margin-top:2px">Bruta · mês</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:16px;margin-bottom:18px">
+      <div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:16px">
+        <h3 style="margin:0 0 14px;font-size:.92rem;color:#0F172A">📊 Comparativo ${ymBR} vs ${ymPrev.split('-')[1]}/${ymPrev.split('-')[0]}</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:.84rem">
+          <tr><td style="padding:6px 0;color:#64748B">Receita</td><td style="padding:6px 0;text-align:right;color:#10B981;font-weight:700">R$ ${cur.receita.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</td><td style="padding:6px 0;text-align:right;color:#94A3B8">R$ ${prev.receita.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</td><td style="padding:6px 0;text-align:right">${trend(cur.receita, prev.receita)}</td></tr>
+          <tr style="background:#F8FAFC"><td style="padding:6px 0;color:#64748B">Despesa</td><td style="padding:6px 0;text-align:right;color:#EF4444;font-weight:700">R$ ${cur.despesa.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</td><td style="padding:6px 0;text-align:right;color:#94A3B8">R$ ${prev.despesa.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</td><td style="padding:6px 0;text-align:right">${trend(cur.despesa, prev.despesa)}</td></tr>
+          <tr><td style="padding:6px 0;color:#64748B"><b>Net</b></td><td style="padding:6px 0;text-align:right;font-weight:800;color:${(cur.receita-cur.despesa)>=0?'#10B981':'#EF4444'}">R$ ${(cur.receita-cur.despesa).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</td><td style="padding:6px 0;text-align:right;color:#94A3B8">R$ ${(prev.receita-prev.despesa).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</td><td style="padding:6px 0;text-align:right">${trend(cur.receita-cur.despesa, prev.receita-prev.despesa)}</td></tr>
+        </table>
+      </div>
+      <div style="background:linear-gradient(135deg,#0F172A,#1E293B);border-radius:10px;padding:16px;color:#fff;display:flex;flex-direction:column;justify-content:center;align-items:center">
+        <div style="font-size:.7rem;opacity:.7;letter-spacing:.08em;font-weight:800">KASH SCORE</div>
+        <div style="font-size:3rem;font-weight:800;font-family:'JetBrains Mono',monospace;color:#10B981;line-height:1;margin:8px 0">${score}</div>
+        <div style="font-size:.72rem;opacity:.7">Saúde geral do negócio</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+      <button onclick="fkFlightCockpitClose();if(typeof switchModule==='function')switchModule('fluxo',null)" style="padding:14px;background:#fff;border:1px solid #CBD5E1;border-radius:10px;cursor:pointer;text-align:left;font-family:inherit"><div style="font-weight:800;color:#0F172A;font-size:.84rem">💧 Fluxo de Caixa</div><div style="font-size:.72rem;color:#64748B;margin-top:3px">DRC mensal completo</div></button>
+      <button onclick="fkFlightCockpitClose();if(typeof switchModule==='function')switchModule('kashtrack',null);if(typeof kashtrackSetView==='function')setTimeout(()=>kashtrackSetView('mes'),300)" style="padding:14px;background:#fff;border:1px solid #CBD5E1;border-radius:10px;cursor:pointer;text-align:left;font-family:inherit"><div style="font-weight:800;color:#0F172A;font-size:.84rem">🗓 KASHtrack do mês</div><div style="font-size:.72rem;color:#64748B;margin-top:3px">Calendário · view MÊS</div></button>
+      <button onclick="fkFlightCockpitClose();if(typeof fkBenchOpen==='function')fkBenchOpen()" style="padding:14px;background:#fff;border:1px solid #CBD5E1;border-radius:10px;cursor:pointer;text-align:left;font-family:inherit"><div style="font-weight:800;color:#0F172A;font-size:.84rem">📊 Benchmark setorial</div><div style="font-size:.72rem;color:#64748B;margin-top:3px">Comparar com o mercado</div></button>
+    </div>
+  `;
+}
+
+// FL3 · cockpit do ANO
+function _fkFlRenderFL3(){
+  const today = new Date();
+  const yr = String(today.getFullYear());
+  const yrPrev = String(today.getFullYear()-1);
+  const cur = _fkFlSumExtrato(d => d.startsWith(yr));
+  const prev = _fkFlSumExtrato(d => d.startsWith(yrPrev));
+  const saldo = _fkFlSaldoAtual();
+  const margemAno = cur.receita > 0 ? ((cur.receita - cur.despesa)/cur.receita)*100 : 0;
+  const margemPrev = prev.receita > 0 ? ((prev.receita - prev.despesa)/prev.receita)*100 : 0;
+  // Burn médio mensal e runway
+  const mIdx = today.getMonth() + 1;
+  const burnAvg = cur.despesa / Math.max(1, mIdx);
+  const runway = burnAvg > 0 ? (saldo / burnAvg) : 99;
+  // Valuation estimado (múltiplo simples · 5x net) — heurística
+  const netAno = cur.receita - cur.despesa;
+  const valuationLow = netAno * 3;
+  const valuationHigh = netAno * 6;
+  const trend = (a, b, asPct) => {
+    if(!b) return '';
+    const d = a - b;
+    const pct = (d/Math.abs(b))*100;
+    const cor = d>=0 ? '#10B981' : '#EF4444';
+    const arrow = d>=0 ? '↑' : '↓';
+    return `<span style="color:${cor};font-size:.72rem;font-weight:700;margin-left:6px">${arrow} ${asPct ? (d>=0?'+':'')+d.toFixed(1)+'pp' : (d>=0?'+':'')+Math.round(pct)+'%'}</span>`;
+  };
+  // Top categorias
+  let cats = {};
+  if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+    for(const l of extratoData.lancamentos){
+      if(!l.data || !l.data.startsWith(yr)) continue;
+      if(l.tipo !== 'gasto' || l.status !== 'pago') continue;
+      const k = l.categoria || '(sem categoria)';
+      cats[k] = (cats[k]||0) + (Math.abs(parseFloat(l.valor)||0));
+    }
+  }
+  const topCats = Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const topMax = topCats.length ? topCats[0][1] : 1;
+  return `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">
+      <div style="background:linear-gradient(135deg,#0F172A,#1E293B);color:#fff;border-radius:10px;padding:14px"><div style="font-size:.68rem;opacity:.7;letter-spacing:.06em;font-weight:800">💰 SALDO ATUAL</div><div style="font-size:1.4rem;font-weight:800;margin-top:4px">R$ ${saldo.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
+      <div style="background:#ECFDF5;border:1px solid #BBF7D0;border-radius:10px;padding:14px"><div style="font-size:.68rem;color:#065F46;font-weight:800;letter-spacing:.06em">↑ RECEITA ${yr}</div><div style="font-size:1.4rem;font-weight:800;color:#10B981;margin-top:4px">R$ ${cur.receita.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})} ${trend(cur.receita, prev.receita)}</div><div style="font-size:.66rem;color:#065F46;margin-top:2px">YoY vs ${yrPrev}</div></div>
+      <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:14px"><div style="font-size:.68rem;color:#1E3A8A;font-weight:800;letter-spacing:.06em">📈 MARGEM ANUAL</div><div style="font-size:1.4rem;font-weight:800;color:#3B82F6;margin-top:4px">${margemAno.toFixed(1)}% ${trend(margemAno, margemPrev, true)}</div><div style="font-size:.66rem;color:#1E3A8A;margin-top:2px">Líquida acumulada</div></div>
+      <div style="background:${runway<6?'#FEE2E2':runway<12?'#FEF3C7':'#ECFDF5'};border:1px solid ${runway<6?'#FECACA':runway<12?'#FDE68A':'#BBF7D0'};border-radius:10px;padding:14px"><div style="font-size:.68rem;color:${runway<6?'#991B1B':runway<12?'#78350F':'#065F46'};font-weight:800;letter-spacing:.06em">⏳ RUNWAY</div><div style="font-size:1.4rem;font-weight:800;color:${runway<6?'#EF4444':runway<12?'#F59E0B':'#10B981'};margin-top:4px">${runway>99?'99+':runway.toFixed(1)} meses</div><div style="font-size:.66rem;color:${runway<6?'#991B1B':runway<12?'#78350F':'#065F46'};margin-top:2px">No ritmo atual</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:16px;margin-bottom:18px">
+      <div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:16px">
+        <h3 style="margin:0 0 14px;font-size:.92rem;color:#0F172A">📊 DRE acumulado · ${yr} vs ${yrPrev}</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:.84rem">
+          <tr><td style="padding:7px 0;color:#64748B">Receita anual</td><td style="padding:7px 0;text-align:right;color:#10B981;font-weight:800">R$ ${cur.receita.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</td><td style="padding:7px 0;text-align:right;color:#94A3B8">R$ ${prev.receita.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</td><td style="padding:7px 0;text-align:right">${trend(cur.receita, prev.receita)}</td></tr>
+          <tr style="background:#F8FAFC"><td style="padding:7px 0;color:#64748B">Despesa anual</td><td style="padding:7px 0;text-align:right;color:#EF4444;font-weight:800">R$ ${cur.despesa.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</td><td style="padding:7px 0;text-align:right;color:#94A3B8">R$ ${prev.despesa.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</td><td style="padding:7px 0;text-align:right">${trend(cur.despesa, prev.despesa)}</td></tr>
+          <tr><td style="padding:7px 0;color:#0F172A;font-weight:800">Resultado líquido</td><td style="padding:7px 0;text-align:right;font-weight:800;color:${netAno>=0?'#10B981':'#EF4444'};font-size:1rem">R$ ${netAno.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</td><td style="padding:7px 0;text-align:right;color:#94A3B8">R$ ${(prev.receita-prev.despesa).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</td><td style="padding:7px 0;text-align:right">${trend(netAno, prev.receita-prev.despesa)}</td></tr>
+          <tr style="background:#F8FAFC"><td style="padding:7px 0;color:#64748B">Margem líquida</td><td style="padding:7px 0;text-align:right;color:#3B82F6;font-weight:700">${margemAno.toFixed(1)}%</td><td style="padding:7px 0;text-align:right;color:#94A3B8">${margemPrev.toFixed(1)}%</td><td style="padding:7px 0;text-align:right">${trend(margemAno, margemPrev, true)}</td></tr>
+          <tr><td style="padding:7px 0;color:#64748B">Burn médio/mês</td><td colspan="3" style="padding:7px 0;text-align:right;color:#F59E0B;font-weight:700">R$ ${burnAvg.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</td></tr>
+        </table>
+      </div>
+      <div>
+        <div style="background:linear-gradient(135deg,#7C3AED,#5B21B6);border-radius:10px;padding:16px;color:#fff;margin-bottom:10px">
+          <div style="font-size:.68rem;opacity:.85;letter-spacing:.08em;font-weight:800">💎 VALUATION ESTIMADO</div>
+          <div style="font-size:1.5rem;font-weight:800;margin:6px 0;line-height:1.1">R$ ${(valuationLow/1000).toFixed(0)}k − R$ ${(valuationHigh/1000).toFixed(0)}k</div>
+          <div style="font-size:.7rem;opacity:.85">Múltiplo 3-6× resultado líquido anual</div>
+        </div>
+        <div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:14px">
+          <h4 style="margin:0 0 10px;font-size:.84rem;color:#0F172A">Top 5 categorias · ${yr}</h4>
+          ${topCats.length ? topCats.map(([cat,v]) => `
+            <div style="margin-bottom:8px">
+              <div style="display:flex;justify-content:space-between;font-size:.74rem;margin-bottom:3px"><span style="color:#475569;font-weight:600">${cat}</span><span style="color:#EF4444;font-weight:700">R$ ${(v/1000).toFixed(1)}k</span></div>
+              <div style="background:#F1F5F9;height:5px;border-radius:3px;overflow:hidden"><div style="background:#EF4444;height:100%;width:${(v/topMax)*100}%"></div></div>
+            </div>
+          `).join('') : '<div style="text-align:center;color:#94A3B8;font-size:.78rem;padding:14px">Sem dados ainda</div>'}
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+      <button onclick="fkFlightCockpitClose();if(typeof switchModule==='function')switchModule('fluxo',null)" style="padding:14px;background:#fff;border:1px solid #CBD5E1;border-radius:10px;cursor:pointer;text-align:left;font-family:inherit"><div style="font-weight:800;color:#0F172A;font-size:.84rem">📋 DRE Gerencial</div><div style="font-size:.72rem;color:#64748B;margin-top:3px">Visão anual completa</div></button>
+      <button onclick="fkFlightCockpitClose();if(typeof fkMcOpen==='function')fkMcOpen()" style="padding:14px;background:#fff;border:1px solid #CBD5E1;border-radius:10px;cursor:pointer;text-align:left;font-family:inherit"><div style="font-weight:800;color:#0F172A;font-size:.84rem">🔮 Monte Carlo</div><div style="font-size:.72rem;color:#64748B;margin-top:3px">Forecast probabilístico</div></button>
+      <button onclick="fkFlightCockpitClose();if(typeof fkTimeOpen==='function')fkTimeOpen()" style="padding:14px;background:#fff;border:1px solid #CBD5E1;border-radius:10px;cursor:pointer;text-align:left;font-family:inherit"><div style="font-weight:800;color:#0F172A;font-size:.84rem">🕰 Time Travel</div><div style="font-size:.72rem;color:#64748B;margin-top:3px">Snapshots históricos</div></button>
+    </div>
+  `;
+}
+
+// Init Flight Level on boot · aplica body class + visual + listener pro KASHtrack
+(function _fkFlInit(){
+  const apply = () => {
+    const n = fkFlightGet();
+    document.body.classList.remove('fl-1','fl-2','fl-3');
+    document.body.classList.add('fl-'+n);
+    document.querySelectorAll('.fk-fl-toggle button').forEach(b => {
+      const isOn = String(b.getAttribute('data-fl')) === String(n);
+      b.classList.toggle('active', isOn);
+      b.setAttribute('aria-pressed', isOn ? 'true' : 'false');
+    });
+  };
+  // Imediato (caso DOM já pronto)
+  if(document.readyState !== 'loading') setTimeout(apply, 50);
+  document.addEventListener('DOMContentLoaded', apply);
+  // KASHtrack listener: muda view quando FL muda
+  window.addEventListener('forekash:flight-changed', (ev) => {
+    try{
+      const lvl = ev.detail?.level;
+      if(typeof kashtrackSetView === 'function' && (typeof _kashtrackTab === 'undefined' || _kashtrackTab === 'calendar')){
+        if(lvl === 1) kashtrackSetView('dia');
+        else if(lvl === 2) kashtrackSetView('mes');
+        // FL3 não tem view "ano" no kashtrack ainda · cockpit já mostra a visão anual
+      }
+    }catch(_){}
+  });
+})();
+
+try {
+  window.fkFlightGet = fkFlightGet; window.fkFlightSet = fkFlightSet;
+  window.fkFlightCockpitOpen = fkFlightCockpitOpen; window.fkFlightCockpitClose = fkFlightCockpitClose;
+} catch(_){}
   }
 
   if(document.readyState === 'loading'){
