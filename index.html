@@ -98188,7 +98188,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780500305';
+      const CACHE = 'forekash-v1780522474';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -98622,6 +98622,9 @@ const CMDK_COMMANDS = [
   { group:'Ferramentas', label:'🧠 Copiloto Financeiro · decisões sugeridas', ico:'🧠', kbd:'', action:() => { if(typeof fkCfoOpen === 'function') fkCfoOpen(); } },
   { group:'Ferramentas', label:'💬 Enviar via WhatsApp (templates)', ico:'💬', kbd:'', action:() => { if(typeof fkWaOpen === 'function') fkWaOpen(); } },
   { group:'Ferramentas', label:'✈ Cockpit (Flight Level atual)', ico:'✈', kbd:'', action:() => { if(typeof fkFlightCockpitOpen === 'function') fkFlightCockpitOpen(); } },
+  { group:'Ferramentas', label:'📈 Forecast Inteligente (Holt-Winters)', ico:'📈', kbd:'', action:() => { if(typeof fkForecastOpen === 'function') fkForecastOpen(); } },
+  { group:'Ferramentas', label:'🔥 Heatmap de sazonalidade', ico:'🔥', kbd:'', action:() => { if(typeof fkHeatmapOpen === 'function') fkHeatmapOpen('receita'); } },
+  { group:'Ferramentas', label:'📲 Briefing WhatsApp', ico:'📲', kbd:'', action:() => { if(typeof fkWaBriefOpen === 'function') fkWaBriefOpen(); } },
   { group:'Ferramentas', label:'⚡ Onboarding em 5 min · OFX + IA', ico:'⚡', kbd:'', action:() => { if(typeof fkOnboardOpen === 'function') fkOnboardOpen(); } },
   { group:'Ferramentas', label:'💸 Régua de Dunning · cobrança automática', ico:'💸', kbd:'', action:() => { if(typeof fkDunnOpen === 'function') fkDunnOpen(); } },
   { group:'Ferramentas', label:'🕰 Time Travel · snapshots históricos', ico:'🕰', kbd:'', action:() => { if(typeof fkTimeOpen === 'function') fkTimeOpen(); } },
@@ -126580,6 +126583,505 @@ function _fkMrkFabHeal(){
 setTimeout(_fkMrkFabHeal, 2000);
 setTimeout(_fkMrkFabHeal, 5000);
 setTimeout(_fkMrkFabHeal, 10000);
+
+// ════════════════════════════════════════════════════════════════════
+// 📈 FORECAST ML · Holt-Winters Triple Exponential Smoothing (#5)
+// ════════════════════════════════════════════════════════════════════
+// Decompõe série em nível + tendência + sazonalidade · prevê N períodos
+// com bandas de confiança baseadas em desvio padrão dos resíduos.
+// Sem libs externas · puro JS.
+function fkHoltWinters(series, period, forecastN, alpha, beta, gamma){
+  const n = series.length;
+  if(n < 2 * period) return null;
+  alpha = alpha || 0.35; beta = beta || 0.10; gamma = gamma || 0.35;
+  // Sazonalidade inicial (média por posição sazonal)
+  const ks = Math.floor(n / period);
+  const seasonal = [];
+  for(let i = 0; i < period; i++){
+    let sum = 0;
+    for(let j = 0; j < ks; j++) sum += series[j * period + i];
+    seasonal.push(sum / ks);
+  }
+  const seasonalMean = seasonal.reduce((s,x) => s+x, 0) / period;
+  for(let i = 0; i < period; i++) seasonal[i] -= seasonalMean;
+  // Nível e tendência iniciais
+  let level = series.slice(0, period).reduce((s,x) => s+x, 0) / period;
+  const secondYearAvg = series.slice(period, 2*period).reduce((s,x) => s+x, 0) / period;
+  let trend = (secondYearAvg - level) / period;
+  // Suavização exponencial
+  const fitted = new Array(n);
+  for(let t = 0; t < n; t++){
+    const sIdx = t % period;
+    fitted[t] = level + trend + seasonal[sIdx];
+    const lastLevel = level;
+    level = alpha * (series[t] - seasonal[sIdx]) + (1 - alpha) * (level + trend);
+    trend = beta * (level - lastLevel) + (1 - beta) * trend;
+    seasonal[sIdx] = gamma * (series[t] - level) + (1 - gamma) * seasonal[sIdx];
+  }
+  // Forecast h passos à frente
+  const forecast = [];
+  for(let h = 1; h <= forecastN; h++){
+    forecast.push(level + h * trend + seasonal[(n + h - 1) % period]);
+  }
+  // Desvio padrão dos resíduos pra bandas
+  let sumSq = 0;
+  for(let t = period; t < n; t++) sumSq += (series[t] - fitted[t]) ** 2;
+  const sigma = Math.sqrt(sumSq / Math.max(1, n - period - 1));
+  return { fitted, forecast, sigma, level, trend, seasonal: seasonal.slice() };
+}
+
+// Agrega lançamentos do extrato por mês · {receita:[...], despesa:[...], months:[...]}
+function _fkForecastSeries(){
+  if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return null;
+  const byMonth = {};
+  for(const l of extratoData.lancamentos){
+    if(!l.data || l.status !== 'pago') continue;
+    const ym = l.data.slice(0,7);
+    if(!byMonth[ym]) byMonth[ym] = { receita:0, despesa:0 };
+    const v = Math.abs(parseFloat(l.valor)||0);
+    if(l.tipo === 'ganho') byMonth[ym].receita += v;
+    else byMonth[ym].despesa += v;
+  }
+  const months = Object.keys(byMonth).sort();
+  if(months.length === 0) return null;
+  // Preenche meses vazios entre min e max
+  const first = months[0], last = months[months.length-1];
+  const [fy, fm] = first.split('-').map(Number);
+  const [ly, lm] = last.split('-').map(Number);
+  const filled = [];
+  const receita = [], despesa = [];
+  let y = fy, m = fm;
+  while(y < ly || (y === ly && m <= lm)){
+    const ym = y + '-' + String(m).padStart(2,'0');
+    filled.push(ym);
+    receita.push((byMonth[ym]||{}).receita || 0);
+    despesa.push((byMonth[ym]||{}).despesa || 0);
+    m++; if(m > 12){ m = 1; y++; }
+  }
+  return { months: filled, receita, despesa };
+}
+
+function fkForecastOpen(){
+  const data = _fkForecastSeries();
+  let ov = document.getElementById('fk-fc-ov');
+  if(ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'fk-fc-ov';
+  ov.className = 'fk-shortcuts-ov';
+  ov.style.zIndex = '99999';
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e => { if(e.target === ov) fkForecastClose(); });
+  if(!data || data.months.length < 12){
+    ov.innerHTML = `
+      <div class="fk-shortcuts-card" style="width:min(560px,98vw)">
+        <div style="padding:18px 24px;background:linear-gradient(135deg,#3B82F6,#1E40AF);color:#fff;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
+          <h2 style="margin:0;font-size:1.15rem">📈 Forecast Inteligente</h2>
+          <button onclick="fkForecastClose()" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:1.3rem;cursor:pointer">×</button>
+        </div>
+        <div style="padding:30px;text-align:center;color:#475569">
+          <div style="font-size:3rem;margin-bottom:10px">📊</div>
+          <h3 style="margin:0 0 8px;color:#0F172A">Preciso de mais dados</h3>
+          <p style="font-size:.88rem;line-height:1.5">O modelo Holt-Winters precisa de pelo menos <b>12 meses</b> de histórico pra capturar sazonalidade. Você tem <b>${data?data.months.length:0}</b> meses até agora.</p>
+        </div>
+      </div>`;
+    return;
+  }
+  const horizon = 12;
+  const fcR = fkHoltWinters(data.receita, 12, horizon);
+  const fcD = fkHoltWinters(data.despesa, 12, horizon);
+  // Gera meses futuros
+  const lastYm = data.months[data.months.length-1];
+  let [yy, mm] = lastYm.split('-').map(Number);
+  const futureMonths = [];
+  for(let i = 0; i < horizon; i++){
+    mm++; if(mm > 12){ mm = 1; yy++; }
+    futureMonths.push(yy + '-' + String(mm).padStart(2,'0'));
+  }
+  // SVG chart
+  const allMonths = data.months.concat(futureMonths);
+  const allReceita = data.receita.concat(fcR ? fcR.forecast : new Array(horizon).fill(null));
+  const allDespesa = data.despesa.concat(fcD ? fcD.forecast : new Array(horizon).fill(null));
+  const allValues = allReceita.concat(allDespesa).filter(v => v != null && isFinite(v));
+  const maxV = Math.max.apply(null, allValues) * 1.15;
+  const W = 720, H = 280, pad = 36;
+  const xOf = i => pad + (i / (allMonths.length - 1)) * (W - 2*pad);
+  const yOf = v => H - pad - (v / maxV) * (H - 2*pad);
+  const pathOf = (arr) => {
+    let d = '';
+    for(let i = 0; i < arr.length; i++){
+      if(arr[i] == null || !isFinite(arr[i])) continue;
+      d += (d ? ' L' : 'M') + xOf(i).toFixed(1) + ',' + yOf(arr[i]).toFixed(1);
+    }
+    return d;
+  };
+  const splitIdx = data.months.length - 1;
+  // Bandas: forecast ± 1.28σ (80%) e ± 1.96σ (95%)
+  const bandPath = (forecast, sigma, mult) => {
+    if(!forecast || !sigma) return '';
+    let up = 'M', dn = '';
+    for(let i = 0; i < forecast.length; i++){
+      const idx = splitIdx + 1 + i;
+      const v = forecast[i];
+      const hStep = i + 1;
+      const widening = Math.sqrt(hStep) * sigma * mult;
+      up += xOf(idx).toFixed(1) + ',' + yOf(v + widening).toFixed(1) + (i < forecast.length-1 ? ' L' : '');
+      dn = ' L' + xOf(idx).toFixed(1) + ',' + yOf(Math.max(0, v - widening)).toFixed(1) + dn;
+    }
+    return up + dn + ' Z';
+  };
+  // Stats
+  const fmt = v => 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
+  const recR = fcR ? fcR.forecast.reduce((s,x) => s+x, 0) : 0;
+  const recD = fcD ? fcD.forecast.reduce((s,x) => s+x, 0) : 0;
+  const netNext12 = recR - recD;
+  const trendR = fcR ? (fcR.trend * 12) : 0; // tendência anualizada
+  const trendD = fcD ? (fcD.trend * 12) : 0;
+  // Sazonalidade · maior pico/vale
+  const seasonRMax = fcR ? Math.max.apply(null, fcR.seasonal) : 0;
+  const seasonRMin = fcR ? Math.min.apply(null, fcR.seasonal) : 0;
+  const peakMonth = fcR ? (fcR.seasonal.indexOf(seasonRMax) + 1) : 0;
+  const lowMonth = fcR ? (fcR.seasonal.indexOf(seasonRMin) + 1) : 0;
+  const monthNames = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  ov.innerHTML = `
+    <div class="fk-shortcuts-card" style="width:min(880px,98vw);max-height:94vh;display:flex;flex-direction:column">
+      <div style="padding:18px 24px;background:linear-gradient(135deg,#3B82F6,#1E40AF);color:#fff;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:.7rem;font-weight:800;opacity:.85;letter-spacing:.1em">HOLT-WINTERS · TRIPLE EXPONENTIAL SMOOTHING</div>
+          <h2 style="margin:4px 0 0;font-size:1.2rem">📈 Forecast Inteligente</h2>
+          <div style="font-size:.76rem;opacity:.85;margin-top:2px">Decomposição nível + tendência + sazonalidade · ${data.months.length} meses históricos · projeção 12 meses</div>
+        </div>
+        <button onclick="fkForecastClose()" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:1.3rem;cursor:pointer">×</button>
+      </div>
+      <div style="padding:22px 26px;overflow:auto;flex:1">
+        <div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:16px;margin-bottom:14px">
+          <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+            <defs>
+              <linearGradient id="fc-rec-fill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#10B981" stop-opacity="0.18"/>
+                <stop offset="100%" stop-color="#10B981" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <!-- Eixos de referência -->
+            ${[0.25, 0.5, 0.75].map(p => `<line x1="${pad}" y1="${(yOf(maxV * (1-p))).toFixed(1)}" x2="${W-pad}" y2="${(yOf(maxV * (1-p))).toFixed(1)}" stroke="#F1F5F9" stroke-width="1"/>`).join('')}
+            <!-- Linha vertical separando histórico/forecast -->
+            <line x1="${xOf(splitIdx).toFixed(1)}" y1="${pad}" x2="${xOf(splitIdx).toFixed(1)}" y2="${H-pad}" stroke="#CBD5E1" stroke-width="1.5" stroke-dasharray="4 3"/>
+            <text x="${xOf(splitIdx).toFixed(1)}" y="${pad - 6}" fill="#94A3B8" font-size="9" text-anchor="middle">hoje</text>
+            <!-- Bandas de confiança receita 95% e 80% -->
+            <path d="${bandPath(fcR ? fcR.forecast : null, fcR ? fcR.sigma : 0, 1.96)}" fill="#3B82F6" opacity="0.08"/>
+            <path d="${bandPath(fcR ? fcR.forecast : null, fcR ? fcR.sigma : 0, 1.28)}" fill="#3B82F6" opacity="0.12"/>
+            <!-- Receita histórica -->
+            <path d="${pathOf(data.receita)}" stroke="#10B981" stroke-width="2.5" fill="none"/>
+            <!-- Receita forecast -->
+            <path d="${pathOf(new Array(splitIdx+1).fill(null).concat([data.receita[data.receita.length-1]]).concat(fcR ? fcR.forecast : []))}" stroke="#10B981" stroke-width="2.5" stroke-dasharray="6 3" fill="none"/>
+            <!-- Despesa histórica -->
+            <path d="${pathOf(data.despesa)}" stroke="#EF4444" stroke-width="2.5" fill="none"/>
+            <!-- Despesa forecast -->
+            <path d="${pathOf(new Array(splitIdx+1).fill(null).concat([data.despesa[data.despesa.length-1]]).concat(fcD ? fcD.forecast : []))}" stroke="#EF4444" stroke-width="2.5" stroke-dasharray="6 3" fill="none"/>
+            <!-- Labels eixo X (alguns meses) -->
+            ${allMonths.filter((_,i) => i % Math.ceil(allMonths.length/8) === 0).map((m,i) => {
+              const idx = allMonths.indexOf(m);
+              return `<text x="${xOf(idx).toFixed(1)}" y="${H - 8}" fill="#94A3B8" font-size="9" text-anchor="middle">${m.slice(5,7)}/${m.slice(2,4)}</text>`;
+            }).join('')}
+          </svg>
+          <div style="display:flex;gap:18px;justify-content:center;margin-top:10px;flex-wrap:wrap;font-size:.78rem">
+            <span><span style="display:inline-block;width:14px;height:3px;background:#10B981;vertical-align:middle;margin-right:5px"></span>Receita real</span>
+            <span><span style="display:inline-block;width:14px;height:3px;background:#10B981;border-top:1px dashed #10B981;vertical-align:middle;margin-right:5px"></span>Receita projetada</span>
+            <span><span style="display:inline-block;width:14px;height:3px;background:#EF4444;vertical-align:middle;margin-right:5px"></span>Despesa real</span>
+            <span><span style="display:inline-block;width:14px;height:3px;background:#EF4444;border-top:1px dashed #EF4444;vertical-align:middle;margin-right:5px"></span>Despesa projetada</span>
+            <span><span style="display:inline-block;width:14px;height:10px;background:#3B82F6;opacity:.15;vertical-align:middle;margin-right:5px"></span>Banda 80-95% confiança</span>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+          <div style="background:#ECFDF5;border:1px solid #BBF7D0;border-radius:8px;padding:12px"><div style="font-size:.66rem;color:#065F46;font-weight:800;letter-spacing:.06em">↑ RECEITA 12M</div><div style="font-size:1.15rem;font-weight:800;color:#10B981;margin-top:3px">${fmt(recR)}</div><div style="font-size:.66rem;color:#065F46">tendência ${trendR>=0?'+':''}${fmt(trendR)}/ano</div></div>
+          <div style="background:#FEE2E2;border:1px solid #FECACA;border-radius:8px;padding:12px"><div style="font-size:.66rem;color:#991B1B;font-weight:800;letter-spacing:.06em">↓ DESPESA 12M</div><div style="font-size:1.15rem;font-weight:800;color:#EF4444;margin-top:3px">${fmt(recD)}</div><div style="font-size:.66rem;color:#991B1B">tendência ${trendD>=0?'+':''}${fmt(trendD)}/ano</div></div>
+          <div style="background:${netNext12>=0?'#EFF6FF':'#FEF3C7'};border:1px solid ${netNext12>=0?'#BFDBFE':'#FDE68A'};border-radius:8px;padding:12px"><div style="font-size:.66rem;color:${netNext12>=0?'#1E3A8A':'#78350F'};font-weight:800;letter-spacing:.06em">≡ NET 12M</div><div style="font-size:1.15rem;font-weight:800;color:${netNext12>=0?'#3B82F6':'#F59E0B'};margin-top:3px">${fmt(netNext12)}</div><div style="font-size:.66rem;color:${netNext12>=0?'#1E3A8A':'#78350F'}">previsão acumulada</div></div>
+          <div style="background:#F1F5F9;border:1px solid #CBD5E1;border-radius:8px;padding:12px"><div style="font-size:.66rem;color:#0F172A;font-weight:800;letter-spacing:.06em">🌊 SAZONALIDADE</div><div style="font-size:.86rem;font-weight:800;color:#0F172A;margin-top:3px">${peakMonth?monthNames[peakMonth-1]:'—'} ↑ · ${lowMonth?monthNames[lowMonth-1]:'—'} ↓</div><div style="font-size:.66rem;color:#475569">pico vs vale de receita</div></div>
+        </div>
+        <div style="background:#0F172A;border-radius:10px;padding:14px 16px;color:#94A3B8;font-size:.78rem;line-height:1.55"><b style="color:#10B981">▸ Como ler:</b> linha sólida = histórico real · linha tracejada = projeção · faixa azul clara = bandas de confiança 80-95% (quanto maior o horizonte, mais larga a banda). Modelo Holt-Winters captura tendência <b>e</b> sazonalidade (12 meses).</div>
+      </div>
+    </div>
+  `;
+}
+function fkForecastClose(){ const ov = document.getElementById('fk-fc-ov'); if(ov) ov.remove(); }
+try{ window.fkForecastOpen = fkForecastOpen; window.fkForecastClose = fkForecastClose; window.fkHoltWinters = fkHoltWinters; }catch(_){}
+
+// ════════════════════════════════════════════════════════════════════
+// 🔥 HEATMAP DE SAZONALIDADE (Bônus C)
+// ════════════════════════════════════════════════════════════════════
+function fkHeatmapOpen(metric){
+  metric = metric || 'receita'; // 'receita' | 'despesa' | 'margem'
+  const data = _fkForecastSeries();
+  let ov = document.getElementById('fk-hm-ov');
+  if(ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'fk-hm-ov';
+  ov.className = 'fk-shortcuts-ov';
+  ov.style.zIndex = '99999';
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e => { if(e.target === ov) fkHeatmapClose(); });
+  if(!data || data.months.length < 6){
+    ov.innerHTML = `
+      <div class="fk-shortcuts-card" style="width:min(520px,98vw)">
+        <div style="padding:18px 24px;background:linear-gradient(135deg,#F59E0B,#DC2626);color:#fff;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
+          <h2 style="margin:0;font-size:1.15rem">🔥 Heatmap de Sazonalidade</h2>
+          <button onclick="fkHeatmapClose()" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:1.3rem;cursor:pointer">×</button>
+        </div>
+        <div style="padding:30px;text-align:center;color:#475569">
+          <h3 style="margin:0 0 8px;color:#0F172A">Sem dados suficientes</h3>
+          <p style="font-size:.86rem">Precisa de pelo menos 6 meses lançados.</p>
+        </div>
+      </div>`;
+    return;
+  }
+  // Monta matriz ano × mês
+  const byYear = {};
+  for(let i = 0; i < data.months.length; i++){
+    const ym = data.months[i];
+    const [y, m] = ym.split('-').map(Number);
+    if(!byYear[y]) byYear[y] = new Array(12).fill(null);
+    const v = metric === 'receita' ? data.receita[i]
+            : metric === 'despesa' ? data.despesa[i]
+            : (data.receita[i] - data.despesa[i]);
+    byYear[y][m-1] = v;
+  }
+  const years = Object.keys(byYear).map(Number).sort();
+  // Stats por mês (média e std)
+  const monthSums = new Array(12).fill(0);
+  const monthCount = new Array(12).fill(0);
+  let allVals = [];
+  for(const y of years){
+    for(let m = 0; m < 12; m++){
+      const v = byYear[y][m];
+      if(v != null){ monthSums[m] += v; monthCount[m]++; allVals.push(v); }
+    }
+  }
+  const monthAvg = monthSums.map((s,i) => monthCount[i] ? s/monthCount[i] : 0);
+  const minV = Math.min.apply(null, allVals);
+  const maxV = Math.max.apply(null, allVals);
+  // Color scale baseado em metric
+  const colorOf = (v) => {
+    if(v == null) return '#F8FAFC';
+    if(maxV === minV) return '#FEF3C7';
+    const t = (v - minV) / (maxV - minV);
+    if(metric === 'receita'){
+      // green scale
+      const intensity = Math.round(220 - t * 170);
+      return `rgb(${intensity}, ${Math.min(255, 240 - t*60)}, ${intensity-20})`;
+    } else if(metric === 'despesa'){
+      // red scale
+      const intensity = Math.round(220 - t * 170);
+      return `rgb(${Math.min(255, 240 - t*40)}, ${intensity}, ${intensity})`;
+    } else {
+      // diverging blue (positivo) / red (negativo)
+      if(v >= 0){
+        const t2 = maxV > 0 ? v / maxV : 0;
+        return `rgb(${Math.round(220-t2*180)}, ${Math.round(230-t2*100)}, ${Math.round(240-t2*60)})`;
+      } else {
+        const t2 = minV < 0 ? v / minV : 0;
+        return `rgb(${Math.round(240-t2*40)}, ${Math.round(220-t2*170)}, ${Math.round(220-t2*170)})`;
+      }
+    }
+  };
+  const monthNames = ['JAN','FEV','MAR','ABR','MAI','JUN','JUL','AGO','SET','OUT','NOV','DEZ'];
+  const fmtBRL = v => v == null ? '—' : 'R$ ' + (v/1000).toFixed(0) + 'k';
+  // Header com mês
+  let table = '<table style="border-collapse:separate;border-spacing:3px;width:100%"><thead><tr><th style="width:60px;font-size:.7rem;color:#64748B;font-weight:800;text-align:right;padding-right:8px">ANO</th>';
+  for(let m = 0; m < 12; m++){
+    table += `<th style="font-size:.66rem;color:#64748B;font-weight:800;text-align:center">${monthNames[m]}</th>`;
+  }
+  table += `<th style="font-size:.7rem;color:#0F172A;font-weight:800;text-align:right;padding-left:8px;width:80px">TOTAL</th></tr></thead><tbody>`;
+  for(const y of years){
+    let rowTotal = 0, rowCount = 0;
+    table += `<tr><td style="font-size:.78rem;font-weight:800;color:#0F172A;text-align:right;padding-right:8px">${y}</td>`;
+    for(let m = 0; m < 12; m++){
+      const v = byYear[y][m];
+      if(v != null){ rowTotal += v; rowCount++; }
+      const cor = colorOf(v);
+      const txtCor = v == null ? '#CBD5E1' : (metric === 'margem' && v < 0 ? '#7F1D1D' : '#0F172A');
+      table += `<td style="background:${cor};border-radius:5px;padding:8px 4px;text-align:center;font-size:.7rem;font-weight:700;color:${txtCor};min-width:42px" title="${y} · ${monthNames[m]} · ${fmtBRL(v)}">${v == null ? '—' : (v/1000).toFixed(0)+'k'}</td>`;
+    }
+    table += `<td style="font-size:.78rem;font-weight:800;color:#0F172A;text-align:right;padding-left:8px">${rowCount ? fmtBRL(rowTotal) : '—'}</td></tr>`;
+  }
+  // Footer: média por mês
+  table += `<tr style="border-top:2px solid #E2E8F0"><td style="font-size:.7rem;color:#64748B;font-weight:800;text-align:right;padding:8px 8px 0 0">MÉDIA</td>`;
+  for(let m = 0; m < 12; m++){
+    table += `<td style="font-size:.68rem;color:#64748B;font-weight:600;text-align:center;padding-top:8px">${monthCount[m] ? (monthAvg[m]/1000).toFixed(0)+'k' : '—'}</td>`;
+  }
+  table += `<td></td></tr></tbody></table>`;
+  // Análise sazonal
+  const sortedAvg = monthAvg.map((v,i) => ({m:i, v})).filter(x => x.v > 0).sort((a,b) => b.v - a.v);
+  const top3 = sortedAvg.slice(0,3).map(x => monthNames[x.m]).join(' · ');
+  const bottom3 = sortedAvg.slice(-3).reverse().map(x => monthNames[x.m]).join(' · ');
+  const corMetric = metric === 'receita' ? '#10B981' : metric === 'despesa' ? '#EF4444' : '#3B82F6';
+  const lblMetric = metric === 'receita' ? 'Receita' : metric === 'despesa' ? 'Despesa' : 'Margem (R − D)';
+  ov.innerHTML = `
+    <div class="fk-shortcuts-card" style="width:min(900px,98vw);max-height:94vh;display:flex;flex-direction:column">
+      <div style="padding:18px 24px;background:linear-gradient(135deg,${corMetric},#0F172A);color:#fff;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:.7rem;font-weight:800;opacity:.85;letter-spacing:.1em">SAZONALIDADE</div>
+          <h2 style="margin:4px 0 0;font-size:1.2rem">🔥 Heatmap · ${lblMetric}</h2>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div style="display:inline-flex;background:rgba(0,0,0,.2);border-radius:8px;padding:3px;gap:2px">
+            <button onclick="fkHeatmapOpen('receita')" style="background:${metric==='receita'?'rgba(255,255,255,.25)':'transparent'};border:none;color:#fff;font-weight:800;padding:5px 12px;border-radius:5px;cursor:pointer;font-family:inherit;font-size:.74rem">Receita</button>
+            <button onclick="fkHeatmapOpen('despesa')" style="background:${metric==='despesa'?'rgba(255,255,255,.25)':'transparent'};border:none;color:#fff;font-weight:800;padding:5px 12px;border-radius:5px;cursor:pointer;font-family:inherit;font-size:.74rem">Despesa</button>
+            <button onclick="fkHeatmapOpen('margem')" style="background:${metric==='margem'?'rgba(255,255,255,.25)':'transparent'};border:none;color:#fff;font-weight:800;padding:5px 12px;border-radius:5px;cursor:pointer;font-family:inherit;font-size:.74rem">Margem</button>
+          </div>
+          <button onclick="fkHeatmapClose()" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:1.3rem;cursor:pointer">×</button>
+        </div>
+      </div>
+      <div style="padding:22px;overflow:auto;flex:1">
+        ${table}
+        <div style="margin-top:18px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div style="background:#ECFDF5;border-left:3px solid #10B981;padding:12px 14px;border-radius:6px"><div style="font-size:.7rem;color:#065F46;font-weight:800;letter-spacing:.06em">🔥 TOP 3 MESES</div><div style="font-size:.96rem;font-weight:800;color:#0F172A;margin-top:4px">${top3}</div></div>
+          <div style="background:#FEE2E2;border-left:3px solid #EF4444;padding:12px 14px;border-radius:6px"><div style="font-size:.7rem;color:#991B1B;font-weight:800;letter-spacing:.06em">❄ FUNDO 3 MESES</div><div style="font-size:.96rem;font-weight:800;color:#0F172A;margin-top:4px">${bottom3}</div></div>
+        </div>
+      </div>
+    </div>`;
+}
+function fkHeatmapClose(){ const ov = document.getElementById('fk-hm-ov'); if(ov) ov.remove(); }
+try{ window.fkHeatmapOpen = fkHeatmapOpen; window.fkHeatmapClose = fkHeatmapClose; }catch(_){}
+
+// ════════════════════════════════════════════════════════════════════
+// 📲 BRIEFING WHATSAPP (Bônus B)
+// ════════════════════════════════════════════════════════════════════
+const FK_WA_BRIEF_KEY = 'forekash:wa-briefing:v1';
+function fkWaState(){ try{ return JSON.parse(localStorage.getItem(FK_WA_BRIEF_KEY)||'{}'); }catch(_){ return {}; } }
+function fkWaSave(s){ try{ localStorage.setItem(FK_WA_BRIEF_KEY, JSON.stringify(s)); }catch(_){} }
+function fkWaBuildText(){
+  const fmt = v => 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
+  const hora = new Date().getHours();
+  const saud = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
+  const today = new Date().toISOString().slice(0,10);
+  const dt = today.split('-').reverse().join('/');
+  let parts = [`*${saud}!* 👋 Briefing Forekash · ${dt}`, ''];
+  // Saldo
+  let saldo = 0;
+  try{ if(typeof _ktSaldoInicial === 'function') saldo = _ktSaldoInicial(); }catch(_){}
+  parts.push(`💰 *Caixa hoje:* ${fmt(saldo)}`);
+  // Vencimentos hoje
+  let vencR = 0, vencD = 0, qtdR = 0, qtdD = 0;
+  if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+    for(const l of extratoData.lancamentos){
+      if(l.data !== today || l.status !== 'pendente') continue;
+      const v = Math.abs(parseFloat(l.valor)||0);
+      if(l.tipo === 'ganho'){ vencR += v; qtdR++; }
+      else { vencD += v; qtdD++; }
+    }
+  }
+  if(qtdR > 0) parts.push(`📥 *${qtdR} recebimento${qtdR>1?'s':''}:* ${fmt(vencR)}`);
+  if(qtdD > 0) parts.push(`📤 *${qtdD} pagamento${qtdD>1?'s':''}:* ${fmt(vencD)}`);
+  if(qtdR === 0 && qtdD === 0) parts.push('📅 *Nenhum vencimento pra hoje.* Bom dia tranquilo.');
+  // Recebíveis vencidos
+  if(typeof fkDunnFindOverdue === 'function'){
+    const od = fkDunnFindOverdue();
+    if(od.length > 0){
+      const total = od.reduce((s,l) => s + (parseFloat(l.valor)||0), 0);
+      parts.push('', `⚠ *${od.length} recebível${od.length>1?'s':''} em atraso:* ${fmt(total)}`);
+    }
+  }
+  // Runway
+  if(typeof extratoData !== 'undefined' && saldo > 0){
+    const ym = new Date().toISOString().slice(0,7);
+    let mesDespesa = 0;
+    for(const l of (extratoData.lancamentos||[])){
+      if(l.data && l.data.startsWith(ym) && l.tipo === 'gasto' && l.status === 'pago') mesDespesa += Math.abs(parseFloat(l.valor)||0);
+    }
+    if(mesDespesa > 0){
+      const runway = saldo / mesDespesa;
+      const ico = runway > 6 ? '✅' : runway > 3 ? '⚠' : '🔴';
+      parts.push('', `${ico} *Runway:* ${runway.toFixed(1)} meses no ritmo atual`);
+    }
+  }
+  parts.push('', '_Powered by MR KASH · Forekash_');
+  return parts.join('\n');
+}
+function fkWaBriefOpen(){
+  const st = fkWaState();
+  let ov = document.getElementById('fk-wa-ov');
+  if(ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'fk-wa-ov';
+  ov.className = 'fk-shortcuts-ov';
+  ov.style.zIndex = '99999';
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e => { if(e.target === ov) fkWaBriefClose(); });
+  const text = fkWaBuildText();
+  ov.innerHTML = `
+    <div class="fk-shortcuts-card" style="width:min(560px,98vw);max-height:94vh;display:flex;flex-direction:column">
+      <div style="padding:18px 24px;background:linear-gradient(135deg,#25D366,#128C7E);color:#fff;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:.7rem;font-weight:800;opacity:.85;letter-spacing:.1em">BRIEFING DIÁRIO</div>
+          <h2 style="margin:4px 0 0;font-size:1.2rem">📲 Briefing WhatsApp</h2>
+        </div>
+        <button onclick="fkWaBriefClose()" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:1.3rem;cursor:pointer">×</button>
+      </div>
+      <div style="padding:22px 24px;overflow:auto;flex:1">
+        <p style="margin:0 0 14px;color:#475569;font-size:.86rem;line-height:1.55">Resumo automático: saldo, vencimentos do dia, recebíveis em atraso e runway. <b>Copia, manda no zap ou abre direto via wa.me.</b></p>
+        <div style="background:#E0F7E9;border-left:3px solid #25D366;border-radius:8px;padding:14px 16px;font-family:'JetBrains Mono',monospace;font-size:.8rem;color:#0F172A;white-space:pre-wrap;line-height:1.6;max-height:280px;overflow:auto">${text.replace(/</g,'&lt;')}</div>
+        <div style="display:grid;gap:10px;margin-top:16px">
+          <div>
+            <label style="display:block;font-size:.7rem;font-weight:800;color:#475569;margin-bottom:4px;letter-spacing:.04em">SEU WHATSAPP (com DDD, só números)</label>
+            <input id="fk-wa-tel" type="text" value="${st.tel||''}" placeholder="11999999999" style="width:100%;padding:10px 12px;border:1.5px solid #CBD5E1;border-radius:7px;font-size:.86rem;font-family:inherit;box-sizing:border-box">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px">
+          <button onclick="_fkWaCopy()" style="padding:11px;background:#fff;border:1.5px solid #25D366;color:#128C7E;border-radius:7px;cursor:pointer;font-weight:800;font-family:inherit">📋 Copiar texto</button>
+          <button onclick="_fkWaSend()" style="padding:11px;background:linear-gradient(135deg,#25D366,#128C7E);border:none;color:#fff;border-radius:7px;cursor:pointer;font-weight:800;font-family:inherit">📲 Abrir no WhatsApp</button>
+        </div>
+        <div style="background:#FEF3C7;border-left:3px solid #F59E0B;padding:10px 14px;border-radius:6px;margin-top:14px;font-size:.74rem;color:#78350F;line-height:1.5">💡 Pra automatizar (todo dia às 8h), salva o número e ative lembretes no celular pra abrir o app · futura: integração com webhook agendado.</div>
+      </div>
+    </div>`;
+}
+function _fkWaCopy(){
+  const text = fkWaBuildText();
+  try{ navigator.clipboard.writeText(text); }catch(_){}
+  if(typeof fkToast === 'function') fkToast('✓ Briefing copiado', 'ok', 1500);
+}
+function _fkWaSend(){
+  const tel = (document.getElementById('fk-wa-tel')?.value || '').replace(/\D/g, '');
+  if(!tel){ if(typeof fkToast === 'function') fkToast('Digita seu número primeiro', 'warn'); return; }
+  // Salva pra próxima
+  const st = fkWaState(); st.tel = tel; fkWaSave(st);
+  const text = fkWaBuildText();
+  const url = 'https://wa.me/55' + tel + '?text=' + encodeURIComponent(text);
+  window.open(url, '_blank');
+}
+function fkWaBriefClose(){ const ov = document.getElementById('fk-wa-ov'); if(ov) ov.remove(); }
+try{ window.fkWaBriefOpen = fkWaBriefOpen; window.fkWaBriefClose = fkWaBriefClose; window._fkWaCopy = _fkWaCopy; window._fkWaSend = _fkWaSend; }catch(_){}
+
+// ════════════════════════════════════════════════════════════════════
+// ⌨ ATALHOS POR MÓDULO (Bônus A)
+// ════════════════════════════════════════════════════════════════════
+// Cmd/Ctrl + J → Fluxo de Caixa
+// Cmd/Ctrl + E → Extrato
+// Cmd/Ctrl + H → KASHtrack (Home/Heatmap = KASHtrack)
+// Cmd/Ctrl + D → Dashboard (Home)
+document.addEventListener('keydown', function(ev){
+  // Só responde ao Cmd (Mac) ou Ctrl (Win/Linux) sem Shift
+  const isMod = (ev.metaKey || ev.ctrlKey) && !ev.shiftKey && !ev.altKey;
+  if(!isMod) return;
+  // Ignora se o foco é num input/textarea/contenteditable
+  const tag = (ev.target && ev.target.tagName || '').toUpperCase();
+  if(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (ev.target && ev.target.isContentEditable)) return;
+  const key = (ev.key || '').toLowerCase();
+  const map = {
+    'j': 'fluxo',
+    'e': 'extrato',
+    'h': 'kashtrack',
+    'd': 'home'
+  };
+  const target = map[key];
+  if(!target) return;
+  ev.preventDefault();
+  if(typeof switchModule === 'function'){
+    switchModule(target, null);
+    if(typeof fkToast === 'function'){
+      const labels = { fluxo:'Fluxo de Caixa', extrato:'Extrato', kashtrack:'KASHtrack', home:'Dashboard' };
+      fkToast('→ ' + labels[target], 'info', 900);
+    }
+  }
+}, true);
 
 // ════════════════════════════════════════════════════════════════════
 // ✈ FLIGHT LEVELS · resolução de dados Diário/Mensal/Anual
