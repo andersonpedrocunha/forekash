@@ -98191,7 +98191,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780522860';
+      const CACHE = 'forekash-v1780523092';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -126822,7 +126822,7 @@ function fkHeatmapOpen(metric){
   ov.style.zIndex = '99999';
   document.body.appendChild(ov);
   ov.addEventListener('click', e => { if(e.target === ov) fkHeatmapClose(); });
-  if(!data || data.months.length < 6){
+  if(!data || data.months.length === 0){
     ov.innerHTML = `
       <div class="fk-shortcuts-card" style="width:min(520px,98vw)">
         <div style="padding:18px 24px;background:linear-gradient(135deg,#F59E0B,#DC2626);color:#fff;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
@@ -126830,8 +126830,8 @@ function fkHeatmapOpen(metric){
           <button onclick="fkHeatmapClose()" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:1.3rem;cursor:pointer">×</button>
         </div>
         <div style="padding:30px;text-align:center;color:#475569">
-          <h3 style="margin:0 0 8px;color:#0F172A">Sem dados suficientes</h3>
-          <p style="font-size:.86rem">Precisa de pelo menos 6 meses lançados.</p>
+          <h3 style="margin:0 0 8px;color:#0F172A">Sem lançamentos ainda</h3>
+          <p style="font-size:.86rem">Lança algo no Extrato e o heatmap aparece automaticamente.</p>
         </div>
       </div>`;
     return;
@@ -126911,10 +126911,15 @@ function fkHeatmapOpen(metric){
     table += `<td style="font-size:.68rem;color:#64748B;font-weight:600;text-align:center;padding-top:8px">${monthCount[m] ? (monthAvg[m]/1000).toFixed(0)+'k' : '—'}</td>`;
   }
   table += `<td></td></tr></tbody></table>`;
-  // Análise sazonal
+  // Análise sazonal · adapta N conforme dados disponíveis
   const sortedAvg = monthAvg.map((v,i) => ({m:i, v})).filter(x => x.v > 0).sort((a,b) => b.v - a.v);
-  const top3 = sortedAvg.slice(0,3).map(x => monthNames[x.m]).join(' · ');
-  const bottom3 = sortedAvg.slice(-3).reverse().map(x => monthNames[x.m]).join(' · ');
+  const nForRanking = Math.min(3, Math.floor(sortedAvg.length / 2)) || sortedAvg.length;
+  const rankLabel = nForRanking >= 3 ? '3' : String(nForRanking);
+  const showSeasonalCards = sortedAvg.length >= 2;
+  const top3 = sortedAvg.slice(0, nForRanking).map(x => monthNames[x.m]).join(' · ') || '—';
+  const bottom3 = nForRanking > 0 && sortedAvg.length > nForRanking
+    ? sortedAvg.slice(-nForRanking).reverse().map(x => monthNames[x.m]).join(' · ')
+    : '—';
   const corMetric = metric === 'receita' ? '#10B981' : metric === 'despesa' ? '#EF4444' : '#3B82F6';
   const lblMetric = metric === 'receita' ? 'Receita' : metric === 'despesa' ? 'Despesa' : 'Margem (R − D)';
   ov.innerHTML = `
@@ -126935,10 +126940,12 @@ function fkHeatmapOpen(metric){
       </div>
       <div style="padding:22px;overflow:auto;flex:1">
         ${table}
+        ${showSeasonalCards ? `
         <div style="margin-top:18px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          <div style="background:#ECFDF5;border-left:3px solid #10B981;padding:12px 14px;border-radius:6px"><div style="font-size:.7rem;color:#065F46;font-weight:800;letter-spacing:.06em">🔥 TOP 3 MESES</div><div style="font-size:.96rem;font-weight:800;color:#0F172A;margin-top:4px">${top3}</div></div>
-          <div style="background:#FEE2E2;border-left:3px solid #EF4444;padding:12px 14px;border-radius:6px"><div style="font-size:.7rem;color:#991B1B;font-weight:800;letter-spacing:.06em">❄ FUNDO 3 MESES</div><div style="font-size:.96rem;font-weight:800;color:#0F172A;margin-top:4px">${bottom3}</div></div>
-        </div>
+          <div style="background:#ECFDF5;border-left:3px solid #10B981;padding:12px 14px;border-radius:6px"><div style="font-size:.7rem;color:#065F46;font-weight:800;letter-spacing:.06em">🔥 TOP ${rankLabel} ${nForRanking>1?'MESES':'MÊS'}</div><div style="font-size:.96rem;font-weight:800;color:#0F172A;margin-top:4px">${top3}</div></div>
+          <div style="background:#FEE2E2;border-left:3px solid #EF4444;padding:12px 14px;border-radius:6px"><div style="font-size:.7rem;color:#991B1B;font-weight:800;letter-spacing:.06em">❄ FUNDO ${rankLabel} ${nForRanking>1?'MESES':'MÊS'}</div><div style="font-size:.96rem;font-weight:800;color:#0F172A;margin-top:4px">${bottom3}</div></div>
+        </div>` : `
+        <div style="margin-top:18px;background:#FEF3C7;border-left:3px solid #F59E0B;padding:12px 14px;border-radius:6px;font-size:.78rem;color:#78350F;line-height:1.5">💡 Com mais meses de histórico (idealmente 6+), aparecem aqui os <b>meses-pico</b> e <b>meses-vale</b> automaticamente.</div>`}
       </div>
     </div>`;
 }
