@@ -21225,7 +21225,7 @@
               </select>
               <button class="btn btn-sec" onclick="flxRenderForecast()" style="padding:5px 10px;font-size:.7rem">↻ Recalcular</button>
               <span style="width:1px;height:18px;background:#CBD5E1;margin:0 2px"></span>
-              <button onclick="if(typeof fkForecastOpen==='function')fkForecastOpen()" title="Modelo Holt-Winters · forecast 12 meses com bandas de confiança" style="padding:5px 11px;font-size:.7rem;background:linear-gradient(135deg,#3B82F6,#1E40AF);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-family:inherit">📈 Forecast ML</button>
+              <button onclick="if(typeof fkForecastOpen==='function')fkForecastOpen()" title="Forecast estatístico · cascata Holt-Winters → Holt linear → regressão · bandas de confiança" style="padding:5px 11px;font-size:.7rem;background:linear-gradient(135deg,#3B82F6,#1E40AF);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-family:inherit">📈 Forecast Inteligente</button>
               <button onclick="if(typeof fkHeatmapOpen==='function')fkHeatmapOpen('receita')" title="Matriz anos × meses · padrão sazonal de receita e despesa" style="padding:5px 11px;font-size:.7rem;background:linear-gradient(135deg,#F59E0B,#DC2626);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-family:inherit">🔥 Heatmap</button>
             </div>
           </div>
@@ -98191,7 +98191,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780523092';
+      const CACHE = 'forekash-v1780523492';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -98625,7 +98625,7 @@ const CMDK_COMMANDS = [
   { group:'Ferramentas', label:'🧠 Copiloto Financeiro · decisões sugeridas', ico:'🧠', kbd:'', action:() => { if(typeof fkCfoOpen === 'function') fkCfoOpen(); } },
   { group:'Ferramentas', label:'💬 Enviar via WhatsApp (templates)', ico:'💬', kbd:'', action:() => { if(typeof fkWaOpen === 'function') fkWaOpen(); } },
   { group:'Ferramentas', label:'✈ Cockpit (Flight Level atual)', ico:'✈', kbd:'', action:() => { if(typeof fkFlightCockpitOpen === 'function') fkFlightCockpitOpen(); } },
-  { group:'Ferramentas', label:'📈 Forecast Inteligente (Holt-Winters)', ico:'📈', kbd:'', action:() => { if(typeof fkForecastOpen === 'function') fkForecastOpen(); } },
+  { group:'Ferramentas', label:'📈 Forecast Inteligente · projeção 12m', ico:'📈', kbd:'', action:() => { if(typeof fkForecastOpen === 'function') fkForecastOpen(); } },
   { group:'Ferramentas', label:'🔥 Heatmap de sazonalidade', ico:'🔥', kbd:'', action:() => { if(typeof fkHeatmapOpen === 'function') fkHeatmapOpen('receita'); } },
   { group:'Ferramentas', label:'📲 Briefing WhatsApp', ico:'📲', kbd:'', action:() => { if(typeof fkWaBriefOpen === 'function') fkWaBriefOpen(); } },
   { group:'Ferramentas', label:'⚡ Onboarding em 5 min · OFX + IA', ico:'⚡', kbd:'', action:() => { if(typeof fkOnboardOpen === 'function') fkOnboardOpen(); } },
@@ -126633,6 +126633,74 @@ function fkHoltWinters(series, period, forecastN, alpha, beta, gamma){
   return { fitted, forecast, sigma, level, trend, seasonal: seasonal.slice() };
 }
 
+// Holt linear (dupla suavização) · sem sazonalidade · 4+ meses
+function fkHoltLinear(series, forecastN, alpha, beta){
+  alpha = alpha || 0.4; beta = beta || 0.1;
+  const n = series.length;
+  if(n < 2) return null;
+  let level = series[0];
+  let trend = series[1] - series[0];
+  const fitted = [level];
+  for(let t = 1; t < n; t++){
+    const lastLevel = level;
+    level = alpha * series[t] + (1 - alpha) * (level + trend);
+    trend = beta * (level - lastLevel) + (1 - beta) * trend;
+    fitted.push(level);
+  }
+  const forecast = [];
+  for(let h = 1; h <= forecastN; h++) forecast.push(level + h * trend);
+  let sumSq = 0;
+  for(let t = 1; t < n; t++) sumSq += (series[t] - fitted[t-1]) ** 2;
+  const sigma = Math.sqrt(sumSq / Math.max(1, n - 1));
+  return { fitted, forecast, sigma, level, trend, seasonal: null };
+}
+
+// Regressão linear simples · 2+ meses
+function fkLinearReg(series, forecastN){
+  const n = series.length;
+  if(n < 2) return null;
+  const xMean = (n - 1) / 2;
+  const yMean = series.reduce((s,x) => s+x, 0) / n;
+  let num = 0, den = 0;
+  for(let i = 0; i < n; i++){
+    num += (i - xMean) * (series[i] - yMean);
+    den += (i - xMean) ** 2;
+  }
+  const slope = den === 0 ? 0 : num / den;
+  const intercept = yMean - slope * xMean;
+  const fitted = series.map((_, i) => intercept + slope * i);
+  const forecast = [];
+  for(let h = 1; h <= forecastN; h++) forecast.push(Math.max(0, intercept + slope * (n + h - 1)));
+  let sumSq = 0;
+  for(let i = 0; i < n; i++) sumSq += (series[i] - fitted[i]) ** 2;
+  const sigma = Math.sqrt(sumSq / Math.max(1, n - 2));
+  return { fitted, forecast, sigma, level: intercept, trend: slope, seasonal: null };
+}
+
+// Cascata adaptativa · escolhe melhor método pra quantidade de dados
+function fkSmartForecast(series, forecastN){
+  const n = series.length;
+  if(n === 0) return { method:null, methodLabel:'sem dados', forecast:[], sigma:0, fitted:[], trend:0, level:0, seasonal:null };
+  if(n >= 24){
+    const fc = fkHoltWinters(series, 12, forecastN);
+    if(fc) return Object.assign(fc, { method:'holt-winters', methodLabel:'Holt-Winters · tendência + sazonalidade' });
+  }
+  if(n >= 4){
+    const fc = fkHoltLinear(series, forecastN);
+    if(fc) return Object.assign(fc, { method:'holt-linear', methodLabel:'Suavização exponencial · só tendência' });
+  }
+  if(n >= 2){
+    const fc = fkLinearReg(series, forecastN);
+    if(fc) return Object.assign(fc, { method:'linear', methodLabel:'Regressão linear simples' });
+  }
+  // 1 mês · projeta constante
+  return {
+    method:'flat', methodLabel:'Projeção constante (pouco dado)',
+    fitted: [series[0]], forecast: new Array(forecastN).fill(series[0]),
+    sigma: 0, level: series[0], trend: 0, seasonal: null
+  };
+}
+
 // Agrega lançamentos do extrato por mês · {receita:[...], despesa:[...], months:[...]}
 function _fkForecastSeries(){
   if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return null;
@@ -126674,7 +126742,7 @@ function fkForecastOpen(){
   ov.style.zIndex = '99999';
   document.body.appendChild(ov);
   ov.addEventListener('click', e => { if(e.target === ov) fkForecastClose(); });
-  if(!data || data.months.length < 12){
+  if(!data || data.months.length === 0){
     ov.innerHTML = `
       <div class="fk-shortcuts-card" style="width:min(560px,98vw)">
         <div style="padding:18px 24px;background:linear-gradient(135deg,#3B82F6,#1E40AF);color:#fff;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
@@ -126683,15 +126751,17 @@ function fkForecastOpen(){
         </div>
         <div style="padding:30px;text-align:center;color:#475569">
           <div style="font-size:3rem;margin-bottom:10px">📊</div>
-          <h3 style="margin:0 0 8px;color:#0F172A">Preciso de mais dados</h3>
-          <p style="font-size:.88rem;line-height:1.5">O modelo Holt-Winters precisa de pelo menos <b>12 meses</b> de histórico pra capturar sazonalidade. Você tem <b>${data?data.months.length:0}</b> meses até agora.</p>
+          <h3 style="margin:0 0 8px;color:#0F172A">Sem lançamentos ainda</h3>
+          <p style="font-size:.88rem;line-height:1.5">Lança algumas movimentações no Extrato e o forecast aparece automaticamente.</p>
         </div>
       </div>`;
     return;
   }
-  const horizon = 12;
-  const fcR = fkHoltWinters(data.receita, 12, horizon);
-  const fcD = fkHoltWinters(data.despesa, 12, horizon);
+  // Horizonte ajusta ao histórico (mais história = projeção mais segura)
+  const horizon = data.months.length >= 12 ? 12 : (data.months.length >= 6 ? 6 : Math.max(3, Math.ceil(data.months.length / 2)));
+  // Cascata adaptativa: Holt-Winters (24+) → Holt linear (4+) → Regressão (2+) → Constante (1)
+  const fcR = fkSmartForecast(data.receita, horizon);
+  const fcD = fkSmartForecast(data.despesa, horizon);
   // Gera meses futuros
   const lastYm = data.months[data.months.length-1];
   let [yy, mm] = lastYm.split('-').map(Number);
@@ -126740,18 +126810,19 @@ function fkForecastOpen(){
   const trendR = fcR ? (fcR.trend * 12) : 0; // tendência anualizada
   const trendD = fcD ? (fcD.trend * 12) : 0;
   // Sazonalidade · maior pico/vale
-  const seasonRMax = fcR ? Math.max.apply(null, fcR.seasonal) : 0;
-  const seasonRMin = fcR ? Math.min.apply(null, fcR.seasonal) : 0;
-  const peakMonth = fcR ? (fcR.seasonal.indexOf(seasonRMax) + 1) : 0;
-  const lowMonth = fcR ? (fcR.seasonal.indexOf(seasonRMin) + 1) : 0;
+  const hasSeasonal = fcR && Array.isArray(fcR.seasonal) && fcR.seasonal.length > 0;
+  const seasonRMax = hasSeasonal ? Math.max.apply(null, fcR.seasonal) : 0;
+  const seasonRMin = hasSeasonal ? Math.min.apply(null, fcR.seasonal) : 0;
+  const peakMonth = hasSeasonal ? (fcR.seasonal.indexOf(seasonRMax) + 1) : 0;
+  const lowMonth = hasSeasonal ? (fcR.seasonal.indexOf(seasonRMin) + 1) : 0;
   const monthNames = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   ov.innerHTML = `
     <div class="fk-shortcuts-card" style="width:min(880px,98vw);max-height:94vh;display:flex;flex-direction:column">
       <div style="padding:18px 24px;background:linear-gradient(135deg,#3B82F6,#1E40AF);color:#fff;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
         <div>
-          <div style="font-size:.7rem;font-weight:800;opacity:.85;letter-spacing:.1em">HOLT-WINTERS · TRIPLE EXPONENTIAL SMOOTHING</div>
+          <div style="font-size:.7rem;font-weight:800;opacity:.85;letter-spacing:.1em">FORECAST ESTATÍSTICO · ${(fcR.methodLabel||'').toUpperCase()}</div>
           <h2 style="margin:4px 0 0;font-size:1.2rem">📈 Forecast Inteligente</h2>
-          <div style="font-size:.76rem;opacity:.85;margin-top:2px">Decomposição nível + tendência + sazonalidade · ${data.months.length} meses históricos · projeção 12 meses</div>
+          <div style="font-size:.76rem;opacity:.85;margin-top:2px">${data.months.length} meses históricos · projeção ${horizon} meses · método escolhido pela cascata adaptativa</div>
         </div>
         <button onclick="fkForecastClose()" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:1.3rem;cursor:pointer">×</button>
       </div>
@@ -126798,9 +126869,9 @@ function fkForecastOpen(){
           <div style="background:#ECFDF5;border:1px solid #BBF7D0;border-radius:8px;padding:12px"><div style="font-size:.66rem;color:#065F46;font-weight:800;letter-spacing:.06em">↑ RECEITA 12M</div><div style="font-size:1.15rem;font-weight:800;color:#10B981;margin-top:3px">${fmt(recR)}</div><div style="font-size:.66rem;color:#065F46">tendência ${trendR>=0?'+':''}${fmt(trendR)}/ano</div></div>
           <div style="background:#FEE2E2;border:1px solid #FECACA;border-radius:8px;padding:12px"><div style="font-size:.66rem;color:#991B1B;font-weight:800;letter-spacing:.06em">↓ DESPESA 12M</div><div style="font-size:1.15rem;font-weight:800;color:#EF4444;margin-top:3px">${fmt(recD)}</div><div style="font-size:.66rem;color:#991B1B">tendência ${trendD>=0?'+':''}${fmt(trendD)}/ano</div></div>
           <div style="background:${netNext12>=0?'#EFF6FF':'#FEF3C7'};border:1px solid ${netNext12>=0?'#BFDBFE':'#FDE68A'};border-radius:8px;padding:12px"><div style="font-size:.66rem;color:${netNext12>=0?'#1E3A8A':'#78350F'};font-weight:800;letter-spacing:.06em">≡ NET 12M</div><div style="font-size:1.15rem;font-weight:800;color:${netNext12>=0?'#3B82F6':'#F59E0B'};margin-top:3px">${fmt(netNext12)}</div><div style="font-size:.66rem;color:${netNext12>=0?'#1E3A8A':'#78350F'}">previsão acumulada</div></div>
-          <div style="background:#F1F5F9;border:1px solid #CBD5E1;border-radius:8px;padding:12px"><div style="font-size:.66rem;color:#0F172A;font-weight:800;letter-spacing:.06em">🌊 SAZONALIDADE</div><div style="font-size:.86rem;font-weight:800;color:#0F172A;margin-top:3px">${peakMonth?monthNames[peakMonth-1]:'—'} ↑ · ${lowMonth?monthNames[lowMonth-1]:'—'} ↓</div><div style="font-size:.66rem;color:#475569">pico vs vale de receita</div></div>
+          <div style="background:#F1F5F9;border:1px solid #CBD5E1;border-radius:8px;padding:12px"><div style="font-size:.66rem;color:#0F172A;font-weight:800;letter-spacing:.06em">🌊 SAZONALIDADE</div><div style="font-size:.86rem;font-weight:800;color:#0F172A;margin-top:3px">${hasSeasonal ? (monthNames[peakMonth-1]+' ↑ · '+monthNames[lowMonth-1]+' ↓') : (data.months.length < 24 ? 'precisa 24+ meses' : '—')}</div><div style="font-size:.66rem;color:#475569">${hasSeasonal ? 'pico vs vale de receita' : 'só Holt-Winters detecta'}</div></div>
         </div>
-        <div style="background:#0F172A;border-radius:10px;padding:14px 16px;color:#94A3B8;font-size:.78rem;line-height:1.55"><b style="color:#10B981">▸ Como ler:</b> linha sólida = histórico real · linha tracejada = projeção · faixa azul clara = bandas de confiança 80-95% (quanto maior o horizonte, mais larga a banda). Modelo Holt-Winters captura tendência <b>e</b> sazonalidade (12 meses).</div>
+        <div style="background:#0F172A;border-radius:10px;padding:14px 16px;color:#94A3B8;font-size:.78rem;line-height:1.55"><b style="color:#10B981">▸ Como ler:</b> linha sólida = histórico real · linha tracejada = projeção · faixa azul clara = bandas de confiança 80-95% (a banda alarga com o horizonte porque a incerteza acumula). <b>Método em uso:</b> ${fcR.methodLabel}. Cascata automática: <i>24+ meses</i> usa Holt-Winters (capta sazonalidade) · <i>4-23</i> usa Holt linear (só tendência) · <i>2-3</i> usa regressão linear · <i>1</i> projeta constante.</div>
       </div>
     </div>
   `;
