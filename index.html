@@ -98158,7 +98158,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780441477';
+      const CACHE = 'forekash-v1780445657';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -98591,6 +98591,9 @@ const CMDK_COMMANDS = [
   // ─── Novas ferramentas (Maratona) ───
   { group:'Ferramentas', label:'🧠 Copiloto Financeiro · decisões sugeridas', ico:'🧠', kbd:'', action:() => { if(typeof fkCfoOpen === 'function') fkCfoOpen(); } },
   { group:'Ferramentas', label:'💬 Enviar via WhatsApp (templates)', ico:'💬', kbd:'', action:() => { if(typeof fkWaOpen === 'function') fkWaOpen(); } },
+  { group:'Ferramentas', label:'⚡ Onboarding em 5 min · OFX + IA', ico:'⚡', kbd:'', action:() => { if(typeof fkOnboardOpen === 'function') fkOnboardOpen(); } },
+  { group:'Ferramentas', label:'💸 Régua de Dunning · cobrança automática', ico:'💸', kbd:'', action:() => { if(typeof fkDunnOpen === 'function') fkDunnOpen(); } },
+  { group:'Ferramentas', label:'🕰 Time Travel · snapshots históricos', ico:'🕰', kbd:'', action:() => { if(typeof fkTimeOpen === 'function') fkTimeOpen(); } },
   { group:'Ferramentas', label:'🏦 Open Finance Ativo · pagar/aplicar', ico:'🏦', kbd:'', action:() => { if(typeof fkOfAtivoOpen === 'function') fkOfAtivoOpen(); } },
   { group:'Ferramentas', label:'📊 Benchmark setorial · score vs mercado', ico:'📊', kbd:'', action:() => { if(typeof fkBenchOpen === 'function') fkBenchOpen(); } },
   { group:'Ferramentas', label:'🔮 Monte Carlo · forecast probabilístico', ico:'🔮', kbd:'', action:() => { if(typeof fkMcOpen === 'function') fkMcOpen(); } },
@@ -125787,6 +125790,740 @@ window.ksDoUnlock = ksDoUnlock;
     // Aplica daemon skin no boot (settings podem ter sido salvos antes)
     try { pomoApplyDaemonSkin(); } catch(_){}
     setTimeout(() => { try { pomoApplyDaemonSkin(); } catch(_){} }, 800);
+
+// ════════════════════════════════════════════════════════════════════
+// 🚀 ONBOARDING EM 5 MIN · OFX + IA classifica + DRE pronto (#2)
+// ════════════════════════════════════════════════════════════════════
+const FK_ONBOARD_KEY = 'forekash:onboard:v1';
+function fkOnbState(){ try{ return JSON.parse(localStorage.getItem(FK_ONBOARD_KEY)||'{}'); }catch(_){ return {}; } }
+function fkOnbSetState(s){ try{ localStorage.setItem(FK_ONBOARD_KEY, JSON.stringify(s)); }catch(_){} }
+function fkOnbMarkDone(){ const s = fkOnbState(); s.done = true; s.doneAt = new Date().toISOString(); fkOnbSetState(s); }
+const _fkOnb = { step:1, file:null, lancs:[], bancoNome:'', saldoIni:0, dataIni:'' };
+
+function fkOnboardOpen(){
+  _fkOnb.step = 1; _fkOnb.file = null; _fkOnb.lancs = []; _fkOnb.bancoNome=''; _fkOnb.saldoIni=0; _fkOnb.dataIni='';
+  let ov = document.getElementById('fk-onb-ov');
+  if(ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'fk-onb-ov';
+  ov.className = 'fk-shortcuts-ov';
+  ov.style.zIndex = '99999';
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e => { if(e.target === ov) fkOnboardClose(); });
+  fkOnboardRender();
+}
+function fkOnboardClose(){ const ov = document.getElementById('fk-onb-ov'); if(ov) ov.remove(); }
+function fkOnboardRender(){
+  const ov = document.getElementById('fk-onb-ov');
+  if(!ov) return;
+  const stepHtml = ({
+    1: _fkOnbRenderWelcome,
+    2: _fkOnbRenderDrop,
+    3: _fkOnbRenderReview,
+    4: _fkOnbRenderSetup,
+    5: _fkOnbRenderDone
+  }[_fkOnb.step] || _fkOnbRenderWelcome)();
+  // Progress bar
+  const pct = ((_fkOnb.step - 1) / 4) * 100;
+  ov.innerHTML = `
+    <div class="fk-shortcuts-card" style="width:min(720px,98vw);max-height:94vh;display:flex;flex-direction:column">
+      <div style="padding:0;background:linear-gradient(135deg,#10B981,#0F766E);color:#fff;border-radius:14px 14px 0 0">
+        <div style="padding:18px 24px;display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-size:.7rem;font-weight:700;opacity:.85;letter-spacing:.08em">PASSO ${_fkOnb.step} DE 5</div>
+            <h2 style="margin:4px 0 0;font-size:1.2rem;color:#fff">${['Bem-vindo ao Forekash','Importar extrato bancário','Revisar classificação','Configurar conta','Pronto!'][_fkOnb.step-1]}</h2>
+          </div>
+          <button onclick="fkOnboardClose()" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:1.3rem;cursor:pointer;line-height:1">×</button>
+        </div>
+        <div style="height:4px;background:rgba(255,255,255,.15)"><div style="height:100%;background:#fff;width:${pct}%;transition:width .3s"></div></div>
+      </div>
+      <div style="padding:26px;overflow:auto;flex:1">${stepHtml}</div>
+    </div>
+  `;
+}
+function _fkOnbRenderWelcome(){
+  return `
+    <div style="text-align:center;padding:14px 0">
+      <div style="font-size:3.6rem;margin-bottom:8px">⚡</div>
+      <h3 style="margin:0 0 10px;font-size:1.4rem;color:#0F172A">Vamos configurar em 5 minutos</h3>
+      <p style="margin:0 0 24px;color:#475569;font-size:.92rem;line-height:1.55">Você vai importar um <b>extrato bancário</b> (OFX), o Forekash classifica tudo sozinho, e em menos de 5 minutos seu <b>DRE</b>, <b>fluxo de caixa</b> e <b>KASH SCORE</b> estão prontos.</p>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:left;margin:0 0 26px">
+        <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:14px"><div style="font-size:1.4rem;margin-bottom:4px">📥</div><div style="font-weight:700;font-size:.84rem;color:#0F172A">Drop OFX</div><div style="font-size:.74rem;color:#475569;margin-top:2px">Itaú, BB, Bradesco, Nubank, qualquer banco BR</div></div>
+        <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:14px"><div style="font-size:1.4rem;margin-bottom:4px">🧠</div><div style="font-weight:700;font-size:.84rem;color:#0F172A">IA classifica</div><div style="font-size:.74rem;color:#475569;margin-top:2px">Categorias atribuídas automaticamente</div></div>
+        <div style="background:#FEF3C7;border:1px solid #FDE68A;border-radius:10px;padding:14px"><div style="font-size:1.4rem;margin-bottom:4px">📊</div><div style="font-weight:700;font-size:.84rem;color:#0F172A">Dashboard pronto</div><div style="font-size:.74rem;color:#475569;margin-top:2px">DRE, fluxo, score · tudo de uma vez</div></div>
+      </div>
+      <button onclick="_fkOnbGo(2)" style="padding:13px 28px;background:#10B981;color:#fff;border:none;border-radius:8px;font-weight:800;font-family:inherit;font-size:.96rem;cursor:pointer;box-shadow:0 6px 18px rgba(16,185,129,.35)">Começar →</button>
+      <div style="margin-top:14px"><a href="#" onclick="event.preventDefault();fkOnboardClose();" style="font-size:.74rem;color:#64748B;text-decoration:none">Vou configurar manualmente depois</a></div>
+    </div>
+  `;
+}
+function _fkOnbRenderDrop(){
+  return `
+    <div>
+      <p style="margin:0 0 16px;color:#475569;font-size:.88rem;line-height:1.55">Baixe o extrato do seu banco no formato <b>OFX</b> (todos os bancos BR exportam) e arraste aqui — ou clique pra escolher.</p>
+      <div id="fk-onb-drop" style="border:2.5px dashed #10B981;background:#F0FDF4;border-radius:12px;padding:36px 20px;text-align:center;cursor:pointer;transition:all .15s" onclick="document.getElementById('fk-onb-file').click()">
+        <div style="font-size:3rem;margin-bottom:8px">📥</div>
+        <div style="font-weight:800;color:#065F46;font-size:.96rem">Arraste o OFX aqui ou clique pra escolher</div>
+        <div style="font-size:.74rem;color:#475569;margin-top:6px">.ofx · .csv · até 5 MB</div>
+        <input type="file" id="fk-onb-file" accept=".ofx,.csv,.txt" style="display:none" onchange="_fkOnbHandleFile(this.files[0])">
+      </div>
+      <div id="fk-onb-drop-msg" style="margin-top:14px"></div>
+      <details style="margin-top:18px;background:#F8FAFC;border-radius:8px;padding:10px 14px">
+        <summary style="cursor:pointer;font-size:.82rem;font-weight:700;color:#0F172A">Como baixar OFX no meu banco?</summary>
+        <div style="margin-top:10px;font-size:.78rem;color:#475569;line-height:1.6">
+          <p style="margin:0 0 6px"><b>Itaú:</b> Internet Banking → Conta → Extrato → Baixar → escolher OFX</p>
+          <p style="margin:0 0 6px"><b>Bradesco:</b> App → Extrato → Compartilhar → OFX</p>
+          <p style="margin:0 0 6px"><b>BB:</b> Conta → Extrato → Exportar → OFX</p>
+          <p style="margin:0 0 6px"><b>Santander:</b> Extrato → Exportar → OFX (Money)</p>
+          <p style="margin:0 0 6px"><b>Nubank:</b> App PJ → Extrato → Exportar OFX</p>
+          <p style="margin:0"><b>Inter:</b> Extrato → 3 pontinhos → OFX</p>
+        </div>
+      </details>
+      <div style="display:flex;justify-content:space-between;margin-top:22px">
+        <button onclick="_fkOnbGo(1)" style="padding:9px 18px;background:#fff;border:1px solid #CBD5E1;color:#475569;border-radius:6px;cursor:pointer;font-family:inherit">← Voltar</button>
+        <button id="fk-onb-next" disabled style="padding:9px 22px;background:#10B981;color:#fff;border:none;border-radius:6px;cursor:not-allowed;font-weight:700;opacity:.5;font-family:inherit" onclick="_fkOnbGo(3)">Próximo →</button>
+      </div>
+    </div>
+  `;
+}
+function _fkOnbHandleFile(file){
+  if(!file) return;
+  if(file.size > 5*1024*1024){ document.getElementById('fk-onb-drop-msg').innerHTML = '<div style="background:#FEE2E2;color:#991B1B;padding:10px 14px;border-radius:6px;font-size:.82rem">❌ Arquivo > 5MB</div>'; return; }
+  _fkOnb.file = file;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{
+      const text = e.target.result;
+      const ext = (file.name.split('.').pop()||'').toLowerCase();
+      const lancs = (ext === 'ofx' || text.includes('<STMTTRN>'))
+        ? _ofxParseOFX(text)
+        : _ofxParseCSV(text);
+      if(!lancs.length) throw new Error('Nenhum lançamento detectado');
+      // Auto-classify
+      if(typeof smartCatBulk === 'function') smartCatBulk(lancs, false);
+      // Detecta nome do banco do conteúdo OFX
+      const bancoMatch = text.match(/<ORG>([^<\n]+)/i);
+      _fkOnb.bancoNome = bancoMatch ? bancoMatch[1].trim() : file.name.replace(/\.[^.]+$/,'');
+      _fkOnb.lancs = lancs;
+      // Saldo final do OFX (balance) se disponível
+      const balMatch = text.match(/<LEDGERBAL>[\s\S]*?<BALAMT>([^<\n]+)/i);
+      if(balMatch) _fkOnb.saldoIni = parseFloat(balMatch[1]) || 0;
+      const minData = lancs.reduce((m,l) => (l.data && (!m || l.data < m)) ? l.data : m, '');
+      _fkOnb.dataIni = minData || new Date().toISOString().slice(0,10);
+      // Preview
+      const totalIn = lancs.filter(l => l.valor > 0).reduce((s,l)=>s+l.valor,0);
+      const totalOut = lancs.filter(l => l.valor < 0).reduce((s,l)=>s+Math.abs(l.valor),0);
+      const classifiedN = lancs.filter(l => l.categoria).length;
+      const pct = Math.round(classifiedN / lancs.length * 100);
+      document.getElementById('fk-onb-drop-msg').innerHTML = `
+        <div style="background:#ECFDF5;border-left:3px solid #10B981;border-radius:6px;padding:14px 16px">
+          <div style="font-weight:800;color:#065F46;margin-bottom:6px">✓ ${lancs.length} lançamentos detectados</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;font-size:.78rem">
+            <div><b style="color:#10B981">↑ Entradas</b><br>R$ ${totalIn.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+            <div><b style="color:#EF4444">↓ Saídas</b><br>R$ ${totalOut.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+            <div><b style="color:#3B82F6">🧠 IA</b><br>${pct}% classificados</div>
+          </div>
+        </div>
+      `;
+      const nx = document.getElementById('fk-onb-next');
+      if(nx){ nx.disabled = false; nx.style.opacity = '1'; nx.style.cursor = 'pointer'; }
+    }catch(err){
+      document.getElementById('fk-onb-drop-msg').innerHTML = `<div style="background:#FEE2E2;color:#991B1B;padding:10px 14px;border-radius:6px;font-size:.82rem">❌ ${err.message}</div>`;
+    }
+  };
+  reader.readAsText(file, 'ISO-8859-1');
+}
+function _fkOnbRenderReview(){
+  const lancs = _fkOnb.lancs;
+  const cats = {};
+  lancs.forEach(l => {
+    const c = l.categoria || '(sem categoria)';
+    cats[c] = (cats[c]||0) + 1;
+  });
+  const catList = Object.entries(cats).sort((a,b)=>b[1]-a[1]);
+  const rows = lancs.slice(0,12).map(l => {
+    const dt = l.data ? l.data.split('-').reverse().join('/') : '—';
+    const cor = l.valor > 0 ? '#10B981' : '#EF4444';
+    const cat = l.categoria || '<span style="color:#94A3B8;font-style:italic">sem categoria</span>';
+    const desc = (l.descricao||'').slice(0,42);
+    return `<tr><td style="padding:7px 10px;font-size:.78rem">${dt}</td><td style="padding:7px 10px;font-size:.78rem">${desc}</td><td style="padding:7px 10px;font-size:.78rem">${cat}</td><td style="padding:7px 10px;font-size:.78rem;text-align:right;color:${cor};font-weight:700">R$ ${Math.abs(l.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td></tr>`;
+  }).join('');
+  return `
+    <div>
+      <p style="margin:0 0 14px;color:#475569;font-size:.86rem;line-height:1.5">A IA classificou seus lançamentos. Revise as categorias abaixo — se algo estiver errado, dá pra ajustar depois no Extrato.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">${catList.slice(0,8).map(([cat,n]) => `<span style="background:#F1F5F9;border:1px solid #CBD5E1;border-radius:14px;padding:4px 11px;font-size:.74rem;font-weight:700"><span style="color:#0F172A">${cat}</span><span style="color:#94A3B8"> · ${n}</span></span>`).join('')}</div>
+      <div style="border:1px solid #E2E8F0;border-radius:8px;overflow:hidden">
+        <table style="width:100%;border-collapse:collapse;background:#fff">
+          <thead style="background:#F8FAFC"><tr><th style="padding:8px 10px;text-align:left;font-size:.72rem;color:#64748B;font-weight:700">DATA</th><th style="padding:8px 10px;text-align:left;font-size:.72rem;color:#64748B;font-weight:700">DESCRIÇÃO</th><th style="padding:8px 10px;text-align:left;font-size:.72rem;color:#64748B;font-weight:700">CATEGORIA</th><th style="padding:8px 10px;text-align:right;font-size:.72rem;color:#64748B;font-weight:700">VALOR</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      ${lancs.length > 12 ? `<div style="text-align:center;color:#64748B;font-size:.74rem;margin-top:8px">+ ${lancs.length - 12} lançamentos abaixo</div>` : ''}
+      <div style="display:flex;justify-content:space-between;margin-top:22px">
+        <button onclick="_fkOnbGo(2)" style="padding:9px 18px;background:#fff;border:1px solid #CBD5E1;color:#475569;border-radius:6px;cursor:pointer;font-family:inherit">← Voltar</button>
+        <button onclick="_fkOnbGo(4)" style="padding:9px 22px;background:#10B981;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-family:inherit">Próximo →</button>
+      </div>
+    </div>
+  `;
+}
+function _fkOnbRenderSetup(){
+  return `
+    <div>
+      <p style="margin:0 0 16px;color:#475569;font-size:.88rem;line-height:1.5">Quase lá — só preciso saber dessa conta:</p>
+      <div style="display:grid;gap:12px">
+        <div><label style="display:block;font-size:.74rem;font-weight:700;color:#374151;margin-bottom:4px">NOME DA CONTA / BANCO</label><input id="fk-onb-banco" type="text" value="${_fkOnb.bancoNome||''}" placeholder="Ex: Itaú PJ · Bradesco · Nubank" style="width:100%;padding:10px 12px;border:1.5px solid #CBD5E1;border-radius:7px;font-size:.86rem;font-family:inherit;box-sizing:border-box"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div><label style="display:block;font-size:.74rem;font-weight:700;color:#374151;margin-bottom:4px">SALDO ATUAL (R$)</label><input id="fk-onb-saldo" type="text" value="${_fkOnb.saldoIni ? _fkOnb.saldoIni.toLocaleString('pt-BR',{minimumFractionDigits:2}) : ''}" placeholder="0,00" style="width:100%;padding:10px 12px;border:1.5px solid #CBD5E1;border-radius:7px;font-size:.86rem;font-family:inherit;box-sizing:border-box"></div>
+          <div><label style="display:block;font-size:.74rem;font-weight:700;color:#374151;margin-bottom:4px">DATA DE PARTIDA</label><input id="fk-onb-data" type="date" value="${_fkOnb.dataIni||''}" style="width:100%;padding:10px 12px;border:1.5px solid #CBD5E1;border-radius:7px;font-size:.86rem;font-family:inherit;box-sizing:border-box"></div>
+        </div>
+      </div>
+      <div style="background:#DBEAFE;border-left:3px solid #3B82F6;padding:12px 14px;border-radius:6px;margin-top:16px;font-size:.78rem;color:#1E3A8A;line-height:1.5">💡 O Forekash detectou o saldo do extrato. Você pode ajustar antes de salvar. Esse vai ser o <b>ponto de partida</b> do fluxo de caixa diário.</div>
+      <div style="display:flex;justify-content:space-between;margin-top:22px">
+        <button onclick="_fkOnbGo(3)" style="padding:9px 18px;background:#fff;border:1px solid #CBD5E1;color:#475569;border-radius:6px;cursor:pointer;font-family:inherit">← Voltar</button>
+        <button onclick="_fkOnbCommit()" style="padding:9px 22px;background:#10B981;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-family:inherit">✓ Importar tudo</button>
+      </div>
+    </div>
+  `;
+}
+function _fkOnbCommit(){
+  // Captura do step 4
+  const bancoNome = (document.getElementById('fk-onb-banco')?.value || _fkOnb.bancoNome || 'Conta principal').trim();
+  const saldoStr = (document.getElementById('fk-onb-saldo')?.value || '').replace(/\./g,'').replace(',','.');
+  const saldo = parseFloat(saldoStr) || 0;
+  const dataIni = document.getElementById('fk-onb-data')?.value || _fkOnb.dataIni || new Date().toISOString().slice(0,10);
+
+  try{
+    // 1) Cria/encontra a conta em Disponibilidades
+    if(typeof dispo === 'undefined' || !dispo){
+      window.dispo = { contas:[], bancos:[], tipos:[], years:[], statusFilter:'all' };
+    }
+    if(!Array.isArray(dispo.bancos)) dispo.bancos = [];
+    if(!Array.isArray(dispo.contas)) dispo.contas = [];
+    if(!Array.isArray(dispo.tipos)) dispo.tipos = [];
+    // Banco
+    let banco = dispo.bancos.find(b => b.nome && b.nome.toLowerCase() === bancoNome.toLowerCase());
+    if(!banco){
+      const bid = (typeof dispoNextId === 'function') ? dispoNextId('bancos') : ('b-' + Date.now());
+      banco = { id: bid, nome: bancoNome, ativo: true };
+      dispo.bancos.push(banco);
+    }
+    // Tipo (CC default)
+    let tipo = dispo.tipos.find(t => t.abrev === 'CC');
+    if(!tipo){
+      const tid = (typeof dispoNextId === 'function') ? dispoNextId('tipos') : ('t-' + Date.now());
+      tipo = { id: tid, abrev:'CC', nome:'Conta Corrente', liquidez:'caixa', ativo:true };
+      dispo.tipos.push(tipo);
+    }
+    // Conta
+    let conta = dispo.contas.find(c => c.bancoId === banco.id && c.tipoId === tipo.id);
+    if(!conta){
+      const cid = (typeof dispoNextId === 'function') ? dispoNextId('contas') : ('c-' + Date.now());
+      conta = { id: cid, bancoId: banco.id, tipoId: tipo.id, apelido: bancoNome, ativo:true, saldos:{}, saldoInicial:0, saldoInicialMes:'', snapshots:[], nextSnapId:1, dados:{} };
+      dispo.contas.push(conta);
+    }
+    // Saldo inicial
+    conta.saldoInicial = saldo;
+    conta.saldoInicialMes = dataIni;
+    // Saldo do mês também (pro KASHtrack puxar imediato)
+    if(!conta.saldos) conta.saldos = {};
+    conta.saldos[dataIni.slice(0,7)] = saldo;
+    if(typeof dispoSave === 'function') dispoSave();
+
+    // 2) Importa lançamentos no Extrato
+    if(typeof extratoData === 'undefined' || !extratoData){
+      window.extratoData = { lancamentos:[], contas:[], categorias:[], contrapartes:[], grupos:[] };
+    }
+    if(!Array.isArray(extratoData.lancamentos)) extratoData.lancamentos = [];
+    const baseId = Date.now();
+    _fkOnb.lancs.forEach((l, idx) => {
+      const valor = Math.abs(parseFloat(l.valor)||0);
+      const tipoLan = l.valor > 0 ? 'ganho' : 'gasto';
+      extratoData.lancamentos.push({
+        id: baseId + idx,
+        data: l.data,
+        descricao: l.descricao || '(OFX)',
+        valor: valor,
+        tipo: tipoLan,
+        categoria: l.categoria || '',
+        conta: bancoNome,
+        contraparte: '',
+        status: 'pago',
+        origem: 'onboarding-ofx',
+        criadoEm: new Date().toISOString()
+      });
+    });
+    if(typeof extSave === 'function') extSave();
+    else if(typeof saveExtrato === 'function') saveExtrato();
+    else { try{ localStorage.setItem('forekash:extrato:v1', JSON.stringify(extratoData)); }catch(_){} }
+
+    // Mark done
+    fkOnbMarkDone();
+    _fkOnbGo(5);
+  }catch(err){
+    if(typeof anaAlert === 'function'){
+      anaAlert({eyebrow:'Erro', title:'Não consegui salvar', message:err.message, okText:'OK'});
+    } else { alert('Erro: '+err.message); }
+  }
+}
+function _fkOnbRenderDone(){
+  return `
+    <div style="text-align:center;padding:14px 0">
+      <div style="font-size:4rem;margin-bottom:8px">🎉</div>
+      <h3 style="margin:0 0 8px;font-size:1.4rem;color:#0F172A">Pronto! Seu Forekash está vivo.</h3>
+      <p style="margin:0 0 20px;color:#475569;font-size:.92rem;line-height:1.55"><b>${_fkOnb.lancs.length} lançamentos</b> importados · <b>R$ ${(_fkOnb.saldoIni||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</b> saldo inicial · DRE, fluxo de caixa, score e tudo mais já calculando.</p>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:20px">
+        <button onclick="fkOnboardClose();if(typeof switchModule==='function')switchModule('home',null);" style="padding:12px;background:#10B981;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit;font-size:.86rem">📊 Ver Dashboard</button>
+        <button onclick="fkOnboardClose();if(typeof switchModule==='function')switchModule('kashtrack',null);" style="padding:12px;background:#fff;color:#10B981;border:1.5px solid #10B981;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit;font-size:.86rem">🌤 Ver KASHtrack</button>
+        <button onclick="fkOnboardClose();if(typeof switchModule==='function')switchModule('extrato',null);" style="padding:12px;background:#fff;color:#0F172A;border:1px solid #CBD5E1;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit;font-size:.86rem">📋 Ver Extrato</button>
+        <button onclick="fkOnboardClose();if(typeof switchModule==='function')switchModule('dispo',null);" style="padding:12px;background:#fff;color:#0F172A;border:1px solid #CBD5E1;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit;font-size:.86rem">🏦 Ver Disponibilidades</button>
+      </div>
+      <div style="background:#FEF3C7;border-left:3px solid #F59E0B;padding:12px 16px;border-radius:6px;text-align:left;font-size:.78rem;color:#78350F;line-height:1.55">💡 <b>Próximos passos sugeridos:</b><br>· Configure suas <b>contrapartes</b> (clientes/fornecedores) no Extrato<br>· Revise categorias em massa com o <b>Smart Cat</b><br>· Ative a <b>Régua de Dunning</b> se vende prazo</div>
+    </div>
+  `;
+}
+function _fkOnbGo(s){ _fkOnb.step = s; fkOnboardRender(); }
+try {
+  window.fkOnboardOpen = fkOnboardOpen; window.fkOnboardClose = fkOnboardClose;
+  window._fkOnbGo = _fkOnbGo; window._fkOnbHandleFile = _fkOnbHandleFile; window._fkOnbCommit = _fkOnbCommit;
+} catch(_){}
+// Auto-abre se for primeira vez (extrato vazio + sem onboarding feito)
+setTimeout(() => {
+  try{
+    const st = fkOnbState();
+    if(st.done) return;
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos) && extratoData.lancamentos.length > 0) return;
+    // Abre se não há nenhum dado financeiro
+    fkOnboardOpen();
+  }catch(_){}
+}, 2200);
+
+// ════════════════════════════════════════════════════════════════════
+// 💸 RÉGUA DE DUNNING AUTOMÁTICA · cobrança em escada (#3)
+// ════════════════════════════════════════════════════════════════════
+const FK_DUNN_KEY = 'forekash:dunning:v1';
+const FK_DUNN_DEFAULT = {
+  enabled: true,
+  steps: [
+    { dia: 0,  canal:'whatsapp', tom:'suave',   template:'Oi! Tô só passando pra lembrar que tem um boleto de R$ {valor} vencendo hoje, do contrato {desc}. Qualquer dúvida tô aqui!' },
+    { dia: 5,  canal:'email',    tom:'neutro',  template:'Olá, gostaria de lembrar que o boleto referente a {desc} no valor de R$ {valor} venceu em {venc}. Segue 2ª via no anexo. Obrigado!' },
+    { dia: 10, canal:'ligacao',  tom:'formal',  template:'Ligar pra cliente, confirmar recebimento do boleto, alinhar nova data de pagamento.' },
+    { dia: 15, canal:'email',    tom:'formal',  template:'Prezado(a), o débito de R$ {valor} referente a {desc} consta em aberto desde {venc}. Solicitamos a regularização em 5 dias úteis para evitar inclusão em órgãos de proteção ao crédito.' },
+    { dia: 30, canal:'protesto', tom:'agressivo', template:'Encaminhar pra protesto / negativação SPC/Serasa.' }
+  ],
+  ultimaExec: null
+};
+function fkDunnState(){
+  try{
+    const raw = localStorage.getItem(FK_DUNN_KEY);
+    if(!raw) return JSON.parse(JSON.stringify(FK_DUNN_DEFAULT));
+    const s = JSON.parse(raw);
+    if(!s.steps) s.steps = FK_DUNN_DEFAULT.steps;
+    return s;
+  }catch(_){ return JSON.parse(JSON.stringify(FK_DUNN_DEFAULT)); }
+}
+function fkDunnSave(s){ try{ localStorage.setItem(FK_DUNN_KEY, JSON.stringify(s)); }catch(_){} }
+// Detecta recebíveis vencidos: lança no Extrato com tipo=ganho, status=pendente, data < hoje
+function fkDunnFindOverdue(){
+  if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return [];
+  const hoje = new Date().toISOString().slice(0,10);
+  return extratoData.lancamentos.filter(l =>
+    l.tipo === 'ganho' &&
+    l.status === 'pendente' &&
+    l.data && l.data < hoje
+  );
+}
+function fkDunnDaysOverdue(lan){
+  const venc = new Date(lan.data + 'T00:00:00');
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  return Math.floor((hoje - venc) / 86400000);
+}
+function fkDunnNextStep(daysOver, state){
+  if(!state) state = fkDunnState();
+  // Acha a etapa mais recente cuja dia <= daysOver
+  let best = null;
+  for(const s of state.steps){
+    if(s.dia <= daysOver && (!best || s.dia > best.dia)) best = s;
+  }
+  return best;
+}
+function fkDunnOpen(){
+  const st = fkDunnState();
+  const overdue = fkDunnFindOverdue();
+  // Calcula ações pendentes
+  const actions = overdue.map(l => {
+    const d = fkDunnDaysOverdue(l);
+    const step = fkDunnNextStep(d, st);
+    const acted = (l.dunningHistory||[]).some(h => h.dia === (step?.dia));
+    return { lan:l, daysOver:d, step, acted };
+  });
+  // Métricas
+  const total = actions.length;
+  const totalVal = actions.reduce((s,a) => s + (parseFloat(a.lan.valor)||0), 0);
+  const pendentes = actions.filter(a => a.step && !a.acted).length;
+  let ov = document.getElementById('fk-dunn-ov');
+  if(ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'fk-dunn-ov';
+  ov.className = 'fk-shortcuts-ov';
+  ov.style.zIndex = '99999';
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e => { if(e.target === ov) fkDunnClose(); });
+  const canalIco = { whatsapp:'💬', email:'📧', ligacao:'📞', protesto:'⚠', sms:'📱' };
+  const canalLbl = { whatsapp:'WhatsApp', email:'E-mail', ligacao:'Ligação', protesto:'Protesto/SPC', sms:'SMS' };
+  const tomCor = { suave:'#10B981', neutro:'#3B82F6', formal:'#F59E0B', agressivo:'#EF4444' };
+  const rows = actions.length === 0 ? `<tr><td colspan="6" style="padding:36px;text-align:center;color:#64748B">🎉 Nenhum recebível vencido. Boa cobrança!</td></tr>` : actions.map(a => {
+    const dt = a.lan.data ? a.lan.data.split('-').reverse().join('/') : '—';
+    const ico = canalIco[a.step?.canal] || '·';
+    const lbl = canalLbl[a.step?.canal] || '—';
+    const cor = tomCor[a.step?.tom] || '#64748B';
+    const acaoBtn = a.acted
+      ? '<span style="background:#ECFDF5;color:#065F46;padding:4px 10px;border-radius:14px;font-size:.7rem;font-weight:700">✓ Executado</span>'
+      : `<button onclick="fkDunnExecuteAction(${a.lan.id})" style="background:${cor};color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:.74rem;font-weight:700;font-family:inherit">${ico} Executar</button>`;
+    return `<tr>
+      <td style="padding:8px 10px;font-size:.8rem">${dt}</td>
+      <td style="padding:8px 10px;font-size:.8rem">${(a.lan.descricao||'').slice(0,32)}</td>
+      <td style="padding:8px 10px;font-size:.8rem">${a.lan.contraparte||'<span style="color:#94A3B8;font-style:italic">—</span>'}</td>
+      <td style="padding:8px 10px;font-size:.8rem;text-align:right;color:#10B981;font-weight:700">R$ ${(parseFloat(a.lan.valor)||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+      <td style="padding:8px 10px;font-size:.8rem;text-align:center"><span style="background:#FEE2E2;color:#991B1B;padding:3px 8px;border-radius:10px;font-weight:700;font-size:.72rem">${a.daysOver}d</span></td>
+      <td style="padding:8px 10px;text-align:center">${acaoBtn}</td>
+    </tr>`;
+  }).join('');
+  ov.innerHTML = `
+    <div class="fk-shortcuts-card" style="width:min(940px,98vw);max-height:94vh;display:flex;flex-direction:column">
+      <div style="padding:18px 24px;background:linear-gradient(135deg,#F59E0B,#DC2626);color:#fff;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:.7rem;font-weight:700;opacity:.85;letter-spacing:.08em">RECEBÍVEIS EM ATRASO</div>
+          <h2 style="margin:4px 0 0;font-size:1.2rem;color:#fff">💸 Régua de Dunning</h2>
+        </div>
+        <button onclick="fkDunnClose()" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:1.3rem;cursor:pointer">×</button>
+      </div>
+      <div style="padding:18px 24px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;background:#F8FAFC;border-bottom:1px solid #E2E8F0">
+        <div style="background:#fff;border-radius:8px;padding:12px 14px"><div style="font-size:.7rem;color:#64748B;font-weight:700">📋 EM ATRASO</div><div style="font-size:1.4rem;font-weight:800;color:#0F172A">${total}</div></div>
+        <div style="background:#fff;border-radius:8px;padding:12px 14px"><div style="font-size:.7rem;color:#64748B;font-weight:700">💰 TOTAL A RECEBER</div><div style="font-size:1.4rem;font-weight:800;color:#10B981">R$ ${totalVal.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
+        <div style="background:#fff;border-radius:8px;padding:12px 14px"><div style="font-size:.7rem;color:#64748B;font-weight:700">⚡ AÇÕES PENDENTES</div><div style="font-size:1.4rem;font-weight:800;color:#F59E0B">${pendentes}</div></div>
+      </div>
+      <div style="padding:18px 24px;overflow:auto;flex:1">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <h3 style="margin:0;font-size:.94rem;color:#0F172A">Ações sugeridas pela régua</h3>
+          <button onclick="fkDunnSettingsOpen()" style="padding:6px 12px;background:#fff;border:1px solid #CBD5E1;border-radius:6px;cursor:pointer;font-size:.76rem;font-weight:700;font-family:inherit;color:#475569">⚙ Configurar régua</button>
+        </div>
+        <div style="border:1px solid #E2E8F0;border-radius:8px;overflow:hidden">
+          <table style="width:100%;border-collapse:collapse;background:#fff">
+            <thead style="background:#F1F5F9"><tr><th style="padding:8px 10px;text-align:left;font-size:.7rem;color:#64748B;font-weight:800">VENC</th><th style="padding:8px 10px;text-align:left;font-size:.7rem;color:#64748B;font-weight:800">DESCRIÇÃO</th><th style="padding:8px 10px;text-align:left;font-size:.7rem;color:#64748B;font-weight:800">CLIENTE</th><th style="padding:8px 10px;text-align:right;font-size:.7rem;color:#64748B;font-weight:800">VALOR</th><th style="padding:8px 10px;text-align:center;font-size:.7rem;color:#64748B;font-weight:800">ATRASO</th><th style="padding:8px 10px;text-align:center;font-size:.7rem;color:#64748B;font-weight:800">AÇÃO</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+function fkDunnClose(){ const ov = document.getElementById('fk-dunn-ov'); if(ov) ov.remove(); const ov2 = document.getElementById('fk-dunn-cfg-ov'); if(ov2) ov2.remove(); }
+function fkDunnExecuteAction(lanId){
+  const lan = extratoData.lancamentos.find(l => l.id === lanId);
+  if(!lan) return;
+  const d = fkDunnDaysOverdue(lan);
+  const step = fkDunnNextStep(d, fkDunnState());
+  if(!step) return;
+  const valor = (parseFloat(lan.valor)||0).toLocaleString('pt-BR',{minimumFractionDigits:2});
+  const venc = (lan.data||'').split('-').reverse().join('/');
+  const desc = lan.descricao || 'serviço';
+  const msg = (step.template||'').replace(/\{valor\}/g, valor).replace(/\{venc\}/g, venc).replace(/\{desc\}/g, desc);
+  // Ação por canal
+  if(step.canal === 'whatsapp'){
+    const tel = prompt('Telefone do cliente (com DDD, só números):');
+    if(!tel) return;
+    const url = 'https://wa.me/55' + tel.replace(/\D/g,'') + '?text=' + encodeURIComponent(msg);
+    window.open(url, '_blank');
+  } else if(step.canal === 'email'){
+    if(typeof anaAlert === 'function'){
+      anaAlert({eyebrow:'📧 E-mail', title:'Mensagem pronta', message:`<div style="text-align:left"><b>Para:</b> ${lan.contraparte||'cliente'}<br><b>Assunto:</b> Pendência R$ ${valor}<br><br><div style="background:#F8FAFC;padding:12px;border-radius:6px;border-left:3px solid #3B82F6;font-size:.84rem;line-height:1.5">${msg}</div></div>`, okText:'Copiar e marcar como executado'}, () => { try{ navigator.clipboard.writeText(msg); }catch(_){} _fkDunnMarkExecuted(lan, step); });
+    } else { alert(msg); _fkDunnMarkExecuted(lan, step); }
+    return;
+  } else if(step.canal === 'ligacao'){
+    if(typeof anaAlert === 'function'){
+      anaAlert({eyebrow:'📞 Ligação', title:'Roteiro da ligação', message:`<div style="background:#F8FAFC;padding:14px;border-radius:6px;border-left:3px solid #F59E0B;font-size:.84rem;line-height:1.55">${msg}</div>`, okText:'✓ Liguei · marcar executado'}, () => _fkDunnMarkExecuted(lan, step));
+    } else { _fkDunnMarkExecuted(lan, step); }
+    return;
+  } else if(step.canal === 'protesto'){
+    if(typeof anaConfirm === 'function'){
+      anaConfirm({eyebrow:'⚠ Protesto', title:'Encaminhar pra protesto?', message:'Cliente com '+d+' dias de atraso. Vai marcar como encaminhado pra SPC/Serasa.', okText:'Encaminhar', danger:true}, () => _fkDunnMarkExecuted(lan, step));
+    } else { _fkDunnMarkExecuted(lan, step); }
+    return;
+  }
+  _fkDunnMarkExecuted(lan, step);
+}
+function _fkDunnMarkExecuted(lan, step){
+  if(!lan.dunningHistory) lan.dunningHistory = [];
+  lan.dunningHistory.push({ dia: step.dia, canal: step.canal, exec:new Date().toISOString() });
+  try{ if(typeof extSave === 'function') extSave(); else localStorage.setItem('forekash:extrato:v1', JSON.stringify(extratoData)); }catch(_){}
+  if(typeof fkToast === 'function') fkToast('✓ Ação registrada · próxima etapa em '+( (fkDunnState().steps[fkDunnState().steps.findIndex(s=>s.dia===step.dia)+1]?.dia - step.dia)||'?')+' dias', 'ok', 2400);
+  fkDunnOpen();
+}
+function fkDunnSettingsOpen(){
+  const st = fkDunnState();
+  let ov = document.getElementById('fk-dunn-cfg-ov');
+  if(ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'fk-dunn-cfg-ov';
+  ov.className = 'fk-shortcuts-ov';
+  ov.style.zIndex = '99999';
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e => { if(e.target === ov) ov.remove(); });
+  const stepRows = st.steps.map((s, i) => `
+    <tr data-idx="${i}">
+      <td style="padding:8px"><input type="number" value="${s.dia}" data-fld="dia" style="width:60px;padding:6px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:.82rem;font-family:inherit"></td>
+      <td style="padding:8px"><select data-fld="canal" style="padding:6px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:.82rem;font-family:inherit"><option value="whatsapp"${s.canal==='whatsapp'?' selected':''}>💬 WhatsApp</option><option value="email"${s.canal==='email'?' selected':''}>📧 E-mail</option><option value="sms"${s.canal==='sms'?' selected':''}>📱 SMS</option><option value="ligacao"${s.canal==='ligacao'?' selected':''}>📞 Ligação</option><option value="protesto"${s.canal==='protesto'?' selected':''}>⚠ Protesto/SPC</option></select></td>
+      <td style="padding:8px"><select data-fld="tom" style="padding:6px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:.82rem;font-family:inherit"><option value="suave"${s.tom==='suave'?' selected':''}>Suave</option><option value="neutro"${s.tom==='neutro'?' selected':''}>Neutro</option><option value="formal"${s.tom==='formal'?' selected':''}>Formal</option><option value="agressivo"${s.tom==='agressivo'?' selected':''}>Agressivo</option></select></td>
+      <td style="padding:8px"><textarea data-fld="template" rows="2" style="width:100%;padding:6px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:.78rem;font-family:inherit;resize:vertical;box-sizing:border-box">${s.template||''}</textarea></td>
+      <td style="padding:8px;text-align:center"><button onclick="_fkDunnRmStep(${i})" style="background:#FEE2E2;border:none;color:#991B1B;width:28px;height:28px;border-radius:6px;cursor:pointer;font-weight:700">×</button></td>
+    </tr>
+  `).join('');
+  ov.innerHTML = `
+    <div class="fk-shortcuts-card" style="width:min(860px,98vw);max-height:94vh;display:flex;flex-direction:column">
+      <div style="padding:18px 24px;background:#0F172A;color:#fff;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
+        <div><div style="font-size:.7rem;font-weight:700;opacity:.7;letter-spacing:.08em">CONFIGURAÇÃO</div><h2 style="margin:4px 0 0;font-size:1.1rem;color:#fff">⚙ Régua de Dunning</h2></div>
+        <button onclick="document.getElementById('fk-dunn-cfg-ov').remove()" style="background:rgba(255,255,255,.1);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:1.3rem;cursor:pointer">×</button>
+      </div>
+      <div style="padding:20px 24px;overflow:auto;flex:1">
+        <p style="margin:0 0 14px;color:#475569;font-size:.84rem;line-height:1.5">Defina os <b>passos da régua</b> que vão disparar conforme cada recebível vai atrasando. Use as variáveis <code style="background:#F1F5F9;padding:1px 5px;border-radius:3px;font-size:.78rem">{valor}</code> <code style="background:#F1F5F9;padding:1px 5px;border-radius:3px;font-size:.78rem">{venc}</code> <code style="background:#F1F5F9;padding:1px 5px;border-radius:3px;font-size:.78rem">{desc}</code> no template.</p>
+        <table id="fk-dunn-steps-tbl" style="width:100%;border-collapse:collapse;background:#fff">
+          <thead style="background:#F8FAFC"><tr><th style="padding:8px;font-size:.7rem;color:#64748B;text-align:left">D+</th><th style="padding:8px;font-size:.7rem;color:#64748B;text-align:left">CANAL</th><th style="padding:8px;font-size:.7rem;color:#64748B;text-align:left">TOM</th><th style="padding:8px;font-size:.7rem;color:#64748B;text-align:left">TEMPLATE</th><th style="padding:8px;font-size:.7rem;color:#64748B;text-align:center">·</th></tr></thead>
+          <tbody>${stepRows}</tbody>
+        </table>
+        <button onclick="_fkDunnAddStep()" style="margin-top:10px;padding:8px 14px;background:#F1F5F9;border:1px dashed #CBD5E1;border-radius:6px;cursor:pointer;font-weight:700;color:#475569;font-family:inherit;font-size:.78rem">+ Adicionar passo</button>
+      </div>
+      <div style="padding:14px 24px;background:#F8FAFC;border-top:1px solid #E2E8F0;display:flex;justify-content:flex-end;gap:8px">
+        <button onclick="document.getElementById('fk-dunn-cfg-ov').remove()" style="padding:9px 18px;background:#fff;border:1px solid #CBD5E1;color:#475569;border-radius:6px;cursor:pointer;font-family:inherit">Cancelar</button>
+        <button onclick="_fkDunnSaveCfg()" style="padding:9px 22px;background:#10B981;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-family:inherit">Salvar régua</button>
+      </div>
+    </div>
+  `;
+}
+function _fkDunnSaveCfg(){
+  const st = fkDunnState();
+  const rows = document.querySelectorAll('#fk-dunn-steps-tbl tbody tr');
+  st.steps = Array.from(rows).map(r => ({
+    dia: parseInt(r.querySelector('[data-fld="dia"]').value)||0,
+    canal: r.querySelector('[data-fld="canal"]').value,
+    tom: r.querySelector('[data-fld="tom"]').value,
+    template: r.querySelector('[data-fld="template"]').value
+  })).sort((a,b) => a.dia - b.dia);
+  fkDunnSave(st);
+  document.getElementById('fk-dunn-cfg-ov').remove();
+  if(typeof fkToast === 'function') fkToast('✓ Régua salva', 'ok', 1800);
+  fkDunnOpen();
+}
+function _fkDunnAddStep(){
+  const st = fkDunnState();
+  st.steps.push({ dia: (st.steps[st.steps.length-1]?.dia || 0) + 5, canal:'email', tom:'neutro', template:'' });
+  fkDunnSave(st);
+  fkDunnSettingsOpen();
+}
+function _fkDunnRmStep(i){
+  const st = fkDunnState();
+  st.steps.splice(i, 1);
+  fkDunnSave(st);
+  fkDunnSettingsOpen();
+}
+try {
+  window.fkDunnOpen = fkDunnOpen; window.fkDunnClose = fkDunnClose;
+  window.fkDunnExecuteAction = fkDunnExecuteAction; window.fkDunnSettingsOpen = fkDunnSettingsOpen;
+  window._fkDunnAddStep = _fkDunnAddStep; window._fkDunnRmStep = _fkDunnRmStep; window._fkDunnSaveCfg = _fkDunnSaveCfg;
+} catch(_){}
+
+// ════════════════════════════════════════════════════════════════════
+// 🕰 TIME TRAVEL · snapshots diários + visualizador (#5)
+// ════════════════════════════════════════════════════════════════════
+const FK_TIME_KEY = 'forekash:timetravel:v1';
+function fkTimeState(){ try{ return JSON.parse(localStorage.getItem(FK_TIME_KEY)||'{"snapshots":[]}'); }catch(_){ return {snapshots:[]}; } }
+function fkTimeSave(s){ try{ localStorage.setItem(FK_TIME_KEY, JSON.stringify(s)); }catch(_){} }
+// Captura snapshot do estado atual de TODOS módulos relevantes
+function _fkTimeCapture(){
+  const snap = {
+    id: 't_' + Date.now().toString(36),
+    date: new Date().toISOString().slice(0,10),
+    ts: Date.now(),
+    extrato: (typeof extratoData !== 'undefined' && extratoData) ? JSON.parse(JSON.stringify(extratoData)) : null,
+    dispo: (typeof dispo !== 'undefined' && dispo) ? JSON.parse(JSON.stringify(dispo)) : null,
+    fluxo: (typeof fluxo !== 'undefined' && fluxo) ? JSON.parse(JSON.stringify(fluxo)) : null,
+    receita: (typeof receita !== 'undefined' && receita) ? JSON.parse(JSON.stringify(receita)) : null,
+    impostos: (typeof impostos !== 'undefined' && impostos) ? JSON.parse(JSON.stringify(impostos)) : null
+  };
+  return snap;
+}
+// Snapshot diário · 1× por dia · roda no boot
+function fkTimeTakeDailySnap(){
+  const state = fkTimeState();
+  const today = new Date().toISOString().slice(0,10);
+  const last = (state.snapshots||[]).slice(-1)[0];
+  if(last && last.date === today) return;
+  const snap = _fkTimeCapture();
+  state.snapshots = state.snapshots || [];
+  state.snapshots.push(snap);
+  // Mantém só os últimos 365 snapshots
+  if(state.snapshots.length > 365) state.snapshots = state.snapshots.slice(-365);
+  fkTimeSave(state);
+}
+// Resumo de um snapshot (números que o user vai querer ver)
+function _fkTimeSnapSummary(snap){
+  let receitaT = 0, despesaT = 0;
+  if(snap.extrato && Array.isArray(snap.extrato.lancamentos)){
+    for(const l of snap.extrato.lancamentos){
+      const v = Math.abs(parseFloat(l.valor)||0);
+      if(l.tipo === 'ganho' && l.status === 'pago') receitaT += v;
+      else if(l.tipo === 'gasto' && l.status === 'pago') despesaT += v;
+    }
+  }
+  let saldoDispo = 0;
+  if(snap.dispo && Array.isArray(snap.dispo.contas)){
+    for(const c of snap.dispo.contas){
+      if(c.ativo === false) continue;
+      const saldos = c.saldos || {};
+      const keys = Object.keys(saldos).sort();
+      const lastK = keys[keys.length-1];
+      if(lastK){ const v = parseFloat(saldos[lastK]); if(isFinite(v)) saldoDispo += v; }
+    }
+  }
+  const lancCount = snap.extrato?.lancamentos?.length || 0;
+  return { receita: receitaT, despesa: despesaT, saldo: saldoDispo, lancCount };
+}
+function fkTimeOpen(){
+  fkTimeTakeDailySnap(); // garante um snap de hoje
+  const state = fkTimeState();
+  const snaps = (state.snapshots||[]).slice().sort((a,b) => b.ts - a.ts);
+  let ov = document.getElementById('fk-time-ov');
+  if(ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'fk-time-ov';
+  ov.className = 'fk-shortcuts-ov';
+  ov.style.zIndex = '99999';
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e => { if(e.target === ov) fkTimeClose(); });
+  const rows = snaps.length === 0 ? `<tr><td colspan="6" style="padding:40px;text-align:center;color:#64748B">Nenhum snapshot ainda. O primeiro será capturado no próximo boot diário.</td></tr>` : snaps.map((s, idx) => {
+    const sum = _fkTimeSnapSummary(s);
+    const dt = s.date ? s.date.split('-').reverse().join('/') : '—';
+    const dtTxt = new Date(s.ts).toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' });
+    const compare = idx < snaps.length - 1 ? `<button onclick="fkTimeDiff('${s.id}','${snaps[idx+1].id}')" style="background:#F1F5F9;border:none;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:.7rem;font-weight:700;color:#475569;font-family:inherit">⇄ Comparar</button>` : '';
+    return `<tr>
+      <td style="padding:8px 10px;font-size:.8rem;font-weight:700">${dt}</td>
+      <td style="padding:8px 10px;font-size:.74rem;color:#64748B">${dtTxt}</td>
+      <td style="padding:8px 10px;font-size:.8rem;text-align:right;color:#10B981;font-weight:700">R$ ${sum.receita.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+      <td style="padding:8px 10px;font-size:.8rem;text-align:right;color:#EF4444;font-weight:700">R$ ${sum.despesa.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+      <td style="padding:8px 10px;font-size:.8rem;text-align:right;font-weight:800">R$ ${sum.saldo.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+      <td style="padding:8px 10px;font-size:.8rem;text-align:center"><button onclick="fkTimeView('${s.id}')" style="background:#3B82F6;color:#fff;border:none;padding:5px 11px;border-radius:5px;cursor:pointer;font-size:.7rem;font-weight:700;font-family:inherit">🔍 Ver</button> ${compare}</td>
+    </tr>`;
+  }).join('');
+  ov.innerHTML = `
+    <div class="fk-shortcuts-card" style="width:min(960px,98vw);max-height:94vh;display:flex;flex-direction:column">
+      <div style="padding:18px 24px;background:linear-gradient(135deg,#7C3AED,#5B21B6);color:#fff;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
+        <div><div style="font-size:.7rem;font-weight:700;opacity:.85;letter-spacing:.08em">${snaps.length} SNAPSHOTS</div><h2 style="margin:4px 0 0;font-size:1.2rem;color:#fff">🕰 Time Travel</h2></div>
+        <div style="display:flex;gap:8px">
+          <button onclick="_fkTimeSnapNow()" style="background:rgba(255,255,255,.15);border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:700;font-family:inherit;font-size:.82rem">📸 Snap agora</button>
+          <button onclick="fkTimeClose()" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:1.3rem;cursor:pointer">×</button>
+        </div>
+      </div>
+      <div style="padding:18px 24px;flex:1;overflow:auto">
+        <p style="margin:0 0 14px;color:#475569;font-size:.84rem;line-height:1.5">Snapshots automáticos do estado da empresa, capturados <b>1× por dia</b>. Use pra ver "como estava em 15/abr", comparar 2 datas ou auditar mudanças.</p>
+        <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden">
+          <thead style="background:#F1F5F9"><tr><th style="padding:8px 10px;text-align:left;font-size:.7rem;color:#64748B;font-weight:800">DATA</th><th style="padding:8px 10px;text-align:left;font-size:.7rem;color:#64748B;font-weight:800">CAPTURADO</th><th style="padding:8px 10px;text-align:right;font-size:.7rem;color:#64748B;font-weight:800">RECEITA</th><th style="padding:8px 10px;text-align:right;font-size:.7rem;color:#64748B;font-weight:800">DESPESA</th><th style="padding:8px 10px;text-align:right;font-size:.7rem;color:#64748B;font-weight:800">SALDO</th><th style="padding:8px 10px;text-align:center;font-size:.7rem;color:#64748B;font-weight:800">AÇÃO</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+function fkTimeClose(){ const ov = document.getElementById('fk-time-ov'); if(ov) ov.remove(); const v = document.getElementById('fk-time-view-ov'); if(v) v.remove(); }
+function _fkTimeSnapNow(){
+  const state = fkTimeState();
+  state.snapshots = state.snapshots || [];
+  state.snapshots.push(_fkTimeCapture());
+  if(state.snapshots.length > 365) state.snapshots = state.snapshots.slice(-365);
+  fkTimeSave(state);
+  if(typeof fkToast === 'function') fkToast('📸 Snapshot criado', 'ok', 1500);
+  fkTimeOpen();
+}
+function fkTimeView(snapId){
+  const state = fkTimeState();
+  const snap = (state.snapshots||[]).find(s => s.id === snapId);
+  if(!snap){ if(typeof fkToast === 'function') fkToast('Snapshot não encontrado', 'err'); return; }
+  const sum = _fkTimeSnapSummary(snap);
+  const dt = snap.date ? snap.date.split('-').reverse().join('/') : '—';
+  // Top 10 lançamentos
+  let topLans = '';
+  if(snap.extrato && Array.isArray(snap.extrato.lancamentos)){
+    const sorted = snap.extrato.lancamentos.slice().sort((a,b) => Math.abs(parseFloat(b.valor)||0) - Math.abs(parseFloat(a.valor)||0));
+    topLans = sorted.slice(0,10).map(l => {
+      const cor = l.tipo === 'ganho' ? '#10B981' : '#EF4444';
+      const v = Math.abs(parseFloat(l.valor)||0).toLocaleString('pt-BR',{minimumFractionDigits:2});
+      const dts = (l.data||'').split('-').reverse().join('/');
+      return `<tr><td style="padding:6px 10px;font-size:.78rem">${dts}</td><td style="padding:6px 10px;font-size:.78rem">${(l.descricao||'').slice(0,40)}</td><td style="padding:6px 10px;font-size:.78rem;text-align:right;color:${cor};font-weight:700">R$ ${v}</td></tr>`;
+    }).join('');
+  }
+  let ov = document.getElementById('fk-time-view-ov');
+  if(ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'fk-time-view-ov';
+  ov.className = 'fk-shortcuts-ov';
+  ov.style.zIndex = '100000';
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e => { if(e.target === ov) ov.remove(); });
+  ov.innerHTML = `
+    <div class="fk-shortcuts-card" style="width:min(760px,98vw);max-height:94vh;display:flex;flex-direction:column">
+      <div style="padding:18px 24px;background:#0F172A;color:#fff;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
+        <div><div style="font-size:.7rem;font-weight:700;opacity:.7;letter-spacing:.08em">SNAPSHOT</div><h2 style="margin:4px 0 0;font-size:1.15rem;color:#fff">🕰 Estado em ${dt}</h2></div>
+        <button onclick="document.getElementById('fk-time-view-ov').remove()" style="background:rgba(255,255,255,.1);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:1.3rem;cursor:pointer">×</button>
+      </div>
+      <div style="padding:20px 24px;flex:1;overflow:auto">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">
+          <div style="background:#ECFDF5;border-radius:8px;padding:12px 14px"><div style="font-size:.7rem;font-weight:700;color:#065F46">↑ RECEITA</div><div style="font-size:1.1rem;font-weight:800;color:#10B981">R$ ${sum.receita.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
+          <div style="background:#FEE2E2;border-radius:8px;padding:12px 14px"><div style="font-size:.7rem;font-weight:700;color:#991B1B">↓ DESPESA</div><div style="font-size:1.1rem;font-weight:800;color:#EF4444">R$ ${sum.despesa.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
+          <div style="background:#DBEAFE;border-radius:8px;padding:12px 14px"><div style="font-size:.7rem;font-weight:700;color:#1E3A8A">💰 SALDO</div><div style="font-size:1.1rem;font-weight:800;color:#3B82F6">R$ ${sum.saldo.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
+          <div style="background:#FEF3C7;border-radius:8px;padding:12px 14px"><div style="font-size:.7rem;font-weight:700;color:#78350F">📋 LANÇAMENTOS</div><div style="font-size:1.1rem;font-weight:800;color:#F59E0B">${sum.lancCount}</div></div>
+        </div>
+        ${topLans ? `<h4 style="margin:0 0 8px;font-size:.86rem;color:#0F172A">Top 10 lançamentos</h4><div style="border:1px solid #E2E8F0;border-radius:8px;overflow:hidden"><table style="width:100%;border-collapse:collapse;background:#fff"><thead style="background:#F8FAFC"><tr><th style="padding:7px 10px;text-align:left;font-size:.7rem;color:#64748B">DATA</th><th style="padding:7px 10px;text-align:left;font-size:.7rem;color:#64748B">DESCRIÇÃO</th><th style="padding:7px 10px;text-align:right;font-size:.7rem;color:#64748B">VALOR</th></tr></thead><tbody>${topLans}</tbody></table></div>` : ''}
+        <div style="margin-top:14px;background:#F8FAFC;padding:12px 14px;border-radius:6px;font-size:.74rem;color:#64748B"><b>Modo leitura.</b> Os dados acima refletem o estado em ${dt}. Pra restaurar esse estado, use Export → Restore manual (futuro).</div>
+      </div>
+    </div>
+  `;
+}
+function fkTimeDiff(idA, idB){
+  const state = fkTimeState();
+  const a = (state.snapshots||[]).find(s => s.id === idA);
+  const b = (state.snapshots||[]).find(s => s.id === idB);
+  if(!a || !b){ if(typeof fkToast === 'function') fkToast('Snapshot não encontrado','err'); return; }
+  const sa = _fkTimeSnapSummary(a);
+  const sb = _fkTimeSnapSummary(b);
+  const diff = (v1, v2) => {
+    const d = v1 - v2;
+    const pct = v2 !== 0 ? Math.round((d/v2)*100) : 0;
+    const cor = d > 0 ? '#10B981' : (d < 0 ? '#EF4444' : '#64748B');
+    const sign = d > 0 ? '+' : '';
+    return `<span style="color:${cor};font-weight:800">${sign}R$ ${Math.abs(d).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</span> <span style="color:${cor};font-size:.74rem">(${sign}${pct}%)</span>`;
+  };
+  const dtA = a.date.split('-').reverse().join('/');
+  const dtB = b.date.split('-').reverse().join('/');
+  if(typeof anaAlert === 'function'){
+    anaAlert({
+      eyebrow: '⇄ Diff', title: `${dtB} → ${dtA}`,
+      message: `<div style="text-align:left">
+        <table style="width:100%;border-collapse:collapse">
+          <tr><td style="padding:8px 4px;font-size:.82rem;color:#64748B">Receita acumulada</td><td style="padding:8px 4px;font-size:.82rem;text-align:right">${diff(sa.receita, sb.receita)}</td></tr>
+          <tr style="background:#F8FAFC"><td style="padding:8px 4px;font-size:.82rem;color:#64748B">Despesa acumulada</td><td style="padding:8px 4px;font-size:.82rem;text-align:right">${diff(sa.despesa, sb.despesa)}</td></tr>
+          <tr><td style="padding:8px 4px;font-size:.82rem;color:#64748B">Saldo em conta</td><td style="padding:8px 4px;font-size:.82rem;text-align:right">${diff(sa.saldo, sb.saldo)}</td></tr>
+          <tr style="background:#F8FAFC"><td style="padding:8px 4px;font-size:.82rem;color:#64748B">Lançamentos no extrato</td><td style="padding:8px 4px;font-size:.82rem;text-align:right;font-weight:800">${(sa.lancCount - sb.lancCount > 0 ? '+' : '')}${sa.lancCount - sb.lancCount}</td></tr>
+        </table>
+      </div>`,
+      okText: 'Fechar'
+    });
+  }
+}
+try {
+  window.fkTimeOpen = fkTimeOpen; window.fkTimeClose = fkTimeClose;
+  window.fkTimeView = fkTimeView; window.fkTimeDiff = fkTimeDiff;
+  window._fkTimeSnapNow = _fkTimeSnapNow;
+} catch(_){}
+// Snap diário automático no boot
+setTimeout(() => { try{ fkTimeTakeDailySnap(); }catch(_){} }, 3500);
   }
 
   if(document.readyState === 'loading'){
