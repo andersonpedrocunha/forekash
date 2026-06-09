@@ -47959,22 +47959,32 @@ async function homeFetchMarket(){
 
   const out = { ts: Date.now(), usd:null, selic:null, ipca:null, inpc:null };
 
-  // Dólar: AwesomeAPI (BRL) — suporta CORS
-  try{
-    const r = await fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL', { cache:'no-store' });
-    if(r.ok){
+  // Dólar: AwesomeAPI (BRL) — suporta CORS · com retry 1× se falhar
+  async function _fetchUsdOnce(){
+    const ctrl = new AbortController();
+    const tt = setTimeout(() => ctrl.abort(), 8000);
+    try{
+      const r = await fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL', { cache:'no-store', signal: ctrl.signal });
+      if(!r.ok) return null;
       const j = await r.json();
       const u = j && j.USDBRL;
-      if(u){
-        out.usd = {
-          bid: parseFloat(u.bid),
-          pctChange: parseFloat(u.pctChange),
-          varBid: parseFloat(u.varBid),
-          high: parseFloat(u.high),
-          low:  parseFloat(u.low),
-          timestamp: parseInt(u.timestamp, 10)
-        };
-      }
+      if(!u || !u.bid) return null;
+      return {
+        bid: parseFloat(u.bid),
+        pctChange: parseFloat(u.pctChange),
+        varBid: parseFloat(u.varBid),
+        high: parseFloat(u.high),
+        low:  parseFloat(u.low),
+        timestamp: parseInt(u.timestamp, 10)
+      };
+    } finally { clearTimeout(tt); }
+  }
+  try{
+    out.usd = await _fetchUsdOnce();
+    if(!out.usd){
+      // Retry 1× após 600ms · cobre glitch pontual
+      await new Promise(res => setTimeout(res, 600));
+      try{ out.usd = await _fetchUsdOnce(); }catch(_){}
     }
   }catch(e){ /* offline / cors — segue com fallback */ }
 
@@ -48070,7 +48080,15 @@ async function homeFetchMarket(){
   out.inpc  = inpcIbge || await fetchBcb12mComposto(188);
 
   _homeMarketCache = out;
-  try{ sessionStorage.setItem('home_market_v4', JSON.stringify(out)); }catch(e){}
+  // Só cacheia se conseguiu pelo menos o dólar · evita "indisponível" persistente por 15min
+  // depois de uma falha pontual de rede. Cache poisoning era a causa de "Dólar indisponível"
+  // ficar travado mesmo com a API respondendo normal.
+  if(out.usd && out.usd.bid){
+    try{ sessionStorage.setItem('home_market_v4', JSON.stringify(out)); }catch(e){}
+  } else {
+    // Se já tinha cache válido anterior, mantém ele em vez de sobrescrever com null
+    try{ sessionStorage.removeItem('home_market_v4'); }catch(e){}
+  }
   homeRenderMarket(out);
 }
 
@@ -98191,7 +98209,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1780523973';
+      const CACHE = 'forekash-v1781015662';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
