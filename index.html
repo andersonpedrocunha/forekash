@@ -92924,6 +92924,13 @@ function seedDemoDataIfEmpty(){
 
 function seedDemoData(opts){
   const FORCE = !!(opts && opts.force);
+  // Se o user apagou tudo e marcou flag, não rePopula automático no boot
+  try{
+    if(!FORCE && localStorage.getItem('forekash:seed:disabled') === '1'){
+      console.log('[FK] seed desabilitado pelo user · pulando');
+      return;
+    }
+  }catch(_){}
   const Y  = String(new Date().getFullYear());
   const Yp = String(parseInt(Y)-1);
   const curM = new Date().getMonth(); // 0..11
@@ -95814,7 +95821,7 @@ async function resetAllData(){
   const proceed = (typeof showConfirm === 'function')
     ? await showConfirm({
         title:'Apagar TODOS os dados?',
-        message:'Todos os módulos (empréstimos, receita, pessoas, estrutura, disponibilidades, fluxo) e suas configurações serão <b>permanentemente apagados</b>. Esta ação não pode ser desfeita.',
+        message:'Todos os módulos (empréstimos, receita, pessoas, estrutura, disponibilidades, fluxo, comercial, NFS-e, asaas, patrimônio, etc.) e suas configurações serão <b>permanentemente apagados · localmente E no Supabase</b>. Esta ação não pode ser desfeita.',
         confirmText:'Apagar tudo',
         cancelText:'Cancelar',
         danger:true
@@ -95824,18 +95831,68 @@ async function resetAllData(){
   const again = (typeof showConfirm === 'function')
     ? await showConfirm({
         title:'Confirmação final',
-        message:'Tem <b>certeza absoluta</b>? Considere baixar um backup antes.',
-        confirmText:'Sim, apagar',
+        message:'Tem <b>certeza absoluta</b>? Vai apagar TUDO da empresa atual no Supabase também. Considere baixar um backup antes.',
+        confirmText:'Sim, apagar tudo (local + nuvem)',
         cancelText:'Cancelar',
         danger:true
       })
     : true;
   if(!again) return;
-  ALL_LS_KEYS.forEach(k => {
-    try{ localStorage.removeItem(k); }catch(e){}
-  });
+
+  // 1) Limpa Supabase (todas as tabelas com org_id filtrado pela org atual)
+  try{
+    if(window.FK_MODE === 'cloud' && window.sb && typeof fkcOrgId === 'function'){
+      const orgId = fkcOrgId();
+      if(orgId){
+        const CLOUD_TABLES = [
+          'module_blobs',
+          'centros_custo',
+          'catmap_categorias',
+          'extrato_lancamentos',
+          'vendedores',
+          'cartoes', 'cartao_faturas', 'cartao_lancamentos',
+          'loans', 'loan_modalidades',
+          'fluxo_year',
+          'orcamento_year'
+          // NÃO apaga: organizations, org_members, user_active_org, user_kv, user_backups, kash_almanaque_eventos
+        ];
+        let okT = 0, failT = 0;
+        for(const tbl of CLOUD_TABLES){
+          try{
+            const { error } = await window.sb.from(tbl).delete().eq('org_id', orgId);
+            if(error){ console.warn('[FK reset] ⚠', tbl, error.message); failT++; }
+            else { console.log('[FK reset] 🧹 limpou', tbl); okT++; }
+          }catch(e){ console.warn('[FK reset]', tbl, e); failT++; }
+        }
+        console.log(`[FK reset] Supabase: ${okT} tabelas limpas, ${failT} falharam`);
+      }
+    }
+  }catch(e){ console.warn('[FK reset] cloud erro:', e); }
+
+  // 2) Limpa localStorage (TODAS as keys forekash:* + as antigas listadas)
+  try{
+    ALL_LS_KEYS.forEach(k => { try{ localStorage.removeItem(k); }catch(_){} });
+    // Pega TODAS as chaves forekash:* dinamicamente
+    const toDelete = [];
+    for(let i = 0; i < localStorage.length; i++){
+      const k = localStorage.key(i);
+      if(k && (k.startsWith('forekash:') || k.startsWith('FK_') || k.startsWith('fk:'))){
+        toDelete.push(k);
+      }
+    }
+    toDelete.forEach(k => { try{ localStorage.removeItem(k); }catch(_){} });
+    console.log('[FK reset] localStorage limpo · ' + toDelete.length + ' keys forekash:* apagadas');
+  }catch(e){}
+
+  // 3) Limpa sessionStorage
   try{ sessionStorage.clear(); }catch(e){}
-  location.reload();
+
+  // 4) Desabilita seed de demo no próximo boot (evita repopular automático)
+  try{ localStorage.setItem('forekash:seed:disabled', '1'); }catch(_){}
+
+  // 5) Reload
+  if(typeof fkToast === 'function') fkToast('☁ Tudo apagado · recarregando...', 'ok', 2000);
+  setTimeout(() => location.reload(), 800);
 }
 
 // ═══════════════════════════════════════════════════
@@ -98266,7 +98323,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781117655';
+      const CACHE = 'forekash-v1781120275';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
