@@ -20093,6 +20093,11 @@
                 <button type="button" id="kt-view-semana"  class="kt-view-btn"        onclick="kashtrackSetView('semana')"  role="tab" aria-selected="false">Semana</button>
                 <button type="button" id="kt-view-dia"     class="kt-view-btn"        onclick="kashtrackSetView('dia')"     role="tab" aria-selected="false">Dia</button>
               </div>
+              <!-- Toggle: incluir reservas? -->
+              <label class="fk-incres-toggle" id="kt-incres-toggle" title="Incluir reservas e investimentos de longo prazo no saldo · default: só caixa operacional" style="display:inline-flex;align-items:center;gap:8px;margin-left:12px;font-size:.74rem;color:#475569;cursor:pointer;user-select:none">
+                <input type="checkbox" id="kt-incres-check" onchange="fkOnIncluirReservasToggle(this.checked)" style="accent-color:#7C3AED;cursor:pointer">
+                <span>Incluir reservas</span>
+              </label>
               <div class="kt-calnav-btns">
                 <button type="button" class="kt-calnav-btn" onclick="kashtrackPrev()" id="kt-nav-prev" title="Anterior">
                   <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
@@ -38512,6 +38517,21 @@ function renderFlxCashbox(){
   ).join('');
   const selRO = conf ? ' disabled title="Remova o ✓ do saldo inicial para trocar o mês"' : '';
   const monthsLeft = 12 - siMes;
+  // Breakdown caixa vs reservas (mostra subtítulo quando incluindo reservas)
+  let bdHtml = '';
+  try{
+    if(typeof _ktSaldoInicial === 'function'){
+      const bd = _ktSaldoInicial({ breakdown: true });
+      if(bd && (bd.reservas > 0)){
+        if(fkIncludeReservas()){
+          bdHtml = `<div style="font-size:.66rem;color:#7C3AED;margin-top:2px;font-weight:600" title="Caixa + Reservas (toggle ON)">caixa ${fmtBRL(bd.caixa)} + reservas ${fmtBRL(bd.reservas)}</div>`;
+        } else {
+          bdHtml = `<div style="font-size:.66rem;color:#94A3B8;margin-top:2px" title="Reservas excluídas · ligue o toggle pra incluir">+ R$ ${(bd.reservas/1000).toFixed(0)}k em reservas (não incluídas)</div>`;
+        }
+      }
+    }
+  }catch(_){}
+  const incRes = fkIncludeReservas();
   el.innerHTML = `
     <div class="flx-cashbox-card is-start${conf?' flx-confirmed':''}">
       <div class="flx-cashbox-lbl">Saldo Inicial</div>
@@ -38521,6 +38541,11 @@ function renderFlxCashbox(){
           ${selOpts}
         </select>
       </div>
+      ${bdHtml}
+      <label style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:.7rem;color:#475569;cursor:pointer;user-select:none" title="Inclui reservas e investimentos de longo prazo no cálculo de saldo">
+        <input type="checkbox" id="flx-incres-check" onchange="fkOnIncluirReservasToggle(this.checked)" ${incRes?'checked':''} style="accent-color:#7C3AED;cursor:pointer">
+        <span>Incluir reservas</span>
+      </label>
     </div>
     <div class="flx-cashbox-arrow" aria-hidden="true">
       <svg viewBox="0 0 24 24"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
@@ -46537,16 +46562,39 @@ function kashtrackSetTrackerRange(days, btn){
 //   2. snapshot mais recente <= mês atual (âncora confirmada pelo usuário)
 //   3. c.saldoInicial (ponto de partida) se cYm <= mês atual
 //   4. fallback amplo: qualquer c.saldos[k] em qualquer mês
-function _ktSaldoInicial(){
+// Preferência global · incluir reservas no saldo? (default: false · só caixa)
+function fkIncludeReservas(){
+  try{ return localStorage.getItem('forekash:flow:incluir-reservas:v1') === '1'; }catch(_){ return false; }
+}
+function fkSetIncludeReservas(v){
+  try{ localStorage.setItem('forekash:flow:incluir-reservas:v1', v ? '1' : '0'); }catch(_){}
+  try{ window.dispatchEvent(new CustomEvent('forekash:incluir-reservas-changed', { detail:{ value: !!v } })); }catch(_){}
+}
+// Classifica uma conta como caixa ou reserva via tipo.liquidez
+function _fkContaIsReserva(c){
+  if(!c) return false;
+  try{
+    if(typeof dispo === 'undefined' || !dispo || !Array.isArray(dispo.tipos)) return false;
+    const tipo = dispo.tipos.find(t => t.id === c.tipoId);
+    return !!(tipo && tipo.liquidez === 'reserva');
+  }catch(_){ return false; }
+}
+
+function _ktSaldoInicial(opts){
+  const includeReservas = opts && opts.includeReservas != null ? !!opts.includeReservas : fkIncludeReservas();
+  const wantBreakdown = !!(opts && opts.breakdown);
   try {
-    if (typeof dispo === 'undefined' || !dispo || !Array.isArray(dispo.contas)) return 0;
+    if (typeof dispo === 'undefined' || !dispo || !Array.isArray(dispo.contas)) {
+      return wantBreakdown ? { total:0, caixa:0, reservas:0 } : 0;
+    }
     const today = new Date();
     const curYear  = today.getFullYear();
     const curMonth = today.getMonth(); // 0..11
     const curYm = curYear + '-' + String(curMonth+1).padStart(2,'0');
-    let total = 0;
+    let totalCaixa = 0, totalReservas = 0;
     for (const c of dispo.contas){
       if (c.ativo === false) continue;
+      const isRes = _fkContaIsReserva(c);
       const saldos = c.saldos || {};
       let lastV = null;
       // 1) c.saldos[ym] mais recente <= mês atual (varre 5 anos atrás)
@@ -46585,11 +46633,16 @@ function _ktSaldoInicial(){
           if (isFinite(v) && v !== 0){ lastV = v; break; }
         }
       }
-      if (lastV != null) total += lastV;
+      if (lastV != null){
+        if (isRes) totalReservas += lastV;
+        else totalCaixa += lastV;
+      }
     }
-    return total;
-  } catch(e){ return 0; }
+    const total = includeReservas ? (totalCaixa + totalReservas) : totalCaixa;
+    return wantBreakdown ? { total, caixa: totalCaixa, reservas: totalReservas } : total;
+  } catch(e){ return wantBreakdown ? { total:0, caixa:0, reservas:0 } : 0; }
 }
+try{ window.fkIncludeReservas = fkIncludeReservas; window.fkSetIncludeReservas = fkSetIncludeReservas; }catch(_){}
 
 function kashtrackRenderTracker(){
   const strip = document.getElementById('kt-tracker-strip');
@@ -98323,7 +98376,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781120275';
+      const CACHE = 'forekash-v1781184843';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -126701,6 +126754,46 @@ try {
 } catch(_){}
 // Snap diário automático no boot
 setTimeout(() => { try{ fkTimeTakeDailySnap(); }catch(_){} }, 3500);
+
+// ════════════════════════════════════════════════════════════════════
+// 💰 TOGGLE INCLUIR RESERVAS · sync entre KASHtrack + Fluxo
+// ════════════════════════════════════════════════════════════════════
+function fkOnIncluirReservasToggle(checked){
+  fkSetIncludeReservas(!!checked);
+}
+function _fkSyncIncluirReservasChecks(){
+  const v = fkIncludeReservas();
+  const a = document.getElementById('kt-incres-check');
+  if(a) a.checked = v;
+  const b = document.getElementById('flx-incres-check');
+  if(b) b.checked = v;
+  // Atualiza badges visuais
+  document.querySelectorAll('.fk-incres-badge').forEach(el => {
+    el.textContent = v ? '+ reservas' : '';
+    el.style.display = v ? '' : 'none';
+  });
+}
+window.addEventListener('forekash:incluir-reservas-changed', () => {
+  try{ _fkSyncIncluirReservasChecks(); }catch(_){}
+  // Re-renderiza KASHtrack se ativo
+  try{ if(typeof kashtrackRender === 'function') kashtrackRender(); }catch(_){}
+  // Re-renderiza Fluxo (cashbox + sheet) se ativo
+  try{
+    if(typeof renderFlxSheet === 'function' && document.getElementById('mod-fluxo')?.classList.contains('active')){
+      renderFlxSheet();
+    }
+    if(typeof _flxRenderCashbox === 'function') _flxRenderCashbox();
+  }catch(_){}
+  if(typeof fkToast === 'function'){
+    fkToast(fkIncludeReservas() ? '☑ Saldo agora inclui reservas' : '☐ Saldo só do caixa operacional', 'info', 1800);
+  }
+});
+// Sincroniza ao mudar de módulo (caso o user troque pra KASHtrack/Fluxo)
+window.addEventListener('DOMContentLoaded', () => {
+  setTimeout(_fkSyncIncluirReservasChecks, 1000);
+  setTimeout(_fkSyncIncluirReservasChecks, 3000);
+});
+try{ window.fkOnIncluirReservasToggle = fkOnIncluirReservasToggle; window._fkSyncIncluirReservasChecks = _fkSyncIncluirReservasChecks; }catch(_){}
 
 // ════════════════════════════════════════════════════════════════════
 // ☁ FULL CLOUD MIGRATION · sync universal pra TODOS os módulos
