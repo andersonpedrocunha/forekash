@@ -36065,18 +36065,71 @@ function flxImpParcelamentoPrincipalMes(year, mIdx){
 // no mês (impostos.correntes[].valores[impMesKey(year, mIdx)]).
 function _flxAutoImpostos(year, mIdx){
   try{
-    if(typeof impostos === 'undefined' || !impostos || !Array.isArray(impostos.correntes)) return 0;
-    const key = year + '-' + String(mIdx+1).padStart(2,'0');
     let tot = 0;
-    for(const c of impostos.correntes){
-      const v = c && c.valores && c.valores[key];
-      if(v !== undefined && v !== '' && v != null){
-        tot += parseFloat(v) || 0;
+    const key = year + '-' + String(mIdx+1).padStart(2,'0');
+    // 1) Impostos correntes (apuração mensal — Simples/Presumido/Real)
+    if(typeof impostos !== 'undefined' && impostos && Array.isArray(impostos.correntes)){
+      for(const c of impostos.correntes){
+        const v = c && c.valores && c.valores[key];
+        if(v !== undefined && v !== '' && v != null){
+          tot += parseFloat(v) || 0;
+        }
       }
     }
+    // 2) Retenções na fonte (PIS/COFINS/IRRF/CSLL/ISS etc) por lançamento
+    //    Agregam aqui porque são impostos sobre receita já recolhidos pelo cliente
+    tot += flxRetencoesMes(year, mIdx);
     return tot;
   }catch(e){ return 0; }
 }
+
+// Soma TODAS as retenções/abatimentos do mês · vem de Receita módulo + Extrato
+// Cobre: cell.retencoes (Receita kanban) + lanc.retencoes (Extrato)
+function flxRetencoesMes(year, mIdx){
+  // Memo via cache de render se disponível
+  if(typeof _impCalcCache !== 'undefined' && _impCalcCache){
+    const k = 'flxRetencoesMes:' + year + ':' + mIdx;
+    if(k in _impCalcCache) return _impCalcCache[k];
+    const v = _flxRetencoesMesCompute(year, mIdx);
+    _impCalcCache[k] = v;
+    return v;
+  }
+  return _flxRetencoesMesCompute(year, mIdx);
+}
+function _flxRetencoesMesCompute(year, mIdx){
+  let total = 0;
+  const ym = String(year) + '-' + String(mIdx+1).padStart(2,'0');
+  // (1) Cells da Receita (kanban) · cell.retencoes[]
+  try{
+    if(receita && receita.years && receita.years[year]){
+      const d = receita.years[year];
+      const mesNome = REC_MESES[mIdx];
+      for(const r of (d.clients||[])){
+        const c = r.meses && r.meses[mesNome];
+        if(c && Array.isArray(c.retencoes)){
+          for(const ret of c.retencoes){
+            total += parseFloat(ret.valor) || 0;
+          }
+        }
+      }
+    }
+  }catch(_){}
+  // (2) Lançamentos do Extrato com retenções (ganho · status irrelevante)
+  try{
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      for(const l of extratoData.lancamentos){
+        if(l.tipo !== 'ganho') continue;
+        if(!l.data || !l.data.startsWith(ym)) continue;
+        if(!Array.isArray(l.retencoes)) continue;
+        for(const ret of l.retencoes){
+          total += parseFloat(ret.valor) || 0;
+        }
+      }
+    }
+  }catch(_){}
+  return total;
+}
+try{ window.flxRetencoesMes = flxRetencoesMes; }catch(_){}
 
 // Wrappers: override manual (se houver) vence; senão, usa o valor derivado da aba.
 // Usados em: renderFlxSheet, updateFlxKpis, módulo Orçamento (realizado).
@@ -98574,7 +98627,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781294241';
+      const CACHE = 'forekash-v1781297396';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
