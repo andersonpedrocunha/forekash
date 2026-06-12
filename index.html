@@ -33936,6 +33936,24 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
     +         '</div>'
     +       '</div>'
     +       '<div class="field full">' + _itemsBuildHtml('rec', 'ganho', { hint: 'itens adicionais herdam data e banco' }) + '</div>'
+    +       '<div class="field full">'
+    +         '<div class="ext-retencoes" id="rec-retencoes-wrap" style="background:#FEF3C7;border:1px solid #FDE68A;border-radius:10px;padding:14px;margin-top:6px">'
+    +           '<div class="ext-retencoes-hd" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;flex-wrap:wrap">'
+    +             '<span style="font-size:.78rem;font-weight:700;color:#78350F;display:flex;align-items:center;gap:6px">💸 Retenções e Abatimentos <small style="font-weight:500;color:#92400E;font-size:.7rem">(opcional · ex: PIS/COFINS, desconto, glosa, tarifa)</small></span>'
+    +             '<span class="ext-retencoes-total" id="rec-retencoes-total" style="font-size:.74rem;color:#78350F;font-weight:600">Total deduções: <b>R$ 0,00</b> · Líquido: <b id="rec-liquido-val">R$ 0,00</b></span>'
+    +           '</div>'
+    +           '<div id="rec-retencoes-list" style="display:flex;flex-direction:column;gap:6px"></div>'
+    +           '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">'
+    +             '<button type="button" onclick="_recRetencaoAdd()" style="background:#F59E0B;border:none;color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:.76rem;font-weight:700;font-family:inherit">+ Adicionar dedução</button>'
+    +             '<select id="rec-retencao-preset" onchange="_recRetencaoApplyPreset(this.value);this.value=\'\'" style="padding:6px 10px;border:1px solid #FDE68A;border-radius:6px;background:#fff;font-size:.74rem;font-family:inherit;cursor:pointer;color:#78350F">'
+    +               '<option value="">+ Preset rápido…</option>'
+    +               '<option value="servico-presumido">Serviço PJ · Lucro Presumido (PIS+COFINS+IRRF+CSLL)</option>'
+    +               '<option value="servico-real">Serviço PJ · Lucro Real (PIS+COFINS+IRRF+CSLL)</option>'
+    +               '<option value="simples">Simples Nacional (DAS é mensal)</option>'
+    +             '</select>'
+    +           '</div>'
+    +         '</div>'
+    +       '</div>'
     +       '<div class="field full">' + _repBuildHtml('rec', 'once', 'mensal', 6, { hint: 'aplica o valor desta célula nos próximos meses do mesmo cliente' }) + '</div>'
     +       '<div class="field full"><label>Anexo do documento <span class="hint">— NF, fatura, invoice</span></label>'
     +         '<div id="rec-kb-anexo-wrap">' + _dkbRenderAnexoUI(cell.anexo, 'rec-doc') + '</div>'
@@ -34001,6 +34019,18 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
   // Reseta lista de itens adicionais
   _recItems = [];
   if(typeof _itemsRender === 'function') _itemsRender('rec');
+  // Inicializa retenções a partir do cell (se houver) e renderiza
+  try{
+    _recRetencoes = (cell && Array.isArray(cell.retencoes)) ? cell.retencoes.map(r => ({
+      id: r.id || ('rr_' + Date.now().toString(36) + Math.random().toString(36).slice(2,5)),
+      tipo: r.tipo || 'custom',
+      label: r.label || '',
+      aliquota: parseFloat(r.aliquota) || 0,
+      valor: parseFloat(r.valor) || 0,
+      contraparte: r.contraparte || ''
+    })) : [];
+    if(typeof _recRetencaoRender === 'function') _recRetencaoRender();
+  }catch(_){}
 
   // Foco
   setTimeout(() => {
@@ -34190,6 +34220,27 @@ function recKbCardSave(){
   // Anexos (sempre array): documento (Detalhes) + comprovante (Recebimento)
   if(Array.isArray(_recKbAnexoData) && _recKbAnexoData.length > 0) cell.anexo = _recKbAnexoData.slice(); else delete cell.anexo;
   if(Array.isArray(_recKbCompData)  && _recKbCompData.length > 0)  cell.comprovante = _recKbCompData.slice(); else delete cell.comprovante;
+
+  // Retenções e Abatimentos
+  try{
+    if(typeof _recRetencoes !== 'undefined' && Array.isArray(_recRetencoes) && _recRetencoes.length > 0){
+      const rets = _recRetencoes.filter(r => parseFloat(r.valor) > 0).map(r => ({
+        id: r.id, tipo: r.tipo, label: r.label || r.tipo,
+        aliquota: parseFloat(r.aliquota)||0, valor: parseFloat(r.valor)||0,
+        contraparte: r.contraparte || ''
+      }));
+      if(rets.length > 0){
+        cell.retencoes = rets;
+        const totalRet = rets.reduce((s, r) => s + r.valor, 0);
+        cell.valorBruto = parseFloat(cell.valor) || 0;
+        cell.valorLiquido = cell.valorBruto - totalRet;
+      } else {
+        delete cell.retencoes; delete cell.valorBruto; delete cell.valorLiquido;
+      }
+    } else {
+      delete cell.retencoes; delete cell.valorBruto; delete cell.valorLiquido;
+    }
+  }catch(_){}
 
   // Vencimento dentro do mês
   if(venc && (venc < minDate || venc > maxDate)){
@@ -98523,7 +98574,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781291659';
+      const CACHE = 'forekash-v1781294241';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -126901,6 +126952,95 @@ try {
 } catch(_){}
 // Snap diário automático no boot
 setTimeout(() => { try{ fkTimeTakeDailySnap(); }catch(_){} }, 3500);
+
+// ════════════════════════════════════════════════════════════════════
+// 💸 RETENÇÕES no modal de RECEITA · mesma lógica do Extrato adaptada
+// ════════════════════════════════════════════════════════════════════
+let _recRetencoes = [];
+function _recRetencaoAdd(preset){
+  const p = (preset && typeof _EXT_RET_PRESETS !== 'undefined' && _EXT_RET_PRESETS[preset]) ? _EXT_RET_PRESETS[preset] : { label:'', aliq:0, contraparte:'' };
+  const id = 'rr' + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+  _recRetencoes.push({ id, tipo: preset || 'custom', label: p.label, aliquota: p.aliq, valor: 0, contraparte: p.contraparte || '' });
+  _recRetencaoRender();
+}
+function _recRetencaoRemove(id){ _recRetencoes = _recRetencoes.filter(r => r.id !== id); _recRetencaoRender(); }
+function _recRetencaoUpdate(id, field, value){
+  const r = _recRetencoes.find(x => x.id === id);
+  if(!r) return;
+  if(field === 'aliquota'){
+    r.aliquota = parseFloat(String(value).replace(',','.')) || 0;
+    const base = _recGetTotalBase();
+    r.valor = (base * r.aliquota) / 100;
+  } else if(field === 'valor'){
+    r.valor = parseFloat(String(value).replace(/\./g,'').replace(',','.')) || 0;
+    r.aliquota = 0;
+  } else {
+    r[field] = value;
+  }
+  _recRetencaoRender();
+}
+function _recRetencaoApplyPreset(preset){
+  if(!preset) return;
+  if(preset === 'simples'){
+    if(typeof fkToast === 'function') fkToast('💡 Simples Nacional · DAS é apurado mensal (não por linha)', 'info', 3500);
+    return;
+  }
+  if(preset === 'servico-presumido'){
+    ['pis','cofins','irrf','csll'].forEach(p => _recRetencaoAdd(p));
+  } else if(preset === 'servico-real'){
+    _recRetencoes.push({ id:'rr_'+Date.now()+'1', tipo:'pis', label:'PIS', aliquota:1.65, valor:0, contraparte:'Receita Federal' });
+    _recRetencoes.push({ id:'rr_'+Date.now()+'2', tipo:'cofins', label:'COFINS', aliquota:7.6, valor:0, contraparte:'Receita Federal' });
+    _recRetencoes.push({ id:'rr_'+Date.now()+'3', tipo:'irrf', label:'IRRF', aliquota:1.5, valor:0, contraparte:'Receita Federal' });
+    _recRetencoes.push({ id:'rr_'+Date.now()+'4', tipo:'csll', label:'CSLL', aliquota:1.0, valor:0, contraparte:'Receita Federal' });
+    _recRetencaoRender();
+  }
+}
+// Pega o total do lançamento atual da Receita (valor principal + itens adicionais se houver)
+function _recGetTotalBase(){
+  let base = 0;
+  try{
+    // Valor principal da receita (no DOM)
+    const vEl = document.querySelector('input[id^="rec-kb-fld-valor"], #rec-kb-fld-valor');
+    if(vEl) base += parseFloat(String(vEl.value).replace(/\./g,'').replace(',','.')) || 0;
+    // Itens adicionais
+    const items = document.querySelectorAll('#rec-items-list .rec-it-val, .rec-it-val[data-i]');
+    items.forEach(i => { base += parseFloat(String(i.value).replace(/\./g,'').replace(',','.')) || 0; });
+    // Fallback: tenta pegar do cell global se DOM ainda não tá pronto
+    if(base === 0 && typeof _recKbActiveCell === 'object' && _recKbActiveCell){
+      base = parseFloat(_recKbActiveCell.valor) || 0;
+    }
+  }catch(_){}
+  return base;
+}
+function _recRetencaoRender(){
+  const list = document.getElementById('rec-retencoes-list');
+  if(!list) return;
+  const baseTotal = _recGetTotalBase();
+  _recRetencoes.forEach(r => {
+    if(r.aliquota > 0) r.valor = (baseTotal * r.aliquota) / 100;
+  });
+  if(_recRetencoes.length === 0){
+    list.innerHTML = '<div style="text-align:center;color:#92400E;font-size:.74rem;padding:8px;font-style:italic">Nenhuma dedução · valor recebido = bruto</div>';
+  } else {
+    list.innerHTML = _recRetencoes.map(r => {
+      const fmtV = (typeof _dkbFmtNumBR === 'function') ? _dkbFmtNumBR : (n => Number(n||0).toFixed(2).replace('.', ','));
+      return `<div style="display:grid;grid-template-columns:1fr 90px 130px 30px;gap:6px;align-items:center;background:#fff;padding:8px 10px;border-radius:6px;border:1px solid #FDE68A">
+        <input type="text" value="${r.label.replace(/"/g,'&quot;')}" onchange="_recRetencaoUpdate('${r.id}','label',this.value)" placeholder="Ex: PIS, Desconto, Tarifa..." style="border:1px solid #FDE68A;border-radius:4px;padding:5px 8px;font-size:.78rem;font-family:inherit">
+        <input type="text" value="${r.aliquota > 0 ? r.aliquota.toString().replace('.',',') : ''}" onchange="_recRetencaoUpdate('${r.id}','aliquota',this.value)" placeholder="%" style="border:1px solid #FDE68A;border-radius:4px;padding:5px 8px;font-size:.78rem;font-family:inherit;text-align:right">
+        <div style="display:flex;align-items:center;gap:4px"><span style="font-size:.74rem;color:#78350F">R$</span><input type="text" value="${fmtV(r.valor)}" onchange="_recRetencaoUpdate('${r.id}','valor',this.value)" style="border:1px solid #FDE68A;border-radius:4px;padding:5px 8px;font-size:.78rem;font-family:inherit;text-align:right;width:100%"></div>
+        <button type="button" onclick="_recRetencaoRemove('${r.id}')" style="background:#FEE2E2;border:none;color:#991B1B;width:26px;height:26px;border-radius:5px;cursor:pointer;font-size:.85rem" title="Remover">✕</button>
+      </div>`;
+    }).join('');
+  }
+  const totalRet = _recRetencoes.reduce((s, r) => s + (parseFloat(r.valor)||0), 0);
+  const liquido = baseTotal - totalRet;
+  const fmt = (typeof fmtBRL === 'function') ? fmtBRL : (n => 'R$ ' + Number(n||0).toFixed(2).replace('.', ','));
+  const totEl = document.getElementById('rec-retencoes-total');
+  if(totEl){
+    totEl.innerHTML = `Total deduções: <b style="color:#DC2626">${fmt(totalRet)}</b> · Líquido: <b style="color:#059669">${fmt(liquido)}</b>`;
+  }
+}
+try{ window._recRetencaoAdd = _recRetencaoAdd; window._recRetencaoRemove = _recRetencaoRemove; window._recRetencaoUpdate = _recRetencaoUpdate; window._recRetencaoApplyPreset = _recRetencaoApplyPreset; window._recRetencaoRender = _recRetencaoRender; }catch(_){}
 
 // ════════════════════════════════════════════════════════════════════
 // 💰 TOGGLE INCLUIR RESERVAS · sync entre KASHtrack + Fluxo
