@@ -64198,6 +64198,102 @@ function _extItemAdd(){
   }, 0);
 }
 
+// ════════════════════════════════════════════════════════════════════
+// 💸 RETENÇÕES E ABATIMENTOS · suporta impostos preset + custom
+// Cada retenção: { tipo, label, aliquota?, valor, descricao? }
+// ════════════════════════════════════════════════════════════════════
+let _extRetencoes = [];
+const _EXT_RET_PRESETS = {
+  pis:    { label:'PIS',    aliq:0.65, contraparte:'Receita Federal' },
+  cofins: { label:'COFINS', aliq:3.00, contraparte:'Receita Federal' },
+  irrf:   { label:'IRRF',   aliq:1.50, contraparte:'Receita Federal' },
+  csll:   { label:'CSLL',   aliq:1.00, contraparte:'Receita Federal' },
+  iss:    { label:'ISS',    aliq:5.00, contraparte:'Prefeitura' },
+  inss:   { label:'INSS',   aliq:11.00, contraparte:'INSS' },
+  desconto: { label:'Desconto', aliq:0, contraparte:'' },
+  tarifa:   { label:'Tarifa bancária', aliq:0, contraparte:'Banco' },
+  glosa:    { label:'Glosa', aliq:0, contraparte:'' },
+  custom:   { label:'',     aliq:0, contraparte:'' }
+};
+function _extRetencaoAdd(preset){
+  const p = (preset && _EXT_RET_PRESETS[preset]) ? _EXT_RET_PRESETS[preset] : _EXT_RET_PRESETS.custom;
+  const id = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+  _extRetencoes.push({ id, tipo: preset || 'custom', label: p.label, aliquota: p.aliq, valor: 0, contraparte: p.contraparte || '' });
+  _extRetencaoRender();
+}
+function _extRetencaoRemove(id){
+  _extRetencoes = _extRetencoes.filter(r => r.id !== id);
+  _extRetencaoRender();
+}
+function _extRetencaoUpdate(id, field, value){
+  const r = _extRetencoes.find(x => x.id === id);
+  if(!r) return;
+  if(field === 'aliquota'){
+    r.aliquota = parseFloat(String(value).replace(',','.')) || 0;
+    // Auto-calcula valor pela alíquota
+    const baseTotal = _extItems.reduce((s, it) => s + (parseFloat(it.valor) || 0), 0);
+    r.valor = (baseTotal * r.aliquota) / 100;
+  } else if(field === 'valor'){
+    r.valor = parseFloat(String(value).replace(/\./g,'').replace(',','.')) || 0;
+    // Se digitou valor manualmente, zera a alíquota (não é mais %-based)
+    r.aliquota = 0;
+  } else {
+    r[field] = value;
+  }
+  _extRetencaoRender();
+}
+function _extRetencaoApplyPreset(preset){
+  if(!preset) return;
+  if(preset === 'simples'){
+    if(typeof fkToast === 'function') fkToast('💡 Simples Nacional · DAS é apurado mensal (não por linha)', 'info', 3500);
+    return;
+  }
+  if(preset === 'servico-presumido'){
+    _extRetencaoAdd('pis'); _extRetencaoAdd('cofins'); _extRetencaoAdd('irrf'); _extRetencaoAdd('csll');
+  } else if(preset === 'servico-real'){
+    _extRetencoes.push({ id:'r_'+Date.now()+'1', tipo:'pis', label:'PIS', aliquota:1.65, valor:0, contraparte:'Receita Federal' });
+    _extRetencoes.push({ id:'r_'+Date.now()+'2', tipo:'cofins', label:'COFINS', aliquota:7.6, valor:0, contraparte:'Receita Federal' });
+    _extRetencoes.push({ id:'r_'+Date.now()+'3', tipo:'irrf', label:'IRRF', aliquota:1.5, valor:0, contraparte:'Receita Federal' });
+    _extRetencoes.push({ id:'r_'+Date.now()+'4', tipo:'csll', label:'CSLL', aliquota:1.0, valor:0, contraparte:'Receita Federal' });
+    _extRetencaoRender();
+  }
+}
+function _extRetencaoRender(){
+  const list = document.getElementById('ext-retencoes-list');
+  if(!list) return;
+  // Re-calcula valores baseados em alíquota (caso o total dos itens tenha mudado)
+  const baseTotal = _extItems.reduce((s, it) => s + (parseFloat(it.valor) || 0), 0);
+  _extRetencoes.forEach(r => {
+    if(r.aliquota > 0){
+      r.valor = (baseTotal * r.aliquota) / 100;
+    }
+  });
+  if(_extRetencoes.length === 0){
+    list.innerHTML = '<div style="text-align:center;color:#92400E;font-size:.74rem;padding:8px;font-style:italic">Nenhuma dedução · valor recebido = bruto</div>';
+  } else {
+    list.innerHTML = _extRetencoes.map(r => {
+      const fmtV = (typeof _dkbFmtNumBR === 'function') ? _dkbFmtNumBR : (n => Number(n||0).toFixed(2).replace('.', ','));
+      return `<div style="display:grid;grid-template-columns:1fr 90px 130px 30px;gap:6px;align-items:center;background:#fff;padding:8px 10px;border-radius:6px;border:1px solid #FDE68A">
+        <input type="text" value="${r.label.replace(/"/g,'&quot;')}" onchange="_extRetencaoUpdate('${r.id}','label',this.value)" placeholder="Ex: PIS, Desconto, Tarifa..." style="border:1px solid #FDE68A;border-radius:4px;padding:5px 8px;font-size:.78rem;font-family:inherit">
+        <input type="text" value="${r.aliquota > 0 ? r.aliquota.toString().replace('.',',') : ''}" onchange="_extRetencaoUpdate('${r.id}','aliquota',this.value)" placeholder="%" style="border:1px solid #FDE68A;border-radius:4px;padding:5px 8px;font-size:.78rem;font-family:inherit;text-align:right">
+        <div style="display:flex;align-items:center;gap:4px"><span style="font-size:.74rem;color:#78350F">R$</span><input type="text" value="${fmtV(r.valor)}" onchange="_extRetencaoUpdate('${r.id}','valor',this.value)" style="border:1px solid #FDE68A;border-radius:4px;padding:5px 8px;font-size:.78rem;font-family:inherit;text-align:right;width:100%"></div>
+        <button type="button" onclick="_extRetencaoRemove('${r.id}')" style="background:#FEE2E2;border:none;color:#991B1B;width:26px;height:26px;border-radius:5px;cursor:pointer;font-size:.85rem" title="Remover">✕</button>
+      </div>`;
+    }).join('');
+  }
+  // Atualiza totals
+  const totalRet = _extRetencoes.reduce((s, r) => s + (parseFloat(r.valor)||0), 0);
+  const liquido = baseTotal - totalRet;
+  const fmt = (typeof fmtBRL === 'function') ? fmtBRL : (n => 'R$ ' + Number(n||0).toFixed(2).replace('.', ','));
+  const totEl = document.getElementById('ext-retencoes-total');
+  if(totEl){
+    totEl.innerHTML = `Total deduções: <b style="color:#DC2626">${fmt(totalRet)}</b> · Líquido: <b style="color:#059669" id="ext-liquido-val">${fmt(liquido)}</b>`;
+  }
+  // Tenta atualizar saldo do pagamento também
+  if(typeof _extPagCalc === 'function') try{ _extPagCalc(); }catch(_){}
+}
+try{ window._extRetencaoAdd = _extRetencaoAdd; window._extRetencaoRemove = _extRetencaoRemove; window._extRetencaoUpdate = _extRetencaoUpdate; window._extRetencaoApplyPreset = _extRetencaoApplyPreset; window._extRetencaoRender = _extRetencaoRender; }catch(_){}
+
 function _extItemRemove(i){
   if(_extItems.length <= 1) return;
   _extItems.splice(i, 1);
@@ -64224,6 +64320,8 @@ function _extItemRecalcTotal(){
     elInfo.textContent = 'R$ ' + fmt(total);
     elInfo.dataset.base = String(total);
   }
+  // Re-renderiza retenções (recalcula valores pela % do novo total)
+  if(typeof _extRetencaoRender === 'function') try{ _extRetencaoRender(); }catch(_){}
   // Re-calcula saldo na aba Pagamento (se aberta)
   if(typeof _extPagCalc === 'function') try { _extPagCalc(); } catch(_){}
 }
@@ -65370,6 +65468,24 @@ function extOpenModal(tipo, editId){
       +           '<button type="button" class="ext-item-add" onclick="_extItemAdd()"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Adicionar item</button>'
       +         '</div>'
       +       '</div>'
+      +       '<div class="field full">'
+      +         '<div class="ext-retencoes" id="ext-retencoes-wrap" style="background:#FEF3C7;border:1px solid #FDE68A;border-radius:10px;padding:14px;margin-top:6px">'
+      +           '<div class="ext-retencoes-hd" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;flex-wrap:wrap">'
+      +             '<span style="font-size:.78rem;font-weight:700;color:#78350F;display:flex;align-items:center;gap:6px">💸 Retenções e Abatimentos <small style="font-weight:500;color:#92400E;font-size:.7rem">(opcional · ex: PIS/COFINS, desconto, glosa, tarifa)</small></span>'
+      +             '<span class="ext-retencoes-total" id="ext-retencoes-total" style="font-size:.74rem;color:#78350F;font-weight:600">Total deduções: <b>R$ 0,00</b> · Líquido: <b id="ext-liquido-val">R$ 0,00</b></span>'
+      +           '</div>'
+      +           '<div id="ext-retencoes-list" style="display:flex;flex-direction:column;gap:6px"></div>'
+      +           '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">'
+      +             '<button type="button" onclick="_extRetencaoAdd()" style="background:#F59E0B;border:none;color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:.76rem;font-weight:700;font-family:inherit">+ Adicionar dedução</button>'
+      +             '<select id="ext-retencao-preset" onchange="_extRetencaoApplyPreset(this.value);this.value=\'\'" style="padding:6px 10px;border:1px solid #FDE68A;border-radius:6px;background:#fff;font-size:.74rem;font-family:inherit;cursor:pointer;color:#78350F">'
+      +               '<option value="">+ Preset rápido…</option>'
+      +               '<option value="servico-presumido">Serviço PJ · Lucro Presumido (PIS+COFINS+IRRF+CSLL)</option>'
+      +               '<option value="servico-real">Serviço PJ · Lucro Real (PIS+COFINS+IRRF+CSLL)</option>'
+      +               '<option value="simples">Simples Nacional (vazio · DAS é mensal)</option>'
+      +             '</select>'
+      +           '</div>'
+      +         '</div>'
+      +       '</div>'
       +       '<input type="hidden" id="ext-fld-desc">'
       +       '<input type="hidden" id="ext-fld-valor">'
       +       '<input type="hidden" id="ext-fld-cat">'
@@ -65471,6 +65587,18 @@ function extOpenModal(tipo, editId){
       _extItems = [{ descricao:'', valor:0, categoria:'', contraparte:'' }];
     }
     _extItemRender();
+    // Inicializa retenções (a partir do lançamento existente, se editando)
+    try{
+      _extRetencoes = (editId && l && Array.isArray(l.retencoes)) ? l.retencoes.map(r => ({
+        id: r.id || ('r_' + Date.now().toString(36) + Math.random().toString(36).slice(2,5)),
+        tipo: r.tipo || 'custom',
+        label: r.label || '',
+        aliquota: parseFloat(r.aliquota) || 0,
+        valor: parseFloat(r.valor) || 0,
+        contraparte: r.contraparte || ''
+      })) : [];
+      _extRetencaoRender();
+    }catch(_){ _extRetencoes = []; }
   }
   setTimeout(() => {
     const focusId = (t === 'transferencia') ? 'ext-fld-valor' : 'ext-it-desc-0';
@@ -65849,6 +65977,25 @@ function extSaveModal(tipo){
           };
           if(anexoDoc) lanc.anexo = anexoDoc;
           if(anexoComp) lanc.comprovante = anexoComp;
+          // Salva retenções/abatimentos · calcula líquido
+          try{
+            if(Array.isArray(_extRetencoes) && _extRetencoes.length > 0){
+              // Proporciona retenções pelo peso do item no total
+              const totalItens = itensList.reduce((s, x) => s + (parseFloat(x.valor)||0), 0);
+              const peso = totalItens > 0 ? (it.valor / totalItens) : 0;
+              lanc.retencoes = _extRetencoes.map(r => ({
+                id: r.id,
+                tipo: r.tipo,
+                label: r.label || r.tipo,
+                aliquota: parseFloat(r.aliquota)||0,
+                valor: (parseFloat(r.valor)||0) * peso,
+                contraparte: r.contraparte || ''
+              })).filter(r => r.valor > 0.005);
+              const totalRet = lanc.retencoes.reduce((s, r) => s + r.valor, 0);
+              lanc.valorBruto = it.valor;
+              lanc.valorLiquido = it.valor - totalRet;
+            }
+          }catch(_){}
           extratoData.lancamentos.push(lanc);
           okCount++;
           lastTarget = 'extrato';
@@ -98376,7 +98523,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781184843';
+      const CACHE = 'forekash-v1781291659';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
