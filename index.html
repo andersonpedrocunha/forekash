@@ -98627,7 +98627,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781538532';
+      const CACHE = 'forekash-v1781538994';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -127052,11 +127052,32 @@ function _recRetencaoApplyPreset(preset){
 function _recGetTotalBase(){
   let base = 0;
   try{
-    // 1) Valor da cell (vem do contexto do modal aberto)
-    if(typeof _recKbModalCtx === 'object' && _recKbModalCtx && _recKbModalCtx.cellValorBruto != null){
-      base = parseFloat(_recKbModalCtx.cellValorBruto) || 0;
+    // 1) Tenta via _recKbModalCtx.cellValorBruto
+    if(typeof _recKbModalCtx === 'object' && _recKbModalCtx){
+      if(_recKbModalCtx.cellValorBruto != null){
+        base = parseFloat(_recKbModalCtx.cellValorBruto) || 0;
+      }
+      // 2) Se ainda zero, busca diretamente na cell pelo year+rowId+mesAbbr
+      if(base === 0 && typeof receita !== 'undefined' && receita && receita.years){
+        const ctx = _recKbModalCtx;
+        const yd = receita.years[ctx.year];
+        if(yd && Array.isArray(yd.clients)){
+          const row = yd.clients.find(r => r.id === ctx.rowId);
+          if(row && row.meses && row.meses[ctx.mesAbbr]){
+            const cv = row.meses[ctx.mesAbbr].valor;
+            if(cv != null) base = parseFloat(cv) || 0;
+          }
+        }
+      }
     }
-    // 2) Itens adicionais (somam ao bruto)
+    // 3) Fallback: ler do display de valor no header do modal (data-base)
+    if(base === 0){
+      const totalEl = document.getElementById('rec-info-valor-total');
+      if(totalEl && totalEl.dataset && totalEl.dataset.base){
+        base = parseFloat(totalEl.dataset.base) || 0;
+      }
+    }
+    // 4) Itens adicionais (somam ao bruto)
     const items = document.querySelectorAll('#rec-items-list .rec-it-val, .rec-it-val[data-i]');
     items.forEach(i => { base += parseFloat(String(i.value).replace(/\./g,'').replace(',','.')) || 0; });
   }catch(_){}
