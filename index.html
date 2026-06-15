@@ -33869,7 +33869,7 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
   if(opts.dragToRecebido && !dataReceb) dataReceb = _recKbTodayStr();
   const notas = cell.notas || '';
 
-  _recKbModalCtx = { year, mesAbbr, rowId, minDate, maxDate, dragToRecebido: !!opts.dragToRecebido };
+  _recKbModalCtx = { year, mesAbbr, rowId, minDate, maxDate, dragToRecebido: !!opts.dragToRecebido, cellValorBruto: parseFloat(cell.valor) || 0 };
 
   let ov = document.getElementById('rec-kb-modal-ov');
   if(ov) ov.remove();
@@ -33899,7 +33899,7 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
     +   banner
     +   '<div class="rec-kb-modal-info">'
     +     '<div class="info-row"><span class="lbl">Mês de referência</span><span class="val">' + mNome + '/' + year + '</span></div>'
-    +     '<div class="info-row"><span class="lbl">Valor</span><span class="val val-money" id="rec-info-valor-total" data-base="' + valor + '">' + fmtVal + '</span></div>'
+    +     '<div class="info-row"><span class="lbl">Valor</span><span class="val val-money" id="rec-info-valor-total" data-base="' + valor + '">' + fmtVal + '</span><span class="val" id="rec-info-liquido-display" style="font-size:.74rem;color:#059669;font-weight:600;display:none;margin-top:2px"></span></div>'
     +   '</div>'
     +   '<div class="dkb-tabs">'
     +     '<button type="button" class="active" data-tab="detalhes" onclick="recTabSet(\'detalhes\')">📝 Detalhes</button>'
@@ -98627,7 +98627,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781297396';
+      const CACHE = 'forekash-v1781538532';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -127052,16 +127052,13 @@ function _recRetencaoApplyPreset(preset){
 function _recGetTotalBase(){
   let base = 0;
   try{
-    // Valor principal da receita (no DOM)
-    const vEl = document.querySelector('input[id^="rec-kb-fld-valor"], #rec-kb-fld-valor');
-    if(vEl) base += parseFloat(String(vEl.value).replace(/\./g,'').replace(',','.')) || 0;
-    // Itens adicionais
+    // 1) Valor da cell (vem do contexto do modal aberto)
+    if(typeof _recKbModalCtx === 'object' && _recKbModalCtx && _recKbModalCtx.cellValorBruto != null){
+      base = parseFloat(_recKbModalCtx.cellValorBruto) || 0;
+    }
+    // 2) Itens adicionais (somam ao bruto)
     const items = document.querySelectorAll('#rec-items-list .rec-it-val, .rec-it-val[data-i]');
     items.forEach(i => { base += parseFloat(String(i.value).replace(/\./g,'').replace(',','.')) || 0; });
-    // Fallback: tenta pegar do cell global se DOM ainda não tá pronto
-    if(base === 0 && typeof _recKbActiveCell === 'object' && _recKbActiveCell){
-      base = parseFloat(_recKbActiveCell.valor) || 0;
-    }
   }catch(_){}
   return base;
 }
@@ -127092,6 +127089,34 @@ function _recRetencaoRender(){
   if(totEl){
     totEl.innerHTML = `Total deduções: <b style="color:#DC2626">${fmt(totalRet)}</b> · Líquido: <b style="color:#059669">${fmt(liquido)}</b>`;
   }
+  // Propaga LÍQUIDO pro header do modal e pra aba Recebimento
+  try{
+    const headerLiq = document.getElementById('rec-info-liquido-display');
+    if(headerLiq){
+      if(totalRet > 0){
+        headerLiq.textContent = '↓ Líquido: ' + fmt(liquido) + ' (após R$ ' + fmt(totalRet).replace('R$ ','') + ' em deduções)';
+        headerLiq.style.display = '';
+      } else {
+        headerLiq.style.display = 'none';
+      }
+    }
+    // Aba Recebimento: campo "Valor a receber" e "Valor recebido" devem usar líquido como referência
+    const fmtN = (typeof _dkbFmtNumBR === 'function') ? _dkbFmtNumBR : (n => Number(n||0).toFixed(2).replace('.', ','));
+    // Valor a receber (readonly · disabled input)
+    const valReceberInputs = document.querySelectorAll('#rec-tab-pagamento input[disabled]');
+    valReceberInputs.forEach(inp => {
+      if(inp.closest('.dkb-pag-money')){
+        inp.value = fmtN(liquido);
+      }
+    });
+    // Valor recebido (default = líquido se ainda não foi mexido)
+    const valRecebidoEl = document.getElementById('rec-kb-fld-valpago');
+    if(valRecebidoEl && !valRecebidoEl.dataset.touched){
+      valRecebidoEl.value = fmtN(liquido);
+    }
+    // Recalcula saldo da aba Recebimento
+    if(typeof _recPagCalc === 'function') try{ _recPagCalc(); }catch(_){}
+  }catch(_){}
 }
 try{ window._recRetencaoAdd = _recRetencaoAdd; window._recRetencaoRemove = _recRetencaoRemove; window._recRetencaoUpdate = _recRetencaoUpdate; window._recRetencaoApplyPreset = _recRetencaoApplyPreset; window._recRetencaoRender = _recRetencaoRender; }catch(_){}
 
