@@ -8522,8 +8522,12 @@
       background:#F1F5F9;color:#475569;border-radius:999px;font-weight:600;font-variant-numeric:tabular-nums;
       max-width:100%;line-height:1.25}
     .rec-kb-card-meta .pill > span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+    .rec-kb-card-meta .pill.parcial{background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;font-weight:800}
+    .rec-kb-card-val-lbl{font-size:.6rem;font-weight:800;color:#92400E;text-transform:uppercase;
+      letter-spacing:.08em;font-family:Consolas,Menlo,monospace;align-self:flex-end;margin-top:6px;line-height:1}
     .rec-kb-card-val{font-size:1rem;font-weight:800;color:#1E293B;font-variant-numeric:tabular-nums;
       font-family:Consolas,Menlo,monospace;align-self:flex-end;margin-top:2px}
+    .rec-kb-card[data-st="parcial"] .rec-kb-card-val{color:#92400E}
     .rec-kb-card[data-st="atraso"]   .rec-kb-card-val{color:#991B1B}
     .rec-kb-card[data-st="mes"]      .rec-kb-card-val{color:#92400E}
     .rec-kb-card[data-st="semana"]   .rec-kb-card-val{color:#9A3412}
@@ -33515,7 +33519,11 @@ function _recKbCells(){
           nome: nomeCli, color: color, pais: pais,
           desc: r.descricao || r.tipo || '',
           valor: v,
-          status: cell.status === 'recebido' ? 'recebido' : 'aberto',
+          status: cell.status === 'recebido' ? 'recebido' : (cell.status === 'parcial' ? 'parcial' : 'aberto'),
+          valorPago: parseFloat(cell.valorPago) || 0,
+          juros: parseFloat(cell.juros) || 0,
+          multa: parseFloat(cell.multa) || 0,
+          desconto: parseFloat(cell.desconto) || 0,
           dataVencimento: cell.dataVencimento || '',
           dataRecebimento: cell.dataRecebimento || '',
           notas: cell.notas || '',
@@ -33531,6 +33539,7 @@ function _recKbCells(){
 
 function _recKbClassify(card){
   if(card.status === 'recebido') return 'recebido';
+  // Parcial · classifica por data como qualquer "em aberto" (vai pra atraso/semana/mês conforme vencimento)
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   // Próximos 7 dias (incluindo hoje)
@@ -33674,10 +33683,28 @@ function recRenderKanban(){
         const docPill = (S.showDoc !== false && c.numeroDocumento) ? '<span class="pill doc" title="Nº do Documento: ' + _recKbEsc(c.numeroDocumento) + '">🧾 ' + _recKbEsc(c.numeroDocumento) + '</span>' : '';
         const refPill = (S.showRefMes !== false) ? '<span class="pill">📅 ' + ym + '</span>' : '';
         const vencPill = (S.showVencimento && c.dataVencimento) ? '<span class="pill" title="Vencimento: ' + _recKbEsc(_fmtDate(c.dataVencimento)) + '">📆 ' + _recKbEsc(_fmtDate(c.dataVencimento)) + '</span>' : '';
+        // Pill de recebimento PARCIAL · mostra quanto já entrou e saldo restante
+        let parcialPill = '';
+        if(c.status === 'parcial'){
+          const recLiq = (c.valorPago||0) + (c.juros||0) + (c.multa||0) - (c.desconto||0);
+          const saldo = Math.max(0, c.valor - recLiq);
+          const fmtRec = typeof fmtBRL === 'function' ? fmtBRL(recLiq) : ('R$ ' + recLiq.toFixed(2));
+          const fmtSaldo = typeof fmtBRL === 'function' ? fmtBRL(saldo) : ('R$ ' + saldo.toFixed(2));
+          parcialPill = '<span class="pill parcial" title="Já recebido: ' + fmtRec + ' · Saldo: ' + fmtSaldo + '">💰 parcial · ' + fmtRec + '</span>';
+        }
         const descHtml = (S.showDescricao !== false && c.desc) ? '<div class="rec-kb-card-desc">' + _recKbEsc(c.desc) + '</div>' : '';
-        const valHtml = (S.showValor !== false) ? '<div class="rec-kb-card-val">' + fmtVal + '</div>' : '';
-        const metaHtml = (refPill || vencPill || paisPill || docPill || notasPill)
-          ? '<div class="rec-kb-card-meta">' + refPill + vencPill + paisPill + docPill + notasPill + '</div>'
+        // Valor principal: se parcial, mostra saldo restante (não o total original)
+        let valExibido = c.valor;
+        let valLbl = '';
+        if(c.status === 'parcial'){
+          const recLiq = (c.valorPago||0) + (c.juros||0) + (c.multa||0) - (c.desconto||0);
+          valExibido = Math.max(0, c.valor - recLiq);
+          valLbl = '<div class="rec-kb-card-val-lbl">saldo a receber</div>';
+        }
+        const fmtValExib = typeof fmtBRL === 'function' ? fmtBRL(valExibido) : ('R$ ' + valExibido.toFixed(2));
+        const valHtml = (S.showValor !== false) ? (valLbl + '<div class="rec-kb-card-val">' + fmtValExib + '</div>') : '';
+        const metaHtml = (refPill || vencPill || paisPill || docPill || notasPill || parcialPill)
+          ? '<div class="rec-kb-card-meta">' + refPill + vencPill + parcialPill + paisPill + docPill + notasPill + '</div>'
           : '';
         // Botões no canto superior direito: 📄 NFS-e + $ cobrança · ambos vinculados ao lançamento
         const nfBtn  = '<button class="rec-kb-card-nf" onclick="event.stopPropagation();nfFromReceita(' + c.year + ',\''+ c.mesAbbr + '\',' + c.rowId + ')" title="Emitir NFS-e vinculada a este lançamento">' +
@@ -33869,10 +33896,11 @@ function _recKbSyncSheetCell(year, mesAbbr, rowId){
     const cell = row.meses[mesAbbr];
     const td = document.querySelector('tr[data-rec="client-' + rowId + '"] td.rec-cell[data-mes="' + mesAbbr + '"]');
     if(td){
-      td.classList.remove('recebido','aberto');
-      td.classList.add(cell.status === 'recebido' ? 'recebido' : 'aberto');
+      td.classList.remove('recebido','aberto','parcial');
+      const _stCls = cell.status === 'recebido' ? 'recebido' : (cell.status === 'parcial' ? 'parcial' : 'aberto');
+      td.classList.add(_stCls);
       const tog = td.querySelector('.rec-cell-toggle');
-      if(tog) tog.textContent = cell.status === 'recebido' ? '✓' : '';
+      if(tog) tog.textContent = cell.status === 'recebido' ? '✓' : (cell.status === 'parcial' ? '½' : '');
     } else {
       // Célula ainda não está no DOM — força um re-render completo da planilha
       // (acontece se o usuário entrou direto no kanban sem antes carregar a planilha)
@@ -34355,7 +34383,14 @@ function recKbCardSave(){
   if(venc) cell.dataVencimento = venc; else delete cell.dataVencimento;
   if(receb){
     cell.dataRecebimento = receb;
-    cell.status = 'recebido';
+    // Detecta recebimento PARCIAL · valor recebido + juros + multa - desconto < valor original
+    const _valOrig = parseFloat(cell.valor) || 0;
+    const _vRecLiq = (valorRecNum != null ? valorRecNum : 0) + (jurosNum||0) + (multaNum||0) - (descNum||0);
+    if(_vRecLiq > 0.01 && _vRecLiq < _valOrig - 0.01){
+      cell.status = 'parcial';
+    } else {
+      cell.status = 'recebido';
+    }
   } else {
     delete cell.dataRecebimento;
     cell.status = 'aberto';
@@ -99081,7 +99116,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781632560';
+      const CACHE = 'forekash-v1781633999';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
