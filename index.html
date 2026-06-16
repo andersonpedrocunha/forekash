@@ -34457,7 +34457,17 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
     +         '<div class="field"><label>Forma de recebimento</label>'
     +           '<select id="rec-kb-fld-forma">' + (function(){ const arr=(typeof _EXT_FORMAS_PG !== 'undefined') ? _EXT_FORMAS_PG : []; const cur = cell.formaPagamento || ''; let s = '<option value="">— escolha —</option>'; for(const f of arr){ s += '<option value="' + _recKbEsc(f) + '"' + (f===cur?' selected':'') + '>' + _recKbEsc(f) + '</option>'; } return s; })() + '</select>'
     +         '</div>'
-    +         '<div class="field"></div>'
+    +         '<div class="field"><label>Banco do recebimento</label>'
+    +           '<select id="rec-kb-fld-banco-aporte">' + (function(){
+                const bancos = (typeof dispo !== 'undefined' && Array.isArray(dispo.bancos)) ? dispo.bancos : [];
+                const cur = cell.banco || '';
+                let s = '<option value="">— escolha —</option>';
+                for(const b of bancos){
+                  s += '<option value="' + b.id + '"' + (String(b.id) === String(cur) ? ' selected' : '') + '>' + _recKbEsc(b.nome || '(sem nome)') + '</option>';
+                }
+                return s;
+              })() + '</select>'
+    +         '</div>'
     +       '</div>'
     +       '<div class="dkb-pag-row cols-4">'
     +         '<div class="field"><label>' + (_isReabrindoParcial ? 'Novo recebimento' : 'Valor recebido') + '</label>'
@@ -35088,7 +35098,10 @@ function recKbCardSave(){
   const receb   = (document.getElementById('rec-kb-fld-receb')?.value   || '').trim();
   const doc     = (document.getElementById('rec-kb-fld-doc')?.value     || '').trim();
   const emissao = (document.getElementById('rec-kb-fld-emissao')?.value || '').trim();
-  const banco   = (document.getElementById('rec-kb-fld-banco-wrap')?.getAttribute('data-banco-id') || '').trim();
+  // Banco: aba Recebimento tem select específico pro aporte (prioridade); senão usa o da aba Detalhes
+  const bancoAporte = (document.getElementById('rec-kb-fld-banco-aporte')?.value || '').trim();
+  const bancoDetalhes = (document.getElementById('rec-kb-fld-banco-wrap')?.getAttribute('data-banco-id') || '').trim();
+  const banco = bancoAporte || bancoDetalhes;
   const ccRaw   = (document.getElementById('rec-kb-fld-cc-wrap')?.getAttribute('data-cc-id') || document.getElementById('rec-kb-fld-cc')?.value || '').trim();
   const centroCustoId = ccRaw ? parseInt(ccRaw, 10) : null;
   const formaPg = (document.getElementById('rec-kb-fld-forma')?.value || '').trim();
@@ -99981,7 +99994,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781652197';
+      const CACHE = 'forekash-v1781652732';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
