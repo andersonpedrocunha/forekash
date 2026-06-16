@@ -5798,8 +5798,9 @@
     /* Histórico de recebimentos parciais */
     .rec-hist-section{background:#F8FAFC !important;border-color:#CBD5E1 !important}
     .rec-hist-list{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
-    .rec-hist-item{display:grid;grid-template-columns:32px 1fr auto auto;gap:10px;align-items:center;
+    .rec-hist-item{display:grid;grid-template-columns:32px minmax(0,1fr) auto auto;gap:10px;align-items:center;
       padding:8px 12px;background:#fff;border:1px solid #E5E7EB;border-radius:6px}
+    .rec-hist-item--editing{display:grid;grid-template-columns:32px minmax(0,1fr) auto auto;gap:10px;align-items:center}
     .rec-hist-num{width:26px;height:26px;border-radius:50%;background:#EDE9FE;color:#5B21B6;
       display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:800;
       font-family:Consolas,Menlo,monospace}
@@ -5809,11 +5810,32 @@
     .rec-hist-valor{font-size:.92rem;font-weight:800;color:#059669;font-family:Consolas,Menlo,monospace;
       font-variant-numeric:tabular-nums;white-space:nowrap}
     .rec-hist-actions{display:flex;align-items:center}
-    .rec-hist-link{padding:5px 10px;background:#F0FDFA;border:1px solid #6EE7B7;color:#065F46;
-      border-radius:5px;font-size:.7rem;font-weight:700;cursor:pointer;font-family:Consolas,Menlo,monospace;
-      transition:background .12s}
+    .rec-hist-actions{display:flex;align-items:center;gap:4px}
+    .rec-hist-link{padding:5px 9px;background:#F0FDFA;border:1px solid #6EE7B7;color:#065F46;
+      border-radius:5px;font-size:.78rem;font-weight:700;cursor:pointer;font-family:inherit;
+      transition:background .12s;line-height:1}
     .rec-hist-link:hover{background:#A7F3D0}
-    .rec-hist-nolink{font-size:.7rem;color:#94A3B8;font-style:italic;padding:5px 10px;font-family:Consolas,Menlo,monospace}
+    .rec-hist-btn-edit, .rec-hist-btn-del{padding:5px 9px;background:#fff;border:1px solid #CBD5E1;
+      border-radius:5px;font-size:.85rem;cursor:pointer;font-family:inherit;line-height:1;color:#475569;transition:all .12s}
+    .rec-hist-btn-edit:hover{background:#EDE9FE;border-color:#7C3AED;color:#5B21B6}
+    .rec-hist-btn-del:hover{background:#FEE2E2;border-color:#FCA5A5;color:#991B1B}
+    .rec-hist-btn-ok{padding:6px 12px;background:#059669;border:1px solid #047857;color:#fff;
+      border-radius:5px;font-size:.85rem;font-weight:800;cursor:pointer;font-family:inherit;line-height:1}
+    .rec-hist-btn-ok:hover{background:#047857}
+    .rec-hist-btn-cancel{padding:6px 10px;background:#fff;border:1px solid #CBD5E1;color:#64748B;
+      border-radius:5px;font-size:.85rem;cursor:pointer;font-family:inherit;line-height:1}
+    .rec-hist-btn-cancel:hover{background:#F1F5F9;border-color:#94A3B8}
+    /* Linha em modo edição */
+    .rec-hist-item--editing{background:#FEF9C3 !important;border-color:#FCD34D !important}
+    .rec-hist-info-edit{display:flex;flex-direction:column;gap:4px;min-width:0}
+    .rec-hist-info-edit input, .rec-hist-info-edit select{padding:5px 7px;border:1px solid #CBD5E1;
+      border-radius:4px;font-size:.76rem;font-family:inherit;background:#fff;color:#0F172A}
+    .rec-hist-info-edit input:focus, .rec-hist-info-edit select:focus{outline:none;border-color:#0F766E;box-shadow:0 0 0 2px rgba(15,118,110,.15)}
+    .rec-hist-valor-edit{display:flex;align-items:center;gap:5px;background:#fff;border:1px solid #CBD5E1;
+      border-radius:5px;padding:4px 8px}
+    .rec-hist-valor-edit .rec-hist-pre{font-size:.7rem;font-weight:700;color:#94A3B8;font-family:Consolas,Menlo,monospace}
+    .rec-hist-valor-edit input{border:none;outline:none;background:transparent;font-family:Consolas,Menlo,monospace;
+      font-weight:800;text-align:right;width:100px;font-size:.86rem;color:#059669}
     .rec-hist-total{padding:8px 12px;background:#fff;border:1px solid #E5E7EB;border-radius:6px;
       font-size:.82rem;color:#475569;text-align:right;font-family:Consolas,Menlo,monospace}
     .rec-hist-total strong{color:#059669;font-weight:800;font-variant-numeric:tabular-nums}
@@ -34263,6 +34285,8 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
   if(!row || !row.meses || !row.meses[mesAbbr]) return;
   const cell = row.meses[mesAbbr];
   if(cell.valor === '' || cell.valor == null) return;
+  // Reseta o estado de edição do histórico ao abrir o modal
+  try { _recHistEditingIdx = null; } catch(_){}
 
   const c = (receita.clientes || []).find(x => x.id === row.clienteId);
   const nomeCli = c ? (c.nome || '(sem nome)') : '(cliente removido)';
@@ -34453,41 +34477,7 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
         : '')
     +       '<button type="button" class="quick-btn neg" onclick="recKbCardClearReceb();document.getElementById(\'rec-kb-fld-valpago\').value=\'0,00\';document.getElementById(\'rec-kb-fld-juros\').value=\'0,00\';document.getElementById(\'rec-kb-fld-multa\').value=\'0,00\';document.getElementById(\'rec-kb-fld-desc\').value=\'0,00\';_recPagCalc();">✕ Limpar recebimento</button>'
     +     '</div>'
-    +     (Array.isArray(cell.recebimentosHist) && cell.recebimentosHist.length > 0
-        ? (function(){
-            const fmt = (typeof _dkbFmtNumBR === 'function') ? _dkbFmtNumBR : (n => Number(n||0).toFixed(2).replace('.', ','));
-            const fmtDt = (s) => (s && s.length >= 10) ? (s.slice(8,10) + '/' + s.slice(5,7) + '/' + s.slice(0,4)) : (s||'');
-            let html = '<div class="dkb-pag-section rec-hist-section" style="margin-top:14px">';
-            html += '<h4>📜 Histórico de recebimentos · ' + cell.recebimentosHist.length + ' aporte(s)</h4>';
-            html += '<div class="rec-hist-list">';
-            let totalHist = 0;
-            cell.recebimentosHist.forEach((h, i) => {
-              const vLiq = (parseFloat(h.valor)||0) + (parseFloat(h.juros)||0) + (parseFloat(h.multa)||0) - (parseFloat(h.desconto)||0);
-              totalHist += vLiq;
-              const extras = [];
-              if(h.juros > 0)    extras.push('juros ' + fmt(h.juros));
-              if(h.multa > 0)    extras.push('multa ' + fmt(h.multa));
-              if(h.desconto > 0) extras.push('desconto ' + fmt(h.desconto));
-              html += '<div class="rec-hist-item">'
-                +   '<div class="rec-hist-num">#' + (i+1) + '</div>'
-                +   '<div class="rec-hist-info">'
-                +     '<div class="rec-hist-data">📅 ' + fmtDt(h.data) + '</div>'
-                +     (extras.length ? '<div class="rec-hist-extras">' + extras.join(' · ') + '</div>' : '')
-                +   '</div>'
-                +   '<div class="rec-hist-valor">R$ ' + fmt(vLiq) + '</div>'
-                +   '<div class="rec-hist-actions">'
-                +     (h.extratoId
-                        ? '<button type="button" class="rec-hist-link" onclick="_recAbrirLancExtrato(' + h.extratoId + ')" title="Ver lançamento no Extrato">🔗 Extrato #' + h.extratoId + '</button>'
-                        : '<span class="rec-hist-nolink">sem extrato</span>')
-                +   '</div>'
-                + '</div>';
-            });
-            html += '</div>';
-            html += '<div class="rec-hist-total">Total já recebido: <strong>R$ ' + fmt(totalHist) + '</strong></div>';
-            html += '</div>';
-            return html;
-          })()
-        : '')
+    +     '<div id="rec-hist-wrap">' + (typeof _recHistRender === 'function' ? _recHistRender(cell) : '') + '</div>'
     +     '<div class="dkb-pag-section" style="margin-top:14px">'
     +       '<h4>📎 Comprovante de recebimento <span style="font-weight:500;color:#94A3B8;text-transform:none;letter-spacing:0;font-size:.72rem">— recibo, extrato, foto</span></h4>'
     +       '<div id="rec-kb-comp-wrap">' + _dkbRenderAnexoUI(cell.comprovante, 'rec-comp') + '</div>'
@@ -34777,6 +34767,225 @@ function _recAbrirLancExtrato(extratoId){
   } catch(e){ console.warn('abrir extrato', e); }
 }
 try { window._recAbrirLancExtrato = _recAbrirLancExtrato; } catch(e){}
+
+// ─── Histórico de recebimentos editável ───
+let _recHistEditingIdx = null;
+function _recBancoNome(bancoId){
+  if(!bancoId) return '';
+  try {
+    if(typeof dispo !== 'undefined' && dispo && Array.isArray(dispo.bancos)){
+      const b = dispo.bancos.find(x => x.id === bancoId);
+      if(b) return b.nome || '';
+    }
+  } catch(_){}
+  return '';
+}
+function _recHistRender(cell){
+  if(!cell || !Array.isArray(cell.recebimentosHist) || cell.recebimentosHist.length === 0) return '';
+  const fmt = (typeof _dkbFmtNumBR === 'function') ? _dkbFmtNumBR : (n => Number(n||0).toFixed(2).replace('.', ','));
+  const fmtDt = (s) => (s && s.length >= 10) ? (s.slice(8,10) + '/' + s.slice(5,7) + '/' + s.slice(0,4)) : (s||'');
+  let html = '<div class="dkb-pag-section rec-hist-section" style="margin-top:14px">';
+  html += '<h4>📜 Histórico de recebimentos · ' + cell.recebimentosHist.length + ' aporte(s)</h4>';
+  html += '<div class="rec-hist-list">';
+  let totalHist = 0;
+  // Bancos disponíveis pra select de edição
+  const bancos = (typeof dispo !== 'undefined' && Array.isArray(dispo.bancos)) ? dispo.bancos : [];
+  cell.recebimentosHist.forEach((h, i) => {
+    const vLiq = (parseFloat(h.valor)||0) + (parseFloat(h.juros)||0) + (parseFloat(h.multa)||0) - (parseFloat(h.desconto)||0);
+    totalHist += vLiq;
+    const editando = (_recHistEditingIdx === i);
+    if(editando){
+      // Modo edição: data + valor + banco editáveis
+      const bancoOpts = '<option value="">— sem banco —</option>' + bancos.map(b =>
+        '<option value="' + b.id + '"' + (h.banco === b.id ? ' selected' : '') + '>' + (b.nome || '') + '</option>'
+      ).join('');
+      html += '<div class="rec-hist-item rec-hist-item--editing">'
+        +   '<div class="rec-hist-num">#' + (i+1) + '</div>'
+        +   '<div class="rec-hist-info-edit">'
+        +     '<input type="date" id="rec-hist-edit-data" value="' + (h.data || '') + '">'
+        +     '<select id="rec-hist-edit-banco">' + bancoOpts + '</select>'
+        +   '</div>'
+        +   '<div class="rec-hist-valor-edit">'
+        +     '<span class="rec-hist-pre">R$</span>'
+        +     '<input type="text" id="rec-hist-edit-valor" value="' + fmt(parseFloat(h.valor)||0) + '" inputmode="decimal">'
+        +   '</div>'
+        +   '<div class="rec-hist-actions">'
+        +     '<button type="button" class="rec-hist-btn-ok" onclick="_recHistSalvarEdicao(' + i + ')" title="Salvar">✓</button>'
+        +     '<button type="button" class="rec-hist-btn-cancel" onclick="_recHistCancelarEdicao()" title="Cancelar">✕</button>'
+        +   '</div>'
+        + '</div>';
+    } else {
+      const bancoNome = _recBancoNome(h.banco);
+      const extras = [];
+      if(bancoNome)      extras.push('🏦 ' + bancoNome);
+      if(h.juros > 0)    extras.push('juros ' + fmt(h.juros));
+      if(h.multa > 0)    extras.push('multa ' + fmt(h.multa));
+      if(h.desconto > 0) extras.push('desconto ' + fmt(h.desconto));
+      html += '<div class="rec-hist-item">'
+        +   '<div class="rec-hist-num">#' + (i+1) + '</div>'
+        +   '<div class="rec-hist-info">'
+        +     '<div class="rec-hist-data">📅 ' + fmtDt(h.data) + '</div>'
+        +     (extras.length ? '<div class="rec-hist-extras">' + extras.join(' · ') + '</div>' : '')
+        +   '</div>'
+        +   '<div class="rec-hist-valor">R$ ' + fmt(vLiq) + '</div>'
+        +   '<div class="rec-hist-actions">'
+        +     (h.extratoId
+                ? '<button type="button" class="rec-hist-link" onclick="_recAbrirLancExtrato(' + h.extratoId + ')" title="Ver lançamento no Extrato">🔗</button>'
+                : '')
+        +     '<button type="button" class="rec-hist-btn-edit" onclick="_recHistEditar(' + i + ')" title="Editar este recebimento">✏</button>'
+        +     '<button type="button" class="rec-hist-btn-del" onclick="_recHistExcluir(' + i + ')" title="Excluir este recebimento">🗑</button>'
+        +   '</div>'
+        + '</div>';
+    }
+  });
+  html += '</div>';
+  html += '<div class="rec-hist-total">Total já recebido: <strong>R$ ' + fmt(totalHist) + '</strong></div>';
+  html += '</div>';
+  return html;
+}
+function _recHistGetCurrentCell(){
+  try {
+    const ctx = _recKbModalCtx; if(!ctx) return null;
+    const d = receita && receita.years && receita.years[ctx.year];
+    if(!d) return null;
+    const row = (d.clients || []).find(x => x.id === ctx.rowId);
+    if(!row || !row.meses || !row.meses[ctx.mesAbbr]) return null;
+    return { cell: row.meses[ctx.mesAbbr], ctx };
+  } catch(_){ return null; }
+}
+function _recHistUpdateUI(){
+  try {
+    const { cell } = _recHistGetCurrentCell() || {};
+    const wrap = document.getElementById('rec-hist-wrap');
+    if(wrap) wrap.innerHTML = cell ? _recHistRender(cell) : '';
+  } catch(_){}
+}
+function _recHistRecalcAcumulado(cell){
+  // Recalcula cell.valorPago/juros/multa/desconto a partir do hist
+  if(!Array.isArray(cell.recebimentosHist)) cell.recebimentosHist = [];
+  let pag = 0, ju = 0, mu = 0, de = 0;
+  for(const h of cell.recebimentosHist){
+    pag += parseFloat(h.valor)||0;
+    ju  += parseFloat(h.juros)||0;
+    mu  += parseFloat(h.multa)||0;
+    de  += parseFloat(h.desconto)||0;
+  }
+  if(pag > 0) cell.valorPago = pag; else delete cell.valorPago;
+  if(ju > 0)  cell.juros = ju;     else delete cell.juros;
+  if(mu > 0)  cell.multa = mu;     else delete cell.multa;
+  if(de > 0)  cell.desconto = de;  else delete cell.desconto;
+  // Recalcula status
+  const valOrig = parseFloat(cell.valor) || 0;
+  const recLiq = pag + ju + mu - de;
+  if(recLiq < 0.01){
+    cell.status = 'aberto';
+    delete cell.dataRecebimento;
+  } else if(recLiq < valOrig - 0.01){
+    cell.status = 'parcial';
+    // dataRecebimento = data do último aporte
+    const ult = cell.recebimentosHist[cell.recebimentosHist.length - 1];
+    if(ult && ult.data) cell.dataRecebimento = ult.data;
+  } else {
+    cell.status = 'recebido';
+    const ult = cell.recebimentosHist[cell.recebimentosHist.length - 1];
+    if(ult && ult.data) cell.dataRecebimento = ult.data;
+  }
+}
+function _recHistEditar(idx){
+  _recHistEditingIdx = idx;
+  _recHistUpdateUI();
+  setTimeout(() => {
+    const f = document.getElementById('rec-hist-edit-valor');
+    if(f) try { f.focus(); f.select(); } catch(_){}
+  }, 50);
+}
+function _recHistCancelarEdicao(){
+  _recHistEditingIdx = null;
+  _recHistUpdateUI();
+}
+function _recHistSalvarEdicao(idx){
+  try {
+    const { cell } = _recHistGetCurrentCell() || {};
+    if(!cell || !Array.isArray(cell.recebimentosHist) || !cell.recebimentosHist[idx]) return;
+    const h = cell.recebimentosHist[idx];
+    const novaData = (document.getElementById('rec-hist-edit-data')?.value || '').trim();
+    const novoBanco = (document.getElementById('rec-hist-edit-banco')?.value || '').trim();
+    const novoValorRaw = (document.getElementById('rec-hist-edit-valor')?.value || '').trim();
+    const novoValor = (typeof _dkbParseNumBR === 'function') ? _dkbParseNumBR(novoValorRaw) : parseFloat(novoValorRaw)||0;
+    if(!novaData){ if(typeof toast === 'function') toast('⚠ Defina uma data'); return; }
+    if(novoValor <= 0){ if(typeof toast === 'function') toast('⚠ Valor deve ser maior que zero'); return; }
+    h.data = novaData;
+    h.valor = novoValor;
+    h.banco = novoBanco || '';
+    // Atualiza lançamento vinculado no Extrato
+    if(h.extratoId && typeof extratoData !== 'undefined' && extratoData){
+      const l = (extratoData.lancamentos || []).find(x => x.id === h.extratoId);
+      if(l){
+        const valorNet = novoValor + (parseFloat(h.juros)||0) + (parseFloat(h.multa)||0) - (parseFloat(h.desconto)||0);
+        l.data = novaData;
+        l.dataPagamento = novaData;
+        l.valor = valorNet;
+        // Atualiza conta a partir do banco
+        let contaStr = '';
+        try {
+          if(novoBanco && typeof dispo !== 'undefined' && Array.isArray(dispo.contas)){
+            const c = dispo.contas.find(c => c.bancoId === novoBanco);
+            if(c) contaStr = 'conta:' + c.id;
+            if(!contaStr && Array.isArray(dispo.bancos)){
+              const b = dispo.bancos.find(x => x.id === novoBanco);
+              if(b && b.nome) contaStr = b.nome;
+            }
+          }
+        } catch(_){}
+        if(contaStr) l.conta = contaStr;
+        if(typeof _extSave === 'function') try { _extSave(); } catch(_){}
+      }
+    }
+    _recHistRecalcAcumulado(cell);
+    if(typeof receitaSave === 'function') try { receitaSave(); } catch(_){}
+    _recHistEditingIdx = null;
+    _recHistUpdateUI();
+    if(typeof toast === 'function') toast('✓ Recebimento atualizado');
+  } catch(e){ console.warn('_recHistSalvarEdicao', e); }
+}
+function _recHistExcluir(idx){
+  try {
+    const { cell } = _recHistGetCurrentCell() || {};
+    if(!cell || !Array.isArray(cell.recebimentosHist) || !cell.recebimentosHist[idx]) return;
+    const h = cell.recebimentosHist[idx];
+    const fmt = (typeof _dkbFmtNumBR === 'function') ? _dkbFmtNumBR : (n => Number(n||0).toFixed(2).replace('.', ','));
+    const fmtDt = (s) => (s && s.length >= 10) ? (s.slice(8,10) + '/' + s.slice(5,7) + '/' + s.slice(0,4)) : (s||'');
+    const doExclude = () => {
+      // Remove lançamento vinculado no Extrato
+      if(h.extratoId && typeof _recRemoverLancExtratoRecebimentos === 'function'){
+        try { _recRemoverLancExtratoRecebimentos([h.extratoId]); } catch(_){}
+      }
+      cell.recebimentosHist.splice(idx, 1);
+      _recHistRecalcAcumulado(cell);
+      if(typeof receitaSave === 'function') try { receitaSave(); } catch(_){}
+      _recHistEditingIdx = null;
+      _recHistUpdateUI();
+      if(typeof toast === 'function') toast('Recebimento #' + (idx+1) + ' excluído');
+    };
+    if(typeof anaConfirm === 'function'){
+      anaConfirm({
+        title: 'Excluir recebimento?',
+        message: 'Aporte de <strong>R$ ' + fmt((parseFloat(h.valor)||0) + (parseFloat(h.juros)||0) + (parseFloat(h.multa)||0) - (parseFloat(h.desconto)||0)) + '</strong> em <strong>' + fmtDt(h.data) + '</strong>.<br>O lançamento vinculado no Extrato também será removido.',
+        okText: 'Excluir', cancelText: 'Cancelar'
+      }, doExclude);
+    } else {
+      doExclude();
+    }
+  } catch(e){ console.warn('_recHistExcluir', e); }
+}
+try {
+  window._recHistRender = _recHistRender;
+  window._recHistEditar = _recHistEditar;
+  window._recHistCancelarEdicao = _recHistCancelarEdicao;
+  window._recHistSalvarEdicao = _recHistSalvarEdicao;
+  window._recHistExcluir = _recHistExcluir;
+  window._recBancoNome = _recBancoNome;
+} catch(e){}
 
 function recKbCardSave(){
   const ctx = _recKbModalCtx;
@@ -99686,7 +99895,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781644853';
+      const CACHE = 'forekash-v1781645502';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
