@@ -32350,11 +32350,25 @@ function dkbCardOpen(ctxId, itemId, ym, opts){
   const maxDate = ym + '-' + String(lastDay).padStart(2,'0');
   let dataPag = meta.dataPagamento || '';
   if(opts.dragToPago && !dataPag) dataPag = _dkbTodayStr();
+  // ─── Reabertura de parcial · acumular novos pagamentos ───
+  const _vTot     = valor;
+  const _vPagAnt  = parseFloat(meta.valorPago) || 0;
+  const _vJuAnt   = parseFloat(meta.juros) || 0;
+  const _vMuAnt   = parseFloat(meta.multa) || 0;
+  const _vDeAnt   = parseFloat(meta.desconto) || 0;
+  const _vPagoAnt = _vPagAnt + _vJuAnt + _vMuAnt - _vDeAnt;
+  const _temPagPrev = (_vPagAnt > 0.01) || (Array.isArray(meta.pagamentosHist) && meta.pagamentosHist.length > 0);
+  const _isReabrindoParcial = _temPagPrev && (_vPagoAnt < _vTot - 0.01);
+  const _vSaldoAPagar = _temPagPrev ? Math.max(0, _vTot - _vPagoAnt) : _vTot;
   _dkbModalCtx = { ctxId, itemId, ym, minDate, maxDate, dragToPago: !!opts.dragToPago,
     prevFornecedorId: meta.fornecedorId || null,
     prevDataVencimento: meta.dataVencimento || '',
     prevBanco: meta.banco || '',
-    prevCentroCustoId: meta.centroCustoId || null };
+    prevCentroCustoId: meta.centroCustoId || null,
+    isReabrindoParcial: _isReabrindoParcial,
+    vTotalOriginal: _vTot,
+    vPagoAnterior: _vPagoAnt,
+    vSaldoAPagar: _vSaldoAPagar };
   const old = document.getElementById('dkb-modal-ov');
   if(old) old.remove();
   const ov = document.createElement('div');
@@ -32418,34 +32432,47 @@ function dkbCardOpen(ctxId, itemId, ym, opts){
     +     '</div>'
     +   '</div>'
     +   '<div id="dkb-tab-pagamento" class="dkb-tab-pane" hidden>'
+    +     (_isReabrindoParcial
+        ? '<div class="rec-parcial-info">'
+          + '<div class="rec-parcial-info-ico">💸</div>'
+          + '<div class="rec-parcial-info-body">'
+          +   '<div class="rec-parcial-info-title">Já pago anteriormente · R$ ' + _dkbFmtNumBR(_vPagoAnt) + '</div>'
+          +   '<div class="rec-parcial-info-sub">'
+          +     'Total da parcela <strong>R$ ' + _dkbFmtNumBR(_vTot) + '</strong> · '
+          +     'Saldo a pagar <strong style="color:#92400E">R$ ' + _dkbFmtNumBR(_vSaldoAPagar) + '</strong>'
+          +     (meta.dataPagamento ? ' · Último em ' + (meta.dataPagamento.slice(8,10) + '/' + meta.dataPagamento.slice(5,7) + '/' + meta.dataPagamento.slice(0,4)) : '')
+          +   '</div>'
+          +   '<div class="rec-parcial-info-hint">Os campos abaixo são um <strong>NOVO pagamento</strong>. Será somado ao já registrado.</div>'
+          + '</div>'
+          + '</div>'
+        : '')
     +     '<div class="dkb-pag-section">'
-    +       '<h4>📋 Identificação do pagamento</h4>'
-    +       '<div class="dkb-pag-row">'
-    +         '<div class="field"><label>Valor da parcela</label>'
-    +           '<div class="dkb-pag-money is-readonly"><span class="prefix">R$</span><input type="text" value="' + _dkbFmtNumBR(valor) + '" disabled></div>'
-    +         '</div>'
+    +       '<h4>💸 Valores efetivos do pagamento</h4>'
+    +       '<div class="dkb-pag-saldo-chip">'
+    +         '<span class="lbl">' + (_isReabrindoParcial ? 'Saldo a pagar' : 'Valor da parcela') + '</span>'
+    +         '<span class="val">R$ ' + _dkbFmtNumBR(_vSaldoAPagar) + '</span>'
+    +       '</div>'
+    +       '<div class="dkb-pag-row cols-3" style="margin-bottom:10px">'
     +         '<div class="field"><label>Data do pagamento</label>'
     +           '<input type="date" id="dkb-fld-pag" value="' + dataPag + '">'
     +         '</div>'
     +         '<div class="field"><label>Forma de pagamento</label>'
     +           '<select id="dkb-fld-forma">' + (function(){ const arr=(typeof _EXT_FORMAS_PG !== 'undefined') ? _EXT_FORMAS_PG : []; const cur = meta.formaPagamento || ''; let s = '<option value="">— escolha —</option>'; for(const f of arr){ s += '<option value="' + _dkbEsc(f) + '"' + (f===cur?' selected':'') + '>' + _dkbEsc(f) + '</option>'; } return s; })() + '</select>'
     +         '</div>'
+    +         '<div class="field"></div>'
     +       '</div>'
-    +     '</div>'
-    +     '<div class="dkb-pag-section">'
-    +       '<h4>💵 Valores efetivos</h4>'
     +       '<div class="dkb-pag-row cols-4">'
-    +         '<div class="field"><label>Valor pago</label>'
-    +           '<div class="dkb-pag-money"><span class="prefix">R$</span><input type="text" inputmode="decimal" id="dkb-fld-valpago" value="' + _dkbFmtNumBR(meta.valorPago != null ? parseFloat(meta.valorPago) : valor) + '" oninput="_dkbPagCalc()" onblur="_dkbPagFormatBlur(this)"></div>'
+    +         '<div class="field"><label>' + (_isReabrindoParcial ? 'Novo pagamento' : 'Valor pago') + '</label>'
+    +           '<div class="dkb-pag-money"><span class="prefix">R$</span><input type="text" inputmode="decimal" id="dkb-fld-valpago" value="' + _dkbFmtNumBR(_isReabrindoParcial ? _vSaldoAPagar : (meta.valorPago != null ? parseFloat(meta.valorPago) : valor)) + '" oninput="_dkbPagCalc()" onblur="_dkbPagFormatBlur(this)"></div>'
     +         '</div>'
     +         '<div class="field"><label>Juros</label>'
-    +           '<div class="dkb-pag-money"><span class="prefix">R$</span><input type="text" inputmode="decimal" id="dkb-fld-juros" value="' + _dkbFmtNumBR(meta.juros != null ? parseFloat(meta.juros) : 0) + '" oninput="_dkbPagCalc()" onblur="_dkbPagFormatBlur(this)"></div>'
+    +           '<div class="dkb-pag-money"><span class="prefix">R$</span><input type="text" inputmode="decimal" id="dkb-fld-juros" value="' + _dkbFmtNumBR(_isReabrindoParcial ? 0 : (meta.juros != null ? parseFloat(meta.juros) : 0)) + '" oninput="_dkbPagCalc()" onblur="_dkbPagFormatBlur(this)"></div>'
     +         '</div>'
     +         '<div class="field"><label>Multa</label>'
-    +           '<div class="dkb-pag-money"><span class="prefix">R$</span><input type="text" inputmode="decimal" id="dkb-fld-multa" value="' + _dkbFmtNumBR(meta.multa != null ? parseFloat(meta.multa) : 0) + '" oninput="_dkbPagCalc()" onblur="_dkbPagFormatBlur(this)"></div>'
+    +           '<div class="dkb-pag-money"><span class="prefix">R$</span><input type="text" inputmode="decimal" id="dkb-fld-multa" value="' + _dkbFmtNumBR(_isReabrindoParcial ? 0 : (meta.multa != null ? parseFloat(meta.multa) : 0)) + '" oninput="_dkbPagCalc()" onblur="_dkbPagFormatBlur(this)"></div>'
     +         '</div>'
     +         '<div class="field"><label>Desconto</label>'
-    +           '<div class="dkb-pag-money"><span class="prefix">R$</span><input type="text" inputmode="decimal" id="dkb-fld-desc" value="' + _dkbFmtNumBR(meta.desconto != null ? parseFloat(meta.desconto) : 0) + '" oninput="_dkbPagCalc()" onblur="_dkbPagFormatBlur(this)"></div>'
+    +           '<div class="dkb-pag-money"><span class="prefix">R$</span><input type="text" inputmode="decimal" id="dkb-fld-desc" value="' + _dkbFmtNumBR(_isReabrindoParcial ? 0 : (meta.desconto != null ? parseFloat(meta.desconto) : 0)) + '" oninput="_dkbPagCalc()" onblur="_dkbPagFormatBlur(this)"></div>'
     +         '</div>'
     +       '</div>'
     +     '</div>'
@@ -32455,8 +32482,45 @@ function dkbCardOpen(ctxId, itemId, ym, opts){
     +     '</div>'
     +     '<div class="dkb-modal-quick">'
     +       '<button type="button" class="quick-btn pos" onclick="document.getElementById(\'dkb-fld-pag\').value=\''+ _dkbTodayStr() + '\';if(typeof _dkbPagCalc===\'function\')_dkbPagCalc();">✓ Pago hoje</button>'
+    +       (_vSaldoAPagar > 0.01 && _vSaldoAPagar < _vTot - 0.01
+        ? '<button type="button" class="quick-btn saldo" onclick="_dkbAplicarSaldoRestante()" title="Preenche o input com o saldo que falta pagar">↺ Aplicar saldo (R$ ' + _dkbFmtNumBR(_vSaldoAPagar) + ')</button>'
+        : '')
     +       '<button type="button" class="quick-btn neg" onclick="document.getElementById(\'dkb-fld-pag\').value=\'\';document.getElementById(\'dkb-fld-valpago\').value=\'0,00\';document.getElementById(\'dkb-fld-juros\').value=\'0,00\';document.getElementById(\'dkb-fld-multa\').value=\'0,00\';document.getElementById(\'dkb-fld-desc\').value=\'0,00\';if(typeof _dkbPagCalc===\'function\')_dkbPagCalc();">✕ Limpar pagamento</button>'
     +     '</div>'
+    +     (Array.isArray(meta.pagamentosHist) && meta.pagamentosHist.length > 0
+        ? (function(){
+            const fmtDt = (s) => (s && s.length >= 10) ? (s.slice(8,10) + '/' + s.slice(5,7) + '/' + s.slice(0,4)) : (s||'');
+            let html = '<div class="dkb-pag-section rec-hist-section" style="margin-top:14px">';
+            html += '<h4>📜 Histórico de pagamentos · ' + meta.pagamentosHist.length + ' aporte(s)</h4>';
+            html += '<div class="rec-hist-list">';
+            let totalHist = 0;
+            meta.pagamentosHist.forEach((h, i) => {
+              const vLiq = (parseFloat(h.valor)||0) + (parseFloat(h.juros)||0) + (parseFloat(h.multa)||0) - (parseFloat(h.desconto)||0);
+              totalHist += vLiq;
+              const extras = [];
+              if(h.juros > 0)    extras.push('juros ' + _dkbFmtNumBR(h.juros));
+              if(h.multa > 0)    extras.push('multa ' + _dkbFmtNumBR(h.multa));
+              if(h.desconto > 0) extras.push('desconto ' + _dkbFmtNumBR(h.desconto));
+              html += '<div class="rec-hist-item">'
+                +   '<div class="rec-hist-num">#' + (i+1) + '</div>'
+                +   '<div class="rec-hist-info">'
+                +     '<div class="rec-hist-data">📅 ' + fmtDt(h.data) + '</div>'
+                +     (extras.length ? '<div class="rec-hist-extras">' + extras.join(' · ') + '</div>' : '')
+                +   '</div>'
+                +   '<div class="rec-hist-valor" style="color:#DC2626">R$ ' + _dkbFmtNumBR(vLiq) + '</div>'
+                +   '<div class="rec-hist-actions">'
+                +     (h.extratoId
+                        ? '<button type="button" class="rec-hist-link" onclick="_dkbAbrirLancExtrato(' + h.extratoId + ')" title="Ver lançamento no Extrato">🔗 Extrato #' + h.extratoId + '</button>'
+                        : '<span class="rec-hist-nolink">sem extrato</span>')
+                +   '</div>'
+                + '</div>';
+            });
+            html += '</div>';
+            html += '<div class="rec-hist-total">Total já pago: <strong style="color:#DC2626">R$ ' + _dkbFmtNumBR(totalHist) + '</strong></div>';
+            html += '</div>';
+            return html;
+          })()
+        : '')
     +     '<div class="dkb-pag-section">'
     +       '<h4>📎 Comprovante de pagamento <span style="font-weight:500;color:#94A3B8;text-transform:none;letter-spacing:0;font-size:.72rem">— recibo, transferência ou foto</span></h4>'
     +       '<div id="dkb-comp-wrap">' + _dkbRenderAnexoUI(meta.comprovante, 'comp') + '</div>'
@@ -32525,27 +32589,124 @@ function _dkbPagCalc(){
   const j = _dkbParseNumBR(document.getElementById('dkb-fld-juros')?.value);
   const m = _dkbParseNumBR(document.getElementById('dkb-fld-multa')?.value);
   const d = _dkbParseNumBR(document.getElementById('dkb-fld-desc')?.value);
-  const total = v + j + m - d;
-  const elT = document.getElementById('dkb-pag-total');
-  if(elT) elT.textContent = _dkbFmtNumBR(total);
+  const totalNovo = v + j + m - d;
   const ctx = _dkbModalCtx;
-  let orig = 0;
+  let orig = 0, jaPago = 0;
   if(ctx){
-    const ad = DKB_ADAPTERS[ctx.ctxId];
-    const it = ad && (ad.items() || []).find(x => x.id === ctx.itemId);
-    if(it){ const valores = ad.valoresOf(it); orig = parseFloat(valores[ctx.ym]) || 0; }
+    orig = parseFloat(ctx.vTotalOriginal) || 0;
+    if(ctx.isReabrindoParcial) jaPago = parseFloat(ctx.vPagoAnterior) || 0;
+    if(!orig){
+      const ad = DKB_ADAPTERS[ctx.ctxId];
+      const it = ad && (ad.items() || []).find(x => x.id === ctx.itemId);
+      if(it){ const valores = ad.valoresOf(it); orig = parseFloat(valores[ctx.ym]) || 0; }
+    }
   }
-  const saldo = Math.max(0, orig - v);
+  const totalAcumulado = jaPago + totalNovo;
+  const saldo = Math.max(0, orig - totalAcumulado);
+  const elT = document.getElementById('dkb-pag-total');
+  if(elT) elT.textContent = _dkbFmtNumBR(totalAcumulado);
   const elS = document.getElementById('dkb-pag-saldo');
   const elH = document.getElementById('dkb-pag-saldo-hint');
   if(elS){ elS.textContent = 'R$ ' + _dkbFmtNumBR(saldo); elS.classList.toggle('zero', saldo <= 0.001); }
   if(elH){
-    if(saldo > 0.001){ elH.textContent = '⚠ Pagamento parcial — saldo permanece em aberto.'; elH.style.color = '#FCD34D'; }
-    else if(v > orig + 0.001){ elH.textContent = 'ℹ Valor maior que o original (juros/multa cobertos).'; elH.style.color = '#86EFAC'; }
+    if(saldo > 0.001){
+      const pref = (ctx && ctx.isReabrindoParcial) ? '⚠ Novo pagamento parcial — saldo ' : '⚠ Pagamento parcial — saldo ';
+      elH.textContent = pref + 'R$ ' + _dkbFmtNumBR(saldo) + ' permanece em aberto.';
+      elH.style.color = '#FCD34D';
+    }
+    else if(totalAcumulado > orig + 0.001){ elH.textContent = 'ℹ Valor maior que o original (juros/multa cobertos).'; elH.style.color = '#86EFAC'; }
     else { elH.textContent = 'Quitação total · esta parcela será encerrada.'; elH.style.color = '#94A3B8'; }
   }
 }
 try { window._dkbPagCalc = _dkbPagCalc; } catch(e){}
+// Pré-preenche o input "Novo pagamento" com o saldo restante (saldo a pagar)
+function _dkbAplicarSaldoRestante(){
+  try {
+    const ctx = _dkbModalCtx; if(!ctx) return;
+    const saldo = parseFloat(ctx.vSaldoAPagar) || 0;
+    const inp = document.getElementById('dkb-fld-valpago');
+    if(inp){ inp.value = _dkbFmtNumBR(saldo); inp.focus(); try { inp.select(); } catch(_){} }
+    const j = document.getElementById('dkb-fld-juros'); if(j) j.value = '0,00';
+    const m = document.getElementById('dkb-fld-multa'); if(m) m.value = '0,00';
+    const d = document.getElementById('dkb-fld-desc');  if(d) d.value = '0,00';
+    _dkbPagCalc();
+    if(typeof toast === 'function') toast('Saldo aplicado: R$ ' + _dkbFmtNumBR(saldo));
+  } catch(e){ console.warn('aplicar saldo dkb', e); }
+}
+try { window._dkbAplicarSaldoRestante = _dkbAplicarSaldoRestante; } catch(e){}
+// Cria 1 lançamento (gasto) no Extrato pra cada aporte de pagamento
+function _dkbCriarLancExtratoPagamento(opts){
+  try {
+    if(typeof extratoData === 'undefined' || !extratoData) return null;
+    if(typeof extratoData.nextId !== 'number') extratoData.nextId = 1;
+    const valorNet = (parseFloat(opts.valor)||0) + (parseFloat(opts.juros)||0) + (parseFloat(opts.multa)||0) - (parseFloat(opts.desconto)||0);
+    if(valorNet <= 0.001) return null;
+    const id = extratoData.nextId++;
+    // Conta: tenta usar 'conta:<id>' se encontrar pelo bancoId
+    let contaStr = '';
+    if(opts.banco){
+      try {
+        if(typeof dispo !== 'undefined' && dispo && Array.isArray(dispo.contas)){
+          const c = dispo.contas.find(c => c.bancoId === opts.banco);
+          if(c) contaStr = 'conta:' + c.id;
+        }
+        if(!contaStr && dispo && Array.isArray(dispo.bancos)){
+          const b = dispo.bancos.find(x => x.id === opts.banco);
+          if(b && b.nome) contaStr = b.nome;
+        }
+      } catch(_){}
+    }
+    const descBase = 'Pagamento · ' + (opts.descricaoItem || 'Despesa') + (opts.contraparte ? ' · ' + opts.contraparte : '');
+    const desc = opts.numAporte ? (descBase + ' (parcial ' + opts.numAporte + ')') : descBase;
+    const lanc = {
+      id,
+      data: opts.data,
+      valor: valorNet,
+      descricao: desc,
+      categoria: opts.categoria || 'Despesa',
+      contraparte: opts.contraparte || '',
+      conta: contaStr,
+      status: 'pago',
+      dataPagamento: opts.data,
+      tipo: 'gasto',
+      refInterna: 'DESP-' + (opts.ctxId || 'x') + '-' + opts.itemId + '-' + opts.ym,
+      notas: 'Gerado automaticamente do pagamento de despesa',
+      criadoEm: new Date().toISOString(),
+      origem: { tipo: 'despesa-pagamento', ctxId: opts.ctxId, itemId: opts.itemId, ym: opts.ym }
+    };
+    if(opts.juros)    lanc.juros    = opts.juros;
+    if(opts.multa)    lanc.multa    = opts.multa;
+    if(opts.desconto) lanc.desconto = opts.desconto;
+    extratoData.lancamentos.push(lanc);
+    if(typeof _extSave === 'function') try { _extSave(); } catch(e){}
+    return id;
+  } catch(e){ console.warn('_dkbCriarLancExtratoPagamento', e); return null; }
+}
+function _dkbRemoverLancExtratoPagamentos(extratoIds){
+  try {
+    if(typeof extratoData === 'undefined' || !extratoData || !Array.isArray(extratoIds) || extratoIds.length === 0) return;
+    const idSet = new Set(extratoIds.filter(x => x != null));
+    extratoData.lancamentos = extratoData.lancamentos.filter(l => !idSet.has(l.id));
+    if(typeof _extSave === 'function') try { _extSave(); } catch(_){}
+  } catch(e){ console.warn('_dkbRemoverLancExtratoPagamentos', e); }
+}
+function _dkbAbrirLancExtrato(extratoId){
+  try {
+    if(typeof switchModule === 'function'){
+      switchModule('extrato', document.querySelector('[data-module="extrato"]'));
+      setTimeout(() => {
+        const rows = document.querySelectorAll('[data-lanc-id="' + extratoId + '"], [data-id="' + extratoId + '"]');
+        if(rows && rows.length > 0){
+          rows[0].scrollIntoView({behavior:'smooth', block:'center'});
+          rows[0].style.transition = 'box-shadow .4s';
+          rows[0].style.boxShadow = '0 0 0 3px #FBBF24';
+          setTimeout(() => rows[0].style.boxShadow = '', 2500);
+        } else if(typeof toast === 'function'){ toast('Lançamento #' + extratoId + ' · busque por DESP-…'); }
+      }, 350);
+    }
+  } catch(e){ console.warn('abrir extrato dkb', e); }
+}
+try { window._dkbCriarLancExtratoPagamento = _dkbCriarLancExtratoPagamento; window._dkbRemoverLancExtratoPagamentos = _dkbRemoverLancExtratoPagamentos; window._dkbAbrirLancExtrato = _dkbAbrirLancExtrato; } catch(e){}
 
 // ─── MULTI-ANEXO — engine genérica reutilizável ───
 // Estado: arrays globais por contexto. Cada item: { name, type, size, dataUrl }
@@ -32803,19 +32964,108 @@ function dkbCardSave(propagateForward){
   if(centroCustoId) meta.centroCustoId = centroCustoId; else delete meta.centroCustoId;
   if(notas) meta.notas = notas; else delete meta.notas;
   if(formaPg) meta.formaPagamento = formaPg; else delete meta.formaPagamento;
-  if(valorPagoNum != null && isFinite(valorPagoNum) && valorPagoNum > 0) meta.valorPago = valorPagoNum; else delete meta.valorPago;
-  if(jurosNum > 0) meta.juros = jurosNum; else delete meta.juros;
-  if(multaNum > 0) meta.multa = multaNum; else delete meta.multa;
-  if(descNum > 0) meta.desconto = descNum; else delete meta.desconto;
+  // ─── Acumular se for reabertura de parcial ───
+  const _ehReabPagParcial = !!(c && c.isReabrindoParcial);
+  // Nome do item pra descrição do lançamento
+  let _descItem = '';
+  try { _descItem = ad.nameOf ? ad.nameOf(it) : (it.nome || it.descricao || ''); } catch(_){ _descItem = ''; }
+  // Resolve nome do fornecedor pra contraparte
+  let _fornNome = '';
+  try {
+    if(fornecedorId && typeof pessoas !== 'undefined' && Array.isArray(pessoas.registry)){
+      const f = pessoas.registry.find(r => r.id === fornecedorId);
+      if(f) _fornNome = f.nome || '';
+    }
+  } catch(_){}
+  if(_ehReabPagParcial && pag){
+    if(!Array.isArray(meta.pagamentosHist)) meta.pagamentosHist = [];
+    const _vNovo = valorPagoNum != null ? valorPagoNum : 0;
+    if(_vNovo > 0 || jurosNum > 0 || multaNum > 0 || descNum > 0){
+      const _numAporte = meta.pagamentosHist.length + 1;
+      const _extId = (typeof _dkbCriarLancExtratoPagamento === 'function')
+        ? _dkbCriarLancExtratoPagamento({
+            ctxId: c.ctxId, itemId: c.itemId, ym: c.ym,
+            data: pag,
+            valor: _vNovo, juros: jurosNum||0, multa: multaNum||0, desconto: descNum||0,
+            banco: banco || '',
+            contraparte: _fornNome,
+            descricaoItem: _descItem,
+            categoria: it.categoria || 'Despesa',
+            numAporte: _numAporte
+          })
+        : null;
+      meta.pagamentosHist.push({
+        data: pag, valor: _vNovo,
+        juros: jurosNum||0, multa: multaNum||0, desconto: descNum||0,
+        banco: banco || '', extratoId: _extId
+      });
+    }
+    // Acumula valores totais
+    const _vPagPrev = parseFloat(meta.valorPago) || 0;
+    const _vJuPrev  = parseFloat(meta.juros) || 0;
+    const _vMuPrev  = parseFloat(meta.multa) || 0;
+    const _vDePrev  = parseFloat(meta.desconto) || 0;
+    const _vPagNew = _vPagPrev + _vNovo;
+    const _vJuNew  = _vJuPrev + (jurosNum||0);
+    const _vMuNew  = _vMuPrev + (multaNum||0);
+    const _vDeNew  = _vDePrev + (descNum||0);
+    if(_vPagNew > 0) meta.valorPago = _vPagNew; else delete meta.valorPago;
+    if(_vJuNew > 0) meta.juros = _vJuNew; else delete meta.juros;
+    if(_vMuNew > 0) meta.multa = _vMuNew; else delete meta.multa;
+    if(_vDeNew > 0) meta.desconto = _vDeNew; else delete meta.desconto;
+  } else {
+    if(valorPagoNum != null && isFinite(valorPagoNum) && valorPagoNum > 0) meta.valorPago = valorPagoNum; else delete meta.valorPago;
+    if(jurosNum > 0) meta.juros = jurosNum; else delete meta.juros;
+    if(multaNum > 0) meta.multa = multaNum; else delete meta.multa;
+    if(descNum > 0) meta.desconto = descNum; else delete meta.desconto;
+    // Primeiro pagamento com data: cria entry no hist + lançamento no extrato (idempotente)
+    if(pag && (valorPagoNum > 0 || jurosNum > 0 || multaNum > 0 || descNum > 0)){
+      if(!Array.isArray(meta.pagamentosHist)) meta.pagamentosHist = [];
+      const _jaTemDeHoje = meta.pagamentosHist.some(h => h.data === pag && Math.abs((parseFloat(h.valor)||0) - (valorPagoNum||0)) < 0.01);
+      if(!_jaTemDeHoje){
+        const _extId = (typeof _dkbCriarLancExtratoPagamento === 'function')
+          ? _dkbCriarLancExtratoPagamento({
+              ctxId: c.ctxId, itemId: c.itemId, ym: c.ym,
+              data: pag,
+              valor: valorPagoNum||0, juros: jurosNum||0, multa: multaNum||0, desconto: descNum||0,
+              banco: banco || '',
+              contraparte: _fornNome,
+              descricaoItem: _descItem,
+              categoria: it.categoria || 'Despesa',
+              numAporte: meta.pagamentosHist.length + 1
+            })
+          : null;
+        meta.pagamentosHist.push({
+          data: pag, valor: valorPagoNum||0,
+          juros: jurosNum||0, multa: multaNum||0, desconto: descNum||0,
+          banco: banco || '', extratoId: _extId
+        });
+      }
+    }
+  }
   // Anexos (sempre array): documento (Detalhes) e comprovante (Pagamento)
   if(Array.isArray(_dkbAnexoData) && _dkbAnexoData.length > 0) meta.anexo = _dkbAnexoData.slice(); else delete meta.anexo;
   if(Array.isArray(_dkbCompData)  && _dkbCompData.length > 0)  meta.comprovante = _dkbCompData.slice(); else delete meta.comprovante;
   if(pag){
     meta.dataPagamento = pag;
-    ad.setPago(it, c.ym, true);
+    // Status pago só se acumulado >= valor original; senão segue em aberto (parcial)
+    const _valOrig = parseFloat(c.vTotalOriginal) || 0;
+    const _vAcumLiq = (parseFloat(meta.valorPago)||0) + (parseFloat(meta.juros)||0) + (parseFloat(meta.multa)||0) - (parseFloat(meta.desconto)||0);
+    const _ehTotal = !(_vAcumLiq > 0.01 && _vAcumLiq < _valOrig - 0.01);
+    ad.setPago(it, c.ym, _ehTotal);
+    if(!_ehTotal) meta.statusParcial = true; else delete meta.statusParcial;
   } else {
     delete meta.dataPagamento;
+    delete meta.statusParcial;
     ad.setPago(it, c.ym, false);
+    // Remove lançamentos vinculados ao limpar pagamento
+    if(Array.isArray(meta.pagamentosHist)){
+      const _extIds = meta.pagamentosHist.map(h => h.extratoId).filter(x => x != null);
+      if(_extIds.length > 0 && typeof _dkbRemoverLancExtratoPagamentos === 'function'){
+        try { _dkbRemoverLancExtratoPagamentos(_extIds); } catch(_){}
+      }
+      delete meta.pagamentosHist;
+    }
   }
   // Categoria (tag/rubrica): salva no item, não na meta. ad.save persiste tudo.
   try {
@@ -99436,7 +99686,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781644474';
+      const CACHE = 'forekash-v1781644853';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
