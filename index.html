@@ -34800,27 +34800,48 @@ function _recMigrarValorPagoParaHist(cell, year, mesAbbr, nomeCli){
     });
     mudou = true;
   }
-  // Detecta lançamento órfão no Extrato (valor total da parcela, mesmo mês, mesmo cliente, SEM refInterna REC-)
-  // Caso comum: lançamento criado pelo modo antigo de "recebido total" antes da feature de parcial
+  // Sincroniza descrições dos lançamentos vinculados (limpa "(parcial N)" legado)
   try {
-    if(year != null && mesAbbr && nomeCli && cell.recebimentosHist.length >= 1 && typeof extratoData !== 'undefined' && extratoData){
+    if(typeof extratoData !== 'undefined' && extratoData && Array.isArray(cell.recebimentosHist)){
+      const descCorreta = 'Recebimento · ' + (nomeCli || 'Cliente');
+      cell.recebimentosHist.forEach(h => {
+        if(!h.extratoId) return;
+        const l = (extratoData.lancamentos || []).find(x => x.id === h.extratoId);
+        if(l && l.descricao !== descCorreta){
+          l.descricao = descCorreta;
+          mudou = true;
+        }
+      });
+    }
+  } catch(_){}
+  // Detecta lançamento órfão no Extrato — critério permissivo: sem origem='receita-recebimento'
+  // Caso comum: lançamento criado pelo modo antigo (status='recebido' total) antes da feature parcial
+  try {
+    if(year != null && mesAbbr && nomeCli && typeof extratoData !== 'undefined' && extratoData){
       const valorTotal = parseFloat(cell.valor) || 0;
       if(valorTotal > 0.01){
         const mIdx = (typeof REC_MESES !== 'undefined') ? REC_MESES.indexOf(mesAbbr) : -1;
         if(mIdx >= 0){
           const ymPrefix = year + '-' + String(mIdx+1).padStart(2,'0');
           const nomeCliLow = String(nomeCli).trim().toLowerCase();
-          const orfaos = (extratoData.lancamentos || []).filter(l =>
-            l.tipo === 'ganho' &&
-            String(l.contraparte || '').trim().toLowerCase() === nomeCliLow &&
-            l.data && String(l.data).startsWith(ymPrefix) &&
-            Math.abs((parseFloat(l.valor)||0) - valorTotal) < 0.01 &&
-            (!l.refInterna || (!String(l.refInterna).startsWith('REC-') && !String(l.refInterna).startsWith('DESP-')))
-          );
+          // Soma do hist atual (que já tem entries reais)
+          const somaHist = cell.recebimentosHist.reduce((s, h) => s + (parseFloat(h.valor)||0) + (parseFloat(h.juros)||0) + (parseFloat(h.multa)||0) - (parseFloat(h.desconto)||0), 0);
+          const ehDuplicado = (l) => {
+            if(l.tipo !== 'ganho') return false;
+            if(String(l.contraparte || '').trim().toLowerCase() !== nomeCliLow) return false;
+            if(!l.data || !String(l.data).startsWith(ymPrefix)) return false;
+            // Já é um lançamento gerado por essa feature? Pula
+            if(l.origem && l.origem.tipo === 'receita-recebimento') return false;
+            // Match no valor: total exato OU (total - somaHist) — qualquer um dos 2
+            const v = parseFloat(l.valor)||0;
+            if(Math.abs(v - valorTotal) < 0.01) return true;
+            if(somaHist > 0.01 && Math.abs(v - (valorTotal - somaHist)) < 0.01) return true;
+            return false;
+          };
+          const orfaos = (extratoData.lancamentos || []).filter(ehDuplicado);
           if(orfaos.length > 0){
             const ids = new Set(orfaos.map(l => l.id));
             extratoData.lancamentos = extratoData.lancamentos.filter(l => !ids.has(l.id));
-            if(typeof _extSave === 'function') try { _extSave(); } catch(_){}
             mudou = true;
             if(typeof toast === 'function') toast('🧹 ' + orfaos.length + ' lançamento(s) duplicado(s) removido(s) do Extrato');
           }
@@ -34828,7 +34849,10 @@ function _recMigrarValorPagoParaHist(cell, year, mesAbbr, nomeCli){
       }
     }
   } catch(e){ console.warn('migrar órfão', e); }
-  if(mudou && typeof receitaSave === 'function') try { receitaSave(); } catch(_){}
+  if(mudou){
+    if(typeof _extSave === 'function') try { _extSave(); } catch(_){}
+    if(typeof receitaSave === 'function') try { receitaSave(); } catch(_){}
+  }
 }
 try { window._recMigrarValorPagoParaHist = _recMigrarValorPagoParaHist; } catch(e){}
 function _recBancoNome(bancoId){
@@ -99957,7 +99981,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781648528';
+      const CACHE = 'forekash-v1781652197';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
