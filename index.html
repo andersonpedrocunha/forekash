@@ -34006,7 +34006,8 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
   const _vMuAnt   = parseFloat(cell.multa) || 0;
   const _vDeAnt   = parseFloat(cell.desconto) || 0;
   const _vRecAnt  = _vPagAnt + _vJuAnt + _vMuAnt - _vDeAnt;
-  const _isReabrindoParcial = (cell.status === 'parcial') && (_vRecAnt > 0.01);
+  // Reabertura de parcial: status='parcial' OU já tem valorPago salvo menor que o total
+  const _isReabrindoParcial = (_vRecAnt > 0.01) && (_vRecAnt < _vTot - 0.01) && (cell.status === 'parcial' || cell.dataRecebimento);
   const _vSaldoARec = _isReabrindoParcial ? Math.max(0, _vTot - _vRecAnt) : _vTot;
 
   _recKbModalCtx = {
@@ -34144,13 +34145,13 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
     +         '<div class="field"><label>' + (_isReabrindoParcial ? 'Novo aporte recebido' : 'Valor recebido') + '</label>'
     +           '<div class="dkb-pag-money"><span class="prefix">R$</span><input type="text" inputmode="decimal" id="rec-kb-fld-valpago" value="' + (typeof _dkbFmtNumBR === 'function' ? _dkbFmtNumBR(_isReabrindoParcial ? _vSaldoARec : (cell.valorPago != null ? parseFloat(cell.valorPago) : _vTot)) : '') + '" oninput="_recPagCalc()" onblur="_recPagFormatBlur(this)"></div>'
     +         '</div>'
-    +         '<div class="field"><label>Juros' + (_isReabrindoParcial ? ' <span class="hint">(novo)</span>' : '') + '</label>'
+    +         '<div class="field"><label>Juros</label>'
     +           '<div class="dkb-pag-money"><span class="prefix">R$</span><input type="text" inputmode="decimal" id="rec-kb-fld-juros" value="' + (typeof _dkbFmtNumBR === 'function' ? _dkbFmtNumBR(_isReabrindoParcial ? 0 : (cell.juros != null ? parseFloat(cell.juros) : 0)) : '0,00') + '" oninput="_recPagCalc()" onblur="_recPagFormatBlur(this)"></div>'
     +         '</div>'
-    +         '<div class="field"><label>Multa' + (_isReabrindoParcial ? ' <span class="hint">(novo)</span>' : '') + '</label>'
+    +         '<div class="field"><label>Multa</label>'
     +           '<div class="dkb-pag-money"><span class="prefix">R$</span><input type="text" inputmode="decimal" id="rec-kb-fld-multa" value="' + (typeof _dkbFmtNumBR === 'function' ? _dkbFmtNumBR(_isReabrindoParcial ? 0 : (cell.multa != null ? parseFloat(cell.multa) : 0)) : '0,00') + '" oninput="_recPagCalc()" onblur="_recPagFormatBlur(this)"></div>'
     +         '</div>'
-    +         '<div class="field"><label>Desconto' + (_isReabrindoParcial ? ' <span class="hint">(novo)</span>' : '') + '</label>'
+    +         '<div class="field"><label>Desconto</label>'
     +           '<div class="dkb-pag-money"><span class="prefix">R$</span><input type="text" inputmode="decimal" id="rec-kb-fld-desc" value="' + (typeof _dkbFmtNumBR === 'function' ? _dkbFmtNumBR(_isReabrindoParcial ? 0 : (cell.desconto != null ? parseFloat(cell.desconto) : 0)) : '0,00') + '" oninput="_recPagCalc()" onblur="_recPagFormatBlur(this)"></div>'
     +         '</div>'
     +       '</div>'
@@ -99204,7 +99205,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781634546';
+      const CACHE = 'forekash-v1781634909';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
