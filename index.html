@@ -5795,6 +5795,28 @@
     .dkb-pag-saldo-chip .lbl{font-size:.66rem;font-weight:800;color:#64748B;text-transform:uppercase;
       letter-spacing:.08em;font-family:Consolas,Menlo,monospace}
     .dkb-pag-saldo-chip .val{font-size:1.05rem;font-weight:800;color:#0F172A;font-family:Consolas,Menlo,monospace;font-variant-numeric:tabular-nums}
+    /* Histórico de recebimentos parciais */
+    .rec-hist-section{background:#F8FAFC !important;border-color:#CBD5E1 !important}
+    .rec-hist-list{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+    .rec-hist-item{display:grid;grid-template-columns:32px 1fr auto auto;gap:10px;align-items:center;
+      padding:8px 12px;background:#fff;border:1px solid #E5E7EB;border-radius:6px}
+    .rec-hist-num{width:26px;height:26px;border-radius:50%;background:#EDE9FE;color:#5B21B6;
+      display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:800;
+      font-family:Consolas,Menlo,monospace}
+    .rec-hist-info{display:flex;flex-direction:column;gap:2px;min-width:0}
+    .rec-hist-data{font-size:.82rem;font-weight:700;color:#1E293B;font-family:Consolas,Menlo,monospace}
+    .rec-hist-extras{font-size:.7rem;color:#64748B;font-family:Consolas,Menlo,monospace}
+    .rec-hist-valor{font-size:.92rem;font-weight:800;color:#059669;font-family:Consolas,Menlo,monospace;
+      font-variant-numeric:tabular-nums;white-space:nowrap}
+    .rec-hist-actions{display:flex;align-items:center}
+    .rec-hist-link{padding:5px 10px;background:#F0FDFA;border:1px solid #6EE7B7;color:#065F46;
+      border-radius:5px;font-size:.7rem;font-weight:700;cursor:pointer;font-family:Consolas,Menlo,monospace;
+      transition:background .12s}
+    .rec-hist-link:hover{background:#A7F3D0}
+    .rec-hist-nolink{font-size:.7rem;color:#94A3B8;font-style:italic;padding:5px 10px;font-family:Consolas,Menlo,monospace}
+    .rec-hist-total{padding:8px 12px;background:#fff;border:1px solid #E5E7EB;border-radius:6px;
+      font-size:.82rem;color:#475569;text-align:right;font-family:Consolas,Menlo,monospace}
+    .rec-hist-total strong{color:#059669;font-weight:800;font-variant-numeric:tabular-nums}
     .dkb-pag-section h4{display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:.74rem;font-weight:700;
       color:#475569;text-transform:uppercase;letter-spacing:.06em;line-height:1}
     .dkb-pag-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
@@ -34181,6 +34203,41 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
         : '')
     +       '<button type="button" class="quick-btn neg" onclick="recKbCardClearReceb();document.getElementById(\'rec-kb-fld-valpago\').value=\'0,00\';document.getElementById(\'rec-kb-fld-juros\').value=\'0,00\';document.getElementById(\'rec-kb-fld-multa\').value=\'0,00\';document.getElementById(\'rec-kb-fld-desc\').value=\'0,00\';_recPagCalc();">✕ Limpar recebimento</button>'
     +     '</div>'
+    +     (Array.isArray(cell.recebimentosHist) && cell.recebimentosHist.length > 0
+        ? (function(){
+            const fmt = (typeof _dkbFmtNumBR === 'function') ? _dkbFmtNumBR : (n => Number(n||0).toFixed(2).replace('.', ','));
+            const fmtDt = (s) => (s && s.length >= 10) ? (s.slice(8,10) + '/' + s.slice(5,7) + '/' + s.slice(0,4)) : (s||'');
+            let html = '<div class="dkb-pag-section rec-hist-section" style="margin-top:14px">';
+            html += '<h4>📜 Histórico de recebimentos · ' + cell.recebimentosHist.length + ' aporte(s)</h4>';
+            html += '<div class="rec-hist-list">';
+            let totalHist = 0;
+            cell.recebimentosHist.forEach((h, i) => {
+              const vLiq = (parseFloat(h.valor)||0) + (parseFloat(h.juros)||0) + (parseFloat(h.multa)||0) - (parseFloat(h.desconto)||0);
+              totalHist += vLiq;
+              const extras = [];
+              if(h.juros > 0)    extras.push('juros ' + fmt(h.juros));
+              if(h.multa > 0)    extras.push('multa ' + fmt(h.multa));
+              if(h.desconto > 0) extras.push('desconto ' + fmt(h.desconto));
+              html += '<div class="rec-hist-item">'
+                +   '<div class="rec-hist-num">#' + (i+1) + '</div>'
+                +   '<div class="rec-hist-info">'
+                +     '<div class="rec-hist-data">📅 ' + fmtDt(h.data) + '</div>'
+                +     (extras.length ? '<div class="rec-hist-extras">' + extras.join(' · ') + '</div>' : '')
+                +   '</div>'
+                +   '<div class="rec-hist-valor">R$ ' + fmt(vLiq) + '</div>'
+                +   '<div class="rec-hist-actions">'
+                +     (h.extratoId
+                        ? '<button type="button" class="rec-hist-link" onclick="_recAbrirLancExtrato(' + h.extratoId + ')" title="Ver lançamento no Extrato">🔗 Extrato #' + h.extratoId + '</button>'
+                        : '<span class="rec-hist-nolink">sem extrato</span>')
+                +   '</div>'
+                + '</div>';
+            });
+            html += '</div>';
+            html += '<div class="rec-hist-total">Total já recebido: <strong>R$ ' + fmt(totalHist) + '</strong></div>';
+            html += '</div>';
+            return html;
+          })()
+        : '')
     +     '<div class="dkb-pag-section" style="margin-top:14px">'
     +       '<h4>📎 Comprovante de recebimento <span style="font-weight:500;color:#94A3B8;text-transform:none;letter-spacing:0;font-size:.72rem">— recibo, extrato, foto</span></h4>'
     +       '<div id="rec-kb-comp-wrap">' + _dkbRenderAnexoUI(cell.comprovante, 'rec-comp') + '</div>'
@@ -34389,6 +34446,88 @@ function _recAplicarSaldoRestante(){
 }
 try { window._recAplicarSaldoRestante = _recAplicarSaldoRestante; } catch(e){}
 
+// Cria 1 lançamento no Extrato Financeiro pra um recebimento (parcial ou total) da Receita
+function _recCriarLancExtratoRecebimento(opts){
+  try {
+    if(typeof extratoData === 'undefined' || !extratoData) return null;
+    if(typeof extratoData.nextId !== 'number') extratoData.nextId = 1;
+    const valorNet = (parseFloat(opts.valor)||0) + (parseFloat(opts.juros)||0) + (parseFloat(opts.multa)||0) - (parseFloat(opts.desconto)||0);
+    if(valorNet <= 0.001) return null;
+    const id = extratoData.nextId++;
+    // Conta: usa o id direto do banco (formato 'conta:ID' pra match com Disponibilidades)
+    let contaStr = '';
+    if(opts.banco){
+      // Banco já é o ID em string (ex: '12345'); converte pra formato esperado
+      contaStr = (typeof dispo !== 'undefined' && dispo && Array.isArray(dispo.contas))
+        ? ((dispo.contas.find(c => c.bancoId === opts.banco) ? ('conta:' + dispo.contas.find(c => c.bancoId === opts.banco).id) : ''))
+        : '';
+      if(!contaStr){
+        // Fallback: usa o nome do banco como string da conta
+        try {
+          if(dispo && Array.isArray(dispo.bancos)){
+            const b = dispo.bancos.find(x => x.id === opts.banco);
+            if(b && b.nome) contaStr = b.nome;
+          }
+        } catch(_){}
+      }
+    }
+    const descBase = 'Recebimento · ' + (opts.contraparte || 'Cliente');
+    const desc = opts.numAporte ? (descBase + ' (parcial ' + opts.numAporte + ')') : descBase;
+    const lanc = {
+      id,
+      data: opts.data,
+      valor: valorNet,
+      descricao: desc,
+      categoria: opts.categoria || 'Receita',
+      contraparte: opts.contraparte || '',
+      conta: contaStr,
+      status: 'pago',
+      dataPagamento: opts.data,
+      tipo: 'ganho',
+      refInterna: 'REC-' + opts.year + '-' + opts.mesAbbr + '-' + opts.rowId,
+      notas: 'Gerado automaticamente do recebimento da Receita',
+      criadoEm: new Date().toISOString(),
+      origem: { tipo: 'receita-recebimento', year: opts.year, mesAbbr: opts.mesAbbr, rowId: opts.rowId }
+    };
+    if(opts.juros)    lanc.juros    = opts.juros;
+    if(opts.multa)    lanc.multa    = opts.multa;
+    if(opts.desconto) lanc.desconto = opts.desconto;
+    extratoData.lancamentos.push(lanc);
+    if(typeof _extSave === 'function') try { _extSave(); } catch(e){ console.warn('extSave', e); }
+    return id;
+  } catch(e){ console.warn('_recCriarLancExtratoRecebimento', e); return null; }
+}
+// Remove lançamentos do Extrato vinculados aos extratoIds informados
+function _recRemoverLancExtratoRecebimentos(extratoIds){
+  try {
+    if(typeof extratoData === 'undefined' || !extratoData || !Array.isArray(extratoIds) || extratoIds.length === 0) return;
+    const idSet = new Set(extratoIds.filter(x => x != null));
+    extratoData.lancamentos = extratoData.lancamentos.filter(l => !idSet.has(l.id));
+    if(typeof _extSave === 'function') try { _extSave(); } catch(_){}
+  } catch(e){ console.warn('_recRemoverLancExtratoRecebimentos', e); }
+}
+try { window._recCriarLancExtratoRecebimento = _recCriarLancExtratoRecebimento; window._recRemoverLancExtratoRecebimentos = _recRemoverLancExtratoRecebimentos; } catch(e){}
+// Abre o módulo Extrato e destaca o lançamento (se possível)
+function _recAbrirLancExtrato(extratoId){
+  try {
+    if(typeof switchModule === 'function'){
+      switchModule('extrato', document.querySelector('[data-module="extrato"]'));
+      setTimeout(() => {
+        const rows = document.querySelectorAll('[data-lanc-id="' + extratoId + '"], [data-id="' + extratoId + '"]');
+        if(rows && rows.length > 0){
+          rows[0].scrollIntoView({behavior:'smooth', block:'center'});
+          rows[0].style.transition = 'box-shadow .4s';
+          rows[0].style.boxShadow = '0 0 0 3px #FBBF24';
+          setTimeout(() => rows[0].style.boxShadow = '', 2500);
+        } else if(typeof toast === 'function'){
+          toast('Lançamento #' + extratoId + ' · busque por REC-…');
+        }
+      }, 350);
+    }
+  } catch(e){ console.warn('abrir extrato', e); }
+}
+try { window._recAbrirLancExtrato = _recAbrirLancExtrato; } catch(e){}
+
 function recKbCardSave(){
   const ctx = _recKbModalCtx;
   if(!ctx) return;
@@ -34428,18 +34567,37 @@ function recKbCardSave(){
   if(formaPg) cell.formaPagamento = formaPg; else delete cell.formaPagamento;
   // ─── Acumular se for reabertura de parcial ───
   const _ehReaberturaParcial = !!(ctx && ctx.isReabrindoParcial);
+  // Nome do cliente pra contraparte do lançamento
+  let _nomeCli = '';
+  try {
+    const _cli = (typeof receita !== 'undefined' && receita.clientes) ? receita.clientes.find(x => x.id === row.clienteId) : null;
+    _nomeCli = _cli ? (_cli.nome || row.nome || '') : (row.nome || '');
+  } catch(_){ _nomeCli = row.nome || ''; }
   if(_ehReaberturaParcial && receb){
-    // Adiciona ao histórico
     if(!Array.isArray(cell.recebimentosHist)) cell.recebimentosHist = [];
     const _vNovo = (valorRecNum != null ? valorRecNum : 0);
     if(_vNovo > 0 || jurosNum > 0 || multaNum > 0 || descNum > 0){
+      // Cria lançamento no Extrato pro novo aporte
+      const _numAporte = cell.recebimentosHist.length + 1;
+      const _extId = (typeof _recCriarLancExtratoRecebimento === 'function')
+        ? _recCriarLancExtratoRecebimento({
+            year, mesAbbr, rowId,
+            data: receb,
+            valor: _vNovo, juros: jurosNum||0, multa: multaNum||0, desconto: descNum||0,
+            banco: banco || '',
+            contraparte: _nomeCli,
+            categoria: cell.categoria || 'Receita',
+            numAporte: _numAporte
+          })
+        : null;
       cell.recebimentosHist.push({
         data: receb,
         valor: _vNovo,
         juros: jurosNum || 0,
         multa: multaNum || 0,
         desconto: descNum || 0,
-        banco: banco || ''
+        banco: banco || '',
+        extratoId: _extId
       });
     }
     // Acumula valores totais
@@ -34461,6 +34619,34 @@ function recKbCardSave(){
     if(jurosNum > 0) cell.juros = jurosNum; else delete cell.juros;
     if(multaNum > 0) cell.multa = multaNum; else delete cell.multa;
     if(descNum > 0) cell.desconto = descNum; else delete cell.desconto;
+    // Se é primeiro recebimento com data, cria entry no hist + lançamento no extrato
+    if(receb && (valorRecNum > 0 || jurosNum > 0 || multaNum > 0 || descNum > 0)){
+      if(!Array.isArray(cell.recebimentosHist)) cell.recebimentosHist = [];
+      // Se já tem entries (de saves anteriores que não criaram lançamento), só adiciona se NÃO houver entry hoje pra evitar duplicação
+      const _jaTemDeHoje = cell.recebimentosHist.some(h => h.data === receb && Math.abs((parseFloat(h.valor)||0) - (valorRecNum||0)) < 0.01);
+      if(!_jaTemDeHoje){
+        const _extId = (typeof _recCriarLancExtratoRecebimento === 'function')
+          ? _recCriarLancExtratoRecebimento({
+              year, mesAbbr, rowId,
+              data: receb,
+              valor: valorRecNum||0, juros: jurosNum||0, multa: multaNum||0, desconto: descNum||0,
+              banco: banco || '',
+              contraparte: _nomeCli,
+              categoria: cell.categoria || 'Receita',
+              numAporte: cell.recebimentosHist.length + 1
+            })
+          : null;
+        cell.recebimentosHist.push({
+          data: receb,
+          valor: valorRecNum||0,
+          juros: jurosNum||0,
+          multa: multaNum||0,
+          desconto: descNum||0,
+          banco: banco || '',
+          extratoId: _extId
+        });
+      }
+    }
   }
   // Anexos (sempre array): documento (Detalhes) + comprovante (Recebimento)
   if(Array.isArray(_recKbAnexoData) && _recKbAnexoData.length > 0) cell.anexo = _recKbAnexoData.slice(); else delete cell.anexo;
@@ -34520,8 +34706,14 @@ function recKbCardSave(){
   } else {
     delete cell.dataRecebimento;
     cell.status = 'aberto';
-    // Limpa histórico se voltou pra aberto
-    if(Array.isArray(cell.recebimentosHist)) delete cell.recebimentosHist;
+    // Remove lançamentos do Extrato vinculados aos aportes (antes de limpar o histórico)
+    if(Array.isArray(cell.recebimentosHist)){
+      const _extIds = cell.recebimentosHist.map(h => h.extratoId).filter(x => x != null);
+      if(_extIds.length > 0 && typeof _recRemoverLancExtratoRecebimentos === 'function'){
+        try { _recRemoverLancExtratoRecebimentos(_extIds); } catch(_){}
+      }
+      delete cell.recebimentosHist;
+    }
   }
   // Notas/anexos são gerenciados em tempo real (recKbNotaAdd/Delete) — não tocar aqui.
 
@@ -99244,7 +99436,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781643854';
+      const CACHE = 'forekash-v1781644474';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
