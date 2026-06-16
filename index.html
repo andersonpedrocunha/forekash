@@ -99236,7 +99236,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781636084';
+      const CACHE = 'forekash-v1781636347';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -127730,19 +127730,25 @@ function _recRetencaoRender(){
         headerLiq.style.display = 'none';
       }
     }
-    // Aba Recebimento: campo "Valor a receber" e "Valor recebido" devem usar líquido como referência
+    // Aba Recebimento: campo "Valor a receber" e "Valor recebido"
+    // Se é reabertura de parcial, usa SALDO RESTANTE em vez de líquido (não sobrescreve)
     const fmtN = (typeof _dkbFmtNumBR === 'function') ? _dkbFmtNumBR : (n => Number(n||0).toFixed(2).replace('.', ','));
+    const ctx = _recKbModalCtx;
+    const ehParcial = !!(ctx && ctx.isReabrindoParcial);
+    // Quando parcial: saldoARec já é o que falta receber (descontando deduções não se aplicam ao saldo prévio)
+    // Quando não: usa líquido pra honrar retenções
+    const valorRef = ehParcial ? (parseFloat(ctx.vSaldoARec) || 0) : liquido;
     // Valor a receber (readonly · disabled input)
     const valReceberInputs = document.querySelectorAll('#rec-tab-pagamento input[disabled]');
     valReceberInputs.forEach(inp => {
       if(inp.closest('.dkb-pag-money')){
-        inp.value = fmtN(liquido);
+        inp.value = fmtN(valorRef);
       }
     });
-    // Valor recebido (default = líquido se ainda não foi mexido)
+    // Valor recebido (default = saldo a receber se ainda não foi mexido)
     const valRecebidoEl = document.getElementById('rec-kb-fld-valpago');
     if(valRecebidoEl && !valRecebidoEl.dataset.touched){
-      valRecebidoEl.value = fmtN(liquido);
+      valRecebidoEl.value = fmtN(valorRef);
     }
     // Recalcula saldo da aba Recebimento
     if(typeof _recPagCalc === 'function') try{ _recPagCalc(); }catch(_){}
