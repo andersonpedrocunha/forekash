@@ -5789,6 +5789,12 @@
     /* Garante alinhamento dos inputs no row de 4 cols (Valor recebido · Juros · Multa · Desconto) */
     .dkb-pag-row.cols-4 .field{display:flex;flex-direction:column;justify-content:flex-end;min-width:0}
     .dkb-pag-row.cols-4 .field > label{min-height:2.4em;display:flex;align-items:flex-end;line-height:1.2}
+    /* Chip "Saldo a receber" no topo do bloco Valores efetivos */
+    .dkb-pag-saldo-chip{display:flex;align-items:baseline;justify-content:space-between;gap:14px;
+      padding:10px 14px;margin-bottom:12px;background:#fff;border:1px solid #E5E7EB;border-radius:8px}
+    .dkb-pag-saldo-chip .lbl{font-size:.66rem;font-weight:800;color:#64748B;text-transform:uppercase;
+      letter-spacing:.08em;font-family:Consolas,Menlo,monospace}
+    .dkb-pag-saldo-chip .val{font-size:1.05rem;font-weight:800;color:#0F172A;font-family:Consolas,Menlo,monospace;font-variant-numeric:tabular-nums}
     .dkb-pag-section h4{display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:.74rem;font-weight:700;
       color:#475569;text-transform:uppercase;letter-spacing:.06em;line-height:1}
     .dkb-pag-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
@@ -34135,21 +34141,20 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
           + '</div>'
         : '')
     +     '<div class="dkb-pag-section">'
-    +       '<h4>📋 Identificação do recebimento</h4>'
-    +       '<div class="dkb-pag-row">'
-    +         '<div class="field"><label>' + (_isReabrindoParcial ? 'Saldo a receber' : 'Valor a receber') + '</label>'
-    +           '<div class="dkb-pag-money is-readonly"><span class="prefix">R$</span><input type="text" value="' + (typeof _dkbFmtNumBR === 'function' ? _dkbFmtNumBR(_vSaldoARec) : _vSaldoARec.toFixed(2).replace('.', ',')) + '" disabled></div>'
-    +         '</div>'
+    +       '<h4>💵 Valores efetivos do recebimento</h4>'
+    +       '<div class="dkb-pag-saldo-chip">'
+    +         '<span class="lbl">' + (_isReabrindoParcial ? 'Saldo a receber' : 'Valor a receber') + '</span>'
+    +         '<span class="val">R$ ' + (typeof _dkbFmtNumBR === 'function' ? _dkbFmtNumBR(_vSaldoARec) : _vSaldoARec.toFixed(2).replace('.', ',')) + '</span>'
+    +       '</div>'
+    +       '<div class="dkb-pag-row cols-3" style="margin-bottom:10px">'
     +         '<div class="field"><label>Data do recebimento</label>'
     +           '<input type="date" id="rec-kb-fld-receb" value="' + dataReceb + '">'
     +         '</div>'
     +         '<div class="field"><label>Forma de recebimento</label>'
     +           '<select id="rec-kb-fld-forma">' + (function(){ const arr=(typeof _EXT_FORMAS_PG !== 'undefined') ? _EXT_FORMAS_PG : []; const cur = cell.formaPagamento || ''; let s = '<option value="">— escolha —</option>'; for(const f of arr){ s += '<option value="' + _recKbEsc(f) + '"' + (f===cur?' selected':'') + '>' + _recKbEsc(f) + '</option>'; } return s; })() + '</select>'
     +         '</div>'
+    +         '<div class="field"></div>'
     +       '</div>'
-    +     '</div>'
-    +     '<div class="dkb-pag-section">'
-    +       '<h4>💵 Valores efetivos</h4>'
     +       '<div class="dkb-pag-row cols-4">'
     +         '<div class="field"><label>' + (_isReabrindoParcial ? 'Novo recebimento' : 'Valor recebido') + '</label>'
     +           '<div class="dkb-pag-money"><span class="prefix">R$</span><input type="text" inputmode="decimal" id="rec-kb-fld-valpago" value="' + (typeof _dkbFmtNumBR === 'function' ? _dkbFmtNumBR(_isReabrindoParcial ? _vSaldoARec : (cell.valorPago != null ? parseFloat(cell.valorPago) : _vTot)) : '') + '" oninput="_recPagCalc()" onblur="_recPagFormatBlur(this)"></div>'
@@ -99239,7 +99244,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781643418';
+      const CACHE = 'forekash-v1781643854';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -127741,7 +127746,10 @@ function _recRetencaoRender(){
     // Quando parcial: saldoARec já é o que falta receber (descontando deduções não se aplicam ao saldo prévio)
     // Quando não: usa líquido pra honrar retenções
     const valorRef = ehParcial ? (parseFloat(ctx.vSaldoARec) || 0) : liquido;
-    // Valor a receber (readonly · disabled input)
+    // Saldo a receber: chip readonly no topo de Valores efetivos
+    const saldoChip = document.querySelector('#rec-tab-pagamento .dkb-pag-saldo-chip .val');
+    if(saldoChip) saldoChip.textContent = 'R$ ' + fmtN(valorRef);
+    // Legacy: também atualiza qualquer input disabled (caso ainda exista)
     const valReceberInputs = document.querySelectorAll('#rec-tab-pagamento input[disabled]');
     valReceberInputs.forEach(inp => {
       if(inp.closest('.dkb-pag-money')){
