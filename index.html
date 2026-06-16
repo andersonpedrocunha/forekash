@@ -34006,9 +34006,12 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
   const _vMuAnt   = parseFloat(cell.multa) || 0;
   const _vDeAnt   = parseFloat(cell.desconto) || 0;
   const _vRecAnt  = _vPagAnt + _vJuAnt + _vMuAnt - _vDeAnt;
-  // Reabertura de parcial: status='parcial' OU já tem valorPago salvo menor que o total
-  const _isReabrindoParcial = (_vRecAnt > 0.01) && (_vRecAnt < _vTot - 0.01) && (cell.status === 'parcial' || cell.dataRecebimento);
-  const _vSaldoARec = _isReabrindoParcial ? Math.max(0, _vTot - _vRecAnt) : _vTot;
+  // Reabertura: qualquer recebimento prévio salvo na cell (valorPago > 0 ou histórico não-vazio)
+  const _temRecebPrev = (_vPagAnt > 0.01) || (Array.isArray(cell.recebimentosHist) && cell.recebimentosHist.length > 0);
+  // É parcial se já tem recebimento prévio E ainda falta valor pra quitar
+  const _isReabrindoParcial = _temRecebPrev && (_vRecAnt < _vTot - 0.01);
+  // Saldo a receber: o que falta. Se tem recebimento prévio, total - acumulado; senão, total cheio
+  const _vSaldoARec = _temRecebPrev ? Math.max(0, _vTot - _vRecAnt) : _vTot;
 
   _recKbModalCtx = {
     year, mesAbbr, rowId, minDate, maxDate,
@@ -99205,7 +99208,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781634909';
+      const CACHE = 'forekash-v1781635726';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
