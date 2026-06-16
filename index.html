@@ -6097,7 +6097,51 @@
     .viag-desp-table .col-cat{width:150px}
     .viag-desp-table .col-val{width:100px;text-align:right}
     .viag-desp-table .col-pag{width:90px}
+    .viag-desp-table .col-porq{width:160px}
     .viag-desp-table .col-anexo{width:80px;text-align:center}
+    /* Bloco multi-colaboradores */
+    .viag-colab-block{background:#FAFBFC;border:1px solid var(--bdr);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+    .viag-colab-hd{display:flex;align-items:center;gap:14px;margin-bottom:10px}
+    .viag-colab-hd h3{margin:0;font-size:.86rem;font-weight:800;color:#0F172A;letter-spacing:-.01em}
+    .viag-colab-hd-info{font-size:.74rem;color:#64748B;margin-right:auto}
+    .viag-colab-hd-info strong{color:#0F172A;font-family:Consolas,Menlo,monospace}
+    .viag-colab-add{padding:6px 12px;background:#0F766E;color:#fff;border:none;border-radius:6px;
+      font-size:.74rem;font-weight:700;cursor:pointer;font-family:inherit;letter-spacing:-.01em}
+    .viag-colab-add:hover{background:#0E6B65}
+    .viag-colab-add:disabled{opacity:.45;cursor:not-allowed}
+    .viag-colab-rows{display:flex;flex-direction:column;gap:8px}
+    .viag-colab-row{display:grid;grid-template-columns:1fr 130px 130px 160px 32px;gap:10px;
+      align-items:end;padding:10px 12px;background:#fff;border:1px solid #E5E7EB;border-radius:8px}
+    .viag-colab-cell{display:flex;flex-direction:column;gap:3px}
+    .viag-colab-cell label{font-size:.62rem;font-weight:800;color:#64748B;
+      text-transform:uppercase;letter-spacing:.06em;font-family:Consolas,Menlo,monospace}
+    .viag-colab-cell select, .viag-colab-cell input[type="text"], .viag-colab-cell input[type="number"]{
+      padding:6px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:.78rem;font-family:inherit;background:#fff}
+    .viag-colab-cell input[type="number"]{text-align:right;font-family:Consolas,Menlo,monospace;font-weight:700}
+    .viag-colab-cell select:focus, .viag-colab-cell input:focus{outline:none;border-color:#0F766E;box-shadow:0 0 0 2px rgba(15,118,110,.12)}
+    .viag-colab-cell-sel{gap:5px}
+    .viag-colab-val{padding:6px 8px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:5px;
+      font-family:Consolas,Menlo,monospace;font-weight:700;font-size:.8rem;text-align:right;color:#0F172A}
+    .viag-colab-val.bal-pos{background:#FEF3C7;border-color:#FCD34D;color:#92400E}
+    .viag-colab-val.bal-neg{background:#FEE2E2;border-color:#FCA5A5;color:#991B1B}
+    .viag-colab-rm{background:#FEE2E2;border:1px solid #FCA5A5;color:#991B1B;border-radius:5px;
+      padding:5px 0;font-size:1rem;line-height:1;cursor:pointer;font-family:inherit}
+    .viag-colab-rm:hover{background:#FCA5A5;color:#fff}
+    .viag-colab-empty{padding:12px;background:#F8FAFC;border:1px dashed #CBD5E1;border-radius:6px;
+      text-align:center;font-size:.78rem;color:#64748B}
+    /* Resumo · por colaborador */
+    .viag-resumo-colabs{background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:10px 12px;margin-top:6px}
+    .viag-resumo-colabs-hd{font-size:.66rem;font-weight:800;color:#64748B;text-transform:uppercase;
+      letter-spacing:.08em;font-family:Consolas,Menlo,monospace;margin-bottom:8px}
+    .viag-resumo-colab-row{display:grid;grid-template-columns:1.5fr 1fr 1fr 1.2fr;gap:10px;
+      padding:6px 0;border-top:1px solid #F1F5F9;align-items:center}
+    .viag-resumo-colab-row:first-of-type{border-top:none}
+    .viag-resumo-colab-nome{font-size:.84rem;font-weight:700;color:#0F172A}
+    .viag-resumo-colab-num{font-size:.78rem;font-family:Consolas,Menlo,monospace;font-weight:700;color:#0F172A;text-align:right}
+    .viag-resumo-colab-num .lbl{display:inline-block;margin-right:6px;color:#64748B;font-size:.66rem;
+      text-transform:uppercase;letter-spacing:.06em;font-weight:800}
+    .viag-resumo-colab-num.bal-pos{color:#92400E}
+    .viag-resumo-colab-num.bal-neg{color:#991B1B}
     .viag-pag-seg{display:inline-flex;border:1px solid #E2E8F0;border-radius:6px;overflow:hidden;width:100%}
     .viag-pag-seg .seg{flex:1;padding:5px 0;background:#fff;border:none;border-left:1px solid #E2E8F0;
       cursor:pointer;font-size:.95rem;line-height:1;color:#94A3B8;transition:all .1s;font-family:inherit}
@@ -52331,6 +52375,7 @@ function _viagToastLocked(){
 function _viagRenderEditor(){
   const v = _viagCurrent();
   if(!v) return;
+  _viagEnsureColabs(v);
   document.getElementById('viag-editor-title').textContent = v.titulo || 'Novo relatório de viagem';
   // Travamento — em aprovado/reembolsado/rejeitado o card vira somente leitura
   const _vLocked = _viagIsLocked(v);
@@ -52375,40 +52420,15 @@ function _viagRenderEditor(){
     + '<div class="viag-form-grid">'
     +   '<div class="viag-field viag-field-full"><label>Título da viagem</label><input type="text" value="' + esc(v.titulo||'') + '" placeholder="Ex: Reunião comercial em SP" oninput="viagUpdate(\'titulo\', this.value)"' + _vDis + '></div>'
     +   '<div class="viag-field"><label>Destino</label><input type="text" list="viag-cidades-list" value="' + esc(v.destino||'') + '" placeholder="Cidade, UF — comece a digitar pra autocompletar" oninput="viagUpdate(\'destino\', this.value)" autocomplete="off"' + _vDis + '></div>'
-    +   '<div class="viag-field"><label>Colaborador</label>'
-    +     (function(){
-        const list = (typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.people)) ? pessoas.people : [];
-        // Ordena por nome, ativos primeiro
-        const sorted = list.slice().sort((a,b) => {
-          const aN = (a.nome||'').toLowerCase(), bN = (b.nome||'').toLowerCase();
-          if(a.ativo === false && b.ativo !== false) return 1;
-          if(b.ativo === false && a.ativo !== false) return -1;
-          return aN.localeCompare(bN);
-        });
-        const selectedIsExterno = !v.colaboradorId && !!v.colaborador;
-        const isExternoChoice = v.colaboradorId === '__externo__' || selectedIsExterno;
-        let opts = '<option value="">— Selecione —</option>';
-        opts += sorted.map(p => {
-          const sel = (p.id === v.colaboradorId) ? ' selected' : '';
-          const inativo = (p.ativo === false) ? ' (inativo)' : '';
-          return '<option value="' + p.id + '"' + sel + '>' + esc(p.nome || '(sem nome)') + inativo + '</option>';
-        }).join('');
-        opts += '<option value="__externo__"' + (isExternoChoice ? ' selected' : '') + '>👤 Externo (digitar nome)</option>';
-        let html = '<select onchange="viagSelectColab(this.value)" style="margin-bottom:6px"' + _vDis + '>' + opts + '</select>';
-        if(isExternoChoice){
-          html += '<input type="text" value="' + esc(v.colaborador||'') + '" placeholder="Nome do colaborador externo" oninput="viagUpdate(\'colaborador\', this.value)" style="margin-top:4px"' + _vDis + '>';
-        }
-        return html;
-      })()
-    +   '</div>'
     +   '<div class="viag-field"><label>Data início</label><input type="date" value="' + (v.dataInicio||'') + '" onchange="viagUpdate(\'dataInicio\', this.value)"' + _vDis + '></div>'
     +   '<div class="viag-field"><label>Data fim</label><input type="date" value="' + (v.dataFim||'') + '" onchange="viagUpdate(\'dataFim\', this.value)"' + _vDis + '></div>'
-    +   '<div class="viag-field"><label>Adiantamento (R$)</label><input type="number" step="0.01" min="0" value="' + (v.adiantamento||0) + '" onchange="viagUpdate(\'adiantamento\', this.value)"' + _vDis + '></div>'
     +   '<div class="viag-field"><label>Status</label><select onchange="viagChangeStatusFromSelect(this.value)" id="viag-status-select">'
     +     VIAG_STATUS.map(s => '<option value="' + s.id + '"' + (v.status === s.id ? ' selected' : '') + '>' + s.nome + '</option>').join('')
     +   '</select></div>'
     +   '<div class="viag-field viag-field-full"><label>Propósito da viagem</label><textarea placeholder="Descrição da motivação / objetivo" oninput="viagUpdate(\'proposito\', this.value)"' + _vDis + '>' + esc(v.proposito||'') + '</textarea></div>'
     + '</div>'
+    // Bloco de colaboradores (multi)
+    + _viagRenderColabsBlock(v)
     // Lista de despesas
     + '<div class="viag-desp-section">'
     +   '<div class="viag-desp-section-hd">'
@@ -52428,17 +52448,208 @@ function _viagRenderEditor(){
       '<button class="btn-del" onclick="viagDeleteCurrent()">🗑 Excluir relatório</button>'
     + '<button class="btn-save" onclick="viagCloseEditor()">Concluído</button>';
 }
+// ═══════════════════════════════════════════════════════════════════
+// 👥 Multi-colaboradores · suporte a vários no mesmo relatório
+// ═══════════════════════════════════════════════════════════════════
+function _viagEnsureColabs(v){
+  if(!v) return;
+  if(!Array.isArray(v.colaboradores)){
+    // Migration: relatório antigo com 1 colaborador
+    v.colaboradores = [];
+    if(v.colaboradorId || v.colaborador){
+      v.colaboradores.push({
+        cid: 'c1',
+        pessoaId: (v.colaboradorId && v.colaboradorId !== '__externo__') ? v.colaboradorId : null,
+        nome: v.colaborador || '',
+        externo: (v.colaboradorId === '__externo__' || !v.colaboradorId),
+        adiantamento: parseFloat(v.adiantamento) || 0
+      });
+    }
+  }
+}
+function _viagAddColab(){
+  const v = _viagCurrent(); if(!v) return;
+  if(_viagIsLocked(v)){ _viagToastLocked(); return; }
+  _viagEnsureColabs(v);
+  const nextNum = (v.colaboradores.length + 1);
+  v.colaboradores.push({ cid:'c'+Date.now().toString(36)+nextNum, pessoaId:null, nome:'', externo:true, adiantamento:0 });
+  // Sync legado
+  _viagSyncLegacy(v);
+  viagSave();
+  _viagRenderEditor();
+}
+function _viagRemoveColab(cid){
+  const v = _viagCurrent(); if(!v) return;
+  if(_viagIsLocked(v)){ _viagToastLocked(); return; }
+  _viagEnsureColabs(v);
+  v.colaboradores = v.colaboradores.filter(c => c.cid !== cid);
+  // Limpa despesas que estavam vinculadas
+  (v.despesas||[]).forEach(d => { if(d.porQuem === cid) d.porQuem = 'empresa'; });
+  _viagSyncLegacy(v);
+  viagSave();
+  _viagRenderEditor();
+}
+function _viagUpdateColab(cid, field, value){
+  const v = _viagCurrent(); if(!v) return;
+  if(_viagIsLocked(v)){ _viagToastLocked(); return; }
+  _viagEnsureColabs(v);
+  const c = v.colaboradores.find(x => x.cid === cid);
+  if(!c) return;
+  if(field === 'adiantamento') value = parseFloat(value) || 0;
+  if(field === 'pessoaId'){
+    if(value === '' || value === '__externo__'){
+      c.pessoaId = null;
+      c.externo = true;
+    } else {
+      const id = parseInt(value, 10);
+      c.pessoaId = id; c.externo = false;
+      try{
+        const p = (pessoas && pessoas.people || []).find(p => p.id === id);
+        if(p && p.nome) c.nome = p.nome;
+      }catch(_){}
+    }
+  } else {
+    c[field] = value;
+  }
+  _viagSyncLegacy(v);
+  viagSave();
+  // Re-render do header + resumo apenas (mantém foco)
+  _viagRenderEditor();
+}
+// Sincroniza campos legados (colaboradorId, colaborador, adiantamento) com o primeiro colaborador
+function _viagSyncLegacy(v){
+  if(!Array.isArray(v.colaboradores) || v.colaboradores.length === 0){
+    v.colaboradorId = null; v.colaborador = ''; v.adiantamento = 0;
+    return;
+  }
+  const first = v.colaboradores[0];
+  v.colaboradorId = first.pessoaId || (first.externo ? '__externo__' : null);
+  v.colaborador = first.nome || '';
+  v.adiantamento = v.colaboradores.reduce((s,c) => s + (parseFloat(c.adiantamento)||0), 0);
+}
+function _viagColabLabel(v, cid){
+  if(!cid || cid === 'empresa') return '🏢 Empresa';
+  if(cid === 'rateio') return '⚖ Rateio';
+  _viagEnsureColabs(v);
+  const c = v.colaboradores.find(x => x.cid === cid);
+  return c ? ('👤 ' + (c.nome || '(sem nome)')) : '?';
+}
+function _viagSetDespPorQuem(despId, value){
+  const v = _viagCurrent(); if(!v) return;
+  if(_viagIsLocked(v)){ _viagToastLocked(); _viagRenderEditor(); return; }
+  const d = (v.despesas||[]).find(x => x.id === despId);
+  if(!d) return;
+  d.porQuem = value;
+  viagSave();
+  _viagRenderEditor();
+}
+// Quanto cada colaborador gastou (considerando rateios)
+function _viagGastoPorColab(v, cid){
+  let tot = 0;
+  for(const d of (v.despesas||[])){
+    const por = d.porQuem || (d.pagamento === 'empresa' ? 'empresa' : (v.colaboradores && v.colaboradores[0] && v.colaboradores[0].cid) || 'empresa');
+    const valor = parseFloat(d.valor) || 0;
+    if(por === cid) tot += valor;
+    else if(por === 'rateio'){
+      const n = (v.colaboradores||[]).length;
+      if(n > 0) tot += valor / n;
+    }
+  }
+  return tot;
+}
+function _viagTotalEmpresaNew(v){
+  let tot = 0;
+  for(const d of (v.despesas||[])){
+    if((d.porQuem || (d.pagamento === 'empresa' ? 'empresa' : null)) === 'empresa'){
+      tot += parseFloat(d.valor) || 0;
+    }
+  }
+  return tot;
+}
+
+function _viagRenderColabsBlock(v){
+  _viagEnsureColabs(v);
+  const _vLocked = _viagIsLocked(v);
+  const _vDis = _vLocked ? ' disabled' : '';
+  const list = (typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.people)) ? pessoas.people : [];
+  const sorted = list.slice().sort((a,b) => {
+    const aN = (a.nome||'').toLowerCase(), bN = (b.nome||'').toLowerCase();
+    if(a.ativo === false && b.ativo !== false) return 1;
+    if(b.ativo === false && a.ativo !== false) return -1;
+    return aN.localeCompare(bN);
+  });
+  const totAdi = v.colaboradores.reduce((s,c) => s + (parseFloat(c.adiantamento)||0), 0);
+  let rows = '';
+  for(const c of v.colaboradores){
+    const opts = '<option value="">— Selecione pessoa cadastrada —</option>'
+      + sorted.map(p => {
+          const sel = (c.pessoaId === p.id) ? ' selected' : '';
+          const inativo = (p.ativo === false) ? ' (inativo)' : '';
+          return '<option value="' + p.id + '"' + sel + '>' + esc(p.nome || '(sem nome)') + inativo + '</option>';
+        }).join('')
+      + '<option value="__externo__"' + (c.externo ? ' selected' : '') + '>👤 Externo (digitar nome)</option>';
+    const gasto = _viagGastoPorColab(v, c.cid);
+    const adi = parseFloat(c.adiantamento)||0;
+    const saldo = adi - gasto;
+    const saldoCls = saldo > 0 ? 'bal-pos' : (saldo < 0 ? 'bal-neg' : '');
+    const saldoLbl = saldo > 0 ? 'devolve' : (saldo < 0 ? 'a reembolsar' : 'quitado');
+    rows += '<div class="viag-colab-row">'
+      +   '<div class="viag-colab-cell viag-colab-cell-sel">'
+      +     '<select onchange="_viagUpdateColab(\'' + c.cid + '\', \'pessoaId\', this.value)"' + _vDis + '>' + opts + '</select>'
+      +     (c.externo ? '<input type="text" value="' + esc(c.nome||'') + '" placeholder="Nome do colaborador externo" oninput="_viagUpdateColab(\'' + c.cid + '\', \'nome\', this.value)"' + _vDis + '>' : '')
+      +   '</div>'
+      +   '<div class="viag-colab-cell viag-colab-cell-adi">'
+      +     '<label>Adiantamento</label>'
+      +     '<input type="number" step="0.01" min="0" value="' + adi + '" onchange="_viagUpdateColab(\'' + c.cid + '\', \'adiantamento\', this.value)"' + _vDis + '>'
+      +   '</div>'
+      +   '<div class="viag-colab-cell viag-colab-cell-gst">'
+      +     '<label>Gasto</label>'
+      +     '<div class="viag-colab-val">' + _viagFmt(gasto) + '</div>'
+      +   '</div>'
+      +   '<div class="viag-colab-cell viag-colab-cell-sld">'
+      +     '<label>Saldo · ' + saldoLbl + '</label>'
+      +     '<div class="viag-colab-val ' + saldoCls + '">' + _viagFmt(Math.abs(saldo)) + (saldo > 0 ? ' ↑' : (saldo < 0 ? ' ↓' : '')) + '</div>'
+      +   '</div>'
+      +   '<div class="viag-colab-cell viag-colab-cell-act">'
+      +     (v.colaboradores.length > 1 ? '<button class="viag-colab-rm" onclick="_viagRemoveColab(\'' + c.cid + '\')" title="Remover colaborador"' + _vDis + '>×</button>' : '')
+      +   '</div>'
+      + '</div>';
+  }
+  return '<div class="viag-colab-block">'
+    + '<div class="viag-colab-hd">'
+    +   '<h3>👥 Colaboradores (' + v.colaboradores.length + ')</h3>'
+    +   '<div class="viag-colab-hd-info">Adiantamento total: <strong>' + _viagFmt(totAdi) + '</strong></div>'
+    +   '<button class="viag-colab-add" onclick="_viagAddColab()"' + _vDis + '>+ Adicionar colaborador</button>'
+    + '</div>'
+    + '<div class="viag-colab-rows">' + (rows || '<div class="viag-colab-empty">Adicione ao menos um colaborador.</div>') + '</div>'
+    + '</div>';
+}
 function _viagRenderDespTable(v){
   const _vLocked = _viagIsLocked(v);
   const _vDis = _vLocked ? ' disabled' : '';
   if(!v.despesas || v.despesas.length === 0){
     return '<div class="viag-desp-empty">Nenhuma despesa ainda. Clique em <strong>+ Adicionar despesa</strong> pra começar.</div>';
   }
+  _viagEnsureColabs(v);
+  // Opções de "por quem"
+  const porQuemOpts = (cur) => {
+    let html = '<option value="empresa"' + (cur === 'empresa' ? ' selected' : '') + '>🏢 Empresa</option>';
+    for(const c of v.colaboradores){
+      const nome = c.nome || '(sem nome)';
+      html += '<option value="' + c.cid + '"' + (cur === c.cid ? ' selected' : '') + '>👤 ' + esc(nome) + '</option>';
+    }
+    if(v.colaboradores.length > 1){
+      html += '<option value="rateio"' + (cur === 'rateio' ? ' selected' : '') + '>⚖ Rateio (divide entre todos)</option>';
+    }
+    return html;
+  };
+  const defaultColabCid = (v.colaboradores[0] && v.colaboradores[0].cid) || 'empresa';
   let html = '<table class="viag-desp-table">'
     + '<thead><tr>'
     +   '<th class="col-data">Data</th>'
     +   '<th class="col-cat">Categoria</th>'
     +   '<th>Descrição</th>'
+    +   '<th class="col-porq">De quem</th>'
     +   '<th class="col-pag">Pago por</th>'
     +   '<th class="col-val right">Valor (R$)</th>'
     +   '<th class="col-anexo">Anexo</th>'
@@ -52446,12 +52657,15 @@ function _viagRenderDespTable(v){
     + '</tr></thead><tbody>';
   for(const d of v.despesas){
     const cat = _viagCat(d.categoria || 'outros');
+    // Default: se for paga pela empresa, "empresa"; senão, primeiro colaborador
+    const porQuem = d.porQuem || (d.pagamento === 'empresa' ? 'empresa' : defaultColabCid);
     html += '<tr>'
       + '<td class="col-data"><input type="date" value="' + (d.data||'') + '" onchange="viagUpdateDesp(' + d.id + ', \'data\', this.value)"' + _vDis + '></td>'
       + '<td class="col-cat"><select onchange="viagUpdateDesp(' + d.id + ', \'categoria\', this.value)"' + _vDis + '>'
       +   VIAG_CATEGORIAS.map(c => '<option value="' + c.id + '"' + (d.categoria === c.id ? ' selected' : '') + '>' + c.icon + ' ' + c.nome + '</option>').join('')
       + '</select></td>'
       + '<td><input type="text" value="' + esc(d.descricao||'') + '" placeholder="Ex: Uber aeroporto → hotel" oninput="viagUpdateDesp(' + d.id + ', \'descricao\', this.value)"' + _vDis + '></td>'
+      + '<td class="col-porq"><select onchange="_viagSetDespPorQuem(' + d.id + ', this.value)"' + _vDis + '>' + porQuemOpts(porQuem) + '</select></td>'
       + (function(){
           const curId = d.pagamento || 'funcionario';
           let html = '<td class="col-pag"><div class="viag-pag-seg">';
@@ -52470,12 +52684,11 @@ function _viagRenderDespTable(v){
   return html;
 }
 function _viagRenderResumo(v){
+  _viagEnsureColabs(v);
   const tot = _viagTotalDesp(v);
-  const totEmp = _viagTotalEmpresa(v);
-  const totFunc = _viagTotalFuncionario(v);
-  const adi = parseFloat(v.adiantamento)||0;
-  const saldo = adi - totFunc;
-  // Total por categoria
+  const totEmpresa = _viagTotalEmpresaNew(v);
+  const adiTotal = v.colaboradores.reduce((s,c) => s + (parseFloat(c.adiantamento)||0), 0);
+  // Total por categoria (TOP 4)
   const porCat = {};
   for(const d of (v.despesas||[])){
     const c = d.categoria || 'outros';
@@ -52486,12 +52699,31 @@ function _viagRenderResumo(v){
     const c = _viagCat(cId);
     return '<div class="viag-resumo-cell"><div class="viag-resumo-cell-lbl">' + c.icon + ' ' + c.nome + '</div><div class="viag-resumo-cell-val">' + _viagFmt(val) + '</div></div>';
   }).join('');
-  const saldoLbl = saldo > 0 ? 'Funcionário deve devolver' : (saldo < 0 ? 'Empresa deve reembolsar' : 'Sem saldo a acertar');
+  // Por colaborador
+  let perColab = '';
+  if(v.colaboradores.length > 0){
+    let rows = '';
+    for(const c of v.colaboradores){
+      const gasto = _viagGastoPorColab(v, c.cid);
+      const adi = parseFloat(c.adiantamento)||0;
+      const saldo = adi - gasto;
+      const saldoCls = saldo > 0 ? 'bal-pos' : (saldo < 0 ? 'bal-neg' : '');
+      const saldoLbl = saldo > 0 ? 'devolve' : (saldo < 0 ? 'a reembolsar' : 'quitado');
+      rows += '<div class="viag-resumo-colab-row">'
+        +   '<div class="viag-resumo-colab-nome">👤 ' + esc(c.nome||'(sem nome)') + '</div>'
+        +   '<div class="viag-resumo-colab-num"><span class="lbl">Adi.</span> ' + _viagFmt(adi) + '</div>'
+        +   '<div class="viag-resumo-colab-num"><span class="lbl">Gasto</span> ' + _viagFmt(gasto) + '</div>'
+        +   '<div class="viag-resumo-colab-num ' + saldoCls + '"><span class="lbl">' + saldoLbl + '</span> ' + _viagFmt(Math.abs(saldo)) + (saldo > 0 ? ' ↑' : (saldo < 0 ? ' ↓' : '')) + '</div>'
+        + '</div>';
+    }
+    perColab = '<div class="viag-resumo-colabs"><div class="viag-resumo-colabs-hd">Por colaborador</div>' + rows + '</div>';
+  }
   return '<div class="viag-resumo">'
-    + '<div class="viag-resumo-cell"><div class="viag-resumo-cell-lbl">Adiantamento</div><div class="viag-resumo-cell-val">' + _viagFmt(adi) + '</div></div>'
-    + '<div class="viag-resumo-cell"><div class="viag-resumo-cell-lbl">💵 Pago pelo funcionário</div><div class="viag-resumo-cell-val" style="color:#7C3AED">' + _viagFmt(totFunc) + '</div></div>'
-    + '<div class="viag-resumo-cell"><div class="viag-resumo-cell-lbl">💳 Pago pela empresa</div><div class="viag-resumo-cell-val" style="color:#0F766E">' + _viagFmt(totEmp) + '</div></div>'
-    + '<div class="viag-resumo-cell"><div class="viag-resumo-cell-lbl">' + saldoLbl + '</div><div class="viag-resumo-cell-val ' + (saldo > 0 ? 'bal-pos' : saldo < 0 ? 'bal-neg' : '') + '">' + _viagFmt(Math.abs(saldo)) + (saldo > 0 ? ' ↑' : saldo < 0 ? ' ↓' : '') + '</div></div>'
+    + '<div class="viag-resumo-cell"><div class="viag-resumo-cell-lbl">Adiantamento total</div><div class="viag-resumo-cell-val">' + _viagFmt(adiTotal) + '</div></div>'
+    + '<div class="viag-resumo-cell"><div class="viag-resumo-cell-lbl">Total despesas</div><div class="viag-resumo-cell-val">' + _viagFmt(tot) + '</div></div>'
+    + '<div class="viag-resumo-cell"><div class="viag-resumo-cell-lbl">🏢 Pago pela empresa</div><div class="viag-resumo-cell-val" style="color:#0F766E">' + _viagFmt(totEmpresa) + '</div></div>'
+    + '<div class="viag-resumo-cell"><div class="viag-resumo-cell-lbl">👥 Colaboradores</div><div class="viag-resumo-cell-val">' + v.colaboradores.length + '</div></div>'
+    + (perColab ? '<div style="grid-column:1 / -1">' + perColab + '</div>' : '')
     + (catCells ? '<div style="grid-column:1 / -1;display:grid;grid-template-columns:repeat(' + Math.min(4, cats.length) + ',1fr);gap:10px;padding-top:10px;border-top:1px solid var(--bdr);margin-top:6px">' + catCells + '</div>' : '')
     + '</div>';
 }
@@ -98627,7 +98859,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781538994';
+      const CACHE = 'forekash-v1781629072';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
