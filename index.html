@@ -6129,6 +6129,32 @@
     .viag-colab-rm:hover{background:#FCA5A5;color:#fff}
     .viag-colab-empty{padding:12px;background:#F8FAFC;border:1px dashed #CBD5E1;border-radius:6px;
       text-align:center;font-size:.78rem;color:#64748B}
+    .viag-colab-row-wrap{display:flex;flex-direction:column;gap:0}
+    /* Bloco de reembolso (saldo negativo) */
+    .viag-colab-reembolso{display:flex;align-items:center;gap:10px;padding:8px 12px;
+      background:#FEF3C7;border:1px solid #FCD34D;border-top:none;
+      border-radius:0 0 8px 8px;margin-top:-1px}
+    .viag-colab-reembolso--done{background:#D1FAE5;border-color:#6EE7B7}
+    .viag-reemb-create{padding:7px 14px;background:#DC2626;color:#fff;border:none;border-radius:5px;
+      font-size:.78rem;font-weight:800;cursor:pointer;font-family:inherit;letter-spacing:-.01em;
+      display:inline-flex;align-items:center;gap:6px;width:100%;justify-content:center;
+      transition:background .12s}
+    .viag-reemb-create:hover{background:#B91C1C}
+    .viag-reemb-create:disabled{opacity:.45;cursor:not-allowed}
+    .viag-reemb-ico{font-size:1.1rem;font-weight:800;color:#059669;flex-shrink:0}
+    .viag-reemb-txt{flex:1;display:flex;flex-direction:column;gap:1px;line-height:1.25;min-width:0}
+    .viag-reemb-txt strong{font-size:.78rem;font-weight:800;color:#065F46;letter-spacing:-.01em}
+    .viag-reemb-txt small{font-size:.7rem;color:#047857;font-family:Consolas,Menlo,monospace}
+    .viag-reemb-btn{padding:6px 10px;background:#fff;border:1px solid #6EE7B7;
+      border-radius:5px;font-size:.7rem;font-weight:700;cursor:pointer;font-family:inherit;
+      color:#065F46;flex-shrink:0;letter-spacing:-.01em}
+    .viag-reemb-btn:hover{background:#A7F3D0}
+    .viag-reemb-btn--view{background:#0F766E;color:#fff;border-color:#0F766E}
+    .viag-reemb-btn--view:hover{background:#0E6B65}
+    .viag-reemb-btn--unlink{color:#7C2D12;border-color:#FCD34D}
+    .viag-reemb-btn--unlink:hover{background:#FEF3C7}
+    /* Resumo · chip de reembolso por colaborador */
+    .viag-resumo-reemb{margin-top:4px;font-size:.7rem;color:#065F46;font-family:Consolas,Menlo,monospace;font-weight:700}
     /* Resumo · por colaborador */
     .viag-resumo-colabs{background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:10px 12px;margin-top:6px}
     .viag-resumo-colabs-hd{font-size:.66rem;font-weight:800;color:#64748B;text-transform:uppercase;
@@ -52566,6 +52592,114 @@ function _viagTotalEmpresaNew(v){
   }
   return tot;
 }
+// Cria conta a pagar (lançamento no Extrato) pro reembolso do colaborador
+function _viagCriarReembolso(cid){
+  const v = _viagCurrent(); if(!v) return;
+  if(_viagIsLocked(v)){ _viagToastLocked(); return; }
+  _viagEnsureColabs(v);
+  const c = v.colaboradores.find(x => x.cid === cid);
+  if(!c){ if(typeof toast === 'function') toast('⚠ Colaborador não encontrado'); return; }
+  const gasto = _viagGastoPorColab(v, c.cid);
+  const adi = parseFloat(c.adiantamento)||0;
+  const saldo = adi - gasto;
+  if(saldo >= 0){ if(typeof toast === 'function') toast('Não há saldo a reembolsar para esse colaborador'); return; }
+  const valor = Math.abs(saldo);
+  // Conta default · 1ª conta ativa não-reserva
+  let contaDefault = '';
+  try {
+    if(typeof dispo !== 'undefined' && dispo && Array.isArray(dispo.contas)){
+      const ativa = dispo.contas.find(cc => cc.ativo !== false);
+      if(ativa) contaDefault = 'conta:' + ativa.id;
+    }
+  } catch(_){}
+  // Garante module extrato disponível
+  if(typeof extratoData === 'undefined'){
+    if(typeof toast === 'function') toast('⚠ Módulo Extrato indisponível');
+    return;
+  }
+  if(typeof extratoData.nextId !== 'number') extratoData.nextId = 1;
+  const id = extratoData.nextId++;
+  const hoje = new Date().toISOString().slice(0,10);
+  const colNome = c.nome || '(sem nome)';
+  const tituloViag = v.titulo || ('Viagem #' + v.id);
+  const desc = 'Reembolso viagem · ' + tituloViag + ' · ' + colNome;
+  const lanc = {
+    id,
+    data: hoje,
+    valor,
+    descricao: desc,
+    categoria: 'Viagens',
+    contraparte: colNome,
+    conta: contaDefault,
+    status: 'pendente',
+    notas: 'Gerado automaticamente do relatório de viagem #' + v.id,
+    documento: '',
+    refInterna: 'VIAG-' + v.id + '-' + c.cid,
+    tipo: 'gasto',
+    centroCustoId: null,
+    grupoId: null,
+    dataPagamento: '',
+    criadoEm: new Date().toISOString(),
+    origem: { tipo: 'viagem-reembolso', viagemId: v.id, colaboradorCid: c.cid }
+  };
+  extratoData.lancamentos.push(lanc);
+  if(typeof _extSave === 'function'){
+    try { _extSave(); } catch(e){ console.warn('extSave failed', e); }
+  }
+  c.reembolso = {
+    extratoId: id,
+    valor,
+    criadoEm: new Date().toISOString()
+  };
+  viagSave();
+  if(typeof toast === 'function') toast('✓ Conta a pagar criada no Extrato · R$ ' + valor.toFixed(2).replace('.', ','));
+  _viagRenderEditor();
+}
+// Desvincula (remove a flag · mantém lançamento no extrato)
+function _viagDesvincularReembolso(cid){
+  const v = _viagCurrent(); if(!v) return;
+  if(_viagIsLocked(v)){ _viagToastLocked(); return; }
+  _viagEnsureColabs(v);
+  const c = v.colaboradores.find(x => x.cid === cid);
+  if(!c || !c.reembolso) return;
+  if(typeof anaConfirm === 'function'){
+    anaConfirm({
+      title: 'Desvincular conta a pagar?',
+      message: 'O lançamento <strong>#' + c.reembolso.extratoId + '</strong> no Extrato será mantido, mas perderá o vínculo com este colaborador. Você pode criar um novo reembolso depois.',
+      okText: 'Desvincular',
+      cancelText: 'Cancelar'
+    }, () => {
+      delete c.reembolso;
+      viagSave();
+      _viagRenderEditor();
+      if(typeof toast === 'function') toast('Vínculo removido');
+    });
+  } else {
+    delete c.reembolso;
+    viagSave();
+    _viagRenderEditor();
+  }
+}
+// Abre o módulo Extrato e tenta destacar o lançamento criado
+function _viagAbrirLancamentoExtrato(extratoId){
+  try {
+    if(typeof switchModule === 'function'){
+      switchModule('extrato', document.querySelector('[data-module="extrato"]'));
+      setTimeout(() => {
+        // Tenta encontrar a row do lançamento e dar scroll/highlight
+        const rows = document.querySelectorAll('[data-lanc-id="' + extratoId + '"], [data-id="' + extratoId + '"]');
+        if(rows && rows.length > 0){
+          rows[0].scrollIntoView({behavior:'smooth', block:'center'});
+          rows[0].style.transition = 'box-shadow .4s';
+          rows[0].style.boxShadow = '0 0 0 3px #FBBF24';
+          setTimeout(() => rows[0].style.boxShadow = '', 2500);
+        } else {
+          if(typeof toast === 'function') toast('Lançamento #' + extratoId + ' criado · busque pelo refInterna VIAG-');
+        }
+      }, 350);
+    }
+  } catch(e){ console.warn('navegar extrato falhou', e); }
+}
 
 function _viagRenderColabsBlock(v){
   _viagEnsureColabs(v);
@@ -52593,7 +52727,28 @@ function _viagRenderColabsBlock(v){
     const saldo = adi - gasto;
     const saldoCls = saldo > 0 ? 'bal-pos' : (saldo < 0 ? 'bal-neg' : '');
     const saldoLbl = saldo > 0 ? 'devolve' : (saldo < 0 ? 'a reembolsar' : 'quitado');
-    rows += '<div class="viag-colab-row">'
+    // Bloco de reembolso (visível só se saldo < 0)
+    let reembolsoBlock = '';
+    if(saldo < 0){
+      if(c.reembolso && c.reembolso.extratoId){
+        const dt = c.reembolso.criadoEm ? new Date(c.reembolso.criadoEm).toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit', year:'2-digit'}) : '';
+        reembolsoBlock = '<div class="viag-colab-reembolso viag-colab-reembolso--done">'
+          +   '<span class="viag-reemb-ico">✓</span>'
+          +   '<div class="viag-reemb-txt">'
+          +     '<strong>Conta a pagar criada</strong>'
+          +     '<small>Extrato #' + c.reembolso.extratoId + ' · ' + _viagFmt(c.reembolso.valor || 0) + ' · ' + dt + '</small>'
+          +   '</div>'
+          +   '<button class="viag-reemb-btn viag-reemb-btn--view" onclick="_viagAbrirLancamentoExtrato(' + c.reembolso.extratoId + ')" title="Abrir no Extrato">🔗 ver</button>'
+          +   (_vLocked ? '' : '<button class="viag-reemb-btn viag-reemb-btn--unlink" onclick="_viagDesvincularReembolso(\'' + c.cid + '\')" title="Desvincular do lançamento (mantém no Extrato)">desvincular</button>')
+          + '</div>';
+      } else {
+        reembolsoBlock = '<div class="viag-colab-reembolso">'
+          +   '<button class="viag-reemb-create" onclick="_viagCriarReembolso(\'' + c.cid + '\')" title="Cria lançamento de despesa no Extrato pra reembolsar este colaborador"' + _vDis + '>💸 Criar conta a pagar (' + _viagFmt(Math.abs(saldo)) + ')</button>'
+          + '</div>';
+      }
+    }
+    rows += '<div class="viag-colab-row-wrap">'
+      + '<div class="viag-colab-row">'
       +   '<div class="viag-colab-cell viag-colab-cell-sel">'
       +     '<select onchange="_viagUpdateColab(\'' + c.cid + '\', \'pessoaId\', this.value)"' + _vDis + '>' + opts + '</select>'
       +     (c.externo ? '<input type="text" value="' + esc(c.nome||'') + '" placeholder="Nome do colaborador externo" oninput="_viagUpdateColab(\'' + c.cid + '\', \'nome\', this.value)"' + _vDis + '>' : '')
@@ -52613,6 +52768,8 @@ function _viagRenderColabsBlock(v){
       +   '<div class="viag-colab-cell viag-colab-cell-act">'
       +     (v.colaboradores.length > 1 ? '<button class="viag-colab-rm" onclick="_viagRemoveColab(\'' + c.cid + '\')" title="Remover colaborador"' + _vDis + '>×</button>' : '')
       +   '</div>'
+      + '</div>'
+      + reembolsoBlock
       + '</div>';
   }
   return '<div class="viag-colab-block">'
@@ -52709,8 +52866,11 @@ function _viagRenderResumo(v){
       const saldo = adi - gasto;
       const saldoCls = saldo > 0 ? 'bal-pos' : (saldo < 0 ? 'bal-neg' : '');
       const saldoLbl = saldo > 0 ? 'devolve' : (saldo < 0 ? 'a reembolsar' : 'quitado');
+      const reembChip = (c.reembolso && c.reembolso.extratoId)
+        ? '<div class="viag-resumo-reemb">✓ Conta a pagar #' + c.reembolso.extratoId + ' criada no Extrato</div>'
+        : '';
       rows += '<div class="viag-resumo-colab-row">'
-        +   '<div class="viag-resumo-colab-nome">👤 ' + esc(c.nome||'(sem nome)') + '</div>'
+        +   '<div class="viag-resumo-colab-nome">👤 ' + esc(c.nome||'(sem nome)') + reembChip + '</div>'
         +   '<div class="viag-resumo-colab-num"><span class="lbl">Adi.</span> ' + _viagFmt(adi) + '</div>'
         +   '<div class="viag-resumo-colab-num"><span class="lbl">Gasto</span> ' + _viagFmt(gasto) + '</div>'
         +   '<div class="viag-resumo-colab-num ' + saldoCls + '"><span class="lbl">' + saldoLbl + '</span> ' + _viagFmt(Math.abs(saldo)) + (saldo > 0 ? ' ↑' : (saldo < 0 ? ' ↓' : '')) + '</div>'
@@ -98859,7 +99019,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781629072';
+      const CACHE = 'forekash-v1781630635';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
