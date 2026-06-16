@@ -5805,7 +5805,10 @@
       display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:800;
       font-family:Consolas,Menlo,monospace}
     .rec-hist-info{display:flex;flex-direction:column;gap:2px;min-width:0}
-    .rec-hist-data{font-size:.82rem;font-weight:700;color:#1E293B;font-family:Consolas,Menlo,monospace}
+    .rec-hist-data{font-size:.82rem;font-weight:700;color:#1E293B;font-family:Consolas,Menlo,monospace;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .rec-hist-migrado{font-size:.62rem;font-weight:800;color:#92400E;background:#FEF3C7;border:1px solid #FCD34D;
+      padding:2px 7px;border-radius:8px;text-transform:uppercase;letter-spacing:.04em;font-family:Consolas,Menlo,monospace;cursor:help}
+    .rec-hist-item--migrado{background:#FFFBEB !important;border-color:#FCD34D !important}
     .rec-hist-extras{font-size:.7rem;color:#64748B;font-family:Consolas,Menlo,monospace}
     .rec-hist-valor{font-size:.92rem;font-weight:800;color:#059669;font-family:Consolas,Menlo,monospace;
       font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -34287,6 +34290,8 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
   if(cell.valor === '' || cell.valor == null) return;
   // Reseta o estado de edição do histórico ao abrir o modal
   try { _recHistEditingIdx = null; } catch(_){}
+  // Migra valorPago "fantasma" pro histórico se a soma não bater
+  try { _recMigrarValorPagoParaHist(cell); } catch(_){}
 
   const c = (receita.clientes || []).find(x => x.id === row.clienteId);
   const nomeCli = c ? (c.nome || '(sem nome)') : '(cliente removido)';
@@ -34770,6 +34775,30 @@ try { window._recAbrirLancExtrato = _recAbrirLancExtrato; } catch(e){}
 
 // ─── Histórico de recebimentos editável ───
 let _recHistEditingIdx = null;
+// Migração: se cell.valorPago > soma do histórico, cria entry "fantasma" com a diferença.
+// Caso comum: recebimentos parciais salvos antes da feature de histórico existir.
+function _recMigrarValorPagoParaHist(cell){
+  if(!cell) return;
+  const valPag = parseFloat(cell.valorPago)||0;
+  if(valPag <= 0.01) return;
+  if(!Array.isArray(cell.recebimentosHist)) cell.recebimentosHist = [];
+  const somaHist = cell.recebimentosHist.reduce((s, h) => s + (parseFloat(h.valor)||0), 0);
+  const diff = valPag - somaHist;
+  if(diff > 0.01){
+    const dataFallback = cell.dataRecebimento ||
+      (cell.recebimentosHist[0] ? cell.recebimentosHist[0].data : new Date().toISOString().slice(0,10));
+    cell.recebimentosHist.unshift({
+      data: dataFallback,
+      valor: diff,
+      juros: 0, multa: 0, desconto: 0,
+      banco: cell.banco || '',
+      extratoId: null,
+      migrado: true
+    });
+    if(typeof receitaSave === 'function') try { receitaSave(); } catch(_){}
+  }
+}
+try { window._recMigrarValorPagoParaHist = _recMigrarValorPagoParaHist; } catch(e){}
 function _recBancoNome(bancoId){
   if(!bancoId) return '';
   try {
@@ -34821,10 +34850,11 @@ function _recHistRender(cell){
       if(h.juros > 0)    extras.push('juros ' + fmt(h.juros));
       if(h.multa > 0)    extras.push('multa ' + fmt(h.multa));
       if(h.desconto > 0) extras.push('desconto ' + fmt(h.desconto));
-      html += '<div class="rec-hist-item">'
+      const migradoBadge = h.migrado ? '<span class="rec-hist-migrado" title="Aporte registrado antes do histórico — verifique a data">⚠ verificar data</span>' : '';
+      html += '<div class="rec-hist-item' + (h.migrado ? ' rec-hist-item--migrado' : '') + '">'
         +   '<div class="rec-hist-num">#' + (i+1) + '</div>'
         +   '<div class="rec-hist-info">'
-        +     '<div class="rec-hist-data">📅 ' + fmtDt(h.data) + '</div>'
+        +     '<div class="rec-hist-data">📅 ' + fmtDt(h.data) + ' ' + migradoBadge + '</div>'
         +     (extras.length ? '<div class="rec-hist-extras">' + extras.join(' · ') + '</div>' : '')
         +   '</div>'
         +   '<div class="rec-hist-valor">R$ ' + fmt(vLiq) + '</div>'
@@ -99895,7 +99925,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781645502';
+      const CACHE = 'forekash-v1781645886';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
