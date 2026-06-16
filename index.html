@@ -8762,6 +8762,9 @@
     .rec-kb-modal-quick .quick-btn.pos{background:#F0FDF4;border-color:#86EFAC;color:#065F46}
     .rec-kb-modal-quick .quick-btn.pos:hover{background:#DCFCE7;border-color:#22C55E}
     .rec-kb-modal-quick .quick-btn.neg{background:#FEF2F2;border-color:#FECACA;color:#991B1B}
+    .rec-kb-modal-quick .quick-btn.saldo{background:linear-gradient(135deg,#FEF3C7 0%,#FDE68A 100%);
+      border-color:#FCD34D;color:#78350F;font-weight:800}
+    .rec-kb-modal-quick .quick-btn.saldo:hover{background:linear-gradient(135deg,#FDE68A 0%,#FCD34D 100%);border-color:#F59E0B}
     .rec-kb-modal-quick .quick-btn.neg:hover{background:#FEE2E2;border-color:#F87171}
     .rec-kb-modal-banner{padding:9px 12px;background:#FEF3C7;border:1px solid #FCD34D;
       border-radius:6px;font-size:.76rem;color:#92400E;margin-bottom:12px;display:flex;align-items:center;gap:8px}
@@ -34165,6 +34168,9 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
     +     '</div>'
     +     '<div class="rec-kb-modal-quick">'
     +       '<button type="button" class="quick-btn pos" onclick="recKbCardMarkPaid();_recPagCalc();">✓ Recebido hoje</button>'
+    +       (_vSaldoARec > 0.01 && _vSaldoARec < _vTot - 0.01
+        ? '<button type="button" class="quick-btn saldo" onclick="_recAplicarSaldoRestante()" title="Preenche o input com o saldo que falta receber">↺ Aplicar saldo (' + (typeof _dkbFmtNumBR === 'function' ? 'R$ ' + _dkbFmtNumBR(_vSaldoARec) : _vSaldoARec.toFixed(2)) + ')</button>'
+        : '')
     +       '<button type="button" class="quick-btn neg" onclick="recKbCardClearReceb();document.getElementById(\'rec-kb-fld-valpago\').value=\'0,00\';document.getElementById(\'rec-kb-fld-juros\').value=\'0,00\';document.getElementById(\'rec-kb-fld-multa\').value=\'0,00\';document.getElementById(\'rec-kb-fld-desc\').value=\'0,00\';_recPagCalc();">✕ Limpar recebimento</button>'
     +     '</div>'
     +     '<div class="dkb-pag-section" style="margin-top:14px">'
@@ -34352,6 +34358,28 @@ function _recPagCalc(){
   }
 }
 try { window.recTabSet = recTabSet; window._recPagCalc = _recPagCalc; window._recPagFormatBlur = _recPagFormatBlur; } catch(e){}
+// Pré-preenche o input "Novo aporte recebido" com o saldo que falta receber
+function _recAplicarSaldoRestante(){
+  try {
+    const ctx = _recKbModalCtx;
+    if(!ctx) return;
+    const fmt = (typeof _dkbFmtNumBR === 'function') ? _dkbFmtNumBR : (n => (n||0).toFixed(2).replace('.', ','));
+    const saldo = parseFloat(ctx.vSaldoARec) || 0;
+    const inp = document.getElementById('rec-kb-fld-valpago');
+    if(inp){
+      inp.value = fmt(saldo);
+      inp.focus();
+      try { inp.select(); } catch(_){}
+    }
+    // Zera juros/multa/desc pois é aporte novo
+    const j = document.getElementById('rec-kb-fld-juros'); if(j) j.value = '0,00';
+    const m = document.getElementById('rec-kb-fld-multa'); if(m) m.value = '0,00';
+    const d = document.getElementById('rec-kb-fld-desc');  if(d) d.value = '0,00';
+    _recPagCalc();
+    if(typeof toast === 'function') toast('Saldo aplicado: R$ ' + fmt(saldo));
+  } catch(e){ console.warn('aplicar saldo falhou', e); }
+}
+try { window._recAplicarSaldoRestante = _recAplicarSaldoRestante; } catch(e){}
 
 function recKbCardSave(){
   const ctx = _recKbModalCtx;
@@ -99208,7 +99236,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781635726';
+      const CACHE = 'forekash-v1781636084';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
