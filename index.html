@@ -32681,8 +32681,7 @@ function _dkbCriarLancExtratoPagamento(opts){
         }
       } catch(_){}
     }
-    const descBase = 'Pagamento · ' + (opts.descricaoItem || 'Despesa') + (opts.contraparte ? ' · ' + opts.contraparte : '');
-    const desc = opts.numAporte ? (descBase + ' (parcial ' + opts.numAporte + ')') : descBase;
+    const desc = 'Pagamento · ' + (opts.descricaoItem || 'Despesa') + (opts.contraparte ? ' · ' + opts.contraparte : '');
     const lanc = {
       id,
       data: opts.data,
@@ -34290,8 +34289,12 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
   if(cell.valor === '' || cell.valor == null) return;
   // Reseta o estado de edição do histórico ao abrir o modal
   try { _recHistEditingIdx = null; } catch(_){}
-  // Migra valorPago "fantasma" pro histórico se a soma não bater
-  try { _recMigrarValorPagoParaHist(cell); } catch(_){}
+  // Migra valorPago "fantasma" pro histórico se a soma não bater + detecta órfão no Extrato
+  try {
+    const _cli = (typeof receita !== 'undefined' && receita.clientes) ? receita.clientes.find(x => x.id === row.clienteId) : null;
+    const _nomeCli = _cli ? (_cli.nome || row.nome || '') : (row.nome || '');
+    _recMigrarValorPagoParaHist(cell, year, mesAbbr, _nomeCli);
+  } catch(_){}
 
   const c = (receita.clientes || []).find(x => x.id === row.clienteId);
   const nomeCli = c ? (c.nome || '(sem nome)') : '(cliente removido)';
@@ -34716,8 +34719,7 @@ function _recCriarLancExtratoRecebimento(opts){
         } catch(_){}
       }
     }
-    const descBase = 'Recebimento · ' + (opts.contraparte || 'Cliente');
-    const desc = opts.numAporte ? (descBase + ' (parcial ' + opts.numAporte + ')') : descBase;
+    const desc = 'Recebimento · ' + (opts.contraparte || 'Cliente');
     const lanc = {
       id,
       data: opts.data,
@@ -34777,13 +34779,14 @@ try { window._recAbrirLancExtrato = _recAbrirLancExtrato; } catch(e){}
 let _recHistEditingIdx = null;
 // Migração: se cell.valorPago > soma do histórico, cria entry "fantasma" com a diferença.
 // Caso comum: recebimentos parciais salvos antes da feature de histórico existir.
-function _recMigrarValorPagoParaHist(cell){
+function _recMigrarValorPagoParaHist(cell, year, mesAbbr, nomeCli){
   if(!cell) return;
   const valPag = parseFloat(cell.valorPago)||0;
   if(valPag <= 0.01) return;
   if(!Array.isArray(cell.recebimentosHist)) cell.recebimentosHist = [];
   const somaHist = cell.recebimentosHist.reduce((s, h) => s + (parseFloat(h.valor)||0), 0);
   const diff = valPag - somaHist;
+  let mudou = false;
   if(diff > 0.01){
     const dataFallback = cell.dataRecebimento ||
       (cell.recebimentosHist[0] ? cell.recebimentosHist[0].data : new Date().toISOString().slice(0,10));
@@ -34795,8 +34798,37 @@ function _recMigrarValorPagoParaHist(cell){
       extratoId: null,
       migrado: true
     });
-    if(typeof receitaSave === 'function') try { receitaSave(); } catch(_){}
+    mudou = true;
   }
+  // Detecta lançamento órfão no Extrato (valor total da parcela, mesmo mês, mesmo cliente, SEM refInterna REC-)
+  // Caso comum: lançamento criado pelo modo antigo de "recebido total" antes da feature de parcial
+  try {
+    if(year != null && mesAbbr && nomeCli && cell.recebimentosHist.length >= 1 && typeof extratoData !== 'undefined' && extratoData){
+      const valorTotal = parseFloat(cell.valor) || 0;
+      if(valorTotal > 0.01){
+        const mIdx = (typeof REC_MESES !== 'undefined') ? REC_MESES.indexOf(mesAbbr) : -1;
+        if(mIdx >= 0){
+          const ymPrefix = year + '-' + String(mIdx+1).padStart(2,'0');
+          const nomeCliLow = String(nomeCli).trim().toLowerCase();
+          const orfaos = (extratoData.lancamentos || []).filter(l =>
+            l.tipo === 'ganho' &&
+            String(l.contraparte || '').trim().toLowerCase() === nomeCliLow &&
+            l.data && String(l.data).startsWith(ymPrefix) &&
+            Math.abs((parseFloat(l.valor)||0) - valorTotal) < 0.01 &&
+            (!l.refInterna || (!String(l.refInterna).startsWith('REC-') && !String(l.refInterna).startsWith('DESP-')))
+          );
+          if(orfaos.length > 0){
+            const ids = new Set(orfaos.map(l => l.id));
+            extratoData.lancamentos = extratoData.lancamentos.filter(l => !ids.has(l.id));
+            if(typeof _extSave === 'function') try { _extSave(); } catch(_){}
+            mudou = true;
+            if(typeof toast === 'function') toast('🧹 ' + orfaos.length + ' lançamento(s) duplicado(s) removido(s) do Extrato');
+          }
+        }
+      }
+    }
+  } catch(e){ console.warn('migrar órfão', e); }
+  if(mudou && typeof receitaSave === 'function') try { receitaSave(); } catch(_){}
 }
 try { window._recMigrarValorPagoParaHist = _recMigrarValorPagoParaHist; } catch(e){}
 function _recBancoNome(bancoId){
@@ -99925,7 +99957,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781646326';
+      const CACHE = 'forekash-v1781648528';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
