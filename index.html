@@ -5809,6 +5809,9 @@
     .rec-hist-migrado{font-size:.62rem;font-weight:800;color:#92400E;background:#FEF3C7;border:1px solid #FCD34D;
       padding:2px 7px;border-radius:8px;text-transform:uppercase;letter-spacing:.04em;font-family:Consolas,Menlo,monospace;cursor:help}
     .rec-hist-item--migrado{background:#FFFBEB !important;border-color:#FCD34D !important}
+    .rec-hist-limpar-btn{margin-left:auto;padding:4px 10px;background:#F0FDFA;border:1px solid #6EE7B7;color:#065F46;
+      border-radius:5px;font-size:.66rem;font-weight:700;cursor:pointer;font-family:inherit;text-transform:none;letter-spacing:0}
+    .rec-hist-limpar-btn:hover{background:#A7F3D0;border-color:#10B981}
     .rec-hist-extras{font-size:.7rem;color:#64748B;font-family:Consolas,Menlo,monospace}
     .rec-hist-valor{font-size:.92rem;font-weight:800;color:#059669;font-family:Consolas,Menlo,monospace;
       font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -32667,21 +32670,17 @@ function _dkbCriarLancExtratoPagamento(opts){
     const valorNet = (parseFloat(opts.valor)||0) + (parseFloat(opts.juros)||0) + (parseFloat(opts.multa)||0) - (parseFloat(opts.desconto)||0);
     if(valorNet <= 0.001) return null;
     const id = extratoData.nextId++;
-    // Conta: tenta usar 'conta:<id>' se encontrar pelo bancoId
+    // Conta: usa nome do banco direto (consistente com outros lançamentos)
     let contaStr = '';
     if(opts.banco){
       try {
-        if(typeof dispo !== 'undefined' && dispo && Array.isArray(dispo.contas)){
-          const c = dispo.contas.find(c => c.bancoId === opts.banco);
-          if(c) contaStr = 'conta:' + c.id;
-        }
-        if(!contaStr && dispo && Array.isArray(dispo.bancos)){
+        if(typeof dispo !== 'undefined' && dispo && Array.isArray(dispo.bancos)){
           const b = dispo.bancos.find(x => x.id === opts.banco);
           if(b && b.nome) contaStr = b.nome;
         }
       } catch(_){}
     }
-    const desc = 'Pagamento · ' + (opts.descricaoItem || 'Despesa') + (opts.contraparte ? ' · ' + opts.contraparte : '');
+    const desc = 'Pagamento · ' + (opts.descricaoItem || 'Despesa') + (opts.contraparte ? ' · ' + opts.contraparte : '') + (opts.numAporte ? ' (parcial ' + opts.numAporte + ')' : '');
     const lanc = {
       id,
       data: opts.data,
@@ -34712,24 +34711,17 @@ function _recCriarLancExtratoRecebimento(opts){
     const valorNet = (parseFloat(opts.valor)||0) + (parseFloat(opts.juros)||0) + (parseFloat(opts.multa)||0) - (parseFloat(opts.desconto)||0);
     if(valorNet <= 0.001) return null;
     const id = extratoData.nextId++;
-    // Conta: usa o id direto do banco (formato 'conta:ID' pra match com Disponibilidades)
+    // Conta: usa o NOME do banco direto (consistente com outros lançamentos do extrato)
     let contaStr = '';
     if(opts.banco){
-      // Banco já é o ID em string (ex: '12345'); converte pra formato esperado
-      contaStr = (typeof dispo !== 'undefined' && dispo && Array.isArray(dispo.contas))
-        ? ((dispo.contas.find(c => c.bancoId === opts.banco) ? ('conta:' + dispo.contas.find(c => c.bancoId === opts.banco).id) : ''))
-        : '';
-      if(!contaStr){
-        // Fallback: usa o nome do banco como string da conta
-        try {
-          if(dispo && Array.isArray(dispo.bancos)){
-            const b = dispo.bancos.find(x => x.id === opts.banco);
-            if(b && b.nome) contaStr = b.nome;
-          }
-        } catch(_){}
-      }
+      try {
+        if(typeof dispo !== 'undefined' && dispo && Array.isArray(dispo.bancos)){
+          const b = dispo.bancos.find(x => x.id === opts.banco);
+          if(b && b.nome) contaStr = b.nome;
+        }
+      } catch(_){}
     }
-    const desc = 'Recebimento · ' + (opts.contraparte || 'Cliente');
+    const desc = 'Recebimento · ' + (opts.contraparte || 'Cliente') + (opts.numAporte ? ' (parcial ' + opts.numAporte + ')' : '');
     const lanc = {
       id,
       data: opts.data,
@@ -34810,17 +34802,26 @@ function _recMigrarValorPagoParaHist(cell, year, mesAbbr, nomeCli){
     });
     mudou = true;
   }
-  // Sincroniza descrições dos lançamentos vinculados (limpa "(parcial N)" legado)
+  // Ordena hist por data ASC + sincroniza descrições com "(parcial N)" corretos
   try {
-    if(typeof extratoData !== 'undefined' && extratoData && Array.isArray(cell.recebimentosHist)){
-      const descCorreta = 'Recebimento · ' + (nomeCli || 'Cliente');
-      cell.recebimentosHist.forEach(h => {
+    if(typeof extratoData !== 'undefined' && extratoData && Array.isArray(cell.recebimentosHist) && cell.recebimentosHist.length > 0){
+      // Ordena por data ASC (parcial 1 = primeiro recebido)
+      cell.recebimentosHist.sort((a, b) => String(a.data || '').localeCompare(String(b.data || '')));
+      const totalAportes = cell.recebimentosHist.length;
+      cell.recebimentosHist.forEach((h, i) => {
         if(!h.extratoId) return;
         const l = (extratoData.lancamentos || []).find(x => x.id === h.extratoId);
-        if(l && l.descricao !== descCorreta){
-          l.descricao = descCorreta;
-          mudou = true;
-        }
+        if(!l) return;
+        const numAporte = i + 1;
+        const descCorreta = 'Recebimento · ' + (nomeCli || 'Cliente') + (totalAportes > 1 ? ' (parcial ' + numAporte + ')' : '');
+        if(l.descricao !== descCorreta){ l.descricao = descCorreta; mudou = true; }
+        // Atualiza a conta pelo nome do banco (caso esteja como 'conta:ID')
+        try {
+          if(h.banco && typeof dispo !== 'undefined' && Array.isArray(dispo.bancos)){
+            const b = dispo.bancos.find(x => x.id === h.banco);
+            if(b && b.nome && l.conta !== b.nome){ l.conta = b.nome; mudou = true; }
+          }
+        } catch(_){}
       });
     }
   } catch(_){}
@@ -34836,13 +34837,20 @@ function _recMigrarValorPagoParaHist(cell, year, mesAbbr, nomeCli){
           const nomeCliLow = String(nomeCli).trim().toLowerCase();
           // Soma do hist atual (que já tem entries reais)
           const somaHist = cell.recebimentosHist.reduce((s, h) => s + (parseFloat(h.valor)||0) + (parseFloat(h.juros)||0) + (parseFloat(h.multa)||0) - (parseFloat(h.desconto)||0), 0);
+          // IDs já vinculados ao hist (não deletar esses!)
+          const idsVinculados = new Set(cell.recebimentosHist.map(h => h.extratoId).filter(x => x != null));
           const ehDuplicado = (l) => {
             if(l.tipo !== 'ganho') return false;
-            if(String(l.contraparte || '').trim().toLowerCase() !== nomeCliLow) return false;
+            if(idsVinculados.has(l.id)) return false;
+            const contraLow = String(l.contraparte || '').trim().toLowerCase();
+            // Match no cliente: nome exato OU contém OU está contido
+            const matchNome = contraLow === nomeCliLow ||
+                              (contraLow.length > 2 && nomeCliLow.includes(contraLow)) ||
+                              (nomeCliLow.length > 2 && contraLow.includes(nomeCliLow));
+            if(!matchNome) return false;
             if(!l.data || !String(l.data).startsWith(ymPrefix)) return false;
-            // Já é um lançamento gerado por essa feature? Pula
             if(l.origem && l.origem.tipo === 'receita-recebimento') return false;
-            // Match no valor: total exato OU (total - somaHist) — qualquer um dos 2
+            // Match no valor: total exato OU (total - somaHist)
             const v = parseFloat(l.valor)||0;
             if(Math.abs(v - valorTotal) < 0.01) return true;
             if(somaHist > 0.01 && Math.abs(v - (valorTotal - somaHist)) < 0.01) return true;
@@ -34880,7 +34888,10 @@ function _recHistRender(cell){
   const fmt = (typeof _dkbFmtNumBR === 'function') ? _dkbFmtNumBR : (n => Number(n||0).toFixed(2).replace('.', ','));
   const fmtDt = (s) => (s && s.length >= 10) ? (s.slice(8,10) + '/' + s.slice(5,7) + '/' + s.slice(0,4)) : (s||'');
   let html = '<div class="dkb-pag-section rec-hist-section" style="margin-top:14px">';
-  html += '<h4>📜 Histórico de recebimentos · ' + cell.recebimentosHist.length + ' aporte(s)</h4>';
+  html += '<h4 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+    +   '<span>📜 Histórico de recebimentos · ' + cell.recebimentosHist.length + ' aporte(s)</span>'
+    +   '<button type="button" class="rec-hist-limpar-btn" onclick="_recHistForcarLimpeza()" title="Procura e remove lançamentos duplicados no Extrato">🧹 Limpar duplicados</button>'
+    + '</h4>';
   html += '<div class="rec-hist-list">';
   let totalHist = 0;
   // Bancos disponíveis pra select de edição
@@ -35074,6 +35085,21 @@ function _recHistExcluir(idx){
     }
   } catch(e){ console.warn('_recHistExcluir', e); }
 }
+function _recHistForcarLimpeza(){
+  try {
+    const ctx = _recKbModalCtx; if(!ctx) return;
+    const d = receita && receita.years && receita.years[ctx.year];
+    if(!d) return;
+    const row = (d.clients || []).find(x => x.id === ctx.rowId);
+    if(!row || !row.meses || !row.meses[ctx.mesAbbr]) return;
+    const cell = row.meses[ctx.mesAbbr];
+    const _cli = (typeof receita !== 'undefined' && receita.clientes) ? receita.clientes.find(x => x.id === row.clienteId) : null;
+    const nomeCli = _cli ? (_cli.nome || row.nome || '') : (row.nome || '');
+    _recMigrarValorPagoParaHist(cell, ctx.year, ctx.mesAbbr, nomeCli);
+    _recHistUpdateUI();
+    if(typeof toast === 'function') toast('✓ Limpeza concluída');
+  } catch(e){ console.warn('_recHistForcarLimpeza', e); }
+}
 try {
   window._recHistRender = _recHistRender;
   window._recHistEditar = _recHistEditar;
@@ -35081,6 +35107,7 @@ try {
   window._recHistSalvarEdicao = _recHistSalvarEdicao;
   window._recHistExcluir = _recHistExcluir;
   window._recBancoNome = _recBancoNome;
+  window._recHistForcarLimpeza = _recHistForcarLimpeza;
 } catch(e){}
 
 function recKbCardSave(){
@@ -99994,7 +100021,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781652732';
+      const CACHE = 'forekash-v1781708864';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
