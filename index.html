@@ -34777,6 +34777,54 @@ function _recAbrirLancExtrato(extratoId){
 }
 try { window._recAbrirLancExtrato = _recAbrirLancExtrato; } catch(e){}
 
+// Varredura direta: agrupa lançamentos com origem 'receita-recebimento' por (cliente, mês) e
+// remove duplicados SEM essa origem com valor = soma do grupo. Mais robusto que percorrer receita.years.
+function _extLimparDuplicadosReceitaDireto(){
+  try {
+    if(typeof extratoData === 'undefined' || !extratoData || !Array.isArray(extratoData.lancamentos)) return 0;
+    const lancs = extratoData.lancamentos;
+    const grupos = {};
+    for(const l of lancs){
+      if(!(l.origem && l.origem.tipo === 'receita-recebimento')) continue;
+      const cli = String(l.contraparte || '').trim().toLowerCase();
+      if(!cli) continue;
+      const ym = String(l.data || '').slice(0, 7);
+      if(!ym) continue;
+      const key = cli + '|' + ym;
+      if(!grupos[key]) grupos[key] = { soma: 0 };
+      grupos[key].soma += (parseFloat(l.valor) || 0);
+    }
+    const idsRemover = new Set();
+    for(const key in grupos){
+      const g = grupos[key];
+      if(g.soma <= 0.01) continue;
+      const [cli, ym] = key.split('|');
+      for(const l of lancs){
+        if(l.origem && l.origem.tipo === 'receita-recebimento') continue;
+        if(idsRemover.has(l.id)) continue;
+        const cat = String(l.categoria || '').trim().toLowerCase();
+        const eEntrada = l.tipo === 'ganho' || !l.tipo || cat.startsWith('receita') || cat.startsWith('entrada');
+        if(!eEntrada) continue;
+        const contraLow = String(l.contraparte || '').trim().toLowerCase();
+        if(contraLow !== cli) continue;
+        const ymL = String(l.data || '').slice(0, 7);
+        if(ymL !== ym) continue;
+        const v = parseFloat(l.valor) || 0;
+        if(v <= 0) continue;
+        if(Math.abs(v - g.soma) < 0.01){
+          idsRemover.add(l.id);
+        }
+      }
+    }
+    if(idsRemover.size > 0){
+      extratoData.lancamentos = lancs.filter(l => !idsRemover.has(l.id));
+      if(typeof _extSave === 'function') try { _extSave(); } catch(_){}
+    }
+    return idsRemover.size;
+  } catch(e){ console.warn('_extLimparDuplicadosReceitaDireto', e); return 0; }
+}
+try { window._extLimparDuplicadosReceitaDireto = _extLimparDuplicadosReceitaDireto; } catch(e){}
+
 // Varredura global · remove lançamentos órfãos no Extrato vinculados a cells de Receita
 // Roda automaticamente quando o módulo Extrato é renderizado
 function _extLimparOrfaosReceitaGlobal(){
@@ -65482,14 +65530,13 @@ try {
 
 function renderExtrato(){
   _extLoad();
-  // Limpa órfãos de receita auto · roda 1x por sessão
+  // Limpa órfãos de receita auto · roda 1x por render (não cacheia)
   try {
-    if(!window._extOrfaosLimpos){
-      const removidos = (typeof _extLimparOrfaosReceitaGlobal === 'function') ? _extLimparOrfaosReceitaGlobal() : 0;
-      window._extOrfaosLimpos = true;
-      if(removidos > 0 && typeof toast === 'function'){
-        setTimeout(() => toast('🧹 ' + removidos + ' lançamento(s) duplicado(s) de receita removido(s) automaticamente'), 600);
-      }
+    let removidos = 0;
+    if(typeof _extLimparDuplicadosReceitaDireto === 'function') removidos += _extLimparDuplicadosReceitaDireto();
+    if(typeof _extLimparOrfaosReceitaGlobal === 'function') removidos += _extLimparOrfaosReceitaGlobal();
+    if(removidos > 0 && typeof toast === 'function'){
+      setTimeout(() => toast('🧹 ' + removidos + ' lançamento(s) duplicado(s) de receita removido(s) automaticamente'), 600);
     }
   } catch(_){}
   _extPopulateContas();
@@ -100096,7 +100143,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781739636';
+      const CACHE = 'forekash-v1781739978';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
