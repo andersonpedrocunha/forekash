@@ -34840,18 +34840,21 @@ function _recMigrarValorPagoParaHist(cell, year, mesAbbr, nomeCli){
           // IDs já vinculados ao hist (não deletar esses!)
           const idsVinculados = new Set(cell.recebimentosHist.map(h => h.extratoId).filter(x => x != null));
           const ehDuplicado = (l) => {
-            if(l.tipo !== 'ganho') return false;
             if(idsVinculados.has(l.id)) return false;
+            // Aceita: tipo 'ganho', sem tipo, ou categoria começando com 'Receita'
+            const cat = String(l.categoria || '').trim().toLowerCase();
+            const eEntrada = l.tipo === 'ganho' || !l.tipo || cat.startsWith('receita') || cat.startsWith('entrada');
+            if(!eEntrada) return false;
             const contraLow = String(l.contraparte || '').trim().toLowerCase();
-            // Match no cliente: nome exato OU contém OU está contido
             const matchNome = contraLow === nomeCliLow ||
                               (contraLow.length > 2 && nomeCliLow.includes(contraLow)) ||
                               (nomeCliLow.length > 2 && contraLow.includes(nomeCliLow));
             if(!matchNome) return false;
             if(!l.data || !String(l.data).startsWith(ymPrefix)) return false;
             if(l.origem && l.origem.tipo === 'receita-recebimento') return false;
-            // Match no valor: total exato OU (total - somaHist)
             const v = parseFloat(l.valor)||0;
+            if(v <= 0) return false;
+            // Match no valor: total exato OU (total - somaHist) OU qualquer valor de h.valor (caso já tenha sido recriado)
             if(Math.abs(v - valorTotal) < 0.01) return true;
             if(somaHist > 0.01 && Math.abs(v - (valorTotal - somaHist)) < 0.01) return true;
             return false;
@@ -100021,7 +100024,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781708864';
+      const CACHE = 'forekash-v1781709359';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
