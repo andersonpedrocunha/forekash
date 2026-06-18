@@ -19261,6 +19261,7 @@
                 <p>Lançamentos consolidados · entradas, saídas e transferências</p>
               </div>
               <div class="ext-hd-actions">
+                <button type="button" class="ext-btn ext-btn-limpar" onclick="extLimparDuplicadosManual()" title="Detecta e remove lançamentos duplicados de receitas parciais" style="background:#FEF3C7;color:#78350F;border:1px solid #FCD34D">🧹 Limpar duplicados</button>
                 <button type="button" class="ext-btn ext-btn-gasto"   onclick="extOpenModal('gasto')">+ Lançar Gasto</button>
                 <button type="button" class="ext-btn ext-btn-ganho"   onclick="extOpenModal('ganho')">+ Lançar Ganho</button>
                 <button type="button" class="ext-btn ext-btn-transf"  onclick="extOpenModal('transferencia')">+ Lançar Transf.</button>
@@ -34832,6 +34833,77 @@ function _extLimparDuplicadosReceitaDireto(){
   } catch(e){ console.warn('_extLimparDuplicadosReceitaDireto', e); return 0; }
 }
 try { window._extLimparDuplicadosReceitaDireto = _extLimparDuplicadosReceitaDireto; } catch(e){}
+
+// Versão pública chamada pelo botão — com relatório no console + alert
+function extLimparDuplicadosManual(){
+  try {
+    if(typeof extratoData === 'undefined' || !extratoData || !Array.isArray(extratoData.lancamentos)){
+      if(typeof toast === 'function') toast('⚠ Extrato indisponível');
+      return;
+    }
+    const lancs = extratoData.lancamentos;
+    console.log('[Limpar duplicados] Total lançamentos:', lancs.length);
+    // Detecta parciais por descrição "Recebimento ·" ou origem
+    const ehParcial = (l) => {
+      if(l.origem && l.origem.tipo === 'receita-recebimento') return true;
+      const desc = String(l.descricao || '').toLowerCase();
+      if(desc.startsWith('recebimento')) return true;
+      return false;
+    };
+    // Agrupa parciais por (cliente, mes)
+    const grupos = {};
+    const idsParciais = new Set();
+    for(const l of lancs){
+      if(!ehParcial(l)) continue;
+      idsParciais.add(l.id);
+      const cli = String(l.contraparte || '').trim().toLowerCase();
+      const ym = String(l.data || '').slice(0, 7);
+      if(!cli || !ym) continue;
+      const key = cli + '|' + ym;
+      if(!grupos[key]) grupos[key] = { soma:0, parciais:[] };
+      grupos[key].soma += parseFloat(l.valor)||0;
+      grupos[key].parciais.push(l);
+    }
+    console.log('[Limpar duplicados] Grupos de parciais:', grupos);
+    // Procura órfãos
+    const idsRemover = new Set();
+    const detalhes = [];
+    for(const key in grupos){
+      const g = grupos[key];
+      const [cli, ym] = key.split('|');
+      for(const l of lancs){
+        if(idsParciais.has(l.id)) continue;
+        if(idsRemover.has(l.id)) continue;
+        const contraLow = String(l.contraparte || '').trim().toLowerCase();
+        if(contraLow !== cli) continue;
+        const ymL = String(l.data || '').slice(0, 7);
+        if(ymL !== ym) continue;
+        const v = parseFloat(l.valor)||0;
+        if(v <= 0) continue;
+        if(Math.abs(v - g.soma) < 0.01){
+          idsRemover.add(l.id);
+          detalhes.push({ id:l.id, desc:l.descricao, cliente:l.contraparte, valor:v, data:l.data });
+        }
+      }
+    }
+    console.log('[Limpar duplicados] Órfãos detectados:', detalhes);
+    if(idsRemover.size === 0){
+      if(typeof toast === 'function') toast('✓ Nenhum duplicado encontrado');
+      return;
+    }
+    // Remove
+    extratoData.lancamentos = lancs.filter(l => !idsRemover.has(l.id));
+    if(typeof _extSave === 'function') try { _extSave(); } catch(_){}
+    if(typeof renderExtrato === 'function') try { renderExtrato(); } catch(_){}
+    const lista = detalhes.map(d => '• ' + (d.desc||'') + ' · ' + (d.cliente||'') + ' · R$ ' + (parseFloat(d.valor)||0).toFixed(2).replace('.', ',') + ' · ' + (d.data||'')).join('\n');
+    if(typeof toast === 'function') toast('🧹 ' + idsRemover.size + ' duplicado(s) removido(s)');
+    setTimeout(() => alert('🧹 ' + idsRemover.size + ' lançamento(s) duplicado(s) removido(s):\n\n' + lista), 100);
+  } catch(e){
+    console.error('extLimparDuplicadosManual:', e);
+    if(typeof toast === 'function') toast('⚠ Erro: ' + e.message);
+  }
+}
+try { window.extLimparDuplicadosManual = extLimparDuplicadosManual; } catch(e){}
 
 // Varredura global · remove lançamentos órfãos no Extrato vinculados a cells de Receita
 // Roda automaticamente quando o módulo Extrato é renderizado
@@ -100151,7 +100223,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781741444';
+      const CACHE = 'forekash-v1781809191';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
