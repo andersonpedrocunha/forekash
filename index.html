@@ -34783,9 +34783,17 @@ function _extLimparDuplicadosReceitaDireto(){
   try {
     if(typeof extratoData === 'undefined' || !extratoData || !Array.isArray(extratoData.lancamentos)) return 0;
     const lancs = extratoData.lancamentos;
+    // Identifica parciais gerados pela feature: por origem OU por padrão da descrição
+    const ehParcialGerado = (l) => {
+      if(l.origem && l.origem.tipo === 'receita-recebimento') return true;
+      const desc = String(l.descricao || '').trim();
+      return /^Recebimento\s*·/i.test(desc);
+    };
     const grupos = {};
+    const idsParciais = new Set();
     for(const l of lancs){
-      if(!(l.origem && l.origem.tipo === 'receita-recebimento')) continue;
+      if(!ehParcialGerado(l)) continue;
+      idsParciais.add(l.id);
       const cli = String(l.contraparte || '').trim().toLowerCase();
       if(!cli) continue;
       const ym = String(l.data || '').slice(0, 7);
@@ -34800,7 +34808,7 @@ function _extLimparDuplicadosReceitaDireto(){
       if(g.soma <= 0.01) continue;
       const [cli, ym] = key.split('|');
       for(const l of lancs){
-        if(l.origem && l.origem.tipo === 'receita-recebimento') continue;
+        if(idsParciais.has(l.id)) continue;
         if(idsRemover.has(l.id)) continue;
         const cat = String(l.categoria || '').trim().toLowerCase();
         const eEntrada = l.tipo === 'ganho' || !l.tipo || cat.startsWith('receita') || cat.startsWith('entrada');
@@ -100143,7 +100151,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1781739978';
+      const CACHE = 'forekash-v1781741444';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
