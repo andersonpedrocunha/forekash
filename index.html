@@ -34315,7 +34315,12 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
   const notas = cell.notas || '';
 
   // ─── Reabertura de parcial · acumular novos recebimentos ───
-  const _vTot     = parseFloat(cell.valor) || 0;
+  // Se a cell tem retenções, o "total a receber" é o LÍQUIDO (valor que cai na conta),
+  // não o bruto. Retenções (PIS/COFINS/IRRF etc) são pagas pelo cliente direto pra Receita.
+  const _vBruto   = parseFloat(cell.valor) || 0;
+  const _vLiq     = parseFloat(cell.valorLiquido) || 0;
+  const _temReten = Array.isArray(cell.retencoes) && cell.retencoes.length > 0 && _vLiq > 0;
+  const _vTot     = _temReten ? _vLiq : _vBruto;
   const _vPagAnt  = parseFloat(cell.valorPago) || 0;
   const _vJuAnt   = parseFloat(cell.juros) || 0;
   const _vMuAnt   = parseFloat(cell.multa) || 0;
@@ -34435,7 +34440,9 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
           + '<div class="rec-parcial-info-body">'
           +   '<div class="rec-parcial-info-title">Já recebido anteriormente · ' + (typeof _dkbFmtNumBR === 'function' ? 'R$ ' + _dkbFmtNumBR(_vRecAnt) : _vRecAnt.toFixed(2)) + '</div>'
           +   '<div class="rec-parcial-info-sub">'
-          +     'Total da parcela <strong>R$ ' + (typeof _dkbFmtNumBR === 'function' ? _dkbFmtNumBR(_vTot) : _vTot.toFixed(2)) + '</strong> · '
+          +     (_temReten
+                  ? 'Líquido a receber <strong>R$ ' + _dkbFmtNumBR(_vLiq) + '</strong> <small style="color:#A16207">(bruto R$ ' + _dkbFmtNumBR(_vBruto) + ' − retenções)</small> · '
+                  : 'Total da parcela <strong>R$ ' + (typeof _dkbFmtNumBR === 'function' ? _dkbFmtNumBR(_vTot) : _vTot.toFixed(2)) + '</strong> · ')
           +     'Saldo a receber <strong style="color:#92400E">R$ ' + (typeof _dkbFmtNumBR === 'function' ? _dkbFmtNumBR(_vSaldoARec) : _vSaldoARec.toFixed(2)) + '</strong>'
           +     (cell.dataRecebimento ? ' · Último em ' + (cell.dataRecebimento.slice(8,10) + '/' + cell.dataRecebimento.slice(5,7) + '/' + cell.dataRecebimento.slice(0,4)) : '')
           +   '</div>'
@@ -35489,7 +35496,11 @@ function recKbCardSave(){
   if(receb){
     cell.dataRecebimento = receb;
     // Detecta recebimento PARCIAL usando o ACUMULADO já salvo em cell.*
-    const _valOrig = parseFloat(cell.valor) || 0;
+    // Se há retenções, o "total a receber" é o LÍQUIDO (não o bruto)
+    const _vBrutoSv = parseFloat(cell.valor) || 0;
+    const _vLiqSv = parseFloat(cell.valorLiquido) || 0;
+    const _temRetSv = Array.isArray(cell.retencoes) && cell.retencoes.length > 0 && _vLiqSv > 0;
+    const _valOrig = _temRetSv ? _vLiqSv : _vBrutoSv;
     const _vRecLiq = (parseFloat(cell.valorPago)||0) + (parseFloat(cell.juros)||0) + (parseFloat(cell.multa)||0) - (parseFloat(cell.desconto)||0);
     if(_vRecLiq > 0.01 && _vRecLiq < _valOrig - 0.01){
       cell.status = 'parcial';
@@ -100243,7 +100254,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1782159086';
+      const CACHE = 'forekash-v1782172628';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
