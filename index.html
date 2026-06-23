@@ -34535,6 +34535,7 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
       valor: parseFloat(r.valor) || 0,
       contraparte: r.contraparte || ''
     })) : [];
+    _recRetencoesTouched = false; // só sobrescreve cell.retencoes se o user mexer
     if(typeof _recRetencaoRender === 'function') _recRetencaoRender();
   }catch(_){}
 
@@ -35457,35 +35458,47 @@ function recKbCardSave(){
   if(Array.isArray(_recKbCompData)  && _recKbCompData.length > 0)  cell.comprovante = _recKbCompData.slice(); else delete cell.comprovante;
 
   // Retenções e Abatimentos
+  // SÓ sobrescreve cell.retencoes se o user EFETIVAMENTE mexeu (adicionou/removeu/editou).
+  // Se não mexeu, preserva o que já estava salvo no cell — evita perder dados se a aba
+  // Detalhes não foi visitada nessa sessão.
   try{
-    if(typeof _recRetencoes !== 'undefined' && Array.isArray(_recRetencoes) && _recRetencoes.length > 0){
-      const vBrutoBase = parseFloat(cell.valor) || 0;
-      // Aceita retenções com aliquota > 0 OU valor > 0 (recalcula valor se necessário)
-      const rets = _recRetencoes
-        .filter(r => (parseFloat(r.aliquota)||0) > 0 || (parseFloat(r.valor)||0) > 0)
-        .map(r => {
-          const al = parseFloat(r.aliquota) || 0;
-          let val = parseFloat(r.valor) || 0;
-          // Se tem alíquota mas valor zerado, recalcula a partir do bruto
-          if(al > 0 && val <= 0 && vBrutoBase > 0){
-            val = (vBrutoBase * al) / 100;
-          }
-          return {
-            id: r.id, tipo: r.tipo, label: r.label || r.tipo,
-            aliquota: al, valor: val,
-            contraparte: r.contraparte || ''
-          };
-        });
-      if(rets.length > 0){
-        cell.retencoes = rets;
-        const totalRet = rets.reduce((s, r) => s + r.valor, 0);
-        cell.valorBruto = vBrutoBase;
-        cell.valorLiquido = vBrutoBase - totalRet;
+    if(_recRetencoesTouched){
+      if(typeof _recRetencoes !== 'undefined' && Array.isArray(_recRetencoes) && _recRetencoes.length > 0){
+        const vBrutoBase = parseFloat(cell.valor) || 0;
+        const rets = _recRetencoes
+          .filter(r => (parseFloat(r.aliquota)||0) > 0 || (parseFloat(r.valor)||0) > 0)
+          .map(r => {
+            const al = parseFloat(r.aliquota) || 0;
+            let val = parseFloat(r.valor) || 0;
+            if(al > 0 && val <= 0 && vBrutoBase > 0){
+              val = (vBrutoBase * al) / 100;
+            }
+            return {
+              id: r.id, tipo: r.tipo, label: r.label || r.tipo,
+              aliquota: al, valor: val,
+              contraparte: r.contraparte || ''
+            };
+          });
+        if(rets.length > 0){
+          cell.retencoes = rets;
+          const totalRet = rets.reduce((s, r) => s + r.valor, 0);
+          cell.valorBruto = vBrutoBase;
+          cell.valorLiquido = vBrutoBase - totalRet;
+        } else {
+          delete cell.retencoes; delete cell.valorBruto; delete cell.valorLiquido;
+        }
       } else {
         delete cell.retencoes; delete cell.valorBruto; delete cell.valorLiquido;
       }
     } else {
-      delete cell.retencoes; delete cell.valorBruto; delete cell.valorLiquido;
+      // Não mexeu nas retenções · preserva o que está no cell mas recalcula valorLiquido
+      // (caso cell.valor tenha mudado entre aberturas)
+      if(Array.isArray(cell.retencoes) && cell.retencoes.length > 0){
+        const vBrutoBase = parseFloat(cell.valor) || 0;
+        const totalRet = cell.retencoes.reduce((s, r) => s + (parseFloat(r.valor)||0), 0);
+        cell.valorBruto = vBrutoBase;
+        cell.valorLiquido = Math.max(0, vBrutoBase - totalRet);
+      }
     }
   }catch(_){}
 
@@ -100270,7 +100283,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1782173736';
+      const CACHE = 'forekash-v1782253944';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -128653,13 +128666,19 @@ setTimeout(() => { try{ fkTimeTakeDailySnap(); }catch(_){} }, 3500);
 // 💸 RETENÇÕES no modal de RECEITA · mesma lógica do Extrato adaptada
 // ════════════════════════════════════════════════════════════════════
 let _recRetencoes = [];
+let _recRetencoesTouched = false; // só sobrescreve cell.retencoes no save se o user mexeu
 function _recRetencaoAdd(preset){
   const p = (preset && typeof _EXT_RET_PRESETS !== 'undefined' && _EXT_RET_PRESETS[preset]) ? _EXT_RET_PRESETS[preset] : { label:'', aliq:0, contraparte:'' };
   const id = 'rr' + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
   _recRetencoes.push({ id, tipo: preset || 'custom', label: p.label, aliquota: p.aliq, valor: 0, contraparte: p.contraparte || '' });
+  _recRetencoesTouched = true;
   _recRetencaoRender();
 }
-function _recRetencaoRemove(id){ _recRetencoes = _recRetencoes.filter(r => r.id !== id); _recRetencaoRender(); }
+function _recRetencaoRemove(id){
+  _recRetencoes = _recRetencoes.filter(r => r.id !== id);
+  _recRetencoesTouched = true;
+  _recRetencaoRender();
+}
 function _recRetencaoUpdate(id, field, value){
   const r = _recRetencoes.find(x => x.id === id);
   if(!r) return;
@@ -128673,6 +128692,7 @@ function _recRetencaoUpdate(id, field, value){
   } else {
     r[field] = value;
   }
+  _recRetencoesTouched = true;
   _recRetencaoRender();
 }
 function _recRetencaoApplyPreset(preset){
