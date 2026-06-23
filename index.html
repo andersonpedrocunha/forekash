@@ -34315,11 +34315,15 @@ function recKbCardOpen(year, mesAbbr, rowId, opts){
   const notas = cell.notas || '';
 
   // ─── Reabertura de parcial · acumular novos recebimentos ───
-  // Se a cell tem retenções, o "total a receber" é o LÍQUIDO (valor que cai na conta),
-  // não o bruto. Retenções (PIS/COFINS/IRRF etc) são pagas pelo cliente direto pra Receita.
+  // Se a cell tem retenções, o "total a receber" é o LÍQUIDO (valor que cai na conta).
+  // Retenções (PIS/COFINS/IRRF etc) são pagas pelo cliente direto pra Receita Federal.
   const _vBruto   = parseFloat(cell.valor) || 0;
-  const _vLiq     = parseFloat(cell.valorLiquido) || 0;
-  const _temReten = Array.isArray(cell.retencoes) && cell.retencoes.length > 0 && _vLiq > 0;
+  const _temReten = Array.isArray(cell.retencoes) && cell.retencoes.length > 0;
+  // Calcula o líquido DINAMICAMENTE somando as retenções (não confia em cell.valorLiquido salvo)
+  const _vTotalRet = _temReten
+    ? cell.retencoes.reduce((s, r) => s + (parseFloat(r.valor)||0), 0)
+    : 0;
+  const _vLiq     = _temReten ? Math.max(0, _vBruto - _vTotalRet) : _vBruto;
   const _vTot     = _temReten ? _vLiq : _vBruto;
   const _vPagAnt  = parseFloat(cell.valorPago) || 0;
   const _vJuAnt   = parseFloat(cell.juros) || 0;
@@ -100254,7 +100258,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1782172628';
+      const CACHE = 'forekash-v1782173221';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
