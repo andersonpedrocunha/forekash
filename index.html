@@ -35459,16 +35459,28 @@ function recKbCardSave(){
   // Retenções e Abatimentos
   try{
     if(typeof _recRetencoes !== 'undefined' && Array.isArray(_recRetencoes) && _recRetencoes.length > 0){
-      const rets = _recRetencoes.filter(r => parseFloat(r.valor) > 0).map(r => ({
-        id: r.id, tipo: r.tipo, label: r.label || r.tipo,
-        aliquota: parseFloat(r.aliquota)||0, valor: parseFloat(r.valor)||0,
-        contraparte: r.contraparte || ''
-      }));
+      const vBrutoBase = parseFloat(cell.valor) || 0;
+      // Aceita retenções com aliquota > 0 OU valor > 0 (recalcula valor se necessário)
+      const rets = _recRetencoes
+        .filter(r => (parseFloat(r.aliquota)||0) > 0 || (parseFloat(r.valor)||0) > 0)
+        .map(r => {
+          const al = parseFloat(r.aliquota) || 0;
+          let val = parseFloat(r.valor) || 0;
+          // Se tem alíquota mas valor zerado, recalcula a partir do bruto
+          if(al > 0 && val <= 0 && vBrutoBase > 0){
+            val = (vBrutoBase * al) / 100;
+          }
+          return {
+            id: r.id, tipo: r.tipo, label: r.label || r.tipo,
+            aliquota: al, valor: val,
+            contraparte: r.contraparte || ''
+          };
+        });
       if(rets.length > 0){
         cell.retencoes = rets;
         const totalRet = rets.reduce((s, r) => s + r.valor, 0);
-        cell.valorBruto = parseFloat(cell.valor) || 0;
-        cell.valorLiquido = cell.valorBruto - totalRet;
+        cell.valorBruto = vBrutoBase;
+        cell.valorLiquido = vBrutoBase - totalRet;
       } else {
         delete cell.retencoes; delete cell.valorBruto; delete cell.valorLiquido;
       }
@@ -100258,7 +100270,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1782173221';
+      const CACHE = 'forekash-v1782173736';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
@@ -128728,7 +128740,7 @@ function _recRetencaoRender(){
       const fmtV = (typeof _dkbFmtNumBR === 'function') ? _dkbFmtNumBR : (n => Number(n||0).toFixed(2).replace('.', ','));
       return `<div style="display:grid;grid-template-columns:1fr 90px 130px 30px;gap:6px;align-items:center;background:#fff;padding:8px 10px;border-radius:6px;border:1px solid #FDE68A">
         <input type="text" value="${r.label.replace(/"/g,'&quot;')}" onchange="_recRetencaoUpdate('${r.id}','label',this.value)" placeholder="Ex: PIS, Desconto, Tarifa..." style="border:1px solid #FDE68A;border-radius:4px;padding:5px 8px;font-size:.78rem;font-family:inherit">
-        <input type="text" value="${r.aliquota > 0 ? r.aliquota.toString().replace('.',',') : ''}" onchange="_recRetencaoUpdate('${r.id}','aliquota',this.value)" placeholder="%" style="border:1px solid #FDE68A;border-radius:4px;padding:5px 8px;font-size:.78rem;font-family:inherit;text-align:right">
+        <div style="display:flex;align-items:center;gap:4px;border:1px solid #FDE68A;border-radius:4px;padding:0 8px 0 0;background:#fff"><input type="text" value="${r.aliquota > 0 ? r.aliquota.toString().replace('.',',') : ''}" onchange="_recRetencaoUpdate('${r.id}','aliquota',this.value)" placeholder="alíquota" style="border:none;border-radius:4px;padding:5px 4px 5px 8px;font-size:.78rem;font-family:inherit;text-align:right;width:100%;outline:none"><span style="font-size:.74rem;color:#78350F;font-weight:700">%</span></div>
         <div style="display:flex;align-items:center;gap:4px"><span style="font-size:.74rem;color:#78350F">R$</span><input type="text" value="${fmtV(r.valor)}" onchange="_recRetencaoUpdate('${r.id}','valor',this.value)" style="border:1px solid #FDE68A;border-radius:4px;padding:5px 8px;font-size:.78rem;font-family:inherit;text-align:right;width:100%"></div>
         <button type="button" onclick="_recRetencaoRemove('${r.id}')" style="background:#FEE2E2;border:none;color:#991B1B;width:26px;height:26px;border-radius:5px;cursor:pointer;font-size:.85rem" title="Remover">✕</button>
       </div>`;
