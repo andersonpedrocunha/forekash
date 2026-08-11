@@ -32626,7 +32626,23 @@ function _dkbAplicarSaldoRestante(){
 }
 try { window._dkbAplicarSaldoRestante = _dkbAplicarSaldoRestante; } catch(e){}
 // Cria 1 lançamento (gasto) no Extrato pra cada aporte de pagamento
+// ═══════════════════════════════════════════════════════════════════
+// 🔒 EXTRATO INDEPENDENTE · nenhum módulo de compromisso escreve nele
+// ═══════════════════════════════════════════════════════════════════
+// Só entram no Extrato: lançamento manual, importação (OFX/CSV/PDF),
+// conciliação bancária e Captura IA. Dar baixa em Receita, Pessoas,
+// Estrutura, Impostos, Empréstimos ou Outras Operações registra o
+// pagamento NO PRÓPRIO MÓDULO (histórico, status, valor pago) e não
+// cria linha no Extrato — o Extrato é o espelho do banco.
+//
+// Pra reativar (console): localStorage.setItem('fk_extrato_aberto','1')
+function _fkExtratoAceitaEscritaDeModulo(){
+  try { return localStorage.getItem('fk_extrato_aberto') === '1'; } catch(_){ return false; }
+}
+try { window._fkExtratoAceitaEscritaDeModulo = _fkExtratoAceitaEscritaDeModulo; } catch(e){}
+
 function _dkbCriarLancExtratoPagamento(opts){
+  if(!_fkExtratoAceitaEscritaDeModulo()) return null;   // Extrato independente
   try {
     if(typeof extratoData === 'undefined' || !extratoData) return null;
     if(typeof extratoData.nextId !== 'number') extratoData.nextId = 1;
@@ -34680,6 +34696,7 @@ try { window._recAplicarSaldoRestante = _recAplicarSaldoRestante; } catch(e){}
 
 // Cria 1 lançamento no Extrato Financeiro pra um recebimento (parcial ou total) da Receita
 function _recCriarLancExtratoRecebimento(opts){
+  if(!_fkExtratoAceitaEscritaDeModulo()) return null;   // Extrato independente
   try {
     if(typeof extratoData === 'undefined' || !extratoData) return null;
     if(typeof extratoData.nextId !== 'number') extratoData.nextId = 1;
@@ -100270,7 +100287,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1786476193';
+      const CACHE = 'forekash-v1786478601';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
