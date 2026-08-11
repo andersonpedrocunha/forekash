@@ -4789,6 +4789,22 @@
       border-radius:5px;font-size:.7rem;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap}
     .ext-imp-cand-btn:hover{background:#FEE2E2}
     .ext-imp-cand-vazio{font-size:.74rem;color:#94A3B8;font-style:italic;padding:6px 2px}
+
+    /* ── Conciliação · classificar antes de criar ── */
+    .conc-bulk-class{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:9px 12px;margin:0 0 10px;
+      background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;font-size:.74rem;color:#78350F}
+    .conc-bulk-class input{padding:5px 8px;border:1px solid #FDE68A;border-radius:5px;font-size:.76rem;
+      font-family:inherit;background:#fff;width:170px}
+    .conc-bulk-class button{padding:5px 10px;border:1px solid #FCD34D;background:#fff;color:#78350F;
+      border-radius:5px;font-size:.72rem;font-weight:600;cursor:pointer;font-family:inherit}
+    .conc-bulk-class button:hover{background:#FEF3C7}
+    .conc-bulk-dica{margin-left:auto;font-size:.68rem;color:#A16207;font-style:italic}
+    .conc-novo-campos{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:3px}
+    .conc-novo-inp{padding:4px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:.74rem;
+      font-family:inherit;background:#fff;color:#0F172A;width:150px;outline:none}
+    .conc-novo-inp:focus{border-color:#7C3AED;box-shadow:0 0 0 2px rgba(124,58,237,.14)}
+    .conc-novo-apr{font-size:.6rem;font-weight:800;color:#0F766E;background:#ECFDF5;border:1px solid #A7F3D0;
+      padding:1px 6px;border-radius:8px;text-transform:uppercase;letter-spacing:.04em;font-family:Consolas,Menlo,monospace}
     .ext-imp-body{flex:1;overflow-y:auto;padding:18px}
     .ext-imp-section h4{margin:0 0 8px;font-size:.84rem;color:#0F172A;font-weight:700}
     .ext-imp-section p{margin:0 0 12px;font-size:.78rem;color:#475569;line-height:1.5}
@@ -72299,9 +72315,92 @@ function _concParseCSV(raw){
   return { formato:'CSV genérico', contaNome:'', saldoFinal:null, saldoData:'', items };
 }
 
+// Lista única de categorias disponíveis para classificar um lançamento.
+// Junta as categorias mapeadas em Customizações (catmap — inclui as tags da
+// Estrutura, rubricas de Impostos, Receita, Folha, Empréstimos) com o que já
+// foi usado no Extrato. O vínculo com o módulo é preservado no catmap; aqui
+// só interessa o nome, porque qualquer categoria pode classificar qualquer
+// movimento do banco.
+function fkCategoriasDisponiveis(extras){
+  const set = new Set();
+  try{
+    if(typeof catmapData !== 'undefined' && Array.isArray(catmapData.categorias)){
+      catmapData.categorias.forEach(c => { if(c && c.nome) set.add(String(c.nome).trim()); });
+    }
+  }catch(_){}
+  try{
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      extratoData.lancamentos.forEach(l => { if(l.categoria) set.add(String(l.categoria).trim()); });
+    }
+  }catch(_){}
+  (extras || []).forEach(c => { if(c) set.add(String(c).trim()); });
+  return [...set].filter(Boolean).sort((a,b) => a.localeCompare(b,'pt'));
+}
+
+// Lista de clientes/fornecedores conhecidos (registry de Pessoas + Extrato).
+function fkContrapartesDisponiveis(extras){
+  const set = new Set();
+  try{
+    if(typeof pesRegistry === 'function') pesRegistry().forEach(r => { if(r && r.nome) set.add(String(r.nome).trim()); });
+  }catch(_){}
+  try{
+    if(typeof receita !== 'undefined' && Array.isArray(receita.clientes)){
+      receita.clientes.forEach(c => { if(c && c.nome) set.add(String(c.nome).trim()); });
+    }
+  }catch(_){}
+  try{
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      extratoData.lancamentos.forEach(l => { if(l.contraparte) set.add(String(l.contraparte).trim()); });
+    }
+  }catch(_){}
+  (extras || []).forEach(c => { if(c) set.add(String(c).trim()); });
+  return [...set].filter(Boolean).sort((a,b) => a.localeCompare(b,'pt'));
+}
+
+// Cadastra um fornecedor novo digitado na importação/conciliação, pra ele
+// passar a existir no registry de Pessoas e aparecer nas próximas vezes.
+function fkGarantirContraparte(nome){
+  const n = String(nome || '').trim();
+  if(!n || typeof pessoas === 'undefined' || !Array.isArray(pessoas.registry)) return null;
+  const ja = pessoas.registry.find(r => (r.nome || '').trim().toLowerCase() === n.toLowerCase());
+  if(ja) return ja;
+  const novo = {
+    id: (pessoas.nextRegId = (pessoas.nextRegId || 1) + 1) - 1,
+    nome: n, doc: '', email: '', telefone: '', obs: '',
+    foto: '', anexos: [], tags: [],
+    kind: 'fornecedor', tipoPessoa: 'pj', ativo: true,
+    criadoPor: 'importacao'
+  };
+  pessoas.registry.push(novo);
+  try{ if(typeof pessoasSave === 'function') pessoasSave(); }catch(_){}
+  return novo;
+}
+try{
+  window.fkCategoriasDisponiveis = fkCategoriasDisponiveis;
+  window.fkContrapartesDisponiveis = fkContrapartesDisponiveis;
+  window.fkGarantirContraparte = fkGarantirContraparte;
+}catch(_){}
+
+// Lê arquivo respeitando o encoding. OFX/CSV de banco brasileiro vem ora em
+// UTF-8, ora em ISO-8859-1/cp1252 — e `file.text()` assume UTF-8 sempre, o que
+// transforma acento em losango ("C\u25C6MBIO", "COBRAN\u25C6A"). Decodifica como
+// UTF-8 e refaz em windows-1252 se aparecer o caractere de substituição.
+async function fkLerArquivoTexto(file){
+  const buf = await file.arrayBuffer();
+  let txt = '';
+  try{
+    txt = new TextDecoder('utf-8', { fatal:false }).decode(buf);
+    if(txt.includes('\uFFFD')) txt = new TextDecoder('windows-1252').decode(buf);
+  }catch(_){
+    try{ txt = await file.text(); }catch(__){ txt = ''; }
+  }
+  return txt;
+}
+try{ window.fkLerArquivoTexto = fkLerArquivoTexto; }catch(_){}
+
 // Router principal: detecta o formato e chama o parser certo
 async function _concParseFile(file){
-  const text = await file.text();
+  const text = await fkLerArquivoTexto(file);
   const nameLower = (file.name || '').toLowerCase();
   if(nameLower.endsWith('.ofx') || text.toUpperCase().includes('<STMTTRN>')){
     return _concParseOFX(text);
@@ -72768,6 +72867,22 @@ function _concRenderWorkbench(){
     }
     html += '</div>';
 
+    // Classificar em lote antes de criar — evita 18 lançamentos sem categoria
+    if(unresolved.length > 0 && CONC_STATE.bucket === 'novo'){
+      const _cats  = (typeof fkCategoriasDisponiveis === 'function') ? fkCategoriasDisponiveis() : [];
+      const _forns = (typeof fkContrapartesDisponiveis === 'function') ? fkContrapartesDisponiveis() : [];
+      html += '<datalist id="conc-dl-cat">'  + _cats.map(c  => '<option value="' + _concEsc(c) + '">').join('')  + '</datalist>'
+           +  '<datalist id="conc-dl-forn">' + _forns.map(c => '<option value="' + _concEsc(c) + '">').join('') + '</datalist>'
+           +  '<div class="conc-bulk-class">'
+           +    '<span>Classificar todos:</span>'
+           +    '<input list="conc-dl-cat" id="conc-bulk-cat" placeholder="categoria">'
+           +    '<button type="button" onclick="concBulkCampo(\'_cat\')">aplicar</button>'
+           +    '<input list="conc-dl-forn" id="conc-bulk-forn" placeholder="cliente / fornecedor">'
+           +    '<button type="button" onclick="concBulkCampo(\'_forn\')">aplicar</button>'
+           +    '<span class="conc-bulk-dica">Pode digitar um nome novo — ele entra no cadastro de Pessoas.</span>'
+           +  '</div>';
+    }
+
     html += '<div class="conc-rows">';
     if(inBucket.length === 0){
       html += '<div class="conc-row-empty">Nada nesse bucket · tente outro filtro.</div>';
@@ -73008,7 +73123,23 @@ function _concRenderRow(m){
   } else if(m.suggested){
     rightHtml += '<span class="conc-row-desc" style="color:#7C3AED">+ ' + _concEsc(m.suggested.categoria || 'Padrão aprendido') + (m.suggested.fornecedor ? ' · ' + _concEsc(m.suggested.fornecedor) : '') + '</span>';
   } else {
-    rightHtml += '<span class="conc-row-desc" style="opacity:.5">— não há correspondente —</span>';
+    // Linha "criar novo": em vez de criar às cegas com categoria e fornecedor
+    // vazios, deixa classificar aqui mesmo. Pré-preenche com o que a memória
+    // de importação já aprendeu sobre descrições parecidas.
+    if(m.ofx && m._cat === undefined){
+      let sug = null;
+      try{ sug = (typeof ofxSugerir === 'function') ? ofxSugerir(m.ofx.descricao, m.ofx.valor) : null; }catch(_){}
+      m._cat  = (m.suggested && m.suggested.categoria)  || (sug && sug.categoria)   || '';
+      m._forn = (m.suggested && m.suggested.fornecedor) || (sug && sug.contraparte) || '';
+      m._apr  = !!(sug && sug.aprendido);
+    }
+    rightHtml += '<div class="conc-novo-campos">'
+      + '<input list="conc-dl-cat"  class="conc-novo-inp" value="' + _concEsc(m._cat || '')  + '" placeholder="categoria"'
+      +   ' onchange="concSetCampo(' + idx + ',\'_cat\',this.value)" onclick="event.stopPropagation()">'
+      + '<input list="conc-dl-forn" class="conc-novo-inp" value="' + _concEsc(m._forn || '') + '" placeholder="cliente / fornecedor"'
+      +   ' onchange="concSetCampo(' + idx + ',\'_forn\',this.value)" onclick="event.stopPropagation()">'
+      + (m._apr ? '<span class="conc-novo-apr" title="Preenchido pelo histórico de importações">aprendido</span>' : '')
+      + '</div>';
   }
   rightHtml += '</div>';
   const sysVal = m.sistema ? ((parseFloat(m.sistema.valor) || 0) > 0 ? (m.sistema.tipo === 'ganho' ? '+' : '−') + _concFmtBRL(m.sistema.valor) : '—') : '—';
@@ -73088,6 +73219,26 @@ function _concComputeDecisoes(){
   };
 }
 
+// Classificação das linhas "criar novo" da conciliação
+function concSetCampo(idx, campo, valor){
+  const m = (CONC_STATE.matches || []).find(x => x._idx === idx);
+  if(!m) return;
+  m[campo] = valor;
+  m._tocado = true;
+}
+function concBulkCampo(campo){
+  const id = campo === '_cat' ? 'conc-bulk-cat' : 'conc-bulk-forn';
+  const v = (document.getElementById(id)?.value || '').trim();
+  if(!v) return;
+  let n = 0;
+  (CONC_STATE.matches || []).forEach(m => {
+    if(m.bucket === 'novo' && !CONC_STATE.resolved.has(m._idx)){ m[campo] = v; m._tocado = true; n++; }
+  });
+  if(typeof concRender === 'function') concRender();
+  if(typeof toast === 'function') toast('✓ aplicado em ' + n + ' linha(s)');
+}
+try{ window.concSetCampo = concSetCampo; window.concBulkCampo = concBulkCampo; }catch(_){}
+
 function concApply(){
   const conta = CONC_STATE.contaAtiva;
   if(!conta){ if(typeof toast === 'function') toast('⚠ Conta não selecionada'); return; }
@@ -73095,6 +73246,7 @@ function concApply(){
   const acc = conciliacaoData.porConta[conta] || { historico:[] };
   if(!Array.isArray(acc.historico)) acc.historico = [];
   const histId = conciliacaoData.nextHistId++;
+  try{ if(typeof ofxMemLoad === 'function') ofxMemLoad(); }catch(_){}
   const novosIds = [], matchedIds = [];
   const periodoIni = CONC_STATE.ofxItems.map(o => o.data).filter(Boolean).sort()[0] || '';
   const periodoFim = CONC_STATE.ofxItems.map(o => o.data).filter(Boolean).sort().slice(-1)[0] || '';
@@ -73120,8 +73272,8 @@ function concApply(){
       const lan = {
         id, data: m.ofx.data, descricao: m.ofx.descricao || 'Importado do OFX',
         valor: m.ofx.valor, tipo: m.ofx.tipo,
-        categoria: m.suggested ? m.suggested.categoria : '',
-        contraparte: m.suggested ? m.suggested.fornecedor : '',
+        categoria: m._cat || (m.suggested ? m.suggested.categoria : ''),
+        contraparte: m._forn || (m.suggested ? m.suggested.fornecedor : ''),
         conta, status: 'pago', dataPagamento: m.ofx.data,
         documento: m.ofx.checknum || '',
         centroCustoId: m.suggested ? m.suggested.cc : null,
@@ -73132,6 +73284,11 @@ function concApply(){
       extratoData.lancamentos.push(lan);
       novosIds.push(lan.id);
       novosCount++;
+      // fornecedor novo entra no registry · classificação vira memória
+      if(lan.contraparte){ try{ fkGarantirContraparte(lan.contraparte); }catch(_){} }
+      if(typeof ofxMemAprender === 'function' && (lan.categoria || lan.contraparte)){
+        try{ ofxMemAprender(m.ofx.descricao, { categoria: lan.categoria, contraparte: lan.contraparte, tipo: lan.tipo }); }catch(_){}
+      }
       // Pattern learning: se tinha fornecedor + categoria, salva regra
       if(m.suggested && m.suggested.id){
         const p = conciliacaoData.patterns.find(x => x.id === m.suggested.id);
@@ -73163,6 +73320,7 @@ function concApply(){
   acc.saldoUltimoOFX = CONC_STATE.saldoOFX;
   if(periodoFim) acc.conciliadoAte = periodoFim;
   conciliacaoData.porConta[conta] = acc;
+  try{ if(typeof ofxMemSave === 'function') ofxMemSave(); }catch(_){}
   _concSave();
   if(typeof _extSave === 'function') _extSave();
   if(window.FK_MODE === 'cloud' && typeof cloudExtratoSync === 'function') cloudExtratoSync();
@@ -74369,9 +74527,8 @@ function _extImpRenderResult(){
     + '</div>') : '';
 
   // listas de sugestão: o que já existe no Extrato + o que veio do arquivo
-  const _uniq = a => [...new Set(a.filter(Boolean))].sort();
-  const cats  = _uniq([...existing.map(x => x.categoria),   ...items.map(x => x.categoria)]);
-  const forns = _uniq([...existing.map(x => x.contraparte), ...items.map(x => x.contraparte)]);
+  const cats  = fkCategoriasDisponiveis(items.map(x => x.categoria));
+  const forns = fkContrapartesDisponiveis(items.map(x => x.contraparte));
   const dlHtml = '<datalist id="ext-imp-dl-cat">'  + cats.map(c  => '<option value="' + _extEsc(c) + '">').join('')  + '</datalist>'
                + '<datalist id="ext-imp-dl-forn">' + forns.map(c => '<option value="' + _extEsc(c) + '">').join('') + '</datalist>';
 
@@ -74611,6 +74768,8 @@ function extImpConfirm(){
       criadoEm: new Date().toISOString(),
       importadoDe: _extImpState.filename || (_extImpState.format === 'ofx' ? 'OFX' : 'CSV')
     });
+    // fornecedor digitado que ainda não existe entra no registry de Pessoas
+    if(it.contraparte){ try{ fkGarantirContraparte(it.contraparte); }catch(_){} }
     // memoriza a classificação desta linha pra próxima importação
     if(typeof ofxMemAprender === 'function' && (it.categoria || it.contraparte || it._tocado)){
       try{ ofxMemAprender(it.descricao, { categoria: it.categoria, contraparte: it.contraparte, tipo: it.tipo }); aprendidos++; }catch(_){}
