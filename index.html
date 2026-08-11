@@ -64380,6 +64380,30 @@ function _extPeriodLabel(){
 }
 
 // Coleta lançamentos das fontes (Receita + Manual). Retorna array unificado.
+// ═══════════════════════════════════════════════════════════════════
+// 🏦 EXTRATO INDEPENDENTE · só entra o que passou pela conta
+// ═══════════════════════════════════════════════════════════════════
+// O Extrato era montado a partir de 9 fontes: 1 REAL (lançamentos
+// manuais/importados) e 8 CALCULADAS na hora a partir de Receita,
+// Estrutura, Pessoas, Impostos, Empréstimos e Cartões.
+//
+// Isso misturava PROJEÇÃO com CAIXA na mesma lista — origem de toda
+// uma classe de bug (o mesmo recebimento aparecendo como parcial real
+// E como linha cheia calculada da Receita).
+//
+// Agora o Extrato é a fonte da verdade do que aconteceu de fato.
+// Os demais módulos continuam intactos: só param de injetar linha aqui.
+//
+// Interruptor pra comparar (console do navegador):
+//   localStorage.setItem('fk_extrato_puro','0')  → volta ao consolidado antigo
+//   localStorage.removeItem('fk_extrato_puro')   → independente (padrão)
+function _extCollectReal(){
+  const todas = _extCollect();
+  if(localStorage.getItem('fk_extrato_puro') === '0') return todas;  // modo legado
+  return todas.filter(x => x.sourceKind === 'manual');
+}
+try { window._extCollectReal = _extCollectReal; } catch(e){}
+
 function _extCollect(){
   const out = [];
   // 1) Manuais
@@ -65694,7 +65718,7 @@ function renderExtrato(){
   const lbl = document.getElementById('ext-period-lbl');
   if(lbl) lbl.textContent = _extPeriodLabel();
 
-  const all = _extCollect();
+  const all = _extCollectReal();
   const filtered = _extSortAsc(_extFilter(all));
 
   // KPIs
@@ -100283,7 +100307,7 @@ async function pwaRegisterSW(){
   try{
     // Cria SW inline via Blob — funciona em qualquer host estático
     const swCode = `
-      const CACHE = 'forekash-v1782253944';
+      const CACHE = 'forekash-v1786473953';
       const ASSETS = ['/', '/index.html'];
       self.addEventListener('install', e => {
         e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
