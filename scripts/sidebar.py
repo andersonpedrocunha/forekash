@@ -16,14 +16,16 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parent.parent
 INDEX = RAIZ / 'index.html'
 
-# módulo solto no topo, fora de qualquer grupo
-TOPO = 'dashboard'
+# Módulos fixos no topo, fora de qualquer grupo — logo, imunes ao colapso.
+# O Extrato está aqui porque é a fonte da verdade do sistema: some do menu se
+# ficar dentro de um grupo e o grupo for fechado.
+TOPO = ['dashboard', 'extrato']
 
 # (chave, rótulo, tooltip, [módulos na ordem])
 ESTRUTURA = [
     ('caixa', 'Caixa',
      'O que aconteceu de fato — dinheiro que passou pela conta',
-     ['extrato', 'disponibilidades', 'cartoes', 'kashtrack']),
+     ['disponibilidades', 'cartoes', 'kashtrack']),
 
     ('projecao', 'Projeção',
      'O que você projeta receber e pagar, mês a mês, por natureza',
@@ -65,7 +67,7 @@ def main() -> int:
             bloco):
         botoes[m.group(1)] = m.group(0).strip('\n')
 
-    previstos = {TOPO} | {md for _, _, _, mods in ESTRUTURA for md in mods}
+    previstos = set(TOPO) | {md for _, _, _, mods in ESTRUTURA for md in mods}
     if faltando := previstos - set(botoes):
         print(f'ERRO: módulos na ESTRUTURA que não existem no HTML: {faltando}')
         return 1
@@ -75,7 +77,8 @@ def main() -> int:
 
     # ── remonta o menu ──
     novo = '    <div class="sb-section">Módulos</div>\n\n'
-    novo += ident(botoes[TOPO], 4) + '\n\n'
+    for md in TOPO:
+        novo += ident(botoes[md], 4) + '\n\n'
     for chave, rotulo, dica, mods in ESTRUTURA:
         novo += f'    <!-- {rotulo} -->\n'
         novo += f'    <div class="sb-group" data-group="{chave}">\n'
