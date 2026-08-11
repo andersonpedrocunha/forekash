@@ -20,6 +20,9 @@
        ╚══════════════════════════════════════════════════════════════════╝
   -->
   <meta name="theme-color" content="#0F172A"/>
+  <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
+       qual build o navegador realmente carregou — o cache já enganou a gente. -->
+  <meta name="fk-build" content="forekash-v1786490377"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -4768,7 +4771,20 @@
     .tag-dup{color:#991B1B;background:#FEE2E2;border:1px solid #FCA5A5}
     .tag-susp{color:#92400E;background:#FEF3C7;border:1px solid #FCD34D}
     .tag-apr{color:#0F766E;background:#ECFDF5;border:1px solid #A7F3D0}
-    .tag-ign{color:#475569;background:#F1F5F9;border:1px solid #CBD5E1}
+    .tag-ign{color:#475569;background:#F1F5F9;border:1px solid #CBD5E1;cursor:pointer;font-family:Consolas,Menlo,monospace}
+    .tag-ign:hover{background:#FFFBEB;border-color:#FCD34D;color:#78350F}
+    .tag-falta{color:#7C3AED;background:#F5F3FF;border:1px solid #DDD6FE;font-size:.6rem;font-weight:800;
+      padding:1px 6px;border-radius:8px;text-transform:uppercase;letter-spacing:.04em;
+      font-family:Consolas,Menlo,monospace;white-space:nowrap}
+    /* transferência: as duas colunas do meio viram conta de saída e de entrada */
+    .ext-imp-tr-conta{display:flex;align-items:center;gap:5px}
+    .ext-imp-tr-conta > span{font-size:.58rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;
+      color:#7C3AED;font-family:Consolas,Menlo,monospace;flex:0 0 auto}
+    .ext-imp-editavel .ext-imp-tr-conta input{border-color:#DDD6FE;background:#fff}
+    .ext-imp-editavel .ext-imp-tr-conta input.falta{border-color:#C4B5FD;background:#FAF5FF}
+    .ext-imp-editavel .ext-imp-tr-conta input::placeholder{color:#A78BFA;font-size:.7rem}
+    .ext-imp-aviso-transf{margin-top:8px;padding:8px 12px;border-radius:6px;font-size:.75rem;
+      color:#5B21B6;background:#F5F3FF;border:1px solid #DDD6FE}
     .tag-busca{font-size:.6rem;font-weight:700;padding:1px 7px;border-radius:8px;cursor:pointer;
       color:#475569;background:#fff;border:1px solid #CBD5E1;font-family:inherit;margin-left:4px}
     .tag-busca:hover{background:#EFF6FF;border-color:#3B82F6;color:#1D4ED8}
@@ -72357,6 +72373,28 @@ function fkContrapartesDisponiveis(extras){
   return [...set].filter(Boolean).sort((a,b) => a.localeCompare(b,'pt'));
 }
 
+// Contas/bancos pra escolher origem e destino de uma transferência. Junta os
+// bancos cadastrados com as contas que já aparecem no Extrato — porque conta de
+// aplicação ("BB Rende Fácil", "CDB") costuma não estar no cadastro de bancos.
+function fkContasDisponiveis(extras){
+  const set = new Set();
+  try{
+    if(typeof _recKbActiveBancos === 'function'){
+      _recKbActiveBancos().forEach(b => { if(b && b.nome) set.add(String(b.nome).trim()); });
+    }
+  }catch(_){}
+  try{
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      extratoData.lancamentos.forEach(l => {
+        if(l.conta) set.add(String(l.conta).trim());
+        if(l.tipo === 'transferencia' && l.contraparte) set.add(String(l.contraparte).trim());
+      });
+    }
+  }catch(_){}
+  (extras || []).forEach(c => { if(c) set.add(String(c).trim()); });
+  return [...set].filter(Boolean).sort((a,b) => a.localeCompare(b,'pt'));
+}
+
 // Cadastra um fornecedor novo digitado na importação/conciliação, pra ele
 // passar a existir no registry de Pessoas e aparecer nas próximas vezes.
 function fkGarantirContraparte(nome){
@@ -72378,6 +72416,7 @@ function fkGarantirContraparte(nome){
 try{
   window.fkCategoriasDisponiveis = fkCategoriasDisponiveis;
   window.fkContrapartesDisponiveis = fkContrapartesDisponiveis;
+  window.fkContasDisponiveis = fkContasDisponiveis;
   window.fkGarantirContraparte = fkGarantirContraparte;
 }catch(_){}
 
@@ -74300,7 +74339,11 @@ function _extImpParseOFX(raw){
       numeroDocumento: fitid || '',
       categoria: '',
       centroCustoId: null,
-      _contaOriginal: !!acctName
+      _contaOriginal: !!acctName,
+      // Direção do dinheiro, guardada aqui porque `valor` é absoluto e o `tipo`
+      // pode virar 'transferencia' depois — pela memória ou pela mão do usuário
+      // — levando junto a única pista de qual lado a conta ocupa.
+      _saida: !isCredit
     });
   }
   _extImpState.parsed = out;
@@ -74433,6 +74476,8 @@ function _extImpParseCSV(raw){
     out.push({
       data,
       tipo,
+      // mesma razão do OFX: guarda a direção antes que o tipo possa mudar
+      _saida: (tipo === 'transferencia') ? (valNum < 0) : (tipo === 'gasto'),
       descricao: get(idx.desc),
       contraparte: get(idx.cliente),
       conta: conta || (_extImpState.contaDefault || ''),
@@ -74529,17 +74574,33 @@ function _extImpRenderResult(){
   // listas de sugestão: o que já existe no Extrato + o que veio do arquivo
   const cats  = fkCategoriasDisponiveis(items.map(x => x.categoria));
   const forns = fkContrapartesDisponiveis(items.map(x => x.contraparte));
+  const contas = fkContasDisponiveis(
+    items.map(x => x.conta).concat(items.map(x => x.contaOrigem), items.map(x => x.contaDestino)));
   const dlHtml = '<datalist id="ext-imp-dl-cat">'  + cats.map(c  => '<option value="' + _extEsc(c) + '">').join('')  + '</datalist>'
-               + '<datalist id="ext-imp-dl-forn">' + forns.map(c => '<option value="' + _extEsc(c) + '">').join('') + '</datalist>';
+               + '<datalist id="ext-imp-dl-forn">' + forns.map(c => '<option value="' + _extEsc(c) + '">').join('') + '</datalist>'
+               + '<datalist id="ext-imp-dl-conta">'+ contas.map(c => '<option value="' + _extEsc(c) + '">').join('') + '</datalist>';
 
   const TIPOS = [['ganho','Ganho'],['gasto','Gasto'],['transferencia','Transferência']];
-  let rows = '';
+  let rows = '', nTransfFalta = 0;
   for(let i = 0; i < items.length; i++){
     const it = items[i];
     const skip = it._ignorar || (dupMode === 'skip' && it._dup);
     const tr   = it.tipo === 'transferencia';
+    const trFalta = tr && !(it.contaOrigem && it.contaDestino);
     const valCls = tr ? 'v-transf' : (it.tipo === 'gasto' ? 'v-neg' : 'v-pos');
     const sign = it.tipo === 'gasto' ? '-' : '+';
+    if(tr) nTransfFalta += trFalta ? 1 : 0;
+    // Transferência não tem categoria nem fornecedor: tem conta de saída e de
+    // entrada. As duas colunas do meio viram esses campos.
+    const celulasMeio = tr
+      ? ('<td class="c-ct"><label class="ext-imp-tr-conta"><span>saída</span>'
+        +   '<input list="ext-imp-dl-conta" class="' + (it.contaOrigem ? '' : 'falta') + '" value="' + _extEsc(it.contaOrigem || '') + '"'
+        +   ' placeholder="de qual conta saiu" onchange="extImpSet(' + i + ',\'contaOrigem\',this.value)"></label></td>'
+        + '<td class="c-fn"><label class="ext-imp-tr-conta"><span>entrada</span>'
+        +   '<input list="ext-imp-dl-conta" class="' + (it.contaDestino ? '' : 'falta') + '" value="' + _extEsc(it.contaDestino || '') + '"'
+        +   ' placeholder="para qual conta foi" onchange="extImpSet(' + i + ',\'contaDestino\',this.value)"></label></td>')
+      : ('<td class="c-ct"><input list="ext-imp-dl-cat" value="' + _extEsc(it.categoria || '') + '" placeholder="—" onchange="extImpSet(' + i + ',\'categoria\',this.value)"></td>'
+        + '<td class="c-fn"><input list="ext-imp-dl-forn" value="' + _extEsc(it.contraparte || '') + '" placeholder="—" onchange="extImpSet(' + i + ',\'contraparte\',this.value)"></td>');
     rows += '<tr class="' + (skip ? 'skip ' : '') + (tr ? 'is-transf' : '') + '">'
       + '<td class="c-dt">' + _extImpFmtBR(it.data) + '</td>'
       + '<td class="c-ds" title="' + _extEsc(it.descricao || '') + '">' + _extEsc((it.descricao || '').slice(0, 46))
@@ -74547,15 +74608,18 @@ function _extImpRenderResult(){
                         : (it._dup ? ' <span class="tag-dup" title="Mesma data, valor e descrição">dup</span>' : ''))
       +   (!it._dup && it._suspeitos && it._suspeitos.length
              ? ' <span class="tag-susp" title="Já existe lançamento com esta data e valor, mas descrição diferente">possível dup</span>' : '')
-      +   (it._ignorar ? ' <span class="tag-ign">não importar</span>' : '')
+      +   (it._ignorar
+             ? ' <button type="button" class="tag-ign" onclick="extImpMarcarIgnorar(' + i + ',false)" title="Clique pra voltar a importar esta linha">'
+               + (it._ladoB ? 'outro lado da transferência' : 'não importar') + ' ✕</button>'
+             : '')
       +   (it._aprendido ? ' <span class="tag-apr" title="Preenchido pelo histórico de ' + it._vezes + ' importação(ões)">aprendido</span>' : '')
+      +   (trFalta && !skip ? ' <span class="tag-falta" title="Transferência precisa da conta de saída e da conta de entrada">falta conta</span>' : '')
       +   ' <button type="button" class="tag-busca" onclick="extImpBuscar(' + i + ')" title="Procurar este lançamento no Forekash">buscar</button>'
       + '</td>'
       + '<td class="c-tp"><select onchange="extImpSet(' + i + ',\'tipo\',this.value)">'
       +   TIPOS.map(([v,t]) => '<option value="' + v + '"' + (it.tipo === v ? ' selected' : '') + '>' + t + '</option>').join('')
       + '</select></td>'
-      + '<td class="c-ct"><input list="ext-imp-dl-cat" value="' + _extEsc(it.categoria || '') + '" placeholder="—" onchange="extImpSet(' + i + ',\'categoria\',this.value)"></td>'
-      + '<td class="c-fn"><input list="ext-imp-dl-forn" value="' + _extEsc(it.contraparte || '') + '" placeholder="—" onchange="extImpSet(' + i + ',\'contraparte\',this.value)"></td>'
+      + celulasMeio
       + '<td class="c-vl ' + valCls + '">' + sign + ' R$ ' + _extImpFmtMoney(it.valor) + '</td>'
       + '</tr>'
       + (it._buscaAberta ? _extImpLinhaBusca(it, i, existing) : '');
@@ -74567,6 +74631,11 @@ function _extImpRenderResult(){
       + '<th class="c-ct">Categoria</th><th class="c-fn">Cliente / Fornecedor</th>'
       + '<th class="c-vl" style="text-align:right">Valor</th></tr></thead>'
       + '<tbody>' + rows + '</tbody></table></div>';
+    if(nTransfFalta){
+      tableHtml += '<div class="ext-imp-aviso-transf">'
+        + nTransfFalta + ' transferência(s) sem as duas contas. Sem saber de onde saiu e pra onde foi, '
+        + 'o saldo por conta não fecha — informe nas colunas <b>saída</b> e <b>entrada</b>.</div>';
+    }
   }
   el.innerHTML = summaryHtml + tableHtml;
   // Atualiza footer left text
@@ -74667,9 +74736,25 @@ try{
 function extImpSet(i, campo, valor){
   const it = (_extImpState.parsed || [])[i];
   if(!it) return;
+  // Virou transferência: o tipo antigo é a única pista de qual lado a conta do
+  // arquivo ocupa — gasto saiu dela, ganho entrou. Guarda antes de sobrescrever.
+  if(campo === 'tipo' && valor === 'transferencia' && it.tipo !== 'transferencia'){
+    if(it._saida === undefined) it._saida = (it.tipo === 'gasto');
+    _extImpTransfPreencher(it);
+  }
   it[campo] = valor;
   it._tocado = true;              // usuário mexeu: vale aprender
   if(campo === 'tipo'){ _extImpRenderResult(); _extImpUpdateConfirm(); }
+}
+// Preenche o lado que a gente sabe: a conta do próprio extrato importado.
+// O outro lado o usuário escolhe — costuma ser conta de aplicação ou de outro
+// banco, que não está neste arquivo.
+function _extImpTransfPreencher(it){
+  const propria = it.conta || _extImpState.contaDefault || '';
+  if(!propria) return;
+  const saiu = (it._saida !== undefined) ? it._saida : (it.tipo === 'gasto');
+  if(saiu){ if(!it.contaOrigem)  it.contaOrigem  = propria; }
+  else    { if(!it.contaDestino) it.contaDestino = propria; }
 }
 function extImpBulk(campo){
   const id = campo === 'categoria' ? 'ext-imp-bulk-cat' : 'ext-imp-bulk-forn';
@@ -74683,24 +74768,51 @@ function extImpBulk(campo){
 function extImpDetectarTransf(){
   const items = _extImpState.parsed || [];
   const usados = new Set();
-  let n = 0;
+  let nPares = 0, nIncompletas = 0;
+  // A direção vem de _saida, gravado no parse. Não dá pra comparar `tipo` aqui:
+  // a memória de importação pode já ter marcado a linha como 'transferencia',
+  // e aí o par sairia com origem e destino trocados.
+  const dir = x => (x._saida !== undefined) ? !!x._saida : (x.tipo === 'gasto');
   items.forEach((a, i) => {
     if(usados.has(i)) return;
     const j = items.findIndex((b, k) =>
       k !== i && !usados.has(k) &&
       Math.abs((parseFloat(b.valor)||0) - (parseFloat(a.valor)||0)) < 0.01 &&
-      a.tipo !== b.tipo && (a.tipo === 'ganho' || b.tipo === 'ganho') &&
+      dir(a) !== dir(b) &&
       Math.abs(new Date(b.data) - new Date(a.data)) <= 86400000 * 2);
-    if(j >= 0){
-      items[i].tipo = 'transferencia'; items[i]._tocado = true;
-      items[j].tipo = 'transferencia'; items[j]._tocado = true;
-      usados.add(i); usados.add(j); n += 2;
+    if(j < 0) return;
+    const b = items[j];
+    const saiA = dir(a);
+    const cA = a.conta || _extImpState.contaDefault || '';
+    const cB = b.conta || _extImpState.contaDefault || '';
+    [a, b].forEach(x => { x.tipo = 'transferencia'; x._tocado = true; });
+
+    if(cA && cB && cA !== cB){
+      // Par de verdade entre duas contas: dá pra preencher os dois lados.
+      const origem = saiA ? cA : cB, destino = saiA ? cB : cA;
+      [a, b].forEach(x => { x.contaOrigem = origem; x.contaDestino = destino; });
+      // As duas linhas descrevem o MESMO dinheiro. Importar as duas contaria o
+      // valor em dobro, então a perna de entrada fica marcada como não importar
+      // — visível na tabela e reversível num clique.
+      const entrada = saiA ? b : a;
+      entrada._ignorar = true; entrada._ladoB = true;
+    } else {
+      // Mesma conta (ou conta desconhecida): a gente só sabe um lado de cada.
+      // Deixa o outro em branco em vez de inventar.
+      _extImpTransfPreencher(a); _extImpTransfPreencher(b);
+      nIncompletas += 2;
     }
+    usados.add(i); usados.add(j); nPares++;
   });
   _extImpRenderResult();
   _extImpUpdateConfirm();
   if(typeof toast === 'function'){
-    toast(n ? ('✓ ' + n + ' linhas marcadas como transferência') : 'Nenhum par de transferência encontrado');
+    if(!nPares){ toast('Nenhum par de transferência encontrado'); }
+    else if(nIncompletas){
+      toast('✓ ' + nPares + ' par(es) marcado(s) · ' + nIncompletas + ' linha(s) esperando você informar a outra conta');
+    } else {
+      toast('✓ ' + nPares + ' transferência(s) · a perna de entrada ficou como "não importar" pra não contar duas vezes');
+    }
   }
 }
 // Aplica o que o Forekash já aprendeu nas linhas recém-parseadas
@@ -74715,6 +74827,8 @@ function _extImpAplicarMemoria(){
       if(s.categoria)   it.categoria   = s.categoria;
       if(s.contraparte) it.contraparte = s.contraparte;
       if(s.tipo)        it.tipo        = s.tipo;
+      // se a memória disse que isto é transferência, já preenche o lado conhecido
+      if(s.tipo === 'transferencia') _extImpTransfPreencher(it);
       it._aprendido = true; it._vezes = s.vezes; n++;
     } else if(s.categoria && !it.categoria){
       it.categoria = s.categoria;   // regra fixa: só preenche o que está vazio
@@ -74751,14 +74865,17 @@ function extImpConfirm(){
     if(it._ignorar) continue;
     if(dupMode === 'skip' && it._dup) continue;
     const id = extratoData.nextId++;
+    // Transferência segue a convenção do Extrato: conta = ORIGEM, contraparte =
+    // DESTINO. É o mesmo formato que extSaveModal grava no lançamento manual.
+    const ehTransf = (it.tipo || 'gasto') === 'transferencia';
     extratoData.lancamentos.push({
       id,
       data: it.data,
       valor: it.valor,
       descricao: it.descricao,
-      categoria: it.categoria || '',
-      contraparte: it.contraparte || '',
-      conta: it.conta || '',
+      categoria: ehTransf ? '' : (it.categoria || ''),
+      contraparte: ehTransf ? (it.contaDestino || '') : (it.contraparte || ''),
+      conta: ehTransf ? (it.contaOrigem || it.conta || '') : (it.conta || ''),
       status: it.status || 'pago',
       tipo: it.tipo || 'gasto',
       centroCustoId: it.centroCustoId || null,
@@ -74768,11 +74885,17 @@ function extImpConfirm(){
       criadoEm: new Date().toISOString(),
       importadoDe: _extImpState.filename || (_extImpState.format === 'ofx' ? 'OFX' : 'CSV')
     });
-    // fornecedor digitado que ainda não existe entra no registry de Pessoas
-    if(it.contraparte){ try{ fkGarantirContraparte(it.contraparte); }catch(_){} }
+    // fornecedor digitado que ainda não existe entra no registry de Pessoas.
+    // Em transferência o "outro lado" é conta, não fornecedor — não cadastra.
+    if(!ehTransf && it.contraparte){ try{ fkGarantirContraparte(it.contraparte); }catch(_){} }
     // memoriza a classificação desta linha pra próxima importação
     if(typeof ofxMemAprender === 'function' && (it.categoria || it.contraparte || it._tocado)){
-      try{ ofxMemAprender(it.descricao, { categoria: it.categoria, contraparte: it.contraparte, tipo: it.tipo }); aprendidos++; }catch(_){}
+      try{
+        ofxMemAprender(it.descricao, ehTransf
+          ? { tipo: 'transferencia' }
+          : { categoria: it.categoria, contraparte: it.contraparte, tipo: it.tipo });
+        aprendidos++;
+      }catch(_){}
     }
     added++;
   }
