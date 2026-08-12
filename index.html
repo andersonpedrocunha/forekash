@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786573399"/>
+  <meta name="fk-build" content="forekash-v1786574868"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5414,6 +5414,39 @@
     .dkb-modal-info .info-row.destaque .lbl{color:#5B21B6}
     .dkb-modal-info .info-row.destaque input[type="date"]{border-color:#C4B5FD;background:#FDFDFF;
       font-size:1rem;font-weight:700;padding:9px 10px}
+    /* lista de pagamentos dentro do modal */
+    .ext-baixa{display:grid;grid-template-columns:44px 88px 1fr auto 28px;gap:10px;align-items:center;
+      padding:8px 10px;border:1px solid #E2E8F0;border-radius:7px;margin-bottom:6px;background:#fff}
+    .ext-baixa .n{font-family:Consolas,Menlo,monospace;font-size:.66rem;font-weight:800;color:#0F766E;
+      background:#ECFDF5;border:1px solid #A7F3D0;border-radius:9px;padding:1px 0;text-align:center}
+    .ext-baixa .dt{font-size:.78rem;color:#334155;font-variant-numeric:tabular-nums}
+    .ext-baixa .ct{font-size:.76rem;color:#64748B;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .ext-baixa .vl{font-size:.82rem;font-weight:700;color:#0F172A;font-variant-numeric:tabular-nums}
+    .ext-baixa .x{width:24px;height:24px;border-radius:5px;border:1px solid #FECACA;background:#FEF2F2;
+      color:#B91C1C;cursor:pointer;font-size:.8rem;line-height:1;font-family:inherit}
+    .ext-baixa .x:hover{background:#FEE2E2}
+    .ext-baixa-resumo{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
+      padding:9px 12px;border-radius:7px;font-size:.79rem;margin-top:2px}
+    .ext-baixa-resumo.aberto{background:#FFFBEB;border:1px solid #FDE68A;color:#92400E}
+    .ext-baixa-resumo.quitado{background:#ECFDF5;border:1px solid #A7F3D0;color:#0F766E}
+    .ext-baixa-resumo.excedente{background:#F5F3FF;border:1px solid #DDD6FE;color:#5B21B6}
+    .is-travado .ext-baixa .x{display:none}
+    [data-theme="dark"] .ext-baixa{background:#0F172A;border-color:#1E293B}
+    [data-theme="dark"] .ext-baixa .vl{color:#E2E8F0}
+    /* linha de baixa parcial e linha de saldo em aberto */
+    .ext-row-baixa{display:inline-flex;align-items:center;justify-content:center;min-width:30px;
+      padding:1px 6px;margin-right:6px;border-radius:9px;cursor:pointer;font-family:inherit;
+      font-size:.6rem;font-weight:800;letter-spacing:.02em;
+      color:#0F766E;background:#ECFDF5;border:1px solid #A7F3D0}
+    .ext-row-baixa:hover{background:#D1FAE5;border-color:#6EE7B7}
+    .ext-row-saldo{display:inline-flex;align-items:center;padding:1px 7px;margin-right:6px;
+      border-radius:9px;font-size:.6rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;
+      font-family:Consolas,Menlo,monospace;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A}
+    tr.is-saldo td{background:#FFFDF7}
+    tr.is-saldo:hover td{background:#FFFBEB}
+    [data-theme="dark"] .ext-row-baixa{color:#6FBFA0;background:#122019;border-color:#1E4034}
+    [data-theme="dark"] .ext-row-saldo{color:#D9A441;background:#251D0E;border-color:#4A3A14}
+    [data-theme="dark"] tr.is-saldo td{background:#1C1708}
     /* trava de lançamento baixado */
     .ext-trava{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
       padding:10px 13px;margin-bottom:14px;border-radius:8px;font-size:.78rem;line-height:1.45;
@@ -64655,9 +64688,100 @@ function _extLoad(){
    do lançamento; se não tem conta da baixa, é a conta dele. Não inventa
    nada: só preenche o que estava implícito. Não toca em quem já tem
    valorPago (incluindo baixa parcial, onde ele é menor de propósito).      */
+/* ══ Baixas parciais ══════════════════════════════════════════════════════
+   Um lançamento pode ser quitado em várias vezes, em datas e bancos
+   diferentes. Cada baixa é um evento próprio:
+
+     l.baixas = [{ id, data, valor, conta, forma, notas, criadoEm }, …]
+
+   O lançamento guarda o valor contratado e fica em aberto pelo saldo; as
+   baixas são o que de fato passou pela conta. No Extrato cada baixa vira uma
+   linha na sua própria data — é assim que aparece no extrato do banco — com
+   link de volta pro lançamento de origem.
+
+   valorPago e status deixam de ser digitados: viram consequência das baixas.
+   Pago a mais é aceito (juros, correção) — saldo fica negativo e o status
+   é 'pago'.                                                                */
+function extBaixas(l){ return (l && Array.isArray(l.baixas)) ? l.baixas : []; }
+function extBaixasTotal(l){
+  return extBaixas(l).reduce((s, b) => s + (parseFloat(b.valor) || 0), 0);
+}
+function extSaldo(l){
+  return (parseFloat(l && l.valor) || 0) - extBaixasTotal(l);
+}
+function extStatusDe(l){
+  if(!l) return 'pendente';
+  if(l.tipo === 'transferencia') return l.status || 'pendente';
+  const pago = extBaixasTotal(l);
+  if(pago <= 0.005) return 'pendente';
+  return (extSaldo(l) <= 0.005) ? 'pago' : 'parcial';
+}
+// Mantém valorPago/status coerentes com as baixas — o resto do sistema lê
+// esses dois campos, então eles não podem divergir da lista.
+function extSincronizaBaixas(l){
+  if(!l || l.tipo === 'transferencia') return l;
+  const bs = extBaixas(l);
+  if(!bs.length) return l;
+  bs.sort((a, b) => String(a.data || '').localeCompare(String(b.data || '')));
+  l.valorPago = extBaixasTotal(l);
+  l.status = extStatusDe(l);
+  const ult = bs[bs.length - 1];
+  l.dataPagamento = (l.status === 'pago') ? (ult.data || '') : '';
+  l.contaPagamento = ult.conta || l.contaPagamento || '';
+  return l;
+}
+function extAddBaixa(l, dados){
+  if(!l) return null;
+  if(!Array.isArray(l.baixas)) l.baixas = [];
+  const b = {
+    id: 'b' + (Date.now().toString(36)) + Math.random().toString(36).slice(2,6),
+    data: dados.data || '',
+    valor: Math.abs(parseFloat(dados.valor) || 0),
+    conta: dados.conta || l.conta || '',
+    forma: dados.forma || '',
+    notas: dados.notas || '',
+    criadoEm: new Date().toISOString()
+  };
+  if(b.valor <= 0 || !b.data) return null;
+  l.baixas.push(b);
+  extSincronizaBaixas(l);
+  return b;
+}
+function extRemoveBaixa(l, baixaId){
+  if(!l || !Array.isArray(l.baixas)) return false;
+  const i = l.baixas.findIndex(b => b.id === baixaId);
+  if(i < 0) return false;
+  l.baixas.splice(i, 1);
+  if(!l.baixas.length){
+    l.valorPago = null; l.status = 'pendente';
+    l.dataPagamento = ''; l.contaPagamento = '';
+  } else extSincronizaBaixas(l);
+  return true;
+}
+try{
+  window.extBaixas = extBaixas; window.extBaixasTotal = extBaixasTotal;
+  window.extSaldo = extSaldo; window.extStatusDe = extStatusDe;
+  window.extAddBaixa = extAddBaixa; window.extRemoveBaixa = extRemoveBaixa;
+  window.extSincronizaBaixas = extSincronizaBaixas;
+}catch(_){}
+
 function _extMigrarBaixa(){
   let n = 0;
   for(const l of (extratoData.lancamentos || [])){
+    // pago no modelo antigo (sem lista de baixas) vira uma baixa única
+    if(l.status === 'pago' && l.tipo !== 'transferencia' && !Array.isArray(l.baixas)){
+      const v = parseFloat(l.valorPago) || parseFloat(l.valor) || 0;
+      const d = l.dataPagamento || l.data || '';
+      if(v > 0 && d){
+        l.baixas = [{
+          id: 'b-mig-' + l.id, data: d, valor: v,
+          conta: l.contaPagamento || l.conta || '', forma: l.formaPagamento || '',
+          notas: '', criadoEm: l.criadoEm || new Date().toISOString(), migrada: true
+        }];
+        extSincronizaBaixas(l);
+        n++;
+      }
+    }
     if(l.status !== 'pago') continue;
     if(l.tipo === 'transferencia') continue;   // não tem aba de baixa
     if(l.valorPago == null || l.valorPago === '' || parseFloat(l.valorPago) === 0){
@@ -65214,24 +65338,63 @@ function _extCollect(){
   const out = [];
   // 1) Manuais
   for(const l of (extratoData.lancamentos || [])){
-    out.push({
-      id: 'm:' + l.id,
+    const base = {
       sourceKind: 'manual',
-      data: l.data || '',
       tipo: l.tipo || 'gasto',
       categoria: l.categoria || '',
-      descricao: l.descricao || '',
       contraparte: l.contraparte || '',
-      conta: l.conta || '',
-      valor: parseFloat(l.valor) || 0,
-      status: l.status || 'pago',
-      dataPagamento: l.dataPagamento || '',
       numeroDocumento: l.numeroDocumento || '',
       centroCustoId: l.centroCustoId || null,
       grupoId: l.grupoId || null,
       manual: true,
       raw: l
-    });
+    };
+    const bs = extBaixas(l);
+    if(bs.length){
+      /* Quitado em partes: no extrato do banco cada pagamento aparece no seu
+         próprio dia e banco, então aqui também. Uma linha por baixa, mais uma
+         linha do que ainda falta — que é o que continua devendo. */
+      for(const b of bs){
+        out.push(Object.assign({}, base, {
+          id: 'm:' + l.id + '#' + b.id,
+          data: b.data || l.data || '',
+          descricao: l.descricao || '',
+          conta: b.conta || l.conta || '',
+          valor: parseFloat(b.valor) || 0,
+          status: 'pago',
+          dataPagamento: b.data || '',
+          baixaDe: l.id,          // volta pro lançamento de origem
+          baixaId: b.id,
+          valorOriginal: parseFloat(l.valor) || 0,
+          nBaixas: bs.length
+        }));
+      }
+      const saldo = extSaldo(l);
+      if(saldo > 0.005){
+        out.push(Object.assign({}, base, {
+          id: 'm:' + l.id,
+          data: l.dataVencimento || l.data || '',
+          descricao: l.descricao || '',
+          conta: l.conta || '',
+          valor: saldo,
+          status: 'pendente',
+          dataPagamento: '',
+          saldoDe: l.id,
+          valorOriginal: parseFloat(l.valor) || 0,
+          nBaixas: bs.length
+        }));
+      }
+    } else {
+      out.push(Object.assign({}, base, {
+        id: 'm:' + l.id,
+        data: l.data || '',
+        descricao: l.descricao || '',
+        conta: l.conta || '',
+        valor: parseFloat(l.valor) || 0,
+        status: l.status || 'pago',
+        dataPagamento: l.dataPagamento || ''
+      }));
+    }
   }
   // 2) Receita (entradas)
   try {
@@ -66634,6 +66797,20 @@ function renderExtrato(){
       }
       if(alvo && alvo.conciliacao) _conc = alvo.conciliacao;
     }catch(_){}
+    /* Baixa parcial: a linha é um pagamento do lançamento, não o lançamento.
+       Precisa dizer isso e dar o caminho de volta pra origem. */
+    if(it.baixaId){
+      const i = (it.raw && Array.isArray(it.raw.baixas))
+        ? it.raw.baixas.findIndex(b => b.id === it.baixaId) + 1 : 0;
+      descPrefix = '<button type="button" class="ext-row-baixa" title="Pagamento '
+        + (i ? i + ' de ' + it.nBaixas : 'parcial') + ' de ' + _extFmtBRL(it.valorOriginal)
+        + ' — clique pra abrir o lançamento"'
+        + ' onclick="event.stopPropagation();extAbrirOrigem(' + it.baixaDe + ')">'
+        + (i ? i + '/' + it.nBaixas : 'parc') + '</button>' + descPrefix;
+    } else if(it.saldoDe){
+      descPrefix = '<span class="ext-row-saldo" title="Saldo em aberto de '
+        + _extFmtBRL(it.valorOriginal) + ' — ' + it.nBaixas + ' pagamento(s) já feito(s)">resta</span>' + descPrefix;
+    }
     if(_conc){
       const quando = String(_conc.conciliadoEm || '').slice(0,10).split('-').reverse().join('/');
       const conf = _conc.confianca ? ' · ' + _conc.confianca : '';
@@ -66644,7 +66821,8 @@ function renderExtrato(){
         + '<path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7"/>'
         + '<path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7"/></svg></span>' + descPrefix;
     }
-    html += '<tr class="' + (isDerived ? 'is-derived' : '') + (isSel ? ' is-selected' : '') + (_conc ? ' is-conciliado' : '') + '" data-ext-id="' + it.id + '"'
+    html += '<tr class="' + (isDerived ? 'is-derived' : '') + (isSel ? ' is-selected' : '') + (_conc ? ' is-conciliado' : '')
+      + (it.baixaId ? ' is-baixa' : '') + (it.saldoDe ? ' is-saldo' : '') + '" data-ext-id="' + it.id + '"'
       + ' ondblclick="extDblClick(\''+ it.id + '\')" title="Duplo-click pra abrir o lançamento">'
       + '<td class="col-sel"><input type="checkbox" data-ext-sel="' + it.id + '" onchange="extToggleSel(\''+ it.id + '\',this.checked)"' + (isSel ? ' checked' : '') + '></td>'
       + '<td class="col-data" title="' + (dEff || '') + '">' + dataLbl + '</td>'
@@ -68214,6 +68392,10 @@ function extOpenModal(tipo, editId){
       +     '</div>'
       +   '</div>'
       +   '<div id="ext-tab-pagamento" class="dkb-tab-pane" hidden>'
+      +     '<div class="dkb-pag-section" id="ext-baixas-sec">'
+      +       '<h4>Pagamentos deste lançamento</h4>'
+      +       '<div id="ext-baixas-lista"></div>'
+      +     '</div>'
       +     '<div class="dkb-pag-section">'
       +       '<h4>📋 Identificação do ' + _lbAba.toLowerCase() + '</h4>'
       +       '<div class="dkb-pag-row">'
@@ -68272,6 +68454,7 @@ function extOpenModal(tipo, editId){
       + '</div>';
   }
   document.body.appendChild(ov);
+  try{ _extBaixasRender(); }catch(_){}
   _extAplicarTrava(l, editId);
   // Reset de anexos para novo lançamento (não toca em meta de item existente)
   if(t !== 'transferencia'){
@@ -68333,6 +68516,7 @@ function extTabSet(tab){
   const pag = document.getElementById('ext-tab-pagamento');
   if(det) det.hidden = (tab !== 'detalhes');
   if(pag) pag.hidden = (tab !== 'pagamento');
+  try{ if(typeof _extBaixasRender === "function") _extBaixasRender(); }catch(_){}
 }
 try { window.extTabSet = extTabSet; } catch(e){}
 
@@ -68520,6 +68704,67 @@ function _extCompTocada(){
   if(comp) comp.dataset.tocado = '1';
 }
 try{ window._extSyncComp = _extSyncComp; window._extCompTocada = _extCompTocada; }catch(_){}
+
+/* Lista de pagamentos já feitos, dentro do modal do lançamento.
+
+   O formulário abaixo dela continua sendo "registrar um pagamento": quem
+   quita de uma vez preenche e salva, e vira uma baixa única — o caminho de
+   sempre. Quem paga em partes vê aqui o histórico e o saldo, e volta pra
+   registrar a próxima.                                                     */
+function _extBaixasRender(){
+  const box = document.getElementById('ext-baixas-lista');
+  const sec = document.getElementById('ext-baixas-sec');
+  if(!box || !sec) return;
+  const id = _extEditingId;
+  const realId = (typeof id === 'string' && /^m:/.test(id)) ? parseInt(id.slice(2), 10) : null;
+  const l = realId != null ? (extratoData.lancamentos || []).find(x => x.id === realId) : null;
+  const bs = l ? extBaixas(l) : [];
+  if(!l || !bs.length){ sec.hidden = true; return; }   // lançamento novo ou sem baixa
+  sec.hidden = false;
+
+  const fmt = (typeof _extFmtBRL === 'function') ? _extFmtBRL : (n => 'R$ ' + Number(n||0).toFixed(2));
+  const total = extBaixasTotal(l), saldo = extSaldo(l), orig = parseFloat(l.valor) || 0;
+  const linhas = bs.map((b, i) =>
+      '<div class="ext-baixa">'
+    +   '<span class="n">' + (i+1) + '/' + bs.length + '</span>'
+    +   '<span class="dt">' + (b.data ? b.data.slice(8,10)+'/'+b.data.slice(5,7)+'/'+b.data.slice(0,4) : '—') + '</span>'
+    +   '<span class="ct">' + _extEsc(b.conta || '—') + (b.forma ? ' · ' + _extEsc(b.forma) : '') + '</span>'
+    +   '<span class="vl">' + fmt(b.valor) + '</span>'
+    +   '<button type="button" class="x" title="Remover este pagamento"'
+    +     ' onclick="extBaixaRemover(\'' + b.id + '\')">✕</button>'
+    + '</div>').join('');
+
+  const cls = saldo > 0.005 ? 'aberto' : (saldo < -0.005 ? 'excedente' : 'quitado');
+  const resumo = saldo > 0.005
+      ? 'Falta <b>' + fmt(saldo) + '</b> de ' + fmt(orig)
+      : (saldo < -0.005
+          ? 'Pago <b>' + fmt(-saldo) + '</b> a mais que os ' + fmt(orig)
+          : 'Quitado — ' + fmt(orig));
+  box.innerHTML = linhas
+    + '<div class="ext-baixa-resumo ' + cls + '">'
+    +   '<span>' + bs.length + ' pagamento(s) · <b>' + fmt(total) + '</b></span>'
+    +   '<span>' + resumo + '</span>'
+    + '</div>';
+}
+function extBaixaRemover(baixaId){
+  const id = _extEditingId;
+  const realId = (typeof id === 'string' && /^m:/.test(id)) ? parseInt(id.slice(2), 10) : null;
+  const l = realId != null ? (extratoData.lancamentos || []).find(x => x.id === realId) : null;
+  if(!l || !extRemoveBaixa(l, baixaId)) return;
+  _extSave();
+  _extBaixasRender();
+  if(typeof renderExtrato === 'function') try{ renderExtrato(); }catch(_){}
+  if(typeof toast === 'function') toast('✓ pagamento removido · saldo recalculado');
+}
+try{ window._extBaixasRender = _extBaixasRender; window.extBaixaRemover = extBaixaRemover; }catch(_){}
+
+// Abre o lançamento de origem a partir de uma linha de baixa parcial.
+function extAbrirOrigem(lancId){
+  const l = (extratoData.lancamentos || []).find(x => x.id === lancId);
+  if(!l){ if(typeof toast === 'function') toast('⚠ Lançamento de origem não encontrado'); return; }
+  extOpenModal(l.tipo || 'gasto', 'm:' + l.id);
+}
+try{ window.extAbrirOrigem = extAbrirOrigem; }catch(_){}
 
 function extCloseModal(){
   const ov = document.getElementById('ext-modal-ov');
