@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786567650"/>
+  <meta name="fk-build" content="forekash-v1786570103"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -64602,10 +64602,41 @@ function _extLoad(){
         if(!Array.isArray(extratoData.lancamentos)) extratoData.lancamentos = [];
         if(!Array.isArray(extratoData.ignorados))   extratoData.ignorados   = [];
         if(typeof extratoData.nextId !== 'number') extratoData.nextId = 1;
+        _extMigrarBaixa();
       }
     }
   } catch(e){}
 }
+
+/* Lançamento marcado como pago mas sem os dados da baixa.
+
+   A importação vinha gravando status 'pago' e dataPagamento sem preencher
+   valorPago nem contaPagamento. Quem já importou antes da correção tem o
+   modal abrindo "Recebido" com valor R$ 0,00 e conta em branco — corrigir só
+   dali pra frente não resolveria o que já está lá.
+
+   Se está pago e não tem valor da baixa, o valor da baixa é o próprio valor
+   do lançamento; se não tem conta da baixa, é a conta dele. Não inventa
+   nada: só preenche o que estava implícito. Não toca em quem já tem
+   valorPago (incluindo baixa parcial, onde ele é menor de propósito).      */
+function _extMigrarBaixa(){
+  let n = 0;
+  for(const l of (extratoData.lancamentos || [])){
+    if(l.status !== 'pago') continue;
+    if(l.tipo === 'transferencia') continue;   // não tem aba de baixa
+    if(l.valorPago == null || l.valorPago === '' || parseFloat(l.valorPago) === 0){
+      const v = parseFloat(l.valor) || 0;
+      if(v > 0){ l.valorPago = v; n++; }
+    }
+    if(!l.contaPagamento && l.conta) l.contaPagamento = l.conta;
+  }
+  if(n > 0){
+    console.log('[FK] baixa: ' + n + ' lançamento(s) pagos estavam sem valor recebido — preenchido com o valor do lançamento');
+    try{ localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData)); }catch(_){}
+  }
+  return n;
+}
+try{ window._extMigrarBaixa = _extMigrarBaixa; }catch(_){}
 
 /* ══ Registro de ignorados ════════════════════════════════════════════════
    Movimento que passou pela importação ou pela conciliação e o usuário
@@ -68132,9 +68163,9 @@ function extOpenModal(tipo, editId){
       +         '<div class="field"><label>Forma de ' + _lbAba.toLowerCase() + '</label>'
       +           '<select id="ext-fld-forma">' + _extFormaPagOpts + '</select>'
       +         '</div>'
-      +         '<div class="field"><label>Conta do ' + _lbAba.toLowerCase()
-      +           ' <span class="hint">pode ser outra que a prevista</span></label>'
-      +           '<select id="ext-fld-conta-pag" onchange="_extAvisaContaDiferente()">'
+      +         '<div class="field"><label>Conta do ' + _lbAba.toLowerCase() + '</label>'
+      +           '<select id="ext-fld-conta-pag" onchange="_extAvisaContaDiferente()"'
+      +             ' title="Se o dinheiro saiu ou entrou por outro banco, escolha aqui">'
       +             '<option value="">— mesma do lançamento —</option>'
       +             contaOptsHtml(l.contaPagamento || '').replace(/^<option value="">[^<]*<\/option>/, '')
       +           '</select>'
