@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786565025"/>
+  <meta name="fk-build" content="forekash-v1786565711"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -4757,7 +4757,10 @@
     .ext-imp-editavel .c-ct{width:172px}
     .ext-imp-editavel .c-fn{width:178px}
     .ext-imp-editavel .c-vl{width:124px}
-    .ext-imp-editavel td{vertical-align:middle}
+    /* table-layout:fixed define a largura da coluna, mas sem overflow:hidden o
+       conteúdo largo vaza por cima da célula vizinha — era o select de conta
+       cobrindo a coluna de valor. */
+    .ext-imp-editavel td{vertical-align:middle;overflow:hidden}
     .ext-imp-editavel select,.ext-imp-editavel input{width:100%;padding:4px 7px;border:1px solid transparent;
       background:transparent;border-radius:4px;font-size:.76rem;font-family:inherit;color:#0F172A;
       outline:none;box-sizing:border-box}
@@ -4891,7 +4894,12 @@
       padding:1px 6px;border-radius:8px;text-transform:uppercase;letter-spacing:.04em;
       font-family:Consolas,Menlo,monospace;white-space:nowrap}
     /* transferência: as duas colunas do meio viram conta de saída e de entrada */
-    .ext-imp-tr-conta{display:flex;align-items:center;gap:5px}
+    /* min-width:0 em toda a cadeia: um input dentro de flex se recusa a
+       encolher abaixo do próprio tamanho intrínseco sem isso, e empurra o
+       resto pra fora da célula. */
+    .ext-imp-tr-conta{display:flex;align-items:center;gap:5px;min-width:0}
+    .ext-imp-tr-conta .fkc{flex:1;min-width:0}
+    .ext-imp-tr-conta .fkc-inp{min-width:0}
     .ext-imp-tr-conta > span{font-size:.58rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;
       color:#7C3AED;font-family:Consolas,Menlo,monospace;flex:0 0 auto}
     .ext-imp-editavel .ext-imp-tr-conta input{border-color:#DDD6FE;background:#fff}
@@ -76001,6 +76009,12 @@ function _extImpParseCSV(raw){
 function _extImpRenderResult(){
   const el = document.getElementById('ext-imp-result');
   if(!el) return;
+  // Remontar o innerHTML zera a rolagem da lista. Quem clica em "ignorar" na
+  // linha 30 era jogado de volta pro topo a cada clique — e o modal também
+  // rola por fora, então a página inteira dava um salto.
+  const _rolAntes = el.querySelector('.ext-imp-preview')?.scrollTop || 0;
+  const _rolModal = el.closest('.ext-imp-modal, .ext-imp-bd')?.scrollTop
+                 ?? document.querySelector('.ext-imp-modal')?.scrollTop ?? 0;
   const errs = _extImpState.errors || [];
   const items = _extImpState.parsed || [];
   if(items.length === 0 && errs.length === 0){
@@ -76178,6 +76192,15 @@ function _extImpRenderResult(){
     }
   }
   el.innerHTML = summaryHtml + tableHtml;
+  // devolve a rolagem exatamente onde estava
+  if(_rolAntes){
+    const box = el.querySelector('.ext-imp-preview');
+    if(box) box.scrollTop = _rolAntes;
+  }
+  if(_rolModal){
+    const m = document.querySelector('.ext-imp-modal');
+    if(m) m.scrollTop = _rolModal;
+  }
   // Atualiza footer left text
   const ftL = document.getElementById('ext-imp-ft-left');
   if(ftL){
