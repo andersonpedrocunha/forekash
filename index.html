@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786563421"/>
+  <meta name="fk-build" content="forekash-v1786563598"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -65721,6 +65721,14 @@ function _extDateOf(it){
   if(it.status === 'pago' && it.dataPagamento) return it.dataPagamento;
   return it.dataVencimento || it.data || '';
 }
+// Mesma ideia da data: já pago, vale a conta de onde o dinheiro saiu de fato.
+// Pendente, vale a conta prevista. Sem isso o filtro por conta mostraria o
+// pagamento no banco errado — o previsto, não o que teve o saldo debitado.
+function _extContaOf(it){
+  if(it && it.status === 'pago' && it.contaPagamento) return it.contaPagamento;
+  return (it && it.conta) || '';
+}
+try{ window._extContaOf = _extContaOf; }catch(_){}
 
 function _extFilter(items){
   const r = _extPeriodRange();
@@ -65753,12 +65761,13 @@ function _extFilter(items){
               const tp = c ? dispo.tipos.find(t => t.id === c.tipoId) : null;
               if(banco){
                 const lbl = banco.nome + (tp && tp.nome ? ' · ' + tp.nome : '');
-                if(it.conta === banco.nome || it.conta === lbl){ match = true; break; }
+                const cIt = _extContaOf(it);
+                if(cIt === banco.nome || cIt === lbl){ match = true; break; }
               }
             }
           } catch(e){}
         } else {
-          if(it.conta === cv){ match = true; break; }
+          if(_extContaOf(it) === cv){ match = true; break; }
         }
       }
       if(!match) return false;
