@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786549968"/>
+  <meta name="fk-build" content="forekash-v1786557969"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -72848,30 +72848,59 @@ function fkContasDisponiveis(extras){
   return [...set].filter(Boolean).sort((a,b) => a.localeCompare(b,'pt'));
 }
 
-// Cadastra uma categoria nova digitada na importação/conciliação. Entra como
-// moduloId 'extrato' — categoria livre, que classifica o lançamento sem
-// mexer nas planilhas de projeção. O vínculo com DRC/DRE vem da mesma
-// sugestão que o modal de Customizações usa, então o demonstrativo fecha.
-function fkGarantirCategoria(nome){
+// Cadastra uma categoria nova digitada na importação/conciliação, vinculada
+// ao módulo que o usuário escolher. O vínculo com DRC/DRE vem da mesma
+// sugestão que o modal de Customizações usa — e ela depende do módulo, por
+// isso perguntar importa: 'PIS' em Impostos vira dedução da receita, a mesma
+// 'PIS' em Estrutura viraria despesa operacional.
+//
+// moduloId 'estrutura' também cria a tag em estrutura.tags, como faz o
+// catmapAdd — senão a categoria existe no mapa mas não aparece na planilha.
+const FK_ORIGEM_MODULO = {
+  estrutura:  'Estrutura · tag',
+  impostos:   'Impostos · rubrica',
+  receita:    'Receita',
+  pessoas:    'Folha (Pessoas)',
+  emprestimos:'Empréstimos',
+  comissoes:  'Comissões',
+  outrasRec:  'Outras Receitas · manual',
+  outrasDesp: 'Outras Despesas · manual',
+  extrato:    'Apenas Extrato'
+};
+function fkGarantirCategoria(nome, moduloId){
   const n = String(nome || '').trim();
   if(!n || typeof catmapData === 'undefined') return null;
   if(!Array.isArray(catmapData.categorias)) catmapData.categorias = [];
   const ja = catmapData.categorias.find(c => (c.nome || '').trim().toLowerCase() === n.toLowerCase());
   if(ja) return ja;
+  const mod = FK_ORIGEM_MODULO[moduloId] ? moduloId : 'extrato';
   let drc = '', dre = '';
   try{
-    const s = _catmapSuggestVinculos({ nome: n, moduloId: 'extrato' });
+    const s = _catmapSuggestVinculos({ nome: n, moduloId: mod });
     drc = s.drcLineId || ''; dre = s.dreLineId || '';
   }catch(_){}
+  const cor = '#7C3AED';
+
+  if(mod === 'estrutura' && typeof estrutura !== 'undefined' && estrutura){
+    if(!Array.isArray(estrutura.tags)) estrutura.tags = [];
+    const dup = estrutura.tags.find(t => (t.nome || '').trim().toLowerCase() === n.toLowerCase());
+    if(!dup){
+      const novoId = (typeof estNextTagId === 'function') ? estNextTagId() : (catmapData.nextId + 10000);
+      estrutura.tags.push({ id: novoId, nome: n, color: cor });
+      try{ if(typeof estSave === 'function') estSave(); }catch(_){}
+    }
+  }
+
   const nova = {
     id: catmapData.nextId++,
-    nome: n, moduloId: 'extrato',
-    drcLineId: drc, dreLineId: dre, cor: '#7C3AED',
-    autoDiscovered: false, userCreated: true,
-    origem: 'Importação', suggestionApplied: true
+    nome: n, moduloId: mod,
+    drcLineId: drc, dreLineId: dre, cor: cor,
+    autoDiscovered: mod === 'estrutura', userCreated: true,
+    origem: FK_ORIGEM_MODULO[mod], suggestionApplied: true
   };
   catmapData.categorias.push(nova);
   try{ _catmapSave(); }catch(_){}
+  try{ if(typeof catmapRender === 'function' && document.getElementById('catmap-lista')) catmapRender(); }catch(_){}
   return nova;
 }
 
@@ -130687,11 +130716,108 @@ async function fkCloudFullHydrate(){
     console.log('[FK] ☁ ' + alreadyLocal + ' módulos · todos local');
   }
 }
+/* ══ Garantia de que TUDO está na nuvem ═══════════════════════════════════
+   Os módulos grandes (Estrutura, Pessoas, Receita…) só subiam quando o
+   usuário salvava alguma coisa dentro deles — cada módulo chama
+   cloudBlobSync no seu próprio save. Quem migrou pro modo cloud e nunca mais
+   editou a Estrutura ficou com ela existindo só no navegador. Foi
+   exatamente o que aconteceu: a org tinha 16 módulos na nuvem e faltavam
+   estrutura e pessoas.
+
+   Aqui a direção é a inversa da hidratação: o que existe LOCAL e não existe
+   na nuvem, sobe. Nunca sobrescreve o que já está lá — dado da nuvem pode
+   ser mais novo que o deste navegador.                                     */
+const FK_BLOBS_GARANTIR = [
+  ['pessoas',   () => (typeof pessoas          !== 'undefined') ? pessoas          : null],
+  ['estrutura', () => (typeof estrutura        !== 'undefined') ? estrutura        : null],
+  ['receita',   () => (typeof receita          !== 'undefined') ? receita          : null],
+  ['dispo',     () => (typeof dispo            !== 'undefined') ? dispo            : null],
+  ['impostos',  () => (typeof impostos         !== 'undefined') ? impostos         : null],
+  ['board',     () => (typeof board            !== 'undefined') ? board            : null],
+  ['viagens',   () => (typeof viagens          !== 'undefined') ? viagens          : null],
+  ['notas',     () => (typeof notas            !== 'undefined') ? notas            : null],
+  ['outras_op', () => (typeof outrasOp         !== 'undefined') ? outrasOp         : null],
+  ['conciliacao', () => (typeof conciliacaoData !== 'undefined') ? conciliacaoData : null]
+];
+// Objeto "vazio de verdade" não vale a pena subir — subir {} por cima de
+// nada não protege ninguém e ainda mascara o diagnóstico.
+function _fkBlobTemConteudo(v){
+  if(v == null) return false;
+  if(Array.isArray(v)) return v.length > 0;
+  if(typeof v !== 'object') return true;
+  for(const k of Object.keys(v)){
+    const x = v[k];
+    if(Array.isArray(x) && x.length > 0) return true;
+    if(x && typeof x === 'object' && Object.keys(x).length > 0) return true;
+  }
+  return false;
+}
+async function fkCloudGarantirBlobs(){
+  if(window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER){
+    return { pulado: 'sem sessão cloud' };
+  }
+  const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
+  if(!orgId) return { pulado: 'sem organização ativa' };
+
+  // Uma consulta só, pra saber o que JÁ existe. cloudBlobFetch devolve null
+  // tanto pra "não existe" quanto pra "a consulta falhou" — tratar os dois
+  // igual faria a gente subir por cima de dado bom quando a rede oscilasse.
+  // Aqui, se a listagem falha, aborta: sem saber o que existe não dá pra
+  // decidir o que falta.
+  let existentes;
+  try{
+    const { data, error } = await window.sb
+      .from('module_blobs').select('module').eq('org_id', orgId);
+    if(error) throw error;
+    existentes = new Set((data || []).map(r => r.module));
+  }catch(e){
+    console.warn('[FK] ☁ garantir: não consegui listar a nuvem, abortando —', e.message || e);
+    return { erro: e.message || String(e) };
+  }
+
+  const subidos = [], jaLa = [], vazios = [], falhas = [];
+  for(const [mod, get] of FK_BLOBS_GARANTIR){
+    let local = null;
+    try{ local = get(); }catch(_){ continue; }
+    if(!_fkBlobTemConteudo(local)){ vazios.push(mod); continue; }
+    if(existentes.has(mod)){ jaLa.push(mod); continue; }   // já está lá: não toca
+    try{
+      const { error } = await window.sb.from('module_blobs')
+        .upsert({ org_id: orgId, module: mod, data: local }, { onConflict: 'org_id,module' });
+      if(error) throw error;
+      subidos.push(mod);
+    }catch(e){
+      falhas.push(mod);
+      console.warn('[FK] ☁ garantir: falhou ao subir', mod, '—', e.message || e);
+    }
+  }
+  if(subidos.length){
+    console.log('[FK] ☁ subiu o que faltava:', subidos.join(', '));
+    if(typeof fkToast === 'function'){
+      fkToast('☁ ' + subidos.length + ' módulo(s) que existiam só neste navegador foram pra nuvem: ' + subidos.join(', '), 'info', 6000);
+    }
+  } else {
+    console.log('[FK] ☁ nada faltando · ' + jaLa.length + ' já na nuvem, '
+      + vazios.length + ' sem conteúdo local' + (falhas.length ? ', ' + falhas.length + ' falharam' : ''));
+  }
+  return { subidos, jaLa, vazios, falhas };
+}
+try{
+  window.fkCloudGarantirBlobs = fkCloudGarantirBlobs;
+  window._fkBlobTemConteudo = _fkBlobTemConteudo;
+  window.FK_BLOBS_GARANTIR = FK_BLOBS_GARANTIR;
+}catch(_){}
+
 // Dispara hidratação após o login cloud estar pronto (espera FK_MODE + sb + user)
 async function _fkWaitForCloud(){
   for(let i = 0; i < 60; i++){
     if(window.FK_MODE === 'cloud' && window.sb && window._FK_CLOUD_USER){
       try{ await fkCloudFullHydrate(); }catch(e){ console.warn('[FK] hydrate err:', e); }
+      // Depois de hidratar (nuvem → local), garante o caminho inverso:
+      // o que só existe aqui precisa subir. Espera os módulos carregarem.
+      setTimeout(() => {
+        fkCloudGarantirBlobs().catch(e => console.warn('[FK] garantir err:', e));
+      }, 6000);
       return;
     }
     await new Promise(res => setTimeout(res, 500));
