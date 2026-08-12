@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786548622"/>
+  <meta name="fk-build" content="forekash-v1786549968"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -4933,6 +4933,15 @@
       cursor:pointer;font-family:inherit;border:1px solid #93C5FD;background:#EFF6FF;color:#1D4ED8}
     .conc-cand-btn:hover{background:#DBEAFE}
     .conc-cand-vazio{font-size:.74rem;color:#94A3B8;font-style:italic;padding:6px 2px}
+    /* filtro de faixa (valor ± % · período ± dias) — igual nas duas telas */
+    .fk-busca-flt{display:inline-flex;align-items:center;gap:8px;flex:0 0 auto}
+    .fk-busca-flt label{display:inline-flex;align-items:center;gap:3px;font-size:.7rem;color:#64748B;white-space:nowrap}
+    .fk-busca-flt input{width:46px;padding:3px 5px;border:1px solid #CBD5E1;border-radius:4px;
+      font-size:.72rem;font-family:inherit;background:#fff;color:#0F172A;text-align:right;outline:none}
+    .fk-busca-flt input:focus{border-color:#3B82F6;box-shadow:0 0 0 2px rgba(59,130,246,.14)}
+    .conc-busca-faixa,.ext-imp-busca-faixa{font-size:.68rem;color:#64748B;margin:-2px 0 7px;padding-left:1px}
+    .conc-busca-faixa b,.ext-imp-busca-faixa b{color:#334155;font-weight:700}
+    [data-theme="dark"] .fk-busca-flt input{background:#0F172A;border-color:#334155;color:#E2E8F0}
     .ext-imp-body{flex:1;overflow-y:auto;padding:18px}
     .ext-imp-section h4{margin:0 0 8px;font-size:.84rem;color:#0F172A;font-weight:700}
     .ext-imp-section p{margin:0 0 12px;font-size:.78rem;color:#475569;line-height:1.5}
@@ -72892,6 +72901,83 @@ try{
   window.fkGarantirContraparte = fkGarantirContraparte;
 }catch(_){}
 
+/* ══ Busca de lançamento já criado ════════════════════════════════════════
+   Usada pela importação e pela conciliação. Em vez de só listar o que casa
+   exato, procura dentro de uma faixa: valor ± um percentual e data ± uns
+   dias. É o caso real — o mesmo pagamento entra no banco com juros, multa ou
+   tarifa somados, e alguns dias depois do lançamento feito à mão.          */
+const FK_BUSCA_PADRAO = { tolPct: 5, dias: 15, termo: '' };
+function fkBuscaCfg(estado){
+  if(!estado._buscaCfg) estado._buscaCfg = Object.assign({}, FK_BUSCA_PADRAO);
+  return estado._buscaCfg;
+}
+function fkBuscarLancamentos(ref, cfg, excluirIds){
+  const lista = (typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos))
+    ? extratoData.lancamentos : [];
+  const vRef = Math.abs(parseFloat(ref.valor) || 0);
+  const dRef = ref.data ? new Date(ref.data) : null;
+  const termo = String(cfg.termo || '').trim().toLowerCase();
+  const tolPct = Math.max(0, parseFloat(cfg.tolPct) || 0);
+  const dias   = Math.max(0, parseInt(cfg.dias, 10) || 0);
+  const tolAbs = vRef * (tolPct / 100);
+  const norm = s => String(s || '').toLowerCase();
+  const excl = excluirIds || new Set();
+
+  const out = [];
+  for(const l of lista){
+    if(excl.has(String(l.id))) continue;
+    const vL = Math.abs(parseFloat(l.valor) || 0);
+    const difV = Math.abs(vL - vRef);
+    const difD = (dRef && l.data) ? Math.abs(new Date(l.data) - dRef) / 86400000 : 9999;
+
+    // Fora da faixa não entra — a menos que o usuário esteja buscando por
+    // texto, aí o termo manda e a faixa vira só ordenação.
+    const dentroValor = difV <= tolAbs + 0.005;
+    const dentroData  = difD <= dias;
+    let score = 0; const motivos = [];
+
+    if(difV < 0.005){ score += 50; motivos.push('mesmo valor'); }
+    else if(dentroValor){
+      score += 34;
+      const pct = vRef ? (difV / vRef * 100) : 0;
+      motivos.push('difere ' + (vL > vRef ? '+' : '−') + _extImpFmtMoney(difV) + ' (' + pct.toFixed(1) + '%)');
+    }
+    if(difD <= 0.5){ score += 30; motivos.push('mesma data'); }
+    else if(dentroData){ score += Math.max(4, 24 - Math.round(difD)); motivos.push(Math.round(difD) + 'd de diferença'); }
+
+    const a = norm(l.descricao), b = norm(ref.descricao);
+    const parecida = a && b && (a.includes(b.slice(0,12)) || b.includes(a.slice(0,12)));
+    if(parecida){ score += 20; motivos.push('descrição parecida'); }
+
+    if(termo){
+      const alvo = norm(l.descricao) + ' ' + norm(l.contraparte) + ' ' + norm(l.categoria)
+                 + ' ' + norm(l.conta) + ' ' + String(l.valor);
+      if(!alvo.includes(termo)) continue;
+      score += 12;
+    } else if(!(dentroValor && dentroData) && !parecida){
+      continue;   // sem termo, fora da faixa e sem semelhança: não interessa
+    }
+
+    if(l.conciliacao) motivos.push('já conciliado antes');
+    out.push({ l, score, motivos });
+  }
+  out.sort((a,b) => b.score - a.score || Math.abs(a.l.valor - vRef) - Math.abs(b.l.valor - vRef));
+  return out;
+}
+// Controles do filtro, iguais nas duas telas.
+function fkBuscaControles(cfg, fnSet){
+  return '<span class="fk-busca-flt">'
+    + '<label>valor ±<input type="number" min="0" step="1" value="' + (cfg.tolPct) + '"'
+    +   ' onchange="' + fnSet + '(&quot;tolPct&quot;,this.value)" onclick="event.stopPropagation()">%</label>'
+    + '<label>período ±<input type="number" min="0" step="1" value="' + (cfg.dias) + '"'
+    +   ' onchange="' + fnSet + '(&quot;dias&quot;,this.value)" onclick="event.stopPropagation()">d</label>'
+    + '</span>';
+}
+try{
+  window.fkBuscarLancamentos = fkBuscarLancamentos;
+  window.fkBuscaCfg = fkBuscaCfg; window.fkBuscaControles = fkBuscaControles;
+}catch(_){}
+
 /* ══ Combo de escolher-ou-criar ═══════════════════════════════════════════
    Substitui <input list=datalist>. O datalist nativo abre um painel do
    sistema operacional que cobre meia tela, ignora qualquer estilo e não tem
@@ -72925,10 +73011,13 @@ function _fkcPop(){
     p.className = 'fkc-pop';
     // mousedown em vez de click: o blur do input dispara antes do click e
     // fecharia o popup sem nunca registrar a escolha.
+    // O preventDefault vale pro popup INTEIRO, não só pros itens — arrastar a
+    // barra de rolagem também tira o foco do input, e aí o onblur fechava a
+    // lista no meio da rolagem.
     p.addEventListener('mousedown', e => {
-      const li = e.target.closest('[data-fkc-i]');
-      if(!li) return;
       e.preventDefault();
+      const li = e.target.closest && e.target.closest('[data-fkc-i]');
+      if(!li) return;
       fkcEscolher(parseInt(li.getAttribute('data-fkc-i'), 10));
     });
     document.body.appendChild(p);
@@ -72949,6 +73038,30 @@ function fkcAbrir(inp){
   FKC.idx = FKC.criar ? 0 : (FKC.opts.length ? 0 : -1);
   _fkcRender();
 }
+// Só a posição — sem tocar no innerHTML. É o que roda quando a página rola:
+// remontar a lista aí apagava os itens sob o cursor e zerava a rolagem
+// interna do popup, o que aparecia como uma lista piscando que não descia.
+function _fkcPosicionar(){
+  const p = document.getElementById('fkc-pop'), inp = FKC.inp;
+  if(!p || !inp) return;
+  const r = inp.getBoundingClientRect();
+  const larg = Math.max(r.width, 190);
+  p.style.width = larg + 'px';
+  p.style.left  = Math.max(8, Math.min(r.left, window.innerWidth - larg - 8)) + 'px';
+  const alt = p.offsetHeight;
+  const cabeAbaixo = (window.innerHeight - r.bottom) > alt + 8;
+  p.style.top = (cabeAbaixo ? r.bottom + 3 : Math.max(4, r.top - alt - 3)) + 'px';
+}
+// Só o realce do item selecionado — usado pelas setas do teclado, pra não
+// remontar a lista a cada tecla.
+function _fkcMarcarSel(){
+  const p = document.getElementById('fkc-pop');
+  if(!p) return;
+  const itens = p.querySelectorAll('.fkc-item');
+  itens.forEach((el, k) => el.classList.toggle('sel', k === FKC.idx));
+  const sel = p.querySelector('.sel');
+  if(sel) sel.scrollIntoView({ block:'nearest' });
+}
 function _fkcRender(){
   const p = _fkcPop(), inp = FKC.inp;
   if(!inp){ p.classList.remove('on'); return; }
@@ -72964,15 +73077,8 @@ function _fkcRender(){
   if(!html) html = '<div class="fkc-vazio">nada encontrado</div>';
   p.innerHTML = html;
   p.classList.add('on');
-  // posiciona: abaixo do campo, ou acima se não couber
-  const r = inp.getBoundingClientRect();
-  p.style.width = Math.max(r.width, 190) + 'px';
-  p.style.left  = Math.min(r.left, window.innerWidth - Math.max(r.width, 190) - 8) + 'px';
-  const alt = p.offsetHeight;
-  const cabeAbaixo = (window.innerHeight - r.bottom) > alt + 8;
-  p.style.top = (cabeAbaixo ? r.bottom + 3 : Math.max(4, r.top - alt - 3)) + 'px';
-  const sel = p.querySelector('.sel');
-  if(sel) sel.scrollIntoView({ block:'nearest' });
+  p.scrollTop = 0;
+  _fkcPosicionar();
 }
 function fkcFechar(){
   FKC.inp = null; FKC.opts = []; FKC.idx = -1; FKC.criar = '';
@@ -73004,8 +73110,8 @@ function fkcEscolher(i){
 function fkcTecla(e, inp){
   if(FKC.inp !== inp && e.key !== 'Escape'){ fkcAbrir(inp); }
   const total = FKC.opts.length + (FKC.criar ? 1 : 0);
-  if(e.key === 'ArrowDown'){ e.preventDefault(); FKC.idx = Math.min(FKC.idx + 1, total - 1); _fkcRender(); }
-  else if(e.key === 'ArrowUp'){ e.preventDefault(); FKC.idx = Math.max(FKC.idx - 1, 0); _fkcRender(); }
+  if(e.key === 'ArrowDown'){ e.preventDefault(); FKC.idx = Math.min(FKC.idx + 1, total - 1); _fkcMarcarSel(); }
+  else if(e.key === 'ArrowUp'){ e.preventDefault(); FKC.idx = Math.max(FKC.idx - 1, 0); _fkcMarcarSel(); }
   else if(e.key === 'Enter'){
     if(FKC.idx >= 0 && total){
       e.preventDefault();
@@ -73015,7 +73121,13 @@ function fkcTecla(e, inp){
   else if(e.key === 'Escape'){ fkcFechar(); inp.blur(); }
 }
 // rolagem/resize move o campo, mas o popup é fixed: reposiciona ou fecha
-window.addEventListener('scroll', () => { if(FKC.inp) _fkcRender(); }, true);
+window.addEventListener('scroll', (e) => {
+  if(!FKC.inp) return;
+  const p = document.getElementById('fkc-pop');
+  // rolagem DENTRO do popup não reposiciona nada — o campo não se moveu
+  if(p && e.target && e.target.nodeType === 1 && p.contains(e.target)) return;
+  _fkcPosicionar();
+}, true);
 window.addEventListener('resize', fkcFechar);
 // Monta o campo. `onch` é o código do onchange — quem grava de fato.
 function fkcCampo(fonte, valor, placeholder, onch, extraCls){
@@ -73882,38 +73994,29 @@ function concDesvincular(idx){
   CONC_STATE.resolved.delete(idx);
   _concRender();
 }
+function concBuscaCfgSet(campo, valor){
+  const cfg = fkBuscaCfg(CONC_STATE);
+  cfg[campo] = valor;
+  _concRender();
+}
 function _concLinhaBusca(m){
   const idx = m._idx;
-  const termo = (m._buscaTermo || '').trim().toLowerCase();
-  const valor = Math.round((parseFloat(m.ofx.valor) || 0) * 100);
-  const dataOfx = new Date(m.ofx.data);
-  const norm = s => String(s || '').toLowerCase();
+  const cfg = fkBuscaCfg(CONC_STATE);
   // não oferece o que já está preso a outra linha desta mesma conciliação
   const presos = new Set((CONC_STATE.matches || [])
     .filter(x => x._idx !== idx && x.sistema).map(x => String(x.sistema.id)));
 
-  let cands = (extratoData.lancamentos || []).map(l => {
-    if(presos.has(String(l.id))) return null;
-    let score = 0; const motivos = [];
-    if(Math.round((parseFloat(l.valor) || 0) * 100) === valor){ score += 50; motivos.push('mesmo valor'); }
-    const dif = Math.abs(new Date(l.data) - dataOfx) / 86400000;
-    if(dif <= 1){ score += 30; motivos.push('mesma data'); }
-    else if(dif <= 7){ score += 15; motivos.push(Math.round(dif) + 'd de diferença'); }
-    else if(dif <= 31){ score += 5; }
-    const a = norm(l.descricao), b = norm(m.ofx.descricao);
-    if(a && b && (a.includes(b.slice(0,12)) || b.includes(a.slice(0,12)))){ score += 20; motivos.push('descrição parecida'); }
-    if(l.conta && CONC_STATE.contaAtiva && l.conta !== CONC_STATE.contaAtiva) motivos.push('conta ' + l.conta);
-    if(l.conciliacao) motivos.push('já conciliado antes');
-    if(termo){
-      const alvo = norm(l.descricao) + ' ' + norm(l.contraparte) + ' ' + norm(l.categoria) + ' ' + String(l.valor);
-      if(!alvo.includes(termo)) return null;
-      score += 10;
+  let cands = fkBuscarLancamentos(
+    { data: m.ofx.data, valor: m.ofx.valor, descricao: m.ofx.descricao },
+    { tolPct: cfg.tolPct, dias: cfg.dias, termo: m._buscaTermo },
+    presos);
+  const achados = cands.length;
+  cands = cands.slice(0, 8);
+  cands.forEach(c => {
+    if(c.l.conta && CONC_STATE.contaAtiva && c.l.conta !== CONC_STATE.contaAtiva){
+      c.motivos.push('conta ' + c.l.conta);
     }
-    return (score > 0 || termo) ? { l, score, motivos } : null;
-  }).filter(Boolean);
-
-  cands.sort((a,b) => b.score - a.score);
-  cands = cands.slice(0, 6);
+  });
 
   const linhas = cands.length
     ? cands.map(c =>
@@ -73929,22 +74032,30 @@ function _concLinhaBusca(m){
       +   '</div>'
       +   '<button type="button" class="conc-cand-btn" onclick="concVincular(' + idx + ',\'' + c.l.id + '\')">é este — vincular</button>'
       + '</div>').join('')
-    : '<div class="conc-cand-vazio">Nenhum lançamento parecido. Se não existe, deixe em "criar novo".</div>';
+    : '<div class="conc-cand-vazio">Nada dentro da faixa. Aumente a tolerância de valor ou o período — ou, se o lançamento não existe mesmo, deixe em "criar novo".</div>';
+
+  const ref = Math.abs(parseFloat(m.ofx.valor) || 0);
+  const faixaV = 'R$ ' + _extImpFmtMoney(ref * (1 - cfg.tolPct/100)) + ' a R$ ' + _extImpFmtMoney(ref * (1 + cfg.tolPct/100));
 
   return '<div class="conc-busca">'
     + '<div class="conc-busca-hd">'
-    +   '<span>Procurar entre os lançamentos já criados:</span>'
+    +   '<span>Procurar entre os já criados:</span>'
     +   '<input id="conc-busca-inp-' + idx + '" value="' + _concEsc(m._buscaTermo || '') + '"'
     +     ' placeholder="descrição, fornecedor ou valor" oninput="concBuscaTermo(' + idx + ', this.value)">'
+    +   fkBuscaControles(cfg, 'concBuscaCfgSet')
     +   (m.sistema ? '<button type="button" class="conc-desvincular" onclick="concDesvincular(' + idx + ')">desvincular</button>' : '')
     +   '<button type="button" class="conc-fechar" onclick="concBuscar(' + idx + ')">fechar</button>'
     + '</div>'
+    + '<div class="conc-busca-faixa">Faixa: <b>' + faixaV + '</b> · <b>± ' + cfg.dias + ' dias</b> de '
+    +   (m.ofx.data ? m.ofx.data.slice(8,10) + '/' + m.ofx.data.slice(5,7) : '—')
+    +   ' · ' + achados + ' encontrado(s)' + (achados > 8 ? ', mostrando os 8 mais prováveis' : '') + '</div>'
     + linhas
     + '</div>';
 }
 try{
   window.concBuscar = concBuscar; window.concBuscaTermo = concBuscaTermo;
   window.concVincular = concVincular; window.concDesvincular = concDesvincular;
+  window.concBuscaCfgSet = concBuscaCfgSet;
 }catch(_){}
 
 function concSetBucket(b){ CONC_STATE.bucket = b; _concRender(); }
@@ -75473,30 +75584,19 @@ function extImpIgnorarTodas(){
     toast(todasJa ? '✓ todas reativadas' : '✓ ' + items.length + ' linha(s) marcadas como ignoradas');
   }
 }
+function extImpBuscaCfgSet(campo, valor){
+  const cfg = fkBuscaCfg(_extImpState);
+  cfg[campo] = valor;
+  _extImpRenderResult();
+}
 function _extImpLinhaBusca(it, i, existing){
-  const termo = (it._buscaTermo || '').trim().toLowerCase();
-  const valor = Math.round((parseFloat(it.valor)||0) * 100);
-  const dataIt = new Date(it.data);
-  const norm = s => String(s||'').toLowerCase();
-
-  let cands = (existing || []).map(l => {
-    let score = 0, motivos = [];
-    if(Math.round((parseFloat(l.valor)||0) * 100) === valor){ score += 50; motivos.push('mesmo valor'); }
-    const dif = Math.abs(new Date(l.data) - dataIt) / 86400000;
-    if(dif <= 1){ score += 30; motivos.push('mesma data'); }
-    else if(dif <= 7){ score += 15; motivos.push(Math.round(dif) + 'd de diferença'); }
-    const a = norm(l.descricao), b = norm(it.descricao);
-    if(a && b && (a.includes(b.slice(0,12)) || b.includes(a.slice(0,12)))){ score += 20; motivos.push('descrição parecida'); }
-    if(termo){
-      const alvo = norm(l.descricao) + ' ' + norm(l.contraparte) + ' ' + norm(l.categoria) + ' ' + String(l.valor);
-      if(!alvo.includes(termo)) return null;
-      score += 10;
-    }
-    return score > 0 || termo ? { l, score, motivos } : null;
-  }).filter(Boolean);
-
-  cands.sort((a,b) => b.score - a.score);
-  cands = cands.slice(0, 6);
+  const cfg = fkBuscaCfg(_extImpState);
+  let cands = fkBuscarLancamentos(
+    { data: it.data, valor: it.valor, descricao: it.descricao },
+    { tolPct: cfg.tolPct, dias: cfg.dias, termo: it._buscaTermo },
+    null);
+  const achados = cands.length;
+  cands = cands.slice(0, 8);
 
   const linhas = cands.length
     ? cands.map(c =>
@@ -75510,7 +75610,10 @@ function _extImpLinhaBusca(it, i, existing){
       +   '</div>'
       +   '<button type="button" class="ext-imp-cand-btn" onclick="extImpMarcarIgnorar(' + i + ',true)">é este — não importar</button>'
       + '</div>').join('')
-    : '<div class="ext-imp-cand-vazio">Nenhum lançamento parecido no Extrato.</div>';
+    : '<div class="ext-imp-cand-vazio">Nada dentro da faixa. Aumente a tolerância de valor ou o período.</div>';
+
+  const ref = Math.abs(parseFloat(it.valor) || 0);
+  const faixaV = 'R$ ' + _extImpFmtMoney(ref * (1 - cfg.tolPct/100)) + ' a R$ ' + _extImpFmtMoney(ref * (1 + cfg.tolPct/100));
 
   return '<tr class="ext-imp-busca-row"><td colspan="6">'
     + '<div class="ext-imp-busca">'
@@ -75518,11 +75621,15 @@ function _extImpLinhaBusca(it, i, existing){
     +     '<span>Procurar no Extrato:</span>'
     +     '<input id="ext-imp-busca-inp-' + i + '" value="' + _extEsc(it._buscaTermo || '') + '" placeholder="descrição, fornecedor ou valor" '
     +       'oninput="extImpBuscaTermo(' + i + ', this.value)">'
+    +     fkBuscaControles(cfg, 'extImpBuscaCfgSet')
     +     (it._ignorar
         ? '<button type="button" class="ext-imp-desfazer" onclick="extImpMarcarIgnorar(' + i + ',false)">desfazer · voltar a importar</button>'
         : '')
     +     '<button type="button" class="ext-imp-fechar" onclick="extImpBuscar(' + i + ')">fechar</button>'
     +   '</div>'
+    +   '<div class="ext-imp-busca-faixa">Faixa: <b>' + faixaV + '</b> · <b>± ' + cfg.dias + ' dias</b> de '
+    +     _extImpFmtBR(it.data) + ' · ' + achados + ' encontrado(s)'
+    +     (achados > 8 ? ', mostrando os 8 mais prováveis' : '') + '</div>'
     +   linhas
     + '</div></td></tr>';
 }
@@ -75530,6 +75637,7 @@ try{
   window.extImpBuscar = extImpBuscar; window.extImpBuscaTermo = extImpBuscaTermo;
   window.extImpMarcarIgnorar = extImpMarcarIgnorar;
   window.extImpIgnorarTodas = extImpIgnorarTodas;
+  window.extImpBuscaCfgSet = extImpBuscaCfgSet;
 }catch(_){}
 
 // ── Edição linha a linha na revisão da importação ──
