@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786570103"/>
+  <meta name="fk-build" content="forekash-v1786572126"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5403,6 +5403,29 @@
     .dkb-modal-info .info-row.destaque .lbl{color:#5B21B6}
     .dkb-modal-info .info-row.destaque input[type="date"]{border-color:#C4B5FD;background:#FDFDFF;
       font-size:1rem;font-weight:700;padding:9px 10px}
+    /* trava de lançamento baixado */
+    .ext-trava{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+      padding:10px 13px;margin-bottom:14px;border-radius:8px;font-size:.78rem;line-height:1.45;
+      background:#FFFBEB;border:1px solid #FDE68A;color:#92400E}
+    .ext-trava.forte{background:#EFF6FF;border-color:#BFDBFE;color:#1E40AF}
+    .ext-trava.destravado{background:#FEF2F2;border-color:#FECACA;color:#991B1B}
+    .ext-trava-txt{flex:1;min-width:220px}
+    .ext-trava-btn{flex:0 0 auto;padding:6px 13px;border-radius:6px;cursor:pointer;
+      font-size:.75rem;font-weight:700;font-family:inherit;
+      border:1px solid #1D4ED8;background:#1D4ED8;color:#fff}
+    .ext-trava-btn:hover{background:#1E40AF}
+    .is-travado input:disabled,.is-travado select:disabled,.is-travado textarea:disabled{
+      background:#F8FAFC;color:#94A3B8;cursor:not-allowed}
+    .is-travado .dkb-sec > summary{opacity:.55}
+    [data-theme="dark"] .ext-trava{background:#251D0E;border-color:#4A3A14;color:#D9A441}
+    [data-theme="dark"] .ext-trava.forte{background:#0F1E33;border-color:#1E3A5F;color:#93C5FD}
+    /* transferência: a coluna mostra a conta de DESTINO, não uma contraparte */
+    .ext-destino{display:inline-flex;align-items:center;gap:5px;color:#6D28D9;min-width:0}
+    .ext-destino svg{width:13px;height:13px;flex:0 0 auto;fill:none;stroke:currentColor;
+      stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;opacity:.85}
+    .ext-destino.falta{color:#B45309;font-style:italic}
+    [data-theme="dark"] .ext-destino{color:#C4B5FD}
+    [data-theme="dark"] .ext-destino.falta{color:#D9A441}
     .dkb-conta-dif{margin-top:4px;font-size:.7rem;color:#B45309;background:#FFFBEB;
       border:1px solid #FDE68A;border-radius:5px;padding:4px 8px;line-height:1.35}
     .dkb-info-eq{align-self:center;justify-self:center;font-size:.68rem;color:#94A3B8;
@@ -66602,7 +66625,19 @@ function renderExtrato(){
       + '<td class="col-data" title="' + (dEff || '') + '">' + dataLbl + '</td>'
       + '<td class="col-cat">' + catCellHtml + '</td>'
       + '<td>' + descPrefix + _extEsc(it.descricao || '—') + ((it.anexo && it.anexo.dataUrl && it.raw && it.raw.lancamentoId) ? ' <button type="button" onclick="event.stopPropagation();_cartOpenAnexoFromLanc(' + it.raw.lancamentoId + ')" title="Abrir anexo: ' + _extEsc(it.anexo.name || 'arquivo') + '" style="background:#FAF5FF;color:#7C3AED;border:1px solid #DDD6FE;padding:1px 6px;border-radius:9px;cursor:pointer;font-size:.62rem;font-weight:800;font-family:inherit;margin-left:4px">📎</button>' : '') + '</td>'
-      + '<td class="col-cliente">' + _extEsc(it.contraparte || '—') + '</td>'
+      // Transferência não tem cliente nem fornecedor — o que está aí é a conta
+      // de destino. A seta diz isso sem precisar de outra coluna.
+      + '<td class="col-cliente">'
+      +   (it.tipo === 'transferencia'
+            ? (it.contraparte
+                ? '<span class="ext-destino" title="Conta de destino da transferência">'
+                  + '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14"/><path d="M13 7l5 5-5 5"/></svg>'
+                  + _extEsc(it.contraparte) + '</span>'
+                : '<span class="ext-destino falta" title="Falta a conta de destino">'
+                  + '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14"/><path d="M13 7l5 5-5 5"/></svg>'
+                  + 'sem destino</span>')
+            : _extEsc(it.contraparte || '—'))
+      + '</td>'
       + '<td class="col-conta">' + _extEsc(it.conta || '—') + '</td>'
       + '<td class="col-val">' + valHtml + '</td>'
       + '<td class="col-saldo">' + saldoHtml + '</td>'
@@ -68212,6 +68247,7 @@ function extOpenModal(tipo, editId){
       + '</div>';
   }
   document.body.appendChild(ov);
+  _extAplicarTrava(l, editId);
   // Reset de anexos para novo lançamento (não toca em meta de item existente)
   if(t !== 'transferencia'){
     try {
@@ -68354,6 +68390,71 @@ function _extAvisaContaDiferente(){
   }
 }
 try{ window._extAvisaContaDiferente = _extAvisaContaDiferente; }catch(_){}
+
+/* Trava para lançamento já baixado.
+
+   Dois níveis, porque o risco é diferente:
+
+   - CONCILIADO: o lançamento foi casado com uma linha do extrato do banco.
+     Mexer nele desfaz a amarração com um dado que não é seu — o banco não
+     muda porque você editou aqui. Abre travado; destravar é um clique
+     deliberado.
+   - PAGO (sem conciliação): baixa feita à mão. Editar é legítimo, mas não
+     deveria ser acidental — fica destravado, só com o aviso visível.
+
+   A trava é da interface, não do dado: não impede nada pela API, evita o
+   clique errado. Botão de excluir some enquanto travado.                  */
+function _extAplicarTrava(l, editId){
+  if(!editId || !l) return;
+  const conciliado = !!l.conciliacao;
+  const pago = l.status === 'pago';
+  if(!conciliado && !pago) return;
+
+  const modal = document.querySelector('#ext-modal-ov .dkb-modal, #ext-modal-ov .ext-modal');
+  const bd = modal && modal.querySelector('.dkb-modal-bd, .ext-modal-bd');
+  if(!modal || !bd) return;
+
+  const faixa = document.createElement('div');
+  faixa.className = 'ext-trava' + (conciliado ? ' forte' : '');
+  if(conciliado){
+    const quando = (l.conciliacao.conciliadoEm || '').slice(0,10).split('-').reverse().join('/');
+    faixa.innerHTML = '<div class="ext-trava-txt"><b>Conciliado com o extrato do banco</b>'
+      + (quando ? ' em ' + quando : '') + '. Editar desfaz a amarração — o banco não muda junto.</div>'
+      + '<button type="button" class="ext-trava-btn" onclick="_extDestravar()">Destravar para editar</button>';
+  } else {
+    faixa.innerHTML = '<div class="ext-trava-txt"><b>Lançamento já baixado.</b> '
+      + 'Alterar valor, data ou conta muda o que já foi dado como realizado.</div>';
+  }
+  bd.insertBefore(faixa, bd.firstChild);
+
+  if(conciliado){
+    modal.classList.add('is-travado');
+    bd.querySelectorAll('input, select, textarea, button').forEach(el => {
+      if(el.closest('.ext-trava')) return;
+      el.disabled = true;
+    });
+    const ft = modal.querySelector('.ext-modal-ft, .dkb-modal-ft');
+    if(ft) ft.querySelectorAll('button').forEach(b => {
+      if(/cancelar/i.test(b.textContent)) return;
+      b.disabled = true;
+    });
+  }
+}
+function _extDestravar(){
+  const modal = document.querySelector('#ext-modal-ov .dkb-modal, #ext-modal-ov .ext-modal');
+  if(!modal) return;
+  modal.classList.remove('is-travado');
+  modal.querySelectorAll('input, select, textarea, button').forEach(el => { el.disabled = false; });
+  const faixa = modal.querySelector('.ext-trava');
+  if(faixa){
+    faixa.classList.remove('forte');
+    faixa.classList.add('destravado');
+    faixa.innerHTML = '<div class="ext-trava-txt"><b>Destravado.</b> '
+      + 'Este lançamento está conciliado com o extrato do banco — o que você mudar aqui '
+      + 'deixa de bater com o que o banco registrou.</div>';
+  }
+}
+try{ window._extAplicarTrava = _extAplicarTrava; window._extDestravar = _extDestravar; }catch(_){}
 
 function _extSyncComp(){
   const venc = document.getElementById('ext-fld-data');
