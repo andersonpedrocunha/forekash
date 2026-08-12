@@ -27,14 +27,14 @@ ESTRUTURA = [
      'O que aconteceu de fato — dinheiro que passou pela conta',
      ['disponibilidades', 'cartoes', 'kashtrack']),
 
-    ('projecao', 'Projeção',
-     'O que você projeta receber e pagar, mês a mês, por natureza',
-     ['comercial', 'receita', 'colaboradores', 'estrutura', 'impostos',
-      'emprestimos', 'outras-op']),
-
     ('analise', 'Análise',
      'Leitura e diagnóstico — não altera nada',
      ['fluxo', 'analise', 'relatorios', 'diagnostico']),
+
+    ('projecao', 'Operação',
+     'Clientes, equipe, custos e dívidas — o que você administra e projeta mês a mês',
+     ['comercial', 'receita', 'colaboradores', 'estrutura', 'impostos',
+      'emprestimos', 'outras-op']),
 
     ('planejamento', 'Planejamento',
      'Metas, cenários e patrimônio — apoio à decisão',
