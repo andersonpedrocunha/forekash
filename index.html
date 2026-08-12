@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786562952"/>
+  <meta name="fk-build" content="forekash-v1786563421"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5389,6 +5389,8 @@
     .dkb-modal-info .info-row.destaque .lbl{color:#5B21B6}
     .dkb-modal-info .info-row.destaque input[type="date"]{border-color:#C4B5FD;background:#FDFDFF;
       font-size:1rem;font-weight:700;padding:9px 10px}
+    .dkb-conta-dif{margin-top:4px;font-size:.7rem;color:#B45309;background:#FFFBEB;
+      border:1px solid #FDE68A;border-radius:5px;padding:4px 8px;line-height:1.35}
     .dkb-info-eq{align-self:center;justify-self:center;font-size:.68rem;color:#94A3B8;
       white-space:nowrap;cursor:pointer;text-decoration:underline dotted;background:none;border:none;font-family:inherit}
     .dkb-info-eq:hover{color:#5B21B6}
@@ -68107,6 +68109,14 @@ function extOpenModal(tipo, editId){
       +         '<div class="field"><label>Forma de ' + _lbAba.toLowerCase() + '</label>'
       +           '<select id="ext-fld-forma">' + _extFormaPagOpts + '</select>'
       +         '</div>'
+      +         '<div class="field"><label>Conta do ' + _lbAba.toLowerCase()
+      +           + ' <span class="hint">pode ser outra que a prevista</span></label>'
+      +           '<select id="ext-fld-conta-pag" onchange="_extAvisaContaDiferente()">'
+      +             '<option value="">— mesma do lançamento —</option>'
+      +             contaOptsHtml(l.contaPagamento || '').replace(/^<option value="">[^<]*<\/option>/, '')
+      +           '</select>'
+      +           '<div class="dkb-conta-dif" id="ext-conta-dif" hidden></div>'
+      +         '</div>'
       +       '</div>'
       +     '</div>'
       +     '<div class="dkb-pag-section">'
@@ -68273,6 +68283,24 @@ try {
 // Competência acompanha o vencimento enquanto ninguém mexer nela — que é o
 // caso da maioria dos lançamentos. Assim que o usuário edita a competência,
 // ela para de seguir: a partir daí são datas independentes.
+// Pagar por um banco diferente do previsto é normal, mas precisa ficar
+// visível — senão o saldo de duas contas fica errado sem ninguém perceber.
+function _extAvisaContaDiferente(){
+  const selPrev = document.getElementById('ext-fld-conta');
+  const selPag  = document.getElementById('ext-fld-conta-pag');
+  const aviso   = document.getElementById('ext-conta-dif');
+  if(!selPag || !aviso) return;
+  const prev = (selPrev?.value || '').trim();
+  const pag  = (selPag.value || '').trim();
+  if(pag && prev && pag !== prev){
+    aviso.hidden = false;
+    aviso.textContent = 'Previsto em ' + prev + ', pago por ' + pag + '.';
+  } else {
+    aviso.hidden = true;
+  }
+}
+try{ window._extAvisaContaDiferente = _extAvisaContaDiferente; }catch(_){}
+
 function _extSyncComp(){
   const venc = document.getElementById('ext-fld-data');
   const comp = document.getElementById('ext-fld-comp');
@@ -68443,6 +68471,8 @@ function extSaveModal(tipo){
   const data    = (document.getElementById('ext-fld-data')?.value || '').trim();
   // Competência: quando o fato aconteceu. Vazia = mesma coisa que o vencimento.
   const dataComp = (document.getElementById('ext-fld-comp')?.value || '').trim() || data;
+  // Conta de onde o dinheiro saiu de fato. Vazia = mesma do lançamento.
+  const contaPag = (document.getElementById('ext-fld-conta-pag')?.value || '').trim();
   const conta   = (document.getElementById('ext-fld-conta')?.value || '').trim();
   const ccRaw   = (document.getElementById('ext-fld-cc')?.value || '').trim();
   const centroCustoId = ccRaw ? parseInt(ccRaw, 10) : null;
@@ -68584,6 +68614,7 @@ function extSaveModal(tipo){
             dataVencimento: di,
             dataEmissao: (di === data ? dataComp : di),
             dataPagamento: (di === data ? dataPag : ''),
+            contaPagamento: (di === data ? contaPag : ''),
             criadoEm: new Date().toISOString()
           };
           if(anexoDoc) lanc.anexo = anexoDoc;
@@ -68625,6 +68656,7 @@ function extSaveModal(tipo){
           dataVencimento: di,
           dataEmissao: (di === data ? dataComp : di),
           dataPagamento: (di === data ? dataPag : ''),
+          contaPagamento: (di === data ? contaPag : ''),
           grupoId: grupoId,
           documento,
           refInterna,
@@ -71093,7 +71125,12 @@ function extBaixaSave(){
     if(!l) return;
     l.status = 'pago';
     l.dataPagamento = data;
-    l.conta = conta || l.conta;
+    // A conta da baixa é a conta REAL de onde o dinheiro saiu, que pode ser
+    // outra que a prevista. Antes isso sobrescrevia `conta` e a previsão
+    // original se perdia — não dava mais pra saber que o pagamento trocou de
+    // banco. Guarda as duas: `conta` = prevista, `contaPagamento` = efetiva.
+    if(conta) l.contaPagamento = conta;
+    if(conta && !l.conta) l.conta = conta;
     l.formaPagamento = forma;
     l.valorPago = valor; l.juros = juros; l.multa = multa; l.desconto = desc;
     if(_fornFieldShown){
