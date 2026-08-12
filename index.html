@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786562273"/>
+  <meta name="fk-build" content="forekash-v1786562952"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5373,11 +5373,25 @@
     .dkb-modal-x{background:transparent;border:none;font-size:1.1rem;cursor:pointer;color:#94A3B8;padding:4px 8px;border-radius:5px;line-height:1}
     .dkb-modal-x:hover{background:#F1F5F9;color:#1E293B}
     .dkb-modal-bd{padding:16px 20px}
-    .dkb-modal-info{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;padding:10px 12px;background:#F8FAFC;border-radius:8px;margin-bottom:14px}
-    .dkb-modal-info .info-row{display:flex;flex-direction:column;gap:2px}
+    /* Vencimento maior que os outros: é a data que manda no fluxo de caixa e
+       é a que o usuário erra com mais frequência. Competência (quando o fato
+       aconteceu) fica ao lado, menor — só o Demonstrativo usa ela. */
+    .dkb-modal-info{display:grid;grid-template-columns:1.35fr 1fr 1fr;gap:14px;padding:12px 14px;
+      background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;margin-bottom:14px;align-items:end}
+    .dkb-modal-info .info-row{display:flex;flex-direction:column;gap:3px;min-width:0}
     .dkb-modal-info .lbl{font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:#64748B;font-weight:700}
+    .dkb-modal-info .lbl .sub{text-transform:none;letter-spacing:0;font-weight:500;color:#94A3B8;font-size:.92em}
     .dkb-modal-info .val{font-size:.85rem;color:#1E293B;font-weight:600}
     .dkb-modal-info .val-money{font-family:Consolas,Menlo,monospace;color:#B91C1C;font-weight:800}
+    .dkb-modal-info input[type="date"]{border:1px solid #CBD5E1;border-radius:6px;padding:6px 9px;
+      font-size:.86rem;font-family:inherit;color:#0F172A;background:#fff;width:100%;box-sizing:border-box}
+    .dkb-modal-info input[type="date"]:focus{outline:none;border-color:#7C3AED;box-shadow:0 0 0 2px rgba(124,58,237,.12)}
+    .dkb-modal-info .info-row.destaque .lbl{color:#5B21B6}
+    .dkb-modal-info .info-row.destaque input[type="date"]{border-color:#C4B5FD;background:#FDFDFF;
+      font-size:1rem;font-weight:700;padding:9px 10px}
+    .dkb-info-eq{align-self:center;justify-self:center;font-size:.68rem;color:#94A3B8;
+      white-space:nowrap;cursor:pointer;text-decoration:underline dotted;background:none;border:none;font-family:inherit}
+    .dkb-info-eq:hover{color:#5B21B6}
     .dkb-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:end}
     .dkb-modal-grid .field{display:flex;flex-direction:column;gap:4px}
     .dkb-modal-grid .field.full{grid-column:1 / -1}
@@ -67921,6 +67935,17 @@ function extOpenModal(tipo, editId){
     return s;
   })();
   // Branch: transferência mantém modal simples; gasto/ganho ganha layout DKB-style
+  /* Duas datas, porque são coisas diferentes:
+     - VENCIMENTO: quando o dinheiro entra ou sai. Manda no fluxo de caixa e
+       na projeção. É a que aparece maior.
+     - COMPETÊNCIA: quando o fato aconteceu (serviço prestado, NF emitida).
+       É o que o Demonstrativo usa no modo Competência.
+     Na maioria dos lançamentos são iguais, então competência acompanha o
+     vencimento enquanto o usuário não mexer nela — sem obrigar a preencher
+     duas vezes. _extDateOf já lia dataVencimento/dataEmissao com fallback
+     pra `data`; agora esses campos existem de fato. */
+  const _dtVenc = l.dataVencimento || l.data || '';
+  const _dtComp = l.dataEmissao || l.dataVencimento || l.data || '';
   if(t === 'transferencia'){
     // Mesmo esqueleto de Ganho/Gasto: cabeçalho com badge, faixa de resumo,
     // campos essenciais no grid e o resto recolhido.
@@ -67936,7 +67961,10 @@ function extOpenModal(tipo, editId){
       + '</div>'
       + '<div class="dkb-modal-bd">'
       +   '<div class="dkb-modal-info">'
-      +     '<div class="info-row"><span class="lbl">Data</span><input type="date" id="ext-fld-data" value="' + (l.data || '') + '" style="border:1px solid #CBD5E1;border-radius:6px;padding:5px 8px;font-size:.86rem;font-family:inherit;color:#0F172A;background:#fff"></div>'
+      +     '<div class="info-row destaque"><span class="lbl">Vencimento</span>'
+      +       '<input type="date" id="ext-fld-data" value="' + _dtVenc + '" onchange="_extSyncComp()"></div>'
+      +     '<div class="info-row"><span class="lbl">Competência <span class="sub">quando aconteceu</span></span>'
+      +       '<input type="date" id="ext-fld-comp" value="' + _dtComp + '" onchange="_extCompTocada()"></div>'
       +     '<div class="info-row"><span class="lbl">Valor</span>'
       +       '<div class="dkb-pag-money" style="max-width:150px"><span class="prefix">R$</span>'
       +       '<input type="number" id="ext-fld-valor" value="' + (l.valor || 0) + '" step="0.01" min="0"></div></div>'
@@ -67997,7 +68025,10 @@ function extOpenModal(tipo, editId){
       + '</div>'
       + '<div class="dkb-modal-bd">'
       +   '<div class="dkb-modal-info">'
-      +     '<div class="info-row"><span class="lbl">Data</span><input type="date" id="ext-fld-data" value="' + (l.data || '') + '" style="border:1px solid #CBD5E1;border-radius:6px;padding:5px 8px;font-size:.86rem;font-family:inherit;color:#0F172A;background:#fff"></div>'
+      +     '<div class="info-row destaque"><span class="lbl">Vencimento</span>'
+      +       '<input type="date" id="ext-fld-data" value="' + _dtVenc + '" onchange="_extSyncComp()"></div>'
+      +     '<div class="info-row"><span class="lbl">Competência <span class="sub">quando aconteceu</span></span>'
+      +       '<input type="date" id="ext-fld-comp" value="' + _dtComp + '" onchange="_extCompTocada()"></div>'
       +     '<div class="info-row"><span class="lbl">Total</span><span class="val val-money" id="ext-info-valor-total">R$ 0,00</span></div>'
       +   '</div>'
       +   '<div class="dkb-tabs">'
@@ -68239,6 +68270,22 @@ try {
   window._extPagClear = _extPagClear;
 } catch(e){}
 
+// Competência acompanha o vencimento enquanto ninguém mexer nela — que é o
+// caso da maioria dos lançamentos. Assim que o usuário edita a competência,
+// ela para de seguir: a partir daí são datas independentes.
+function _extSyncComp(){
+  const venc = document.getElementById('ext-fld-data');
+  const comp = document.getElementById('ext-fld-comp');
+  if(!venc || !comp) return;
+  if(comp.dataset.tocado === '1') return;
+  comp.value = venc.value;
+}
+function _extCompTocada(){
+  const comp = document.getElementById('ext-fld-comp');
+  if(comp) comp.dataset.tocado = '1';
+}
+try{ window._extSyncComp = _extSyncComp; window._extCompTocada = _extCompTocada; }catch(_){}
+
 function extCloseModal(){
   const ov = document.getElementById('ext-modal-ov');
   if(ov) ov.remove();
@@ -68394,6 +68441,8 @@ try { window._extAutoPropagate = _extAutoPropagate; } catch(e){}
 
 function extSaveModal(tipo){
   const data    = (document.getElementById('ext-fld-data')?.value || '').trim();
+  // Competência: quando o fato aconteceu. Vazia = mesma coisa que o vencimento.
+  const dataComp = (document.getElementById('ext-fld-comp')?.value || '').trim() || data;
   const conta   = (document.getElementById('ext-fld-conta')?.value || '').trim();
   const ccRaw   = (document.getElementById('ext-fld-cc')?.value || '').trim();
   const centroCustoId = ccRaw ? parseInt(ccRaw, 10) : null;
@@ -68532,6 +68581,8 @@ function extSaveModal(tipo){
             tipo,
             centroCustoId,
             grupoId: grupoId,
+            dataVencimento: di,
+            dataEmissao: (di === data ? dataComp : di),
             dataPagamento: (di === data ? dataPag : ''),
             criadoEm: new Date().toISOString()
           };
@@ -68571,6 +68622,8 @@ function extSaveModal(tipo){
           conta,
           status: (di === data ? status : 'pendente'),
           notas, tipo, centroCustoId,
+          dataVencimento: di,
+          dataEmissao: (di === data ? dataComp : di),
           dataPagamento: (di === data ? dataPag : ''),
           grupoId: grupoId,
           documento,
