@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786575654"/>
+  <meta name="fk-build" content="forekash-v1786575829"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -4765,6 +4765,14 @@
     .ext-imp-editavel .c-dt{width:88px}
     .ext-imp-editavel .c-ds{width:auto}
     .ext-imp-editavel .c-tp{width:146px}   /* cabe "Transferência" inteiro */
+    .ext-imp-desc{width:100%;padding:4px 7px;border:1px solid transparent;background:transparent;
+      border-radius:4px;font-size:.76rem;font-family:inherit;color:#0F172A;outline:none;box-sizing:border-box}
+    .ext-imp-desc:hover{border-color:#E2E8F0;background:#fff}
+    .ext-imp-desc:focus{border-color:#0F766E;background:#fff;box-shadow:0 0 0 2px rgba(15,118,110,.12)}
+    .ext-imp-desc-orig{display:block;font-size:.63rem;color:#94A3B8;padding:0 8px;margin-top:1px;
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .ext-imp-desc-orig::before{content:"extrato: ";color:#CBD5E1}
+    .conc-novo-desc{width:210px}
     .ext-imp-editavel .c-ct{width:172px}
     .ext-imp-editavel .c-fn{width:178px}
     .ext-imp-editavel .c-vl{width:124px}
@@ -75036,6 +75044,9 @@ function _concRenderRow(m){
       m._apr  = !!(sug && sug.aprendido);
     }
     rightHtml += '<div class="conc-novo-campos" onclick="event.stopPropagation()">'
+      + '<input class="conc-novo-inp conc-novo-desc" value="' + _concEsc(m._desc != null ? m._desc : (m.ofx ? m.ofx.descricao : '')) + '"'
+      +   ' placeholder="descrição" title="Original: ' + _concEsc(m.ofx ? m.ofx.descricao : '') + '"'
+      +   ' onchange="concSetCampo(' + idx + ',&quot;_desc&quot;,this.value)">'
       + fkcCampo('categoria', m._cat, 'categoria',
                  'concSetCampo(' + idx + ',&quot;_cat&quot;,this.value)', 'conc-novo-inp',
                  m.ofx ? m.ofx.tipo : '')
@@ -75309,8 +75320,13 @@ function concApply(){
       // Cria lançamento novo
       const id = extratoData.nextId++;
       const lan = {
-        id, data: m.ofx.data, descricao: m.ofx.descricao || 'Importado do OFX',
+        id, data: m.ofx.data,
+        descricao: (m._desc && m._desc.trim()) || m.ofx.descricao || 'Importado do OFX',
         valor: m.ofx.valor, tipo: m.ofx.tipo,
+        // a descrição do extrato é a prova documental — sobrevive à reescrita
+        descricaoOriginal: (m._desc && m._desc.trim() && m._desc !== m.ofx.descricao) ? m.ofx.descricao : '',
+        notas: (m._desc && m._desc.trim() && m._desc !== m.ofx.descricao)
+                 ? ('No extrato: ' + m.ofx.descricao) : '',
         categoria: m._cat || (m.suggested ? m.suggested.categoria : ''),
         contraparte: m._forn || (m.suggested ? m.suggested.fornecedor : ''),
         conta, status: 'pago', dataPagamento: m.ofx.data,
@@ -76340,6 +76356,7 @@ function _extImpParseOFX(raw){
       status: 'pago',
       dataPagamento: data,
       numeroDocumento: fitid || '',
+      _descOriginal: memo || '',      // como veio do banco, nunca reescrito
       categoria: '',
       centroCustoId: null,
       _contaOriginal: !!acctName,
@@ -76488,6 +76505,7 @@ function _extImpParseCSV(raw){
       status,
       dataPagamento: status === 'pago' ? (dtpagFmt || data) : '',
       numeroDocumento: get(idx.doc),
+      _descOriginal: get(idx.desc),
       categoria: get(idx.cat),
       centroCustoId: ccId,
       _contaOriginal: !!conta
@@ -76639,7 +76657,17 @@ function _extImpRenderResult(){
                                         'extImpSet(' + i + ',&quot;contraparte&quot;,this.value)') + '</td>');
     rows += '<tr class="' + (skip ? 'skip ' : '') + (tr ? 'is-transf' : '') + '">'
       + '<td class="c-dt">' + _extImpFmtBR(it.data) + '</td>'
-      + '<td class="c-ds" title="' + _extEsc(it.descricao || '') + '">' + _extEsc((it.descricao || '').slice(0, 46))
+      /* Descrição de banco é ilegível ("TED-CIP 041 REM 1234 ACME COM LTDA").
+         Dá pra reescrever antes de importar — e a original fica guardada em
+         `descricaoOriginal`, que vira a primeira linha das notas: sem ela não
+         dá pra conferir depois contra o extrato nem reconciliar. */
+      + '<td class="c-ds">'
+      +   '<input class="ext-imp-desc" value="' + _extEsc(it.descricao || '') + '"'
+      +     ' title="' + _extEsc(it._descOriginal || it.descricao || '') + '"'
+      +     ' onchange="extImpSet(' + i + ',&quot;descricao&quot;,this.value)">'
+      +   (it._descOriginal && it._descOriginal !== it.descricao
+          ? '<span class="ext-imp-desc-orig" title="Como veio no extrato — fica salvo nas notas">'
+            + _extEsc(it._descOriginal.slice(0,52)) + '</span>' : '')
       +   (it._dupFitid ? ' <span class="tag-dup" title="Mesmo FITID — identificador único do banco. É a mesma transação.">dup · FITID</span>'
                         : (it._dup ? ' <span class="tag-dup" title="Mesma data, valor e descrição">dup</span>' : ''))
       +   (!it._dup && it._suspeitos && it._suspeitos.length
@@ -77083,7 +77111,11 @@ function extImpConfirm(){
       centroCustoId: it.centroCustoId || null,
       numeroDocumento: it.numeroDocumento || '',
       dataPagamento: it.dataPagamento || '',
-      notas: '',
+      // A descrição do extrato é a prova documental: se o usuário reescreveu,
+      // a original tem que sobreviver em algum lugar consultável.
+      descricaoOriginal: (it._descOriginal && it._descOriginal !== it.descricao) ? it._descOriginal : '',
+      notas: (it._descOriginal && it._descOriginal !== it.descricao)
+               ? ('No extrato: ' + it._descOriginal) : '',
       criadoEm: new Date().toISOString(),
       importadoDe: _extImpState.filename || (_extImpState.format === 'ofx' ? 'OFX' : 'CSV')
     });
