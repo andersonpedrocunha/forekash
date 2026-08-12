@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786557969"/>
+  <meta name="fk-build" content="forekash-v1786559545"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -4854,6 +4854,25 @@
     .fkc-criar b{font-weight:700}
     .fkc-mais{display:inline-block;width:14px;text-align:center;font-weight:800}
     .fkc-vazio{padding:8px 9px;font-size:.75rem;color:#94A3B8}
+    /* 2º passo: em qual módulo entra / que papéis a pessoa tem */
+    .fkc-hd{padding:7px 9px 6px;font-size:.72rem;color:#475569;border-bottom:1px solid #E2E8F0;margin-bottom:4px}
+    .fkc-hd b{color:#0F172A}
+    .fkc-hd i{color:#94A3B8;font-style:normal;font-size:.94em}
+    .fkc-check{display:flex;align-items:center;gap:7px}
+    .fkc-box{flex:0 0 auto;width:14px;height:14px;border:1px solid #CBD5E1;border-radius:3px;
+      display:inline-flex;align-items:center;justify-content:center;font-size:.6rem;color:#fff;line-height:1}
+    .fkc-check.on .fkc-box{background:#0F766E;border-color:#0F766E}
+    .fkc-check.on{color:#0F766E;font-weight:600}
+    .fkc-ok{margin:5px 4px 2px;padding:6px 9px;border-radius:5px;text-align:center;cursor:pointer;
+      font-size:.76rem;font-weight:700;color:#fff;background:#0F766E}
+    .fkc-ok:hover{background:#115E59}
+    .fkc-ok.off{background:#E2E8F0;color:#94A3B8;cursor:default}
+    .fkc-voltar{padding:5px 9px;font-size:.72rem;color:#64748B;cursor:pointer;border-radius:5px}
+    .fkc-voltar:hover{background:#F1F5F9}
+    [data-theme="dark"] .fkc-hd{color:#CBD5E1;border-bottom-color:#334155}
+    [data-theme="dark"] .fkc-hd b{color:#F1F5F9}
+    [data-theme="dark"] .fkc-box{border-color:#475569}
+    [data-theme="dark"] .fkc-voltar:hover{background:#334155}
     [data-theme="dark"] .fkc-pop{background:#1E293B;border-color:#334155}
     [data-theme="dark"] .fkc-item{color:#E2E8F0}
     [data-theme="dark"] .fkc-item.sel,[data-theme="dark"] .fkc-item:hover{background:#334155}
@@ -19165,8 +19184,6 @@
            ══════════════════════════════════════════════ -->
       <div class="mod" id="mod-dashboard">
 
-        <!-- ✨ Onboarding checklist · só aparece se não foi dispensado e não está 100% -->
-        <div id="onboard-card" style="display:none"></div>
 
         <!-- Empty-state CTA: aparece quando nenhum módulo tem dados -->
         <div class="home-empty" id="home-empty">
@@ -48676,7 +48693,6 @@ function switchModule(mod, btn){
   // Atualiza dashboard ao abrir
   if(mod === 'dashboard'){
     updateDashboard();
-    try{ if(typeof onboardRender === 'function') onboardRender(); }catch(_){}
   }
 
   // KASHtrack: renderiza calendário + forecast ao abrir
@@ -56883,8 +56899,12 @@ function renderWfFornecedores(){
   const search = (document.getElementById('wf-forn-search')?.value || '').toLowerCase().trim();
   const filter = _wfCadFilters.fornecedores || 'all';
   const allReg = (typeof pesRegistry === 'function') ? pesRegistry() : [];
-  // Filtra somente kind != 'colaborador' (entries sem kind contam como fornecedor — fallback de migração)
-  const all = allReg.filter(p => p.kind !== 'colaborador');
+  // Quem tem o papel 'fornecedor' — e a mesma pessoa pode ter mais de um,
+  // então quem é fornecedor E colaborador aparece nas duas abas.
+  // Registro antigo (sem `kinds`) cai no fallback: qualquer kind != colaborador.
+  const all = allReg.filter(p => (typeof fkPapeisDe === 'function')
+    ? fkPapeisDe(p).includes('fornecedor')
+    : p.kind !== 'colaborador');
   let list = search
     ? all.filter(p => (p.nome||'').toLowerCase().includes(search))
     : all.slice();
@@ -56967,7 +56987,9 @@ function renderWfColaboradores(){
   const search = (document.getElementById('wf-colab-search')?.value || '').toLowerCase().trim();
   const filter = _wfCadFilters.colaboradores || 'all';
   const allReg = (typeof pesRegistry === 'function') ? pesRegistry() : [];
-  const all = allReg.filter(p => p.kind === 'colaborador');
+  const all = allReg.filter(p => (typeof fkPapeisDe === 'function')
+    ? fkPapeisDe(p).includes('colaborador')
+    : p.kind === 'colaborador');
   let list = search
     ? all.filter(p => (p.nome||'').toLowerCase().includes(search))
     : all.slice();
@@ -72790,16 +72812,59 @@ function _concParseCSV(raw){
 // foi usado no Extrato. O vínculo com o módulo é preservado no catmap; aqui
 // só interessa o nome, porque qualquer categoria pode classificar qualquer
 // movimento do banco.
-function fkCategoriasDisponiveis(extras){
+/* Receita ou despesa? A resposta vem do vínculo com o demonstrativo, não do
+   nome — drcLineId/dreLineId é o que faz o DRE fechar. Categoria livre do
+   Extrato guarda a natureza explícita, escolhida na hora de criar.
+   'ambos' = serve pros dois lados (usado quando não dá pra afirmar).      */
+const FK_DRE_GANHO = new Set(['receita', 'outrasRec', 'receitaFin', 'receitaFinanceira']);
+const FK_MOD_GANHO = new Set(['receita', 'outrasRec']);
+const FK_MOD_GASTO = new Set(['estrutura', 'pessoas', 'impostos', 'emprestimos', 'comissoes', 'outrasDesp', 'viagens']);
+function fkCategoriaNatureza(c){
+  if(!c) return 'ambos';
+  if(c.natureza === 'ganho' || c.natureza === 'gasto') return c.natureza;
+  // O módulo é a resposta mais firme: 'outrasDesp' é despesa mesmo sem
+  // vínculo de DRE preenchido.
+  const mod = String(c.moduloId || '');
+  if(FK_MOD_GANHO.has(mod)) return 'ganho';
+  if(FK_MOD_GASTO.has(mod)) return 'gasto';
+  const drc = String(c.drcLineId || ''), dre = String(c.dreLineId || '');
+  if(FK_DRE_GANHO.has(drc) || FK_DRE_GANHO.has(dre)) return 'ganho';
+  if(drc || dre) return 'gasto';
+  return 'ambos';   // sem módulo e sem vínculo: não dá pra afirmar, não esconde
+}
+// Módulos que fazem sentido para cada tipo de lançamento — usado na hora de
+// criar categoria, pra não oferecer "Receita" numa linha de gasto.
+const FK_MODULOS_POR_TIPO = {
+  ganho: ['receita', 'outrasRec', 'extrato'],
+  gasto: ['estrutura', 'pessoas', 'impostos', 'emprestimos', 'comissoes', 'outrasDesp', 'extrato']
+};
+
+// `tipo` ('ganho' | 'gasto') filtra pela natureza. Sem tipo, devolve tudo.
+function fkCategoriasDisponiveis(extras, tipo){
+  const filtra = (tipo === 'ganho' || tipo === 'gasto');
   const set = new Set();
+  const conhecidas = new Map();   // nome minúsculo → natureza
   try{
     if(typeof catmapData !== 'undefined' && Array.isArray(catmapData.categorias)){
-      catmapData.categorias.forEach(c => { if(c && c.nome) set.add(String(c.nome).trim()); });
+      catmapData.categorias.forEach(c => {
+        if(!c || !c.nome) return;
+        const nome = String(c.nome).trim();
+        const nat = fkCategoriaNatureza(c);
+        conhecidas.set(nome.toLowerCase(), nat);
+        if(!filtra || nat === tipo || nat === 'ambos') set.add(nome);
+      });
     }
   }catch(_){}
   try{
+    // categorias que só existem em lançamentos: sem vínculo, não dá pra
+    // afirmar a natureza — mas o tipo do lançamento onde ela aparece diz
     if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
-      extratoData.lancamentos.forEach(l => { if(l.categoria) set.add(String(l.categoria).trim()); });
+      extratoData.lancamentos.forEach(l => {
+        if(!l.categoria) return;
+        const nome = String(l.categoria).trim();
+        if(conhecidas.has(nome.toLowerCase())) return;
+        if(!filtra || !l.tipo || l.tipo === tipo) set.add(nome);
+      });
     }
   }catch(_){}
   (extras || []).forEach(c => { if(c) set.add(String(c).trim()); });
@@ -72867,7 +72932,7 @@ const FK_ORIGEM_MODULO = {
   outrasDesp: 'Outras Despesas · manual',
   extrato:    'Apenas Extrato'
 };
-function fkGarantirCategoria(nome, moduloId){
+function fkGarantirCategoria(nome, moduloId, natureza){
   const n = String(nome || '').trim();
   if(!n || typeof catmapData === 'undefined') return null;
   if(!Array.isArray(catmapData.categorias)) catmapData.categorias = [];
@@ -72891,6 +72956,10 @@ function fkGarantirCategoria(nome, moduloId){
     }
   }
 
+  // Categoria livre do Extrato não tem módulo que revele se é receita ou
+  // despesa — guarda a natureza explícita, senão ela apareceria nas duas
+  // listas pra sempre. Nos outros módulos o próprio vínculo já responde.
+  const nat = (natureza === 'ganho' || natureza === 'gasto') ? natureza : null;
   const nova = {
     id: catmapData.nextId++,
     nome: n, moduloId: mod,
@@ -72898,29 +72967,84 @@ function fkGarantirCategoria(nome, moduloId){
     autoDiscovered: mod === 'estrutura', userCreated: true,
     origem: FK_ORIGEM_MODULO[mod], suggestionApplied: true
   };
+  if(mod === 'extrato' && nat){
+    nova.natureza = nat;
+    // 'ganho' com o default de despesa iria pro lado errado do demonstrativo
+    if(nat === 'ganho' && (nova.drcLineId === 'despesas' || !nova.drcLineId)){
+      nova.drcLineId = 'outrasRec'; nova.dreLineId = 'outrasRec';
+    }
+  }
   catmapData.categorias.push(nova);
   try{ _catmapSave(); }catch(_){}
   try{ if(typeof catmapRender === 'function' && document.getElementById('catmap-lista')) catmapRender(); }catch(_){}
   return nova;
 }
 
-// Cadastra um fornecedor novo digitado na importação/conciliação, pra ele
-// passar a existir no registry de Pessoas e aparecer nas próximas vezes.
-function fkGarantirContraparte(nome){
+/* Cadastra a contraparte digitada na importação/conciliação.
+
+   `papeis` é uma lista: ['cliente'], ['fornecedor','colaborador'], os três…
+   A mesma empresa pode ser cliente E fornecedor — acontece o tempo todo, e o
+   cadastro antigo não permitia: `kind` guardava um valor só.
+
+   O campo `kind` continua existindo e recebe o papel principal, porque é o
+   que as telas antigas leem. O array `kinds` é a verdade nova; as abas do
+   Cadastro passam a olhar ele quando existe.
+
+   Cliente mora noutro lugar: receita.clientes, gerenciado pelo módulo
+   Receita. Marcar alguém como cliente cadastra lá também.                  */
+const FK_PAPEIS = ['cliente', 'fornecedor', 'colaborador'];
+function fkGarantirContraparte(nome, papeis){
   const n = String(nome || '').trim();
-  if(!n || typeof pessoas === 'undefined' || !Array.isArray(pessoas.registry)) return null;
-  const ja = pessoas.registry.find(r => (r.nome || '').trim().toLowerCase() === n.toLowerCase());
-  if(ja) return ja;
-  const novo = {
-    id: (pessoas.nextRegId = (pessoas.nextRegId || 1) + 1) - 1,
-    nome: n, doc: '', email: '', telefone: '', obs: '',
-    foto: '', anexos: [], tags: [],
-    kind: 'fornecedor', tipoPessoa: 'pj', ativo: true,
-    criadoPor: 'importacao'
-  };
-  pessoas.registry.push(novo);
-  try{ if(typeof pessoasSave === 'function') pessoasSave(); }catch(_){}
-  return novo;
+  if(!n) return null;
+  const lista = (Array.isArray(papeis) ? papeis : [papeis || 'fornecedor'])
+    .filter(p => FK_PAPEIS.includes(p));
+  const paps = lista.length ? lista : ['fornecedor'];
+  const chave = n.toLowerCase();
+  let reg = null;
+
+  // ── registry de Pessoas (fornecedor / colaborador) ──
+  const querRegistry = paps.some(p => p === 'fornecedor' || p === 'colaborador');
+  if(typeof pessoas !== 'undefined' && Array.isArray(pessoas.registry)){
+    reg = pessoas.registry.find(r => (r.nome || '').trim().toLowerCase() === chave) || null;
+    if(!reg && querRegistry){
+      reg = {
+        id: (pessoas.nextRegId = (pessoas.nextRegId || 1) + 1) - 1,
+        nome: n, doc: '', email: '', telefone: '', obs: '',
+        foto: '', anexos: [], tags: [],
+        kind: paps.includes('colaborador') && !paps.includes('fornecedor') ? 'colaborador' : 'fornecedor',
+        kinds: paps.filter(p => p !== 'cliente'),
+        tipoPessoa: 'pj', ativo: true,
+        criadoPor: 'importacao'
+      };
+      pessoas.registry.push(reg);
+    } else if(reg && querRegistry){
+      // já existe: acrescenta o papel que faltava, sem tirar o que tinha
+      const atuais = new Set(Array.isArray(reg.kinds) ? reg.kinds : (reg.kind ? [reg.kind] : []));
+      paps.forEach(p => { if(p !== 'cliente') atuais.add(p); });
+      reg.kinds = [...atuais];
+      if(!reg.kind) reg.kind = reg.kinds[0] || 'fornecedor';
+    }
+    if(querRegistry){ try{ if(typeof pessoasSave === 'function') pessoasSave(); }catch(_){} }
+  }
+
+  // ── clientes ficam no módulo Receita ──
+  if(paps.includes('cliente') && typeof receita !== 'undefined' && Array.isArray(receita.clientes)){
+    const jaCli = receita.clientes.find(c => (c.nome || '').trim().toLowerCase() === chave);
+    if(!jaCli){
+      try{
+        if(typeof recAddCliente === 'function') recAddCliente(n, '');
+        else receita.clientes.push({ id: receita.nextClienteId++, nome: n, pais: '', color: '#0F766E', ativo: true, tipoPessoa: 'pj' });
+        if(typeof recSave === 'function') recSave();
+      }catch(e){ console.warn('[FK] criar cliente falhou:', e); }
+    }
+  }
+  return reg;
+}
+// Papéis atuais de um registro, já lidando com o formato antigo (kind único).
+function fkPapeisDe(reg){
+  if(!reg) return [];
+  if(Array.isArray(reg.kinds) && reg.kinds.length) return reg.kinds;
+  return reg.kind ? [reg.kind] : ['fornecedor'];
 }
 try{
   window.fkCategoriasDisponiveis = fkCategoriasDisponiveis;
@@ -73018,16 +73142,48 @@ try{
 
    Uso:  <input class="fkc-inp" data-fkc="categoria" ...>
    Fontes: categoria · contraparte · conta                                */
-const FKC = { inp:null, opts:[], idx:-1, criar:'' };
+// `passo` alterna entre a lista de opções e a pergunta que vem depois do
+// "criar": em qual módulo entra a categoria, ou que papéis a pessoa tem.
+const FKC = { inp:null, opts:[], idx:-1, criar:'', passo:'lista', papeis:new Set() };
 // Nomes que ainda não estão cadastrados mas já aparecem na tela — vieram do
 // arquivo ou foram digitados agora. A tela em uso registra via fkcExtras().
 const FKC_EXTRAS = { categoria:[], contraparte:[], conta:[] };
-function fkcExtras(fonte, nomes){ FKC_EXTRAS[fonte] = (nomes || []).filter(Boolean); }
+// Categoria que veio do arquivo e ainda não está cadastrada não tem módulo
+// nem vínculo — a única pista da natureza dela é o tipo da linha onde
+// apareceu. Sem isso, uma categoria de despesa do arquivo aparecia também
+// na lista de um recebimento.
+const FKC_EXTRAS_NAT = {};
+function fkcExtras(fonte, nomes, naturezas){
+  FKC_EXTRAS[fonte] = (nomes || []).filter(Boolean);
+  if(fonte === 'categoria' && Array.isArray(naturezas)){
+    (nomes || []).forEach((n, i) => {
+      if(n && (naturezas[i] === 'ganho' || naturezas[i] === 'gasto')){
+        FKC_EXTRAS_NAT[String(n).trim().toLowerCase()] = naturezas[i];
+      }
+    });
+  }
+}
+function _fkcExtrasCategoria(tipo){
+  return (FKC_EXTRAS.categoria || []).filter(nome => {
+    if(!tipo || !nome) return true;
+    const nat = FKC_EXTRAS_NAT[String(nome).trim().toLowerCase()];
+    return !nat || nat === tipo;
+  });
+}
+// O tipo do lançamento da linha (ganho/gasto) chega pelo data-fkc-tipo, e
+// decide quais categorias aparecem — não faz sentido oferecer "Aluguel" num
+// recebimento nem "Receita" numa despesa.
+function _fkcTipo(){
+  return (FKC.inp && FKC.inp.getAttribute('data-fkc-tipo')) || '';
+}
 const FKC_FONTES = {
-  categoria:   { lista: () => fkCategoriasDisponiveis(FKC_EXTRAS.categoria),     criar: fkGarantirCategoria,   rotulo: 'categoria' },
-  contraparte: { lista: () => fkContrapartesDisponiveis(FKC_EXTRAS.contraparte), criar: fkGarantirContraparte, rotulo: 'cliente / fornecedor' },
+  categoria:   { lista: () => fkCategoriasDisponiveis(_fkcExtrasCategoria(_fkcTipo()), _fkcTipo()),
+                 pergunta: 'modulo',  rotulo: 'categoria' },
+  contraparte: { lista: () => fkContrapartesDisponiveis(FKC_EXTRAS.contraparte),
+                 pergunta: 'papeis',  rotulo: 'cliente / fornecedor' },
   // conta não tem cadastro próprio: nome livre, só sugere o que já existe
-  conta:       { lista: () => fkContasDisponiveis(FKC_EXTRAS.conta),             criar: null,                  rotulo: 'conta' }
+  conta:       { lista: () => fkContasDisponiveis(FKC_EXTRAS.conta),
+                 pergunta: null,      rotulo: 'conta' }
 };
 function _fkcNorm(s){
   return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
@@ -73045,9 +73201,13 @@ function _fkcPop(){
     // lista no meio da rolagem.
     p.addEventListener('mousedown', e => {
       e.preventDefault();
-      const li = e.target.closest && e.target.closest('[data-fkc-i]');
-      if(!li) return;
-      fkcEscolher(parseInt(li.getAttribute('data-fkc-i'), 10));
+      const alvo = e.target.closest && e.target.closest('[data-fkc-i],[data-fkc-mod],[data-fkc-papel],[data-fkc-confirma],[data-fkc-voltar]');
+      if(!alvo) return;
+      if(alvo.hasAttribute('data-fkc-voltar'))   return fkcVoltar();
+      if(alvo.hasAttribute('data-fkc-confirma')) return fkcConfirmarPapeis();
+      if(alvo.hasAttribute('data-fkc-papel'))    return fkcTogglePapel(alvo.getAttribute('data-fkc-papel'));
+      if(alvo.hasAttribute('data-fkc-mod'))      return fkcEscolherModulo(alvo.getAttribute('data-fkc-mod'));
+      fkcEscolher(parseInt(alvo.getAttribute('data-fkc-i'), 10));
     });
     document.body.appendChild(p);
   }
@@ -73057,13 +73217,14 @@ function fkcAbrir(inp){
   const fonte = FKC_FONTES[inp.getAttribute('data-fkc')];
   if(!fonte) return;
   FKC.inp = inp;
+  FKC.passo = 'lista';
   const termo = _fkcNorm(inp.value);
   let lista = [];
   try{ lista = fonte.lista() || []; }catch(_){}
   FKC.opts = termo ? lista.filter(o => _fkcNorm(o).includes(termo)) : lista;
   // só oferece criar se o que foi digitado não existe exatamente
   const exato = lista.some(o => _fkcNorm(o) === termo);
-  FKC.criar = (fonte.criar && termo && !exato) ? inp.value.trim() : '';
+  FKC.criar = (fonte.pergunta && termo && !exato) ? inp.value.trim() : '';
   FKC.idx = FKC.criar ? 0 : (FKC.opts.length ? 0 : -1);
   _fkcRender();
 }
@@ -73091,19 +73252,47 @@ function _fkcMarcarSel(){
   const sel = p.querySelector('.sel');
   if(sel) sel.scrollIntoView({ block:'nearest' });
 }
+// Segundo passo do "criar": módulos possíveis para o tipo da linha.
+function _fkcModulosOfertados(){
+  const tipo = _fkcTipo();
+  const permitidos = FK_MODULOS_POR_TIPO[tipo] || null;
+  const todos = (typeof CATMAP_MODULOS !== 'undefined') ? CATMAP_MODULOS : [];
+  return permitidos ? todos.filter(m => permitidos.includes(m.id)) : todos;
+}
 function _fkcRender(){
   const p = _fkcPop(), inp = FKC.inp;
   if(!inp){ p.classList.remove('on'); return; }
   let html = '';
-  if(FKC.criar){
-    html += '<div class="fkc-item fkc-criar' + (FKC.idx === 0 ? ' sel' : '') + '" data-fkc-i="-1">'
-          + '<span class="fkc-mais">+</span> criar <b>' + _extEsc(FKC.criar) + '</b></div>';
+
+  if(FKC.passo === 'modulo'){
+    html = '<div class="fkc-hd">Onde entra <b>' + _extEsc(FKC.criar) + '</b>?</div>'
+         + _fkcModulosOfertados().map(m =>
+             '<div class="fkc-item" data-fkc-mod="' + m.id + '">' + _extEsc(m.nome) + '</div>').join('')
+         + '<div class="fkc-voltar" data-fkc-voltar="1">← voltar</div>';
+  } else if(FKC.passo === 'papeis'){
+    const marcado = k => FKC.papeis.has(k) ? ' on' : '';
+    html = '<div class="fkc-hd">O que <b>' + _extEsc(FKC.criar) + '</b> é? <i>pode ser mais de um</i></div>'
+         + FK_PAPEIS.map(k =>
+             '<div class="fkc-item fkc-check' + marcado(k) + '" data-fkc-papel="' + k + '">'
+             + '<span class="fkc-box">' + (FKC.papeis.has(k) ? '✓' : '') + '</span>'
+             + k.charAt(0).toUpperCase() + k.slice(1) + '</div>').join('')
+         + '<div class="fkc-ok' + (FKC.papeis.size ? '' : ' off') + '" data-fkc-confirma="1">cadastrar</div>'
+         + '<div class="fkc-voltar" data-fkc-voltar="1">← voltar</div>';
+  } else {
+    if(FKC.criar){
+      html += '<div class="fkc-item fkc-criar' + (FKC.idx === 0 ? ' sel' : '') + '" data-fkc-i="-1">'
+            + '<span class="fkc-mais">+</span> criar <b>' + _extEsc(FKC.criar) + '</b></div>';
+    }
+    const base = FKC.criar ? 1 : 0;
+    html += FKC.opts.map((o, k) =>
+        '<div class="fkc-item' + (FKC.idx === k + base ? ' sel' : '') + '" data-fkc-i="' + k + '">' + _extEsc(o) + '</div>'
+      ).join('');
+    if(!html){
+      const t = _fkcTipo();
+      html = '<div class="fkc-vazio">' + (t === 'ganho' ? 'nenhuma categoria de receita ainda — digite pra criar'
+             : (t === 'gasto' ? 'nenhuma categoria de despesa ainda — digite pra criar' : 'nada encontrado')) + '</div>';
+    }
   }
-  const base = FKC.criar ? 1 : 0;
-  html += FKC.opts.map((o, k) =>
-      '<div class="fkc-item' + (FKC.idx === k + base ? ' sel' : '') + '" data-fkc-i="' + k + '">' + _extEsc(o) + '</div>'
-    ).join('');
-  if(!html) html = '<div class="fkc-vazio">nada encontrado</div>';
   p.innerHTML = html;
   p.classList.add('on');
   p.scrollTop = 0;
@@ -73111,32 +73300,71 @@ function _fkcRender(){
 }
 function fkcFechar(){
   FKC.inp = null; FKC.opts = []; FKC.idx = -1; FKC.criar = '';
+  FKC.passo = 'lista'; FKC.papeis = new Set();
   const p = document.getElementById('fkc-pop');
   if(p) p.classList.remove('on');
 }
-function fkcEscolher(i){
+function _fkcAplicar(valor){
   const inp = FKC.inp;
-  if(!inp) return;
-  const fonte = FKC_FONTES[inp.getAttribute('data-fkc')];
-  let valor;
-  if(i === -1){
-    valor = FKC.criar;
-    try{
-      if(fonte && fonte.criar){
-        fonte.criar(valor);
-        if(typeof toast === 'function') toast('✓ ' + fonte.rotulo + ' "' + valor + '" cadastrada');
-      }
-    }catch(_){}
-  } else {
-    valor = FKC.opts[i];
-  }
-  if(valor === undefined) return;
+  if(!inp || valor === undefined) return;
   inp.value = valor;
   fkcFechar();
   // o onchange inline (extImpSet / concSetCampo) é quem grava de fato
   inp.dispatchEvent(new Event('change', { bubbles:true }));
 }
+function fkcEscolher(i){
+  const inp = FKC.inp;
+  if(!inp) return;
+  const fonte = FKC_FONTES[inp.getAttribute('data-fkc')];
+  if(i === -1){
+    // não cria direto: primeiro pergunta o que o cadastro precisa saber
+    if(fonte && fonte.pergunta){
+      FKC.passo = fonte.pergunta;
+      if(fonte.pergunta === 'papeis') FKC.papeis = new Set();
+      _fkcRender();
+      return;
+    }
+    _fkcAplicar(FKC.criar);
+    return;
+  }
+  _fkcAplicar(FKC.opts[i]);
+}
+// Passo 2 · categoria: escolheu o módulo → cria e devolve
+function fkcEscolherModulo(modId){
+  const nome = FKC.criar, tipo = _fkcTipo();
+  try{
+    fkGarantirCategoria(nome, modId, tipo);
+    const m = (typeof CATMAP_MODULOS !== 'undefined' ? CATMAP_MODULOS : []).find(x => x.id === modId);
+    if(typeof toast === 'function') toast('✓ categoria "' + nome + '" criada em ' + (m ? m.nome : modId));
+  }catch(e){ console.warn('[FK] criar categoria:', e); }
+  _fkcAplicar(nome);
+}
+// Passo 2 · contraparte: marca/desmarca papéis (pode ser mais de um)
+function fkcTogglePapel(k){
+  if(FKC.papeis.has(k)) FKC.papeis.delete(k); else FKC.papeis.add(k);
+  _fkcRender();
+}
+function fkcConfirmarPapeis(){
+  if(!FKC.papeis.size) return;
+  const nome = FKC.criar, paps = [...FKC.papeis];
+  try{
+    fkGarantirContraparte(nome, paps);
+    if(typeof toast === 'function') toast('✓ "' + nome + '" cadastrado como ' + paps.join(' + '));
+  }catch(e){ console.warn('[FK] criar contraparte:', e); }
+  _fkcAplicar(nome);
+}
+function fkcVoltar(){
+  FKC.passo = 'lista';
+  FKC.idx = FKC.criar ? 0 : (FKC.opts.length ? 0 : -1);
+  _fkcRender();
+}
 function fkcTecla(e, inp){
+  // no 2º passo o teclado só faz voltar/confirmar — a escolha é no clique
+  if(FKC.passo !== 'lista'){
+    if(e.key === 'Escape'){ e.preventDefault(); fkcVoltar(); }
+    else if(e.key === 'Enter' && FKC.passo === 'papeis'){ e.preventDefault(); fkcConfirmarPapeis(); }
+    return;
+  }
   if(FKC.inp !== inp && e.key !== 'Escape'){ fkcAbrir(inp); }
   const total = FKC.opts.length + (FKC.criar ? 1 : 0);
   if(e.key === 'ArrowDown'){ e.preventDefault(); FKC.idx = Math.min(FKC.idx + 1, total - 1); _fkcMarcarSel(); }
@@ -73159,9 +73387,11 @@ window.addEventListener('scroll', (e) => {
 }, true);
 window.addEventListener('resize', fkcFechar);
 // Monta o campo. `onch` é o código do onchange — quem grava de fato.
-function fkcCampo(fonte, valor, placeholder, onch, extraCls){
+// `tipo` ('ganho'/'gasto') restringe as categorias oferecidas.
+function fkcCampo(fonte, valor, placeholder, onch, extraCls, tipo){
   return '<span class="fkc">'
     + '<input class="fkc-inp' + (extraCls ? ' ' + extraCls : '') + '" data-fkc="' + fonte + '"'
+    +   (tipo ? ' data-fkc-tipo="' + tipo + '"' : '')
     +   ' value="' + _extEsc(valor || '') + '" placeholder="' + _extEsc(placeholder) + '"'
     +   ' autocomplete="off" onfocus="fkcAbrir(this)" oninput="fkcAbrir(this)"'
     +   ' onkeydown="fkcTecla(event,this)" onblur="fkcFechar()" onchange="' + onch + '">'
@@ -73170,6 +73400,9 @@ function fkcCampo(fonte, valor, placeholder, onch, extraCls){
 try{
   window.fkcAbrir = fkcAbrir; window.fkcFechar = fkcFechar;
   window.fkcTecla = fkcTecla; window.fkcEscolher = fkcEscolher;
+  window.fkcEscolherModulo = fkcEscolherModulo; window.fkcTogglePapel = fkcTogglePapel;
+  window.fkcConfirmarPapeis = fkcConfirmarPapeis; window.fkcVoltar = fkcVoltar;
+  window.fkCategoriaNatureza = fkCategoriaNatureza; window.fkPapeisDe = fkPapeisDe;
 }catch(_){}
 
 // Lê arquivo respeitando o encoding. OFX/CSV de banco brasileiro vem ora em
@@ -73663,7 +73896,8 @@ function _concRenderWorkbench(){
       // mesmo combo da importação: digitar um nome que não existe oferece
       // "criar" na hora, em vez do painel gigante do datalist nativo
       try{
-        fkcExtras('categoria',   (CONC_STATE.matches || []).map(m => m._cat));
+        fkcExtras('categoria',   (CONC_STATE.matches || []).map(m => m._cat),
+                                 (CONC_STATE.matches || []).map(m => m.ofx ? m.ofx.tipo : ''));
         fkcExtras('contraparte', (CONC_STATE.matches || []).map(m => m._forn));
       }catch(_){}
       html += '<div class="conc-bulk-class">'
@@ -73942,7 +74176,8 @@ function _concRenderRow(m){
     }
     rightHtml += '<div class="conc-novo-campos" onclick="event.stopPropagation()">'
       + fkcCampo('categoria', m._cat, 'categoria',
-                 'concSetCampo(' + idx + ',&quot;_cat&quot;,this.value)', 'conc-novo-inp')
+                 'concSetCampo(' + idx + ',&quot;_cat&quot;,this.value)', 'conc-novo-inp',
+                 m.ofx ? m.ofx.tipo : '')
       + fkcCampo('contraparte', m._forn, 'cliente / fornecedor',
                  'concSetCampo(' + idx + ',&quot;_forn&quot;,this.value)', 'conc-novo-inp')
       + (m._apr ? '<span class="conc-novo-apr" title="Preenchido pelo histórico de importações">aprendido</span>' : '')
@@ -75494,7 +75729,7 @@ function _extImpRenderResult(){
   // listas de sugestão: o que já existe no Extrato + o que veio do arquivo
   // o combo lê as listas na hora de abrir; aqui só registramos o que veio do
   // arquivo ou foi digitado agora e ainda não está cadastrado
-  fkcExtras('categoria',   items.map(x => x.categoria));
+  fkcExtras('categoria',   items.map(x => x.categoria), items.map(x => x.tipo));
   fkcExtras('contraparte', items.map(x => x.contraparte));
   fkcExtras('conta',       items.map(x => x.conta)
                                 .concat(items.map(x => x.contaOrigem), items.map(x => x.contaDestino)));
@@ -75522,7 +75757,7 @@ function _extImpRenderResult(){
                      'extImpSet(' + i + ',&quot;contaDestino&quot;,this.value)', it.contaDestino ? '' : 'falta')
         + '</label></td>')
       : ('<td class="c-ct">' + fkcCampo('categoria', it.categoria, '—',
-                                        'extImpSet(' + i + ',&quot;categoria&quot;,this.value)') + '</td>'
+                                        'extImpSet(' + i + ',&quot;categoria&quot;,this.value)', '', it.tipo) + '</td>'
         + '<td class="c-fn">' + fkcCampo('contraparte', it.contraparte, '—',
                                         'extImpSet(' + i + ',&quot;contraparte&quot;,this.value)') + '</td>');
     rows += '<tr class="' + (skip ? 'skip ' : '') + (tr ? 'is-transf' : '') + '">'
