@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786575177"/>
+  <meta name="fk-build" content="forekash-v1786575654"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -69354,9 +69354,13 @@ try { window.extRowMenu = extRowMenu; window.extRowGenCobranca = extRowGenCobran
 
 function extEditManual(id){
   if(typeof id === 'string' && id.startsWith('grp:')){ extEditGroup(id); return; }
-  const l = (extratoData.lancamentos || []).find(x => 'm:' + x.id === id);
+  // Linha de baixa parcial tem id "m:<lanc>#<baixa>" — abre o lançamento de
+  // origem, que é onde os pagamentos são gerenciados. Sem cortar o sufixo, a
+  // busca por id exato falhava e o duplo-clique não fazia nada.
+  const base = (typeof id === 'string') ? id.split('#')[0] : id;
+  const l = (extratoData.lancamentos || []).find(x => 'm:' + x.id === base);
   if(!l) return;
-  extOpenModal(l.tipo, id);
+  extOpenModal(l.tipo, base);
 }
 function extToggleStatus(id){
   // Tenta encontrar o item pra ver o status atual
@@ -77202,7 +77206,9 @@ async function extBulkBaixar(){
   const today = new Date().toISOString().slice(0,10);
   for(const id of pendentes){
     try {
-      if(id.startsWith('m:')){
+      // linha de baixa (id com #) já É um pagamento — dar baixa nela marcaria
+      // o lançamento inteiro como quitado, apagando o parcial
+      if(id.startsWith('m:') && id.indexOf('#') < 0){
         const realId = parseInt(id.replace(/^m:/,''),10);
         const l = (extratoData.lancamentos||[]).find(x => x.id === realId);
         if(l){ l.status = 'pago'; l.dataPagamento = today; count++; }
@@ -77257,7 +77263,7 @@ async function extBulkVoltarAberto(){
   let count = 0;
   for(const id of pagos){
     try {
-      if(id.startsWith('m:')){
+      if(id.startsWith('m:') && id.indexOf('#') < 0){
         const realId = parseInt(id.replace(/^m:/,''),10);
         const l = (extratoData.lancamentos||[]).find(x => x.id === realId);
         if(l){ l.status = 'pendente'; l.dataPagamento = ''; count++; }
