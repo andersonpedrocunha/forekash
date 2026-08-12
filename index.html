@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786559545"/>
+  <meta name="fk-build" content="forekash-v1786560492"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -4753,10 +4753,10 @@
     .ext-imp-editavel table{table-layout:fixed;width:100%}
     .ext-imp-editavel .c-dt{width:88px}
     .ext-imp-editavel .c-ds{width:auto}
-    .ext-imp-editavel .c-tp{width:128px}
-    .ext-imp-editavel .c-ct{width:160px}
-    .ext-imp-editavel .c-fn{width:170px}
-    .ext-imp-editavel .c-vl{width:118px}
+    .ext-imp-editavel .c-tp{width:146px}   /* cabe "Transferência" inteiro */
+    .ext-imp-editavel .c-ct{width:172px}
+    .ext-imp-editavel .c-fn{width:178px}
+    .ext-imp-editavel .c-vl{width:124px}
     .ext-imp-editavel td{vertical-align:middle}
     .ext-imp-editavel select,.ext-imp-editavel input{width:100%;padding:4px 7px;border:1px solid transparent;
       background:transparent;border-radius:4px;font-size:.76rem;font-family:inherit;color:#0F172A;
@@ -4765,7 +4765,9 @@
     .ext-imp-editavel select:focus,.ext-imp-editavel input:focus{border-color:#0F766E;background:#fff;
       box-shadow:0 0 0 2px rgba(15,118,110,.12)}
     .ext-imp-editavel tr.is-transf td{background:#F5F3FF}
-    .ext-imp-editavel tr.is-transf .c-vl{color:#7C3AED;text-decoration:line-through;opacity:.7}
+    /* Transferência tem valor de verdade — riscar dava a entender que a linha
+       foi cancelada. O roxo já diz que ela não entra em receita nem despesa. */
+    .ext-imp-editavel tr.is-transf .c-vl{color:#7C3AED}
     .ext-imp-editavel tr.skip td{opacity:.42}
     .ext-imp-editavel .v-transf{color:#7C3AED}
     .tag-dup,.tag-susp,.tag-apr,.tag-ign{font-size:.6rem;font-weight:800;padding:1px 6px;border-radius:8px;
@@ -4982,7 +4984,9 @@
     .ext-imp-summary .stat .lbl{font-size:.66rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;opacity:.8}
     .ext-imp-preview{border:1px solid #E2E8F0;border-radius:8px;overflow:hidden;max-height:280px;overflow-y:auto;background:#fff}
     .ext-imp-preview table{width:100%;border-collapse:collapse;font-size:.74rem}
-    .ext-imp-preview th{padding:6px 8px;background:#F8FAFC;border-bottom:1px solid #E2E8F0;text-align:left;font-weight:700;color:#475569;position:sticky;top:0}
+    /* z-index é obrigatório aqui: os campos da linha são position:relative e,
+       sem ele, passam POR CIMA do cabeçalho fixo ao rolar a tabela. */
+    .ext-imp-preview th{padding:6px 8px;background:#F8FAFC;border-bottom:1px solid #E2E8F0;text-align:left;font-weight:700;color:#475569;position:sticky;top:0;z-index:3}
     .ext-imp-preview td{padding:6px 8px;border-bottom:1px solid #F1F5F9;color:#1E293B}
     .ext-imp-preview tr.skip td{color:#94A3B8;text-decoration:line-through}
     .ext-imp-preview .v-pos{color:#16A34A;font-weight:700}
@@ -72901,6 +72905,37 @@ function fkContasDisponiveis(extras){
       _recKbActiveBancos().forEach(b => { if(b && b.nome) set.add(String(b.nome).trim()); });
     }
   }catch(_){}
+  // Cartão é destino legítimo de transferência: pagar a fatura é mover
+  // dinheiro da conta pro cartão, não uma despesa nova — a despesa já foi
+  // lançada quando a compra foi feita. Sem os cartões na lista, não dava pra
+  // registrar isso direito.
+  try{
+    if(typeof cartoes !== 'undefined' && Array.isArray(cartoes.list)){
+      cartoes.list.forEach(c => {
+        if(!c || c.ativo === false) return;
+        const nome = String(c.nome || c.apelido || '').trim();
+        if(nome) set.add(nome.toLowerCase().includes('cart') ? nome : ('Cartão ' + nome));
+      });
+    }
+  }catch(_){}
+  // Contas que não são conta corrente — CDB, cotas, poupança, fundo. Aporte
+  // nelas é transferência, não despesa: o dinheiro continua sendo seu, só
+  // mudou de lugar. Consórcio e aplicação entram aqui.
+  // A conta não guarda nome próprio: é bancoId + tipoId.
+  try{
+    if(typeof dispo !== 'undefined' && Array.isArray(dispo.contas)){
+      const bancoNome = id => (dispo.bancos || []).find(b => b.id === id)?.nome || '';
+      const tipoNome  = id => (dispo.tipos  || []).find(t => t.id === id)?.nome || '';
+      dispo.contas.forEach(c => {
+        if(!c || c.ativo === false) return;
+        const b = bancoNome(c.bancoId), t = tipoNome(c.tipoId);
+        if(!b) return;
+        // conta corrente já entrou acima pelo nome do banco; não duplica
+        if(c.tipoId === 't-cc') return;
+        set.add(t ? (b + ' · ' + t) : b);
+      });
+    }
+  }catch(_){}
   try{
     if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
       extratoData.lancamentos.forEach(l => {
@@ -75743,7 +75778,9 @@ function _extImpRenderResult(){
     const tr   = it.tipo === 'transferencia';
     const trFalta = tr && !(it.contaOrigem && it.contaDestino);
     const valCls = tr ? 'v-transf' : (it.tipo === 'gasto' ? 'v-neg' : 'v-pos');
-    const sign = it.tipo === 'gasto' ? '-' : '+';
+    // Em transferência o + ou − não quer dizer nada — o dinheiro só mudou de
+    // conta. A seta diz a direção, que é a informação que importa ali.
+    const sign = tr ? '→' : (it.tipo === 'gasto' ? '-' : '+');
     if(tr) nTransfFalta += trFalta ? 1 : 0;
     // Transferência não tem categoria nem fornecedor: tem conta de saída e de
     // entrada. As duas colunas do meio viram esses campos.
@@ -75916,7 +75953,44 @@ function extImpSet(i, campo, valor){
   }
   it[campo] = valor;
   it._tocado = true;              // usuário mexeu: vale aprender
-  if(campo === 'tipo'){ _extImpRenderResult(); _extImpUpdateConfirm(); }
+  if(campo === 'tipo'){ _extImpRenderResult(); _extImpUpdateConfirm(); return; }
+  // Preencheu uma conta da transferência: o selo "falta conta" precisa sumir.
+  // Não dá pra re-renderizar a tabela aqui — o campo está em foco e o usuário
+  // perderia o cursor no meio da digitação. Atualiza só o que mudou.
+  if(campo === 'contaOrigem' || campo === 'contaDestino') _extImpAtualizaFaltaConta(i);
+}
+// Mexe apenas no selo da linha e no contorno dos dois campos de conta.
+function _extImpAtualizaFaltaConta(i){
+  const items = _extImpState.parsed || [];
+  const it = items[i];
+  if(!it) return;
+  const linhas = document.querySelectorAll('.ext-imp-editavel tbody tr:not(.ext-imp-busca-row)');
+  const tr = linhas[i];
+  if(tr){
+    const falta = it.tipo === 'transferencia' && !(it.contaOrigem && it.contaDestino);
+    const selo = tr.querySelector('.tag-falta');
+    if(falta && !selo){
+      const s = document.createElement('span');
+      s.className = 'tag-falta';
+      s.title = 'Transferência precisa da conta de saída e da conta de entrada';
+      s.textContent = 'falta conta';
+      const busca = tr.querySelector('.tag-busca');
+      if(busca) busca.parentNode.insertBefore(s, busca);
+    } else if(!falta && selo){
+      selo.remove();
+    }
+    const [inpO, inpD] = tr.querySelectorAll('.ext-imp-tr-conta .fkc-inp');
+    if(inpO) inpO.classList.toggle('falta', !it.contaOrigem);
+    if(inpD) inpD.classList.toggle('falta', !it.contaDestino);
+  }
+  // e o aviso embaixo da tabela, que conta quantas ainda faltam
+  const aviso = document.querySelector('.ext-imp-aviso-transf');
+  const n = items.filter(x => x.tipo === 'transferencia' && !(x.contaOrigem && x.contaDestino)).length;
+  if(aviso){
+    if(!n) aviso.remove();
+    else aviso.innerHTML = n + ' transferência(s) sem as duas contas. Sem saber de onde saiu e pra onde foi, '
+      + 'o saldo por conta não fecha — informe nas colunas <b>saída</b> e <b>entrada</b>.';
+  }
 }
 // Preenche o lado que a gente sabe: a conta do próprio extrato importado.
 // O outro lado o usuário escolhe — costuma ser conta de aplicação ou de outro
@@ -75992,12 +76066,54 @@ function extImpDetectarTransf(){
   }
 }
 // Aplica o que o Forekash já aprendeu nas linhas recém-parseadas
+/* Movimento que SAI da conta mas não é despesa — o dinheiro só mudou de
+   lugar. Classificar como Gasto conta duas vezes:
+
+   - Fatura de cartão: a despesa já foi lançada quando a compra aconteceu.
+     Pagar a fatura é mover dinheiro da conta pro cartão.
+   - Aplicação, CDB, poupança, consórcio: continua sendo seu dinheiro, vira
+     saldo em outra conta. Consórcio não contemplado é poupança forçada, não
+     despesa nem empréstimo (empréstimo é dinheiro que ENTRA gerando dívida).
+
+   Marca como transferência e sugere o destino; o usuário confirma. Só age
+   quando a memória de importação ainda não tem opinião sobre a descrição. */
+const FK_TRANSF_PADROES = [
+  { re: /\b(pag(to|amento)?|fatura)\b.{0,18}\bcart(ao|ão)\b|\bcart(ao|ão)\b.{0,18}\b(fatura|pag(to|amento)?)\b/i, hint: 'cartao' },
+  { re: /\bconsorcio\b|\bconsórcio\b/i,                          hint: 'investimento' },
+  { re: /\b(aplic|aplicacao|aplicação|resgate)\b/i,              hint: 'investimento' },
+  { re: /\brende\s*f[aá]cil\b|\bcdb\b|\blci\b|\blca\b|\bpoupanca\b|\bpoupança\b/i, hint: 'investimento' }
+];
+function _extImpSugereTransferencia(it){
+  const d = String(it.descricao || '');
+  const p = FK_TRANSF_PADROES.find(x => x.re.test(d));
+  if(!p) return false;
+  it.tipo = 'transferencia';
+  it._saida = it._saida !== undefined ? it._saida : true;
+  it._transfSugerida = p.hint;
+  _extImpTransfPreencher(it);
+  // tenta casar o destino pelo nome que aparece na própria descrição
+  if(!it.contaDestino){
+    try{
+      const contas = fkContasDisponiveis();
+      const norm = s => String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+      const alvo = norm(d);
+      const achou = contas.find(c => {
+        const partes = norm(c).split(/[^a-z0-9]+/).filter(x => x.length > 3);
+        return partes.length && partes.every(x => alvo.includes(x));
+      });
+      if(achou && achou !== it.contaOrigem) it.contaDestino = achou;
+    }catch(_){}
+  }
+  return true;
+}
 function _extImpAplicarMemoria(){
   if(typeof ofxSugerir !== 'function') return;
   try{ ofxMemLoad(); }catch(_){}
   let n = 0;
   (_extImpState.parsed || []).forEach(it => {
     const s = ofxSugerir(it.descricao, it.valor);
+    // sem nada aprendido: tenta reconhecer fatura de cartão / aplicação
+    if((!s || !s.aprendido) && _extImpSugereTransferencia(it)) return;
     if(!s) return;
     if(s.aprendido){
       if(s.categoria)   it.categoria   = s.categoria;
