@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786574868"/>
+  <meta name="fk-build" content="forekash-v1786575177"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5433,6 +5433,12 @@
     .is-travado .ext-baixa .x{display:none}
     [data-theme="dark"] .ext-baixa{background:#0F172A;border-color:#1E293B}
     [data-theme="dark"] .ext-baixa .vl{color:#E2E8F0}
+    .ext-nb-btn{width:100%;padding:9px 14px;border-radius:7px;border:1px solid #0F766E;
+      background:#0F766E;color:#fff;font-size:.8rem;font-weight:700;cursor:pointer;font-family:inherit}
+    .ext-nb-btn:hover{background:#115E59}
+    .ext-nb-hint{margin-top:8px;font-size:.76rem;color:#0F766E}
+    .ext-nb-hint.erro{color:#B91C1C}
+    .is-travado #ext-baixa-nova{display:none}
     /* linha de baixa parcial e linha de saldo em aberto */
     .ext-row-baixa{display:inline-flex;align-items:center;justify-content:center;min-width:30px;
       padding:1px 6px;margin-right:6px;border-radius:9px;cursor:pointer;font-family:inherit;
@@ -68396,6 +68402,23 @@ function extOpenModal(tipo, editId){
       +       '<h4>Pagamentos deste lançamento</h4>'
       +       '<div id="ext-baixas-lista"></div>'
       +     '</div>'
+      +     '<div class="dkb-pag-section" id="ext-baixa-nova" hidden>'
+      +       '<h4>Registrar mais um pagamento</h4>'
+      +       '<div class="dkb-pag-row">'
+      +         '<div class="field"><label>Data</label><input type="date" id="ext-nb-data"></div>'
+      +         '<div class="field"><label>Valor</label>'
+      +           '<div class="dkb-pag-money"><span class="prefix">R$</span>'
+      +           '<input type="text" inputmode="decimal" id="ext-nb-valor" placeholder="0,00"></div></div>'
+      +         '<div class="field"><label>Conta</label><select id="ext-nb-conta">' + contaOptsHtml(l.conta || '') + '</select></div>'
+      +       '</div>'
+      +       '<div class="dkb-pag-row" style="margin-top:10px">'
+      +         '<div class="field"><label>Forma</label><select id="ext-nb-forma">' + _extFormaPagOpts + '</select></div>'
+      +         '<div class="field" style="grid-column:span 2;align-self:end">'
+      +           '<button type="button" class="ext-nb-btn" onclick="extBaixaAdicionar()">+ Adicionar pagamento</button>'
+      +         '</div>'
+      +       '</div>'
+      +       '<div class="ext-nb-hint" id="ext-nb-hint"></div>'
+      +     '</div>'
       +     '<div class="dkb-pag-section">'
       +       '<h4>📋 Identificação do ' + _lbAba.toLowerCase() + '</h4>'
       +       '<div class="dkb-pag-row">'
@@ -68719,6 +68742,12 @@ function _extBaixasRender(){
   const realId = (typeof id === 'string' && /^m:/.test(id)) ? parseInt(id.slice(2), 10) : null;
   const l = realId != null ? (extratoData.lancamentos || []).find(x => x.id === realId) : null;
   const bs = l ? extBaixas(l) : [];
+  const nova = document.getElementById('ext-baixa-nova');
+  if(nova) nova.hidden = !l;            // só faz sentido em lançamento salvo
+  if(l){
+    const dNova = document.getElementById('ext-nb-data');
+    if(dNova && !dNova.value) dNova.value = new Date().toISOString().slice(0,10);
+  }
   if(!l || !bs.length){ sec.hidden = true; return; }   // lançamento novo ou sem baixa
   sec.hidden = false;
 
@@ -68746,6 +68775,37 @@ function _extBaixasRender(){
     +   '<span>' + resumo + '</span>'
     + '</div>';
 }
+/* Registrar mais um pagamento sem sair do lançamento — o caso de quem paga
+   em partes e volta várias vezes ao mesmo título. */
+function extBaixaAdicionar(){
+  const id = _extEditingId;
+  const realId = (typeof id === 'string' && /^m:/.test(id)) ? parseInt(id.slice(2), 10) : null;
+  const l = realId != null ? (extratoData.lancamentos || []).find(x => x.id === realId) : null;
+  const hint = document.getElementById('ext-nb-hint');
+  const aviso = (txt, erro) => { if(hint){ hint.textContent = txt; hint.className = 'ext-nb-hint' + (erro ? ' erro' : ''); } };
+  if(!l){ aviso('Salve o lançamento antes de registrar pagamentos.', true); return; }
+  const parse = (typeof _dkbParseNumBR === 'function') ? _dkbParseNumBR : (x => parseFloat(x) || 0);
+  const data  = (document.getElementById('ext-nb-data')?.value || '').trim();
+  const valor = parse(document.getElementById('ext-nb-valor')?.value);
+  const conta = (document.getElementById('ext-nb-conta')?.value || '').trim();
+  const forma = (document.getElementById('ext-nb-forma')?.value || '').trim();
+  if(!data){ aviso('Informe a data do pagamento.', true); return; }
+  if(!(valor > 0)){ aviso('Informe um valor maior que zero.', true); return; }
+  const b = extAddBaixa(l, { data, valor, conta, forma });
+  if(!b){ aviso('Não consegui registrar — confira data e valor.', true); return; }
+  _extSave();
+  document.getElementById('ext-nb-valor').value = '';
+  _extBaixasRender();
+  if(typeof renderExtrato === 'function') try{ renderExtrato(); }catch(_){}
+  const saldo = extSaldo(l);
+  const fmt = (typeof _extFmtBRL === 'function') ? _extFmtBRL : (n => 'R$ ' + Number(n||0).toFixed(2));
+  aviso(saldo > 0.005 ? ('Registrado. Ainda falta ' + fmt(saldo) + '.')
+        : (saldo < -0.005 ? ('Registrado. Pago ' + fmt(-saldo) + ' a mais que o lançamento.')
+        : 'Registrado. Lançamento quitado.'), false);
+  if(typeof toast === 'function') toast('✓ pagamento de ' + fmt(b.valor) + ' registrado');
+}
+try{ window.extBaixaAdicionar = extBaixaAdicionar; }catch(_){}
+
 function extBaixaRemover(baixaId){
   const id = _extEditingId;
   const realId = (typeof id === 'string' && /^m:/.test(id)) ? parseInt(id.slice(2), 10) : null;
