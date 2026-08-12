@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786572481"/>
+  <meta name="fk-build" content="forekash-v1786572869"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -68416,17 +68416,14 @@ try{ window._extAvisaContaDiferente = _extAvisaContaDiferente; }catch(_){}
 
 /* Trava para lançamento já baixado.
 
-   Dois níveis, porque o risco é diferente:
+   Baixado é fato consumado: o dinheiro entrou ou saiu. Alterar valor, data ou
+   conta de um lançamento pago reescreve o que já foi dado como realizado — e
+   se ele estiver conciliado, desfaz a amarração com uma linha do extrato do
+   banco, que não muda junto.
 
-   - CONCILIADO: o lançamento foi casado com uma linha do extrato do banco.
-     Mexer nele desfaz a amarração com um dado que não é seu — o banco não
-     muda porque você editou aqui. Abre travado; destravar é um clique
-     deliberado.
-   - PAGO (sem conciliação): baixa feita à mão. Editar é legítimo, mas não
-     deveria ser acidental — fica destravado, só com o aviso visível.
-
-   A trava é da interface, não do dado: não impede nada pela API, evita o
-   clique errado. Botão de excluir some enquanto travado.                  */
+   Por isso não basta avisar: o modal abre somente leitura, e o único caminho
+   pra editar é desfazer a baixa antes. Mesma ordem que se faria no papel —
+   estorna, corrige, baixa de novo.                                          */
 function _extAplicarTrava(l, editId){
   if(!editId || !l) return;
   const conciliado = !!l.conciliacao;
@@ -68437,47 +68434,73 @@ function _extAplicarTrava(l, editId){
   const bd = modal && modal.querySelector('.dkb-modal-bd, .ext-modal-bd');
   if(!modal || !bd) return;
 
+  const quando = String((l.conciliacao && l.conciliacao.conciliadoEm) || '').slice(0,10)
+                   .split('-').reverse().join('/');
   const faixa = document.createElement('div');
-  faixa.className = 'ext-trava' + (conciliado ? ' forte' : '');
-  if(conciliado){
-    const quando = (l.conciliacao.conciliadoEm || '').slice(0,10).split('-').reverse().join('/');
-    faixa.innerHTML = '<div class="ext-trava-txt"><b>Conciliado com o extrato do banco</b>'
-      + (quando ? ' em ' + quando : '') + '. Editar desfaz a amarração — o banco não muda junto.</div>'
-      + '<button type="button" class="ext-trava-btn" onclick="_extDestravar()">Destravar para editar</button>';
-  } else {
-    faixa.innerHTML = '<div class="ext-trava-txt"><b>Lançamento já baixado.</b> '
-      + 'Alterar valor, data ou conta muda o que já foi dado como realizado.</div>';
-  }
+  faixa.className = 'ext-trava forte';
+  faixa.innerHTML = '<div class="ext-trava-txt"><b>'
+    + (conciliado ? 'Conciliado com o extrato do banco' + (quando ? ' em ' + quando : '') : 'Lançamento baixado')
+    + '.</b> Somente leitura. Pra corrigir, volte para Em Aberto — '
+    + (conciliado
+        ? 'isso também desfaz a conciliação com o banco.'
+        : 'os dados da baixa serão apagados.')
+    + '</div>'
+    + '<button type="button" class="ext-trava-btn" onclick="extVoltarAbertoDoModal()">↩ Voltar para Em Aberto</button>';
   bd.insertBefore(faixa, bd.firstChild);
 
-  if(conciliado){
-    modal.classList.add('is-travado');
-    bd.querySelectorAll('input, select, textarea, button').forEach(el => {
-      if(el.closest('.ext-trava')) return;
-      el.disabled = true;
-    });
-    const ft = modal.querySelector('.ext-modal-ft, .dkb-modal-ft');
-    if(ft) ft.querySelectorAll('button').forEach(b => {
-      if(/cancelar/i.test(b.textContent)) return;
-      b.disabled = true;
-    });
+  modal.classList.add('is-travado');
+  bd.querySelectorAll('input, select, textarea, button').forEach(el => {
+    if(el.closest('.ext-trava')) return;
+    el.disabled = true;
+  });
+  const ft = modal.querySelector('.ext-modal-ft, .dkb-modal-ft');
+  if(ft) ft.querySelectorAll('button').forEach(b => {
+    if(/cancelar/i.test(b.textContent)) return;
+    b.disabled = true;   // salvar e excluir ficam fora enquanto travado
+  });
+}
+
+/* Desfaz a baixa e reabre o mesmo lançamento já editável. */
+async function extVoltarAbertoDoModal(){
+  const id = _extEditingId;
+  if(!id || typeof id !== 'string' || !/^m:/.test(id)){
+    if(typeof toast === 'function') toast('⚠ Só lançamento do Extrato pode voltar por aqui');
+    return;
+  }
+  const realId = parseInt(id.slice(2), 10);
+  const l = (extratoData.lancamentos || []).find(x => x.id === realId);
+  if(!l) return;
+  const conciliado = !!l.conciliacao;
+  const ok = await _dkbConfirm({
+    icon: '↩️',
+    title: 'Voltar este lançamento para Em Aberto?',
+    html: 'Os dados da baixa serão apagados — <b>data, valor e conta do pagamento</b>.'
+      + (conciliado
+          ? '<br><br><span style="color:#B91C1C;font-weight:600">A conciliação com o extrato do banco também será desfeita.</span> '
+            + 'Na próxima importação deste período ele volta a aparecer como não conferido.'
+          : '')
+      + '<br><br>Depois é só corrigir e dar baixa de novo.',
+    okText: 'Sim, voltar para Em Aberto',
+    cancelText: 'Cancelar'
+  });
+  if(!ok) return;
+  l.status = 'pendente';
+  l.dataPagamento = '';
+  l.valorPago = null;
+  l.contaPagamento = '';
+  l.formaPagamento = '';
+  if(conciliado) delete l.conciliacao;
+  _extSave();
+  if(typeof renderExtrato === 'function') try{ renderExtrato(); }catch(_){}
+  extOpenModal(l.tipo || 'gasto', id);   // reabre destravado
+  if(typeof toast === 'function'){
+    toast('↩ Em Aberto' + (conciliado ? ' · conciliação desfeita' : '') + ' — corrija e dê baixa de novo');
   }
 }
-function _extDestravar(){
-  const modal = document.querySelector('#ext-modal-ov .dkb-modal, #ext-modal-ov .ext-modal');
-  if(!modal) return;
-  modal.classList.remove('is-travado');
-  modal.querySelectorAll('input, select, textarea, button').forEach(el => { el.disabled = false; });
-  const faixa = modal.querySelector('.ext-trava');
-  if(faixa){
-    faixa.classList.remove('forte');
-    faixa.classList.add('destravado');
-    faixa.innerHTML = '<div class="ext-trava-txt"><b>Destravado.</b> '
-      + 'Este lançamento está conciliado com o extrato do banco — o que você mudar aqui '
-      + 'deixa de bater com o que o banco registrou.</div>';
-  }
-}
-try{ window._extAplicarTrava = _extAplicarTrava; window._extDestravar = _extDestravar; }catch(_){}
+try{
+  window._extAplicarTrava = _extAplicarTrava;
+  window.extVoltarAbertoDoModal = extVoltarAbertoDoModal;
+}catch(_){}
 
 function _extSyncComp(){
   const venc = document.getElementById('ext-fld-data');
