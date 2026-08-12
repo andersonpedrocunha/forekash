@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786563598"/>
+  <meta name="fk-build" content="forekash-v1786565025"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -4899,6 +4899,12 @@
     .ext-imp-editavel .ext-imp-tr-conta input::placeholder{color:#A78BFA;font-size:.7rem}
     .ext-imp-aviso-transf{margin-top:8px;padding:8px 12px;border-radius:6px;font-size:.75rem;
       color:#5B21B6;background:#F5F3FF;border:1px solid #DDD6FE}
+    .ext-imp-aviso-semcat{margin-top:8px;padding:8px 12px;border-radius:6px;font-size:.75rem;
+      color:#92400E;background:#FFFBEB;border:1px solid #FDE68A;line-height:1.5}
+    .ext-imp-summary .stat.semcat .num{color:#B45309}
+    .tag-semcat{font-size:.6rem;font-weight:800;padding:1px 6px;border-radius:8px;
+      text-transform:uppercase;letter-spacing:.04em;font-family:Consolas,Menlo,monospace;
+      white-space:nowrap;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A}
     .tag-busca{font-size:.6rem;font-weight:700;padding:1px 7px;border-radius:8px;cursor:pointer;
       color:#475569;background:#fff;border:1px solid #CBD5E1;font-family:inherit;margin-left:4px}
     .tag-busca:hover{background:#EFF6FF;border-color:#3B82F6;color:#1D4ED8}
@@ -76036,6 +76042,13 @@ function _extImpRenderResult(){
     else if(it._suspeitos.length) nSusp++;
   }
   _extImpState.nJaIgn = nJaIgn;
+  // Sem categoria, o lançamento entra no Extrato e no saldo mas NÃO chega no
+  // Demonstrativo — é a categoria que carrega o vínculo com a linha do DRC e
+  // do DRE. O valor some do resultado sem nenhum aviso. Contar aqui, antes de
+  // importar, é o único ponto onde dá pra evitar.
+  const nSemCat = items.filter(it =>
+    !it._ignorar && it.tipo !== 'transferencia' && !(it.categoria || '').trim()
+    && !(dupMode === 'skip' && it._dup)).length;
   _extImpState.nSusp = nSusp;
   // Soma
   let sumGanho = 0, sumGasto = 0;
@@ -76061,6 +76074,7 @@ function _extImpRenderResult(){
       + '<div class="stat"><span class="num">' + (items.length - nDup - nIgn) + '</span><span class="lbl">a importar</span></div>'
       + '<div class="stat"><span class="num">' + nDup + '</span><span class="lbl">duplicat.</span></div>'
       + (nIgn ? '<div class="stat ign"><span class="num">' + nIgn + '</span><span class="lbl">ignoradas</span></div>' : '')
+      + (nSemCat ? '<div class="stat semcat"><span class="num">' + nSemCat + '</span><span class="lbl">sem categoria</span></div>' : '')
       + (nSusp ? '<div class="stat susp"><span class="num">' + nSusp + '</span><span class="lbl">possíveis dup</span></div>' : '')
       + '<div class="stat"><span class="num">R$ ' + _extImpFmtMoney(sumGanho) + '</span><span class="lbl">ganhos</span></div>'
       + '<div class="stat"><span class="num">R$ ' + _extImpFmtMoney(sumGasto) + '</span><span class="lbl">gastos</span></div>'
@@ -76129,6 +76143,8 @@ function _extImpRenderResult(){
              : '')
       +   (it._aprendido ? ' <span class="tag-apr" title="Preenchido pelo histórico de ' + it._vezes + ' importação(ões)">aprendido</span>' : '')
       +   (trFalta && !skip ? ' <span class="tag-falta" title="Transferência precisa da conta de saída e da conta de entrada">falta conta</span>' : '')
+      +   (!skip && !tr && !(it.categoria || '').trim()
+             ? ' <span class="tag-semcat" title="Sem categoria este lançamento não aparece no Demonstrativo">sem categoria</span>' : '')
       +   ' <button type="button" class="tag-busca" onclick="extImpBuscar(' + i + ')" title="Procurar este lançamento no Forekash">buscar</button>'
       +   (it._ignorar ? '' : ' <button type="button" class="tag-ignorar" onclick="extImpMarcarIgnorar(' + i + ',true)"'
              + ' title="Não trazer para o sistema — fica registrado na lista de ignorados">ignorar</button>')
@@ -76152,6 +76168,13 @@ function _extImpRenderResult(){
       tableHtml += '<div class="ext-imp-aviso-transf">'
         + nTransfFalta + ' transferência(s) sem as duas contas. Sem saber de onde saiu e pra onde foi, '
         + 'o saldo por conta não fecha — informe nas colunas <b>saída</b> e <b>entrada</b>.</div>';
+    }
+    if(nSemCat){
+      tableHtml += '<div class="ext-imp-aviso-semcat">'
+        + '<b>' + nSemCat + ' lançamento(s) sem categoria.</b> Eles entram no Extrato e no saldo, '
+        + 'mas <b>não aparecem no Demonstrativo</b> — é a categoria que liga o lançamento à linha '
+        + 'do DRC e do DRE. Dá pra importar assim e classificar depois, mas o resultado do mês '
+        + 'vai ficar incompleto até lá.</div>';
     }
   }
   el.innerHTML = summaryHtml + tableHtml;
@@ -76277,6 +76300,46 @@ function extImpSet(i, campo, valor){
   // Não dá pra re-renderizar a tabela aqui — o campo está em foco e o usuário
   // perderia o cursor no meio da digitação. Atualiza só o que mudou.
   if(campo === 'contaOrigem' || campo === 'contaDestino') _extImpAtualizaFaltaConta(i);
+  if(campo === 'categoria') _extImpAtualizaSemCategoria(i);
+}
+// Mesma razão do selo de conta: não dá pra re-renderizar a tabela com o campo
+// em foco. Atualiza só o selo da linha, o contador do resumo e o aviso.
+function _extImpAtualizaSemCategoria(i){
+  const items = _extImpState.parsed || [];
+  const it = items[i];
+  if(!it) return;
+  const linhas = document.querySelectorAll('.ext-imp-editavel tbody tr:not(.ext-imp-busca-row)');
+  const tr = linhas[i];
+  if(tr){
+    const falta = it.tipo !== 'transferencia' && !(it.categoria || '').trim() && !it._ignorar;
+    const selo = tr.querySelector('.tag-semcat');
+    if(falta && !selo){
+      const s = document.createElement('span');
+      s.className = 'tag-semcat';
+      s.title = 'Sem categoria este lançamento não aparece no Demonstrativo';
+      s.textContent = 'sem categoria';
+      const busca = tr.querySelector('.tag-busca');
+      if(busca) busca.parentNode.insertBefore(s, busca);
+    } else if(!falta && selo){
+      selo.remove();
+    }
+  }
+  const dupSelEl = document.getElementById('ext-imp-dup');
+  const dupMode = dupSelEl ? dupSelEl.value : 'skip';
+  const n = items.filter(x => !x._ignorar && x.tipo !== 'transferencia'
+    && !(x.categoria || '').trim() && !(dupMode === 'skip' && x._dup)).length;
+  const stat = document.querySelector('.ext-imp-summary .stat.semcat .num');
+  if(stat) stat.textContent = String(n);
+  const statBox = document.querySelector('.ext-imp-summary .stat.semcat');
+  if(statBox) statBox.style.display = n ? '' : 'none';
+  const aviso = document.querySelector('.ext-imp-aviso-semcat');
+  if(aviso){
+    if(!n) aviso.remove();
+    else aviso.innerHTML = '<b>' + n + ' lançamento(s) sem categoria.</b> Eles entram no Extrato e no saldo, '
+      + 'mas <b>não aparecem no Demonstrativo</b> — é a categoria que liga o lançamento à linha '
+      + 'do DRC e do DRE. Dá pra importar assim e classificar depois, mas o resultado do mês '
+      + 'vai ficar incompleto até lá.';
+  }
 }
 // Mexe apenas no selo da linha e no contorno dos dois campos de conta.
 function _extImpAtualizaFaltaConta(i){
