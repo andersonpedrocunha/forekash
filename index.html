@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786561741"/>
+  <meta name="fk-build" content="forekash-v1786562273"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -19612,8 +19612,8 @@
                 <p>Lançamentos consolidados · entradas, saídas e transferências</p>
               </div>
               <div class="ext-hd-actions">
-                <button type="button" class="ext-btn ext-btn-gasto"   onclick="extOpenModal('gasto')">+ Lançar Gasto</button>
                 <button type="button" class="ext-btn ext-btn-ganho"   onclick="extOpenModal('ganho')">+ Lançar Ganho</button>
+                <button type="button" class="ext-btn ext-btn-gasto"   onclick="extOpenModal('gasto')">+ Lançar Gasto</button>
                 <button type="button" class="ext-btn ext-btn-transf"  onclick="extOpenModal('transferencia')">+ Lançar Transf.</button>
                 <div class="ext-import-menu" id="ext-import-menu">
                   <button type="button" class="ext-btn ext-btn-import-trig" onclick="extImportMenuToggle(event)" title="Opções de importação de dados">
@@ -67892,15 +67892,21 @@ function extOpenModal(tipo, editId){
   // (aporte/resgate) também são destino legítimo. Usa a mesma lista da
   // importação, pra não divergirem.
   const contaOptsHtml = (cur) => {
-    let lista = [];
-    try{ lista = (typeof fkContasDisponiveis === 'function') ? fkContasDisponiveis() : []; }catch(_){}
-    if(!lista.length) return bancoOptsHtml(cur);
+    let grupos = [];
+    try{ grupos = (typeof fkContasAgrupadas === 'function') ? fkContasAgrupadas() : []; }catch(_){}
+    if(!grupos.length) return bancoOptsHtml(cur);
     let s = '<option value="">— escolha —</option>';
-    for(const nm of lista){
-      s += '<option value="' + _extEsc(nm) + '"' + (nm === cur ? ' selected' : '') + '>' + _extEsc(nm) + '</option>';
+    const todos = [];
+    for(const g of grupos){
+      s += '<optgroup label="' + _extEsc(g.titulo) + '">';
+      for(const nm of g.itens){
+        todos.push(nm);
+        s += '<option value="' + _extEsc(nm) + '"' + (nm === cur ? ' selected' : '') + '>' + _extEsc(nm) + '</option>';
+      }
+      s += '</optgroup>';
     }
-    if(cur && !lista.includes(cur)){
-      s += '<option value="' + _extEsc(cur) + '" selected>' + _extEsc(cur) + '</option>';
+    if(cur && !todos.includes(cur)){
+      s += '<optgroup label="Outras"><option value="' + _extEsc(cur) + '" selected>' + _extEsc(cur) + '</option></optgroup>';
     }
     return s;
   };
@@ -68000,7 +68006,7 @@ function extOpenModal(tipo, editId){
       +   '</div>'
       +   '<div id="ext-tab-detalhes" class="dkb-tab-pane">'
       +     '<div class="dkb-modal-grid">'
-      +       '<div class="field"><label>Conta <span class="hint">(banco ativo)</span></label><select id="ext-fld-conta">' + bancoOptsHtml(l.conta || '') + '</select></div>'
+      +       '<div class="field"><label>Conta <span class="hint">banco, cartão ou aplicação</span></label><select id="ext-fld-conta">' + contaOptsHtml(l.conta || '') + '</select></div>'
       +       '<div class="field"><label>Centro de Custo <span class="hint">(opcional)</span></label><select id="ext-fld-cc">' + ccOptionsHtml(l.centroCustoId || null) + '</select></div>'
       +       '<div class="field full">'
       +         '<div class="ext-items" id="ext-items-wrap">'
@@ -73056,47 +73062,53 @@ function fkContrapartesDisponiveis(extras){
   return [...set].filter(Boolean).sort((a,b) => a.localeCompare(b,'pt'));
 }
 
-// Contas/bancos pra escolher origem e destino de uma transferência. Junta os
-// bancos cadastrados com as contas que já aparecem no Extrato — porque conta de
-// aplicação ("BB Rende Fácil", "CDB") costuma não estar no cadastro de bancos.
-function fkContasDisponiveis(extras){
-  const set = new Set();
+/* Todas as contas onde dinheiro pode estar, agrupadas por natureza.
+
+   Cartão é conta: pagar a fatura é mover dinheiro da conta corrente pro
+   cartão, não uma despesa nova — a despesa já foi lançada na compra.
+   Aplicação, cotas e consórcio também: aporte é transferência, o dinheiro
+   continua sendo seu, só mudou de lugar.
+
+   A conta de Disponibilidades não guarda nome próprio — é bancoId + tipoId,
+   e o tipo traz `liquidez` ('caixa' ou 'reserva'), que é o mesmo corte que a
+   tela de Disponibilidades usa entre "Saldo em caixa" e "Reserva e
+   investimentos de longo prazo". O tipo entra sempre no rótulo: sem ele,
+   "Itaú" conta corrente e "Itaú" CDB virariam a mesma linha.            */
+function fkContasAgrupadas(){
+  const caixa = [], reserva = [], cartoes_ = [];
   try{
-    if(typeof _recKbActiveBancos === 'function'){
-      _recKbActiveBancos().forEach(b => { if(b && b.nome) set.add(String(b.nome).trim()); });
+    if(typeof dispo !== 'undefined' && Array.isArray(dispo.contas)){
+      const banco = id => (dispo.bancos || []).find(b => b.id === id) || null;
+      const tipo  = id => (dispo.tipos  || []).find(t => t.id === id) || null;
+      dispo.contas.forEach(c => {
+        if(!c || c.ativo === false) return;
+        const b = banco(c.bancoId), t = tipo(c.tipoId);
+        if(!b || !b.nome) return;
+        const nome = t ? (b.nome + ' · ' + t.nome) : b.nome;
+        ((t && t.liquidez === 'reserva') ? reserva : caixa).push(nome);
+      });
     }
   }catch(_){}
-  // Cartão é destino legítimo de transferência: pagar a fatura é mover
-  // dinheiro da conta pro cartão, não uma despesa nova — a despesa já foi
-  // lançada quando a compra foi feita. Sem os cartões na lista, não dava pra
-  // registrar isso direito.
   try{
     if(typeof cartoes !== 'undefined' && Array.isArray(cartoes.list)){
       cartoes.list.forEach(c => {
         if(!c || c.ativo === false) return;
         const nome = String(c.nome || c.apelido || '').trim();
-        if(nome) set.add(nome.toLowerCase().includes('cart') ? nome : ('Cartão ' + nome));
+        if(nome) cartoes_.push(nome.toLowerCase().includes('cart') ? nome : ('Cartão ' + nome));
       });
     }
   }catch(_){}
-  // Contas que não são conta corrente — CDB, cotas, poupança, fundo. Aporte
-  // nelas é transferência, não despesa: o dinheiro continua sendo seu, só
-  // mudou de lugar. Consórcio e aplicação entram aqui.
-  // A conta não guarda nome próprio: é bancoId + tipoId.
-  try{
-    if(typeof dispo !== 'undefined' && Array.isArray(dispo.contas)){
-      const bancoNome = id => (dispo.bancos || []).find(b => b.id === id)?.nome || '';
-      const tipoNome  = id => (dispo.tipos  || []).find(t => t.id === id)?.nome || '';
-      dispo.contas.forEach(c => {
-        if(!c || c.ativo === false) return;
-        const b = bancoNome(c.bancoId), t = tipoNome(c.tipoId);
-        if(!b) return;
-        // conta corrente já entrou acima pelo nome do banco; não duplica
-        if(c.tipoId === 't-cc') return;
-        set.add(t ? (b + ' · ' + t) : b);
-      });
-    }
-  }catch(_){}
+  const ord = a => a.sort((x,y) => x.localeCompare(y,'pt'));
+  return [
+    { titulo: 'Contas',                    itens: ord(caixa) },
+    { titulo: 'Reserva e investimentos',   itens: ord(reserva) },
+    { titulo: 'Cartões',                   itens: ord(cartoes_) }
+  ].filter(g => g.itens.length);
+}
+// Lista achatada — pros combos que não têm agrupamento.
+function fkContasDisponiveis(extras){
+  const set = new Set();
+  fkContasAgrupadas().forEach(g => g.itens.forEach(n => set.add(n)));
   try{
     if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
       extratoData.lancamentos.forEach(l => {
@@ -73253,6 +73265,7 @@ try{
   window.fkCategoriasDisponiveis = fkCategoriasDisponiveis;
   window.fkContrapartesDisponiveis = fkContrapartesDisponiveis;
   window.fkContasDisponiveis = fkContasDisponiveis;
+  window.fkContasAgrupadas = fkContasAgrupadas;
   window.fkGarantirCategoria = fkGarantirCategoria;
   window.fkGarantirContraparte = fkGarantirContraparte;
 }catch(_){}
