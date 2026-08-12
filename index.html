@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786572126"/>
+  <meta name="fk-build" content="forekash-v1786572481"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -4523,8 +4523,19 @@
     .conc-edit-pop .btn-save{background:#7C3AED;border-color:#5B21B6;color:#fff}
 
     /* === Lock indicator no Extrato (conciliado) === */
-    .ext-row-conc{display:inline-block;width:7px;height:7px;border-radius:50%;background:#16A34A;
-                     margin-right:6px;vertical-align:middle;flex-shrink:0}
+    .ext-row-conc{display:inline-flex;align-items:center;margin-right:6px;vertical-align:middle;
+                  flex-shrink:0;color:#2563EB}
+    .ext-row-conc svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;
+                      stroke-linecap:round;stroke-linejoin:round}
+    /* faixa na borda da linha — azul, pra não competir com o verde do "Pago" */
+    .ext-tbl tr.is-conciliado td:first-child,
+    tr.is-conciliado td:first-child{box-shadow:inset 3px 0 0 #2563EB}
+    tr.is-conciliado td{background:#F7FAFF}
+    tr.is-conciliado:hover td{background:#EFF6FF}
+    [data-theme="dark"] .ext-row-conc{color:#60A5FA}
+    [data-theme="dark"] tr.is-conciliado td{background:#0F1B2E}
+    [data-theme="dark"] tr.is-conciliado:hover td{background:#152540}
+    [data-theme="dark"] tr.is-conciliado td:first-child{box-shadow:inset 3px 0 0 #60A5FA}
 
     /* === Empty state === */
     .conc-empty{padding:60px 20px;text-align:center;background:#fff;border:1px solid #E5E7EB;
@@ -66601,25 +66612,37 @@ function renderExtrato(){
       const isOpen = _extExpandedFat.has(it.id);
       descPrefix = '<button type="button" class="ext-fat-toggle' + (isOpen ? ' is-open' : '') + '" onclick="event.stopPropagation();_extToggleFat(\'' + it.id + '\')" title="' + (isOpen ? 'Recolher' : 'Expandir') + ' (' + it.children.length + ' lançamentos)">' + (isOpen ? '▾' : '▸') + '</button>';
     }
-    // Indicador de lançamento conciliado (bolinha verde · só pra raw manuais)
-    if(it.manual && it.raw && it.raw.lancamentoId){
-      const rawLan = (extratoData && Array.isArray(extratoData.lancamentos))
-        ? extratoData.lancamentos.find(x => x.id === it.raw.lancamentoId) : null;
-      if(rawLan && rawLan.conciliacao){
-        const conf = rawLan.conciliacao.confianca || '';
-        const histId = rawLan.conciliacao.histId || '';
-        descPrefix = '<span class="ext-row-conc" title="Conciliado em ' + (rawLan.conciliacao.conciliadoEm||'').slice(0,10) + ' · ' + conf + (histId ? ' · #' + histId : '') + '"></span>' + descPrefix;
+    /* Conciliado com o extrato do banco. Era uma bolinha verde de 7px antes da
+       descrição — some no meio da linha, e verde compete com o "Pago" da
+       coluna de status. Vira uma faixa azul na borda da linha (a mesma cor do
+       aviso no modal) mais um ícone de elo, que é o que a conciliação faz:
+       amarra o lançamento a uma linha do extrato. */
+    /* A detecção procurava raw.lancamentoId (formato das faturas de cartão) ou
+       id com prefixo "manual:" — nenhum dos dois existe para lançamento do
+       Extrato, cujo id é "m:<n>". O marcador nunca aparecia. */
+    let _conc = null;
+    try{
+      const lancs = (extratoData && Array.isArray(extratoData.lancamentos)) ? extratoData.lancamentos : [];
+      let alvo = null;
+      if(it.raw && it.raw.lancamentoId != null){
+        alvo = lancs.find(x => x.id === it.raw.lancamentoId);
+      } else if(typeof it.id === 'string' && /^m:/.test(it.id)){
+        const n = parseInt(it.id.slice(2), 10);
+        alvo = lancs.find(x => x.id === n);
       }
-    } else if(!it.manual && it.raw && it.id && typeof it.id === 'string' && it.id.startsWith('manual:')){
-      // Manual identificado por prefix manual: no id
-      const lanId = parseInt(it.id.replace('manual:', ''), 10);
-      const rawLan = (extratoData && Array.isArray(extratoData.lancamentos))
-        ? extratoData.lancamentos.find(x => x.id === lanId) : null;
-      if(rawLan && rawLan.conciliacao){
-        descPrefix = '<span class="ext-row-conc" title="Conciliado em ' + (rawLan.conciliacao.conciliadoEm||'').slice(0,10) + '"></span>' + descPrefix;
-      }
+      if(alvo && alvo.conciliacao) _conc = alvo.conciliacao;
+    }catch(_){}
+    if(_conc){
+      const quando = String(_conc.conciliadoEm || '').slice(0,10).split('-').reverse().join('/');
+      const conf = _conc.confianca ? ' · ' + _conc.confianca : '';
+      const hist = _conc.histId ? ' · lote #' + _conc.histId : '';
+      descPrefix = '<span class="ext-row-conc" title="Conferido com o extrato do banco'
+        + (quando ? ' em ' + quando : '') + conf + hist + '">'
+        + '<svg viewBox="0 0 24 24" aria-hidden="true">'
+        + '<path d="M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7"/>'
+        + '<path d="M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7"/></svg></span>' + descPrefix;
     }
-    html += '<tr class="' + (isDerived ? 'is-derived' : '') + (isSel ? ' is-selected' : '') + '" data-ext-id="' + it.id + '"'
+    html += '<tr class="' + (isDerived ? 'is-derived' : '') + (isSel ? ' is-selected' : '') + (_conc ? ' is-conciliado' : '') + '" data-ext-id="' + it.id + '"'
       + ' ondblclick="extDblClick(\''+ it.id + '\')" title="Duplo-click pra abrir o lançamento">'
       + '<td class="col-sel"><input type="checkbox" data-ext-sel="' + it.id + '" onchange="extToggleSel(\''+ it.id + '\',this.checked)"' + (isSel ? ' checked' : '') + '></td>'
       + '<td class="col-data" title="' + (dEff || '') + '">' + dataLbl + '</td>'
