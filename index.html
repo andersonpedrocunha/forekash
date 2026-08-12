@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786561355"/>
+  <meta name="fk-build" content="forekash-v1786561741"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5330,7 +5330,43 @@
     .dkb-view-kanban .rec-kb-col[data-st="recebido"] .rec-kb-col-hd{background:#D1FAE5;color:#065F46}
     /* Modal próprio (separado do receita) */
     .dkb-modal-ov{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px}
-    .dkb-modal{background:#fff;border-radius:12px;width:min(680px,96vw);max-height:92vh;overflow:auto;box-shadow:0 20px 60px rgba(15,23,42,.25)}
+    .dkb-modal{background:#fff;border-radius:12px;width:min(880px,96vw);max-height:92vh;overflow:auto;box-shadow:0 20px 60px rgba(15,23,42,.25)}
+    /* ── Blocos recolhíveis: retenções, repetição, documento/anexo ──
+       Eram três caixas coloridas sempre abertas, empilhadas. Na maioria dos
+       lançamentos nenhuma delas é usada — mas ocupavam metade do modal e
+       competiam por atenção com o que importa (valor, categoria, conta).
+       Agora abrem só quando têm conteúdo, e o resumo fica no cabeçalho. */
+    .dkb-sec{grid-column:1/-1;border:1px solid #E2E8F0;border-radius:9px;background:#fff;overflow:hidden}
+    .dkb-sec + .dkb-sec{margin-top:-2px}
+    .dkb-sec > summary{list-style:none;cursor:pointer;padding:10px 13px;display:flex;align-items:center;
+      gap:9px;font-size:.78rem;font-weight:600;color:#334155;user-select:none}
+    .dkb-sec > summary::-webkit-details-marker{display:none}
+    .dkb-sec > summary:hover{background:#F8FAFC}
+    .dkb-sec > summary::before{content:"›";font-size:1rem;color:#94A3B8;transition:transform .15s;
+      display:inline-block;width:9px;line-height:1}
+    .dkb-sec[open] > summary::before{transform:rotate(90deg)}
+    .dkb-sec[open] > summary{border-bottom:1px solid #E2E8F0}
+    .dkb-sec .sec-hint{font-weight:400;color:#94A3B8;font-size:.72rem}
+    .dkb-sec .sec-resumo{margin-left:auto;font-size:.72rem;font-weight:600;color:#64748B;
+      background:#F1F5F9;border-radius:11px;padding:2px 9px}
+    .dkb-sec .sec-resumo.on{background:#EDE9FE;color:#5B21B6}
+    .dkb-sec-bd{padding:13px}
+    .dkb-sec-btn{padding:6px 12px;border-radius:6px;border:1px solid #CBD5E1;background:#fff;color:#334155;
+      font-size:.76rem;font-weight:600;cursor:pointer;font-family:inherit}
+    .dkb-sec-btn:hover{background:#F1F5F9}
+    .dkb-sec-sel{padding:6px 10px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;
+      font-size:.74rem;font-family:inherit;cursor:pointer;color:#334155}
+    .dkb-sec-liq{margin-left:auto;font-size:.74rem;color:#64748B}
+    .dkb-sec-liq b{color:#0F172A}
+    /* dentro da seção, o bloco de repetição perde a moldura própria — a
+       seção já é a moldura, duas caixas aninhadas ficavam pesadas */
+    .dkb-sec .ext-rep-wrap{padding:0;background:none;border:none;margin:0}
+    .dkb-sec .ext-rep-hd{display:none}
+    /* itens ficam mais leves: a lista já está delimitada pelo cartão de cima */
+    .ext-items{background:#fff;border-color:#E2E8F0}
+    [data-theme="dark"] .dkb-sec{background:#0F172A;border-color:#1E293B}
+    [data-theme="dark"] .dkb-sec > summary{color:#E2E8F0}
+    [data-theme="dark"] .dkb-sec > summary:hover{background:#1E293B}
     .dkb-modal-hd{padding:14px 20px;border-bottom:1px solid #E5E7EB;display:flex;align-items:center;justify-content:space-between;gap:10px}
     .dkb-modal-hd h3{margin:0;font-size:1rem;color:#1E293B}
     .dkb-modal-sub{font-size:.74rem;color:#64748B;margin-top:1px}
@@ -66743,10 +66779,16 @@ function _extRetencaoRender(){
   const totalRet = _extRetencoes.reduce((s, r) => s + (parseFloat(r.valor)||0), 0);
   const liquido = baseTotal - totalRet;
   const fmt = (typeof fmtBRL === 'function') ? fmtBRL : (n => 'R$ ' + Number(n||0).toFixed(2).replace('.', ','));
+  // O total virou o chip do cabeçalho da seção recolhível — precisa caber ali,
+  // então mostra só o que foi deduzido. O líquido fica dentro, junto dos campos.
   const totEl = document.getElementById('ext-retencoes-total');
   if(totEl){
-    totEl.innerHTML = `Total deduções: <b style="color:#DC2626">${fmt(totalRet)}</b> · Líquido: <b style="color:#059669" id="ext-liquido-val">${fmt(liquido)}</b>`;
+    const n = _extRetencoes.length;
+    totEl.textContent = n ? ('−' + fmt(totalRet) + ' · ' + n + (n === 1 ? ' dedução' : ' deduções')) : 'Nenhuma';
+    totEl.classList.toggle('on', n > 0);
   }
+  const liqEl = document.getElementById('ext-liquido-val');
+  if(liqEl) liqEl.textContent = fmt(liquido);
   // Tenta atualizar saldo do pagamento também
   if(typeof _extPagCalc === 'function') try{ _extPagCalc(); }catch(_){}
 }
@@ -67846,6 +67888,22 @@ function extOpenModal(tipo, editId){
     }
     return s;
   };
+  // Transferência aceita mais que banco: cartão (pagar fatura) e aplicação
+  // (aporte/resgate) também são destino legítimo. Usa a mesma lista da
+  // importação, pra não divergirem.
+  const contaOptsHtml = (cur) => {
+    let lista = [];
+    try{ lista = (typeof fkContasDisponiveis === 'function') ? fkContasDisponiveis() : []; }catch(_){}
+    if(!lista.length) return bancoOptsHtml(cur);
+    let s = '<option value="">— escolha —</option>';
+    for(const nm of lista){
+      s += '<option value="' + _extEsc(nm) + '"' + (nm === cur ? ' selected' : '') + '>' + _extEsc(nm) + '</option>';
+    }
+    if(cur && !lista.includes(cur)){
+      s += '<option value="' + _extEsc(cur) + '" selected>' + _extEsc(cur) + '</option>';
+    }
+    return s;
+  };
   // Pré-computa opções de forma de pagamento (evita IIFE inline complexa)
   const _extFormaPagOpts = (function(){
     const arr = (typeof _EXT_FORMAS_PG !== 'undefined') ? _EXT_FORMAS_PG : [];
@@ -67858,28 +67916,51 @@ function extOpenModal(tipo, editId){
   })();
   // Branch: transferência mantém modal simples; gasto/ganho ganha layout DKB-style
   if(t === 'transferencia'){
-    ov.innerHTML = '<div class="ext-modal">'
-      + '<div class="ext-modal-hd">'
-      +   '<div style="display:flex;align-items:center;gap:8px;flex:1">'
+    // Mesmo esqueleto de Ganho/Gasto: cabeçalho com badge, faixa de resumo,
+    // campos essenciais no grid e o resto recolhido.
+    const _temDoc = !!(l.documento || l.refInterna || l.notas || l.anexo);
+    ov.innerHTML = '<div class="dkb-modal">'
+      + '<div class="dkb-modal-hd">'
+      +   '<div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">'
       +     '<span class="badge ' + t + '">' + tLbl + '</span>'
-      +     '<h3>' + (editId ? 'Editar lançamento' : ('Registrar ' + tLbl)) + '</h3>'
+      +     '<div style="min-width:0"><h3>' + (editId ? 'Editar transferência' : 'Registrar transferência') + '</h3>'
+      +     '<div class="dkb-modal-sub">Dinheiro mudando de conta — não entra em receita nem despesa</div></div>'
       +   '</div>'
-      +   '<button type="button" class="ext-modal-x" onclick="extCloseModal()">✕</button>'
+      +   '<button type="button" class="dkb-modal-x" onclick="extCloseModal()">✕</button>'
       + '</div>'
-      + '<div class="ext-modal-bd">'
-      +   '<div class="field"><label>Data</label><input type="date" id="ext-fld-data" value="' + (l.data || '') + '"></div>'
-      +   '<div class="field"><label>Valor (R$)</label><input type="number" id="ext-fld-valor" value="' + (l.valor || 0) + '" step="0.01" min="0"></div>'
-      +   '<div class="field full"><label>Descrição</label><input type="text" id="ext-fld-desc" value="' + _extEsc(l.descricao || '') + '" placeholder="Ex: Aplicação CDB · resgate"></div>'
-      +   '<input type="hidden" id="ext-fld-cat" value="Transferência">'
-      +   '<div class="field"><label>Conta origem <span style="color:#94A3B8;font-weight:500;text-transform:none;letter-spacing:0">(banco ativo)</span></label><select id="ext-fld-conta">' + bancoOptsHtml(l.conta || '') + '</select></div>'
-      +   '<div class="field"><label>Conta destino <span style="color:#94A3B8;font-weight:500;text-transform:none;letter-spacing:0">(banco ativo)</span></label><select id="ext-fld-counter">' + bancoOptsHtml(l.contraparte || '') + '</select></div>'
-      +   '<div class="field full"><label>Status</label><select id="ext-fld-status">'
-      +     '<option value="pago"' + (l.status === 'pago' ? ' selected' : '') + '>Concluída</option>'
-      +     '<option value="pendente"' + (l.status === 'pendente' ? ' selected' : '') + '>Pendente</option>'
-      +   '</select></div>'
-      +   '<div class="field"><label>Nº do documento <span style="color:#94A3B8;font-weight:500;text-transform:none;letter-spacing:0">— NF, boleto, comprovante</span></label><input type="text" id="ext-fld-doc" value="' + _extEsc(l.documento || '') + '" placeholder="Ex: TED-87654321" maxlength="60"></div>'
-      +   '<div class="field"><label>Referência interna <span style="color:#94A3B8;font-weight:500;text-transform:none;letter-spacing:0">— opcional</span></label><input type="text" id="ext-fld-ref" value="' + _extEsc(l.refInterna || '') + '" placeholder="Ex: PED-2026/0042" maxlength="60"></div>'
-      +   '<div class="field full"><label>Notas</label><textarea id="ext-fld-notas" placeholder="Observações...">' + _extEsc(l.notas || '') + '</textarea></div>'
+      + '<div class="dkb-modal-bd">'
+      +   '<div class="dkb-modal-info">'
+      +     '<div class="info-row"><span class="lbl">Data</span><input type="date" id="ext-fld-data" value="' + (l.data || '') + '" style="border:1px solid #CBD5E1;border-radius:6px;padding:5px 8px;font-size:.86rem;font-family:inherit;color:#0F172A;background:#fff"></div>'
+      +     '<div class="info-row"><span class="lbl">Valor</span>'
+      +       '<div class="dkb-pag-money" style="max-width:150px"><span class="prefix">R$</span>'
+      +       '<input type="number" id="ext-fld-valor" value="' + (l.valor || 0) + '" step="0.01" min="0"></div></div>'
+      +   '</div>'
+      +   '<div class="dkb-modal-grid">'
+      +     '<div class="field full"><label>Descrição</label><input type="text" id="ext-fld-desc" value="' + _extEsc(l.descricao || '') + '" placeholder="Ex: Aplicação CDB · pagamento de fatura"></div>'
+      +     '<input type="hidden" id="ext-fld-cat" value="Transferência">'
+      +     '<div class="field"><label>Saiu de <span class="hint">conta de origem</span></label><select id="ext-fld-conta">' + contaOptsHtml(l.conta || '') + '</select></div>'
+      +     '<div class="field"><label>Entrou em <span class="hint">conta, cartão ou aplicação</span></label><select id="ext-fld-counter">' + contaOptsHtml(l.contraparte || '') + '</select></div>'
+      +     '<div class="field full"><label>Status</label><select id="ext-fld-status">'
+      +       '<option value="pago"' + (l.status === 'pago' ? ' selected' : '') + '>Concluída</option>'
+      +       '<option value="pendente"' + (l.status === 'pendente' ? ' selected' : '') + '>Pendente</option>'
+      +     '</select></div>'
+      +     '<details class="dkb-sec" id="ext-sec-doc"' + (_temDoc ? ' open' : '') + '>'
+      +       '<summary>Documento, notas e anexo <span class="sec-hint">comprovante, TED, contrato</span>'
+      +         '<span class="sec-resumo' + (_temDoc ? ' on' : '') + '">' + (_temDoc ? 'Preenchido' : 'Vazio') + '</span></summary>'
+      +       '<div class="dkb-sec-bd">'
+      +         '<div class="dkb-modal-grid" style="gap:12px">'
+      +           '<div class="field"><label>Nº do documento <span class="hint">— comprovante</span></label>'
+      +             '<input type="text" id="ext-fld-doc" value="' + _extEsc(l.documento || '') + '" placeholder="Ex: TED-87654321" maxlength="60"></div>'
+      +           '<div class="field"><label>Referência interna <span class="hint">— opcional</span></label>'
+      +             '<input type="text" id="ext-fld-ref" value="' + _extEsc(l.refInterna || '') + '" placeholder="Ex: PED-2026/0042" maxlength="60"></div>'
+      +           '<div class="field full"><label>Notas</label><textarea id="ext-fld-notas" placeholder="Observações...">' + _extEsc(l.notas || '') + '</textarea></div>'
+      +           '<div class="field full"><label>Anexo</label>'
+      +             '<div id="dkb-anexo-wrap">' + (typeof _dkbRenderAnexoUI === 'function' ? _dkbRenderAnexoUI(l.anexo || null, 'doc') : '') + '</div>'
+      +           '</div>'
+      +         '</div>'
+      +       '</div>'
+      +     '</details>'
+      +   '</div>'
       + '</div>'
       + '<div class="ext-modal-ft">'
       +   (editId ? ('<button type="button" class="btn-del" onclick="extDeleteManual()">🗑 Excluir</button>') : '')
@@ -67894,6 +67975,11 @@ function extOpenModal(tipo, editId){
     const _valorPagoLbl = (t === 'ganho') ? 'Valor recebido' : 'Valor pago';
     const _dataPagAtual = (l.dataPagamento || '');
     const _fmtNum = (typeof _dkbFmtNumBR === 'function') ? _dkbFmtNumBR : (n => Number(n||0).toFixed(2).replace('.', ','));
+    // Um lançamento em edição que já usa retenção, repetição ou anexo abre
+    // essas seções; um lançamento novo começa com tudo recolhido.
+    const _temReten = Array.isArray(l.retencoes) && l.retencoes.length > 0;
+    const _temRep   = !!(l.repete && l.repete !== 'once');
+    const _temDoc   = !!(l.documento || l.refInterna || l.notas || l.anexo);
     ov.innerHTML = '<div class="dkb-modal">'
       + '<div class="dkb-modal-hd">'
       +   '<div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">'
@@ -67926,42 +68012,52 @@ function extOpenModal(tipo, editId){
       +           '<button type="button" class="ext-item-add" onclick="_extItemAdd()"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Adicionar item</button>'
       +         '</div>'
       +       '</div>'
-      +       '<div class="field full">'
-      +         '<div class="ext-retencoes" id="ext-retencoes-wrap" style="background:#FEF3C7;border:1px solid #FDE68A;border-radius:10px;padding:14px;margin-top:6px">'
-      +           '<div class="ext-retencoes-hd" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;flex-wrap:wrap">'
-      +             '<span style="font-size:.78rem;font-weight:700;color:#78350F;display:flex;align-items:center;gap:6px">💸 Retenções e Abatimentos <small style="font-weight:500;color:#92400E;font-size:.7rem">(opcional · ex: PIS/COFINS, desconto, glosa, tarifa)</small></span>'
-      +             '<span class="ext-retencoes-total" id="ext-retencoes-total" style="font-size:.74rem;color:#78350F;font-weight:600">Total deduções: <b>R$ 0,00</b> · Líquido: <b id="ext-liquido-val">R$ 0,00</b></span>'
-      +           '</div>'
-      +           '<div id="ext-retencoes-list" style="display:flex;flex-direction:column;gap:6px"></div>'
-      +           '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">'
-      +             '<button type="button" onclick="_extRetencaoAdd()" style="background:#F59E0B;border:none;color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:.76rem;font-weight:700;font-family:inherit">+ Adicionar dedução</button>'
-      +             '<select id="ext-retencao-preset" onchange="_extRetencaoApplyPreset(this.value);this.value=\'\'" style="padding:6px 10px;border:1px solid #FDE68A;border-radius:6px;background:#fff;font-size:.74rem;font-family:inherit;cursor:pointer;color:#78350F">'
-      +               '<option value="">+ Preset rápido…</option>'
-      +               '<option value="servico-presumido">Serviço PJ · Lucro Presumido (PIS+COFINS+IRRF+CSLL)</option>'
-      +               '<option value="servico-real">Serviço PJ · Lucro Real (PIS+COFINS+IRRF+CSLL)</option>'
-      +               '<option value="simples">Simples Nacional (vazio · DAS é mensal)</option>'
-      +             '</select>'
-      +           '</div>'
-      +         '</div>'
-      +       '</div>'
       +       '<input type="hidden" id="ext-fld-desc">'
       +       '<input type="hidden" id="ext-fld-valor">'
       +       '<input type="hidden" id="ext-fld-cat">'
       +       '<input type="hidden" id="ext-fld-counter">'
       +       '<input type="hidden" id="ext-fld-status" value="' + (l.status || 'pendente') + '">'
-      +       '<div class="field full">' + _extRepeatHtml(l.repete || 'once', l.repFreq || 'mensal', l.repCount || 6) + '</div>'
-      +       '<div class="dkb-modal-grid" style="grid-column:1/-1;grid-template-columns:1fr 1fr;gap:14px">'
-      +         '<div class="field"><label>Nº do documento <span class="hint">— NF, boleto, fatura</span></label>'
-      +           '<input type="text" id="ext-fld-doc" value="' + _extEsc(l.documento || '') + '" placeholder="Ex: 12345 · NF-001234 · BOL-87654321" maxlength="60">'
+      // ── recolhíveis: só abrem quando já têm conteúdo ──
+      +       '<details class="dkb-sec" id="ext-sec-reten"' + (_temReten ? ' open' : '') + '>'
+      +         '<summary>Retenções e abatimentos <span class="sec-hint">PIS/COFINS, desconto, glosa, tarifa</span>'
+      +           '<span class="sec-resumo' + (_temReten ? ' on' : '') + '" id="ext-retencoes-total">Nenhuma</span></summary>'
+      +         '<div class="dkb-sec-bd">'
+      +           '<div id="ext-retencoes-list" style="display:flex;flex-direction:column;gap:6px"></div>'
+      +           '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center">'
+      +             '<button type="button" class="dkb-sec-btn" onclick="_extRetencaoAdd()">+ Adicionar dedução</button>'
+      +             '<select id="ext-retencao-preset" class="dkb-sec-sel" onchange="_extRetencaoApplyPreset(this.value);this.value=\'\'">'
+      +               '<option value="">Preset rápido…</option>'
+      +               '<option value="servico-presumido">Serviço PJ · Lucro Presumido (PIS+COFINS+IRRF+CSLL)</option>'
+      +               '<option value="servico-real">Serviço PJ · Lucro Real (PIS+COFINS+IRRF+CSLL)</option>'
+      +               '<option value="simples">Simples Nacional (vazio · DAS é mensal)</option>'
+      +             '</select>'
+      +             '<span class="dkb-sec-liq">Líquido: <b id="ext-liquido-val">R$ 0,00</b></span>'
+      +           '</div>'
       +         '</div>'
-      +         '<div class="field"><label>Referência interna <span class="hint">— opcional</span></label>'
-      +           '<input type="text" id="ext-fld-ref" value="' + _extEsc(l.refInterna || '') + '" placeholder="Ex: PED-2026/0042" maxlength="60">'
+      +       '</details>'
+      +       '<details class="dkb-sec" id="ext-sec-rep"' + (_temRep ? ' open' : '') + '>'
+      +         '<summary>Repetição <span class="sec-hint">parcelar ou tornar recorrente</span>'
+      +           '<span class="sec-resumo' + (_temRep ? ' on' : '') + '" id="ext-rep-resumo">' + (_temRep ? 'Configurada' : 'Único') + '</span></summary>'
+      +         '<div class="dkb-sec-bd">' + _extRepeatHtml(l.repete || 'once', l.repFreq || 'mensal', l.repCount || 6) + '</div>'
+      +       '</details>'
+      +       '<details class="dkb-sec" id="ext-sec-doc"' + (_temDoc ? ' open' : '') + '>'
+      +         '<summary>Documento, notas e anexo <span class="sec-hint">NF, boleto, contrato</span>'
+      +           '<span class="sec-resumo' + (_temDoc ? ' on' : '') + '">' + (_temDoc ? 'Preenchido' : 'Vazio') + '</span></summary>'
+      +         '<div class="dkb-sec-bd">'
+      +           '<div class="dkb-modal-grid" style="gap:12px">'
+      +             '<div class="field"><label>Nº do documento <span class="hint">— NF, boleto, fatura</span></label>'
+      +               '<input type="text" id="ext-fld-doc" value="' + _extEsc(l.documento || '') + '" placeholder="Ex: NF-001234" maxlength="60">'
+      +             '</div>'
+      +             '<div class="field"><label>Referência interna <span class="hint">— opcional</span></label>'
+      +               '<input type="text" id="ext-fld-ref" value="' + _extEsc(l.refInterna || '') + '" placeholder="Ex: PED-2026/0042" maxlength="60">'
+      +             '</div>'
+      +             '<div class="field full"><label>Notas</label><textarea id="ext-fld-notas" placeholder="Observações sobre este lançamento...">' + _extEsc(l.notas || '') + '</textarea></div>'
+      +             '<div class="field full"><label>Anexo</label>'
+      +               '<div id="dkb-anexo-wrap">' + (typeof _dkbRenderAnexoUI === 'function' ? _dkbRenderAnexoUI(l.anexo || null, 'doc') : '') + '</div>'
+      +             '</div>'
+      +           '</div>'
       +         '</div>'
-      +       '</div>'
-      +       '<div class="field full"><label>Notas</label><textarea id="ext-fld-notas" placeholder="Observações sobre este lançamento...">' + _extEsc(l.notas || '') + '</textarea></div>'
-      +       '<div class="field full"><label>Anexo do documento <span class="hint">— NF, boleto, contrato</span></label>'
-      +         '<div id="dkb-anexo-wrap">' + (typeof _dkbRenderAnexoUI === 'function' ? _dkbRenderAnexoUI(l.anexo || null, 'doc') : '') + '</div>'
-      +       '</div>'
+      +       '</details>'
       +     '</div>'
       +   '</div>'
       +   '<div id="ext-tab-pagamento" class="dkb-tab-pane" hidden>'
