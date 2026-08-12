@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786560492"/>
+  <meta name="fk-build" content="forekash-v1786561105"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -4869,6 +4869,10 @@
       font-size:.76rem;font-weight:700;color:#fff;background:#0F766E}
     .fkc-ok:hover{background:#115E59}
     .fkc-ok.off{background:#E2E8F0;color:#94A3B8;cursor:default}
+    .fkc-ok2{margin:4px 4px 2px;padding:6px 9px;border-radius:5px;text-align:center;cursor:pointer;
+      font-size:.72rem;font-weight:600;color:#0F766E;background:#ECFDF5;border:1px solid #A7F3D0}
+    .fkc-ok2:hover{background:#D1FAE5}
+    .fkc-ok2.off{background:#F8FAFC;color:#CBD5E1;border-color:#E2E8F0;cursor:default}
     .fkc-voltar{padding:5px 9px;font-size:.72rem;color:#64748B;cursor:pointer;border-radius:5px}
     .fkc-voltar:hover{background:#F1F5F9}
     [data-theme="dark"] .fkc-hd{color:#CBD5E1;border-bottom-color:#334155}
@@ -29983,6 +29987,8 @@ function setClienteField(cid, field, val){
   const allowed = ['razaoSocial','cnpj','dataInicioContrato','dataFimContrato','tipoPessoa'];
   if(allowed.indexOf(field) === -1) return;
   c[field] = (val == null ? '' : String(val));
+  // espelha no slot do tipo vigente, pra não se perder ao alternar PJ/PF/Est
+  if(field === 'razaoSocial' || field === 'cnpj') _cliGuardaSlot(c);
   receitaSave();
   if(clidetCtx && clidetCtx.cid === cid) renderClidet();
 }
@@ -30202,13 +30208,42 @@ async function removeCiclo(cid, idx){
   if(clidetCtx && clidetCtx.cid === cid) renderClidet();
 }
 
-// Alterna o tipo de pessoa (PJ / PF / Estrangeiro). Ao mudar para PF ou Estrangeiro,
-// mantém os dados digitados (só mudam rótulos e a lookup de CNPJ some).
+/* Alterna o tipo de pessoa (PJ / PF / Estrangeiro).
+
+   Antes só os rótulos mudavam: os três tipos escreviam nos MESMOS campos
+   (razaoSocial/cnpj). Resultado — um CNPJ digitado em PJ reaparecia como
+   "CPF" ao trocar pra PF, e como "Tax ID" no estrangeiro. São documentos
+   diferentes, não podem compartilhar campo.
+
+   Cada tipo passa a ter seu próprio par nome+documento, guardado em
+   `c.porTipo`. razaoSocial/cnpj continuam existindo e sempre refletem o tipo
+   vigente, porque é o que o resto do sistema lê (listagem do Cadastro,
+   busca, relatórios) — trocar o modelo inteiro quebraria essas telas.      */
+function _cliSlots(c){
+  if(!c.porTipo || typeof c.porTipo !== 'object') c.porTipo = {};
+  ['pj','pf','est'].forEach(t => {
+    if(!c.porTipo[t] || typeof c.porTipo[t] !== 'object') c.porTipo[t] = { nome:'', doc:'' };
+  });
+  return c.porTipo;
+}
+// Guarda o que está em razaoSocial/cnpj no slot do tipo atual.
+function _cliGuardaSlot(c){
+  const slots = _cliSlots(c);
+  const t = c.tipoPessoa || 'pj';
+  slots[t].nome = c.razaoSocial || '';
+  slots[t].doc  = c.cnpj || '';
+}
 function setClienteTipoPessoa(cid, novo){
   const c = (receita.clientes || []).find(x => x.id === cid);
   if(!c) return;
   if(novo !== 'pj' && novo !== 'pf' && novo !== 'est') return;
+  const atual = c.tipoPessoa || 'pj';
+  if(atual === novo) return;
+  _cliGuardaSlot(c);                       // preserva o que foi digitado
+  const slots = _cliSlots(c);
   c.tipoPessoa = novo;
+  c.razaoSocial = slots[novo].nome || '';  // carrega o do tipo escolhido
+  c.cnpj        = slots[novo].doc  || '';
   receitaSave();
   if(clidetCtx && clidetCtx.cid === cid) renderClidet();
 }
@@ -30305,6 +30340,7 @@ async function lookupCNPJ(cid, opts){
     }
     c.razaoSocial = razao;
     c.cnpj = fmtCNPJ(cnpjDigits);
+    _cliGuardaSlot(c);
     _cnpjLookupState[cid] = 'ok';
     receitaSave();
     if(clidetCtx && clidetCtx.cid === cid) renderClidet();
@@ -30337,6 +30373,7 @@ function onCNPJBlur(cid, el){
   const formatted = d.length === 14 ? fmtCNPJ(d) : v;
   if(c.cnpj !== formatted){
     c.cnpj = formatted;
+    _cliGuardaSlot(c);
     receitaSave();
     if(clidetCtx && clidetCtx.cid === cid) renderClidet();
   }
@@ -30355,6 +30392,7 @@ function onCPFBlur(cid, el){
   const formatted = d.length === 11 ? fmtCPF(d) : v;
   if(c.cnpj !== formatted){
     c.cnpj = formatted;
+    _cliGuardaSlot(c);
     receitaSave();
     if(clidetCtx && clidetCtx.cid === cid) renderClidet();
   }
@@ -73063,17 +73101,24 @@ function fkGarantirContraparte(nome, papeis){
   }
 
   // ── clientes ficam no módulo Receita ──
+  let cli = null;
   if(paps.includes('cliente') && typeof receita !== 'undefined' && Array.isArray(receita.clientes)){
-    const jaCli = receita.clientes.find(c => (c.nome || '').trim().toLowerCase() === chave);
-    if(!jaCli){
+    cli = receita.clientes.find(c => (c.nome || '').trim().toLowerCase() === chave) || null;
+    if(!cli){
       try{
-        if(typeof recAddCliente === 'function') recAddCliente(n, '');
-        else receita.clientes.push({ id: receita.nextClienteId++, nome: n, pais: '', color: '#0F766E', ativo: true, tipoPessoa: 'pj' });
+        if(typeof recAddCliente === 'function') cli = recAddCliente(n, '');
+        else {
+          cli = { id: receita.nextClienteId++, nome: n, pais: '', color: '#0F766E', ativo: true, tipoPessoa: 'pj' };
+          receita.clientes.push(cli);
+        }
         if(typeof recSave === 'function') recSave();
+        else if(typeof receitaSave === 'function') receitaSave();
       }catch(e){ console.warn('[FK] criar cliente falhou:', e); }
     }
   }
-  return reg;
+  reg = reg || null;
+  if(reg) reg._cliCriado = cli;   // pra quem quiser abrir a ficha em seguida
+  return reg || (cli ? { _cliCriado: cli } : null);
 }
 // Papéis atuais de um registro, já lidando com o formato antigo (kind único).
 function fkPapeisDe(reg){
@@ -73236,9 +73281,10 @@ function _fkcPop(){
     // lista no meio da rolagem.
     p.addEventListener('mousedown', e => {
       e.preventDefault();
-      const alvo = e.target.closest && e.target.closest('[data-fkc-i],[data-fkc-mod],[data-fkc-papel],[data-fkc-confirma],[data-fkc-voltar]');
+      const alvo = e.target.closest && e.target.closest('[data-fkc-i],[data-fkc-mod],[data-fkc-papel],[data-fkc-confirma],[data-fkc-ficha],[data-fkc-voltar]');
       if(!alvo) return;
       if(alvo.hasAttribute('data-fkc-voltar'))   return fkcVoltar();
+      if(alvo.hasAttribute('data-fkc-ficha'))    return fkcConfirmarPapeis(true);
       if(alvo.hasAttribute('data-fkc-confirma')) return fkcConfirmarPapeis();
       if(alvo.hasAttribute('data-fkc-papel'))    return fkcTogglePapel(alvo.getAttribute('data-fkc-papel'));
       if(alvo.hasAttribute('data-fkc-mod'))      return fkcEscolherModulo(alvo.getAttribute('data-fkc-mod'));
@@ -73312,6 +73358,8 @@ function _fkcRender(){
              + '<span class="fkc-box">' + (FKC.papeis.has(k) ? '✓' : '') + '</span>'
              + k.charAt(0).toUpperCase() + k.slice(1) + '</div>').join('')
          + '<div class="fkc-ok' + (FKC.papeis.size ? '' : ' off') + '" data-fkc-confirma="1">cadastrar</div>'
+         + '<div class="fkc-ok2' + (FKC.papeis.size ? '' : ' off') + '" data-fkc-ficha="1">'
+         +   'cadastrar e preencher ficha completa →</div>'
          + '<div class="fkc-voltar" data-fkc-voltar="1">← voltar</div>';
   } else {
     if(FKC.criar){
@@ -73379,14 +73427,50 @@ function fkcTogglePapel(k){
   if(FKC.papeis.has(k)) FKC.papeis.delete(k); else FKC.papeis.add(k);
   _fkcRender();
 }
-function fkcConfirmarPapeis(){
+function fkcConfirmarPapeis(abrirFicha){
   if(!FKC.papeis.size) return;
   const nome = FKC.criar, paps = [...FKC.papeis];
+  let res = null;
   try{
-    fkGarantirContraparte(nome, paps);
+    res = fkGarantirContraparte(nome, paps);
     if(typeof toast === 'function') toast('✓ "' + nome + '" cadastrado como ' + paps.join(' + '));
   }catch(e){ console.warn('[FK] criar contraparte:', e); }
   _fkcAplicar(nome);
+  // "Preencher ficha" abre o cadastro completo do papel principal. Cliente
+  // tem ficha própria no módulo Receita; fornecedor e colaborador dividem a
+  // do registry de Pessoas.
+  if(abrirFicha && res){
+    setTimeout(() => {
+      try{
+        let alvo = null;
+        if(paps.includes('cliente') && res._cliCriado && typeof openClienteDetail === 'function'){
+          openClienteDetail(res._cliCriado.id); alvo = 'ov-clidet';
+        } else if(res.id != null && typeof openFornecedorCard === 'function'){
+          openFornecedorCard(res.id); alvo = 'ov-forn-card';
+        } else if(typeof toast === 'function'){
+          toast('Cadastro criado — a ficha completa está em Cadastro');
+        }
+        if(alvo) _fkcElevarFicha(alvo);
+      }catch(e){ console.warn('[FK] abrir ficha:', e); }
+    }, 120);
+  }
+}
+/* A ficha de cadastro vive num overlay de z-index 400 (fornecedor) — bem
+   abaixo do modal de importação, que é 10000. Aberta de dentro dele, ficaria
+   escondida atrás. Eleva enquanto estiver aberta e devolve o valor original
+   ao fechar, pra não deixar essa ficha por cima de tudo pra sempre. */
+function _fkcElevarFicha(id){
+  const ov = document.getElementById(id);
+  if(!ov) return;
+  const zOriginal = ov.style.zIndex || '';
+  ov.style.zIndex = '10050';
+  const obs = new MutationObserver(() => {
+    if(!ov.classList.contains('open')){
+      ov.style.zIndex = zOriginal;
+      obs.disconnect();
+    }
+  });
+  obs.observe(ov, { attributes:true, attributeFilter:['class','style'] });
 }
 function fkcVoltar(){
   FKC.passo = 'lista';
