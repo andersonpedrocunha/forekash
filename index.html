@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786548245"/>
+  <meta name="fk-build" content="forekash-v1786548622"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -64483,16 +64483,18 @@ function extIgnRegistrar(o, origem, arquivo, motivo){
   extIgnorados().push(reg);
   return reg;
 }
-function extIgnRemover(id){
+// adiarSave: usado nas ações em lote, pra salvar (e sincronizar) uma vez só
+// no fim, em vez de disparar um sync por item.
+function extIgnRemover(id, adiarSave){
   const arr = extIgnorados();
   const i = arr.findIndex(x => String(x.id) === String(id));
   if(i < 0) return false;
   arr.splice(i, 1);
-  _extSave();
+  if(!adiarSave) _extSave();
   return true;
 }
 // "Mudei de ideia": tira do registro de ignorados e cria o lançamento.
-function extIgnRestaurar(id){
+function extIgnRestaurar(id, adiarSave){
   const reg = extIgnorados().find(x => String(x.id) === String(id));
   if(!reg) return false;
   extratoData.lancamentos.push({
@@ -64505,7 +64507,7 @@ function extIgnRestaurar(id){
     notas: 'Estava na lista de ignorados', criadoEm: new Date().toISOString(),
     importadoDe: reg.arquivo || ''
   });
-  extIgnRemover(id);
+  extIgnRemover(id, adiarSave);
   return true;
 }
 
@@ -64534,8 +64536,9 @@ function _extIgnVisiveis(){
 function extIgnReativarSel(){
   const ids = [..._extIgnSel];
   if(!ids.length) return;
-  ids.forEach(id => extIgnRemover(id));
+  ids.forEach(id => extIgnRemover(id, true));
   _extIgnSel.clear();
+  _extSave();                      // salva e sincroniza uma vez só
   _extIgnRender();
   if(typeof toast === 'function'){
     toast('✓ ' + ids.length + ' reativado(s) — voltam a aparecer na próxima importação ou conciliação');
@@ -64546,7 +64549,7 @@ function extIgnLancarSel(){
   const ids = [..._extIgnSel];
   if(!ids.length) return;
   let n = 0;
-  ids.forEach(id => { if(extIgnRestaurar(id)) n++; });
+  ids.forEach(id => { if(extIgnRestaurar(id, true)) n++; });
   _extIgnSel.clear();
   _extSave();
   _extIgnRender();
@@ -64692,6 +64695,43 @@ const _EXT_COL_FIELDS = new Set([
   'notas', 'importadoDe'
 ]);
 
+// local_id aqui é text ('ign42'), diferente do lançamento que usa int.
+function _extIgnToRow(r, orgId){
+  return {
+    org_id: orgId,
+    local_id: String(r.id),
+    data: _cartDate(r.data),
+    valor: _cartNum(r.valor),
+    tipo: r.tipo || null,
+    descricao: r.descricao || null,
+    conta: r.conta || null,
+    categoria: r.categoria || null,
+    contraparte: r.contraparte || null,
+    fitid: r.fitid || null,
+    origem: r.origem || null,
+    arquivo: r.arquivo || null,
+    motivo: r.motivo || null,
+    ignorado_em: r.ignoradoEm || null
+  };
+}
+function _extIgnFromRow(row){
+  return {
+    id: row.local_id,
+    data: row.data || '',
+    valor: parseFloat(row.valor) || 0,
+    tipo: row.tipo || 'gasto',
+    descricao: row.descricao || '',
+    conta: row.conta || '',
+    categoria: row.categoria || '',
+    contraparte: row.contraparte || '',
+    fitid: row.fitid || '',
+    origem: row.origem || '',
+    arquivo: row.arquivo || '',
+    motivo: row.motivo || '',
+    ignoradoEm: row.ignorado_em || ''
+  };
+}
+
 function _extToRow(l, orgId){
   const meta = {};
   for (const k of Object.keys(l || {})) {
@@ -64772,16 +64812,54 @@ async function cloudExtratoFetch(){
         console.log('[FK] extrato: cloud vazio, importando', localLen, 'do localStorage...');
         await cloudExtratoSync();
       }
+      // ignorados são independentes: podem existir mesmo sem lançamento nenhum
+      await cloudExtratoIgnFetch();
+      _extRecalcNextId();
+      try { localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData)); } catch(_){}
       return;
     }
 
     extratoData.lancamentos = allRows.map(_extFromRow);
-    extratoData.nextId = Math.max(0, ...extratoData.lancamentos.map(l => l.id || 0)) + 1;
+    await cloudExtratoIgnFetch();
+    _extRecalcNextId();
     try { localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData)); } catch(_){}
     try { if (typeof renderExtrato === 'function') renderExtrato(); } catch(_){}
-    console.log('[FK] extrato fetch OK:', extratoData.lancamentos.length, 'lançamentos');
+    console.log('[FK] extrato fetch OK:', extratoData.lancamentos.length, 'lançamentos, '
+      + (extratoData.ignorados || []).length + ' ignorados');
   } catch(e) {
     console.warn('[FK] extrato fetch fail:', e.message || e);
+  }
+}
+
+// nextId é compartilhado entre lançamento (id numérico) e ignorado
+// ('ign' + n). Se olhasse só os lançamentos, um id de ignorado poderia ser
+// reemitido depois de um fetch e sobrescrever registro existente.
+function _extRecalcNextId(){
+  const nLanc = (extratoData.lancamentos || []).map(l => parseInt(l.id, 10) || 0);
+  const nIgn  = (extratoData.ignorados  || []).map(r => parseInt(String(r.id).replace(/\D/g, ''), 10) || 0);
+  extratoData.nextId = Math.max(0, ...nLanc, ...nIgn) + 1;
+}
+
+async function cloudExtratoIgnFetch(){
+  if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
+  const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
+  if (!orgId) return;
+  try {
+    const { data, error } = await window.sb
+      .from('extrato_ignorados')
+      .select('local_id, data, valor, tipo, descricao, conta, categoria, contraparte, fitid, origem, arquivo, motivo, ignorado_em')
+      .eq('org_id', orgId)
+      .order('data', { ascending: false });
+    if (error) { console.warn('[FK] ignorados fetch erro:', error.message); return; }
+    if (!data || data.length === 0) {
+      // nuvem vazia mas tem coisa local: sobe em vez de apagar
+      if ((extratoData.ignorados || []).length > 0) await cloudExtratoSync();
+      return;
+    }
+    extratoData.ignorados = data.map(_extIgnFromRow);
+    try{ _extIgnBadge(); }catch(_){}
+  } catch(e) {
+    console.warn('[FK] ignorados fetch fail:', e.message || e);
   }
 }
 
@@ -64795,7 +64873,13 @@ async function cloudExtratoSync(){
     await _cloudSyncTable('extrato_lancamentos',
                            extratoData.lancamentos || [],
                            _extToRow, orgId);
-    console.log('[FK] extrato sync OK:', (extratoData.lancamentos || []).length, 'lançamentos');
+    // Ignorados vão pra tabela própria — não podem se misturar com lançamento
+    // nem depender de um filtro que alguém esqueça numa query futura.
+    await _cloudSyncTable('extrato_ignorados',
+                           extratoData.ignorados || [],
+                           _extIgnToRow, orgId);
+    console.log('[FK] extrato sync OK:', (extratoData.lancamentos || []).length, 'lançamentos, '
+      + (extratoData.ignorados || []).length + ' ignorados');
   } catch(e) {
     console.warn('[FK] extrato sync fail:', e.message || e);
   } finally {
@@ -64809,6 +64893,7 @@ async function cloudExtratoSync(){
 
 window.cloudExtratoFetch = cloudExtratoFetch;
 window.cloudExtratoSync  = cloudExtratoSync;
+window.cloudExtratoIgnFetch = cloudExtratoIgnFetch;
 
 function _extInitPeriod(){
   if(_extState.period) return;
