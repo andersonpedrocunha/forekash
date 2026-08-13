@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786641987"/>
+  <meta name="fk-build" content="forekash-v1786645391"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -73739,12 +73739,43 @@ function fkContasAgrupadas(){
     if(typeof dispo !== 'undefined' && Array.isArray(dispo.contas)){
       const banco = id => (dispo.bancos || []).find(b => b.id === id) || null;
       const tipo  = id => (dispo.tipos  || []).find(t => t.id === id) || null;
+      /* Duas contas no mesmo banco e mesmo tipo (dois C6 corrente) davam o
+         MESMO rótulo — na lista suspensa do lançamento viravam duas linhas
+         idênticas, impossíveis de distinguir. Ordem de desempate:
+           1. apelido, se a pessoa deu um;
+           2. senão, o número da conta (ou a agência) — que já está cadastrado;
+           3. senão, "conta #id", pra nunca sobrar rótulo repetido.
+         O sufixo só entra quando há colisão de verdade: conta única continua
+         com o rótulo curto de sempre. */
+      const brutos = [];
       dispo.contas.forEach(c => {
         if(!c || c.ativo === false) return;
         const b = banco(c.bancoId), t = tipo(c.tipoId);
         if(!b || !b.nome) return;
-        const nome = t ? (b.nome + ' · ' + t.nome) : b.nome;
-        ((t && t.liquidez === 'reserva') ? reserva : caixa).push(nome);
+        const d = c.dados || {};
+        const apelido = String(d.apelido || '').trim();
+        brutos.push({
+          c: c,
+          base: apelido || (t ? (b.nome + ' · ' + t.nome) : b.nome),
+          temApelido: !!apelido,
+          conta: String(d.conta || '').trim(),
+          agencia: String(d.agencia || '').trim(),
+          reserva: !!(t && t.liquidez === 'reserva')
+        });
+      });
+      const vezes = {};
+      brutos.forEach(x => { vezes[x.base] = (vezes[x.base] || 0) + 1; });
+      const usados = {};
+      brutos.forEach(x => {
+        let nome = x.base;
+        if(vezes[x.base] > 1 && !x.temApelido){
+          const marca = x.conta || x.agencia;
+          nome = marca ? (x.base + ' · ' + marca) : (x.base + ' · conta #' + x.c.id);
+        }
+        while(usados[nome]) nome = x.base + ' · conta #' + x.c.id;   // apelido repetido
+        usados[nome] = true;
+        x.c._fkRotulo = nome;
+        (x.reserva ? reserva : caixa).push(nome);
       });
     }
   }catch(_){}
@@ -73785,7 +73816,17 @@ function fkContaOptsHTML(atual, rotuloVazio){
     out += '</optgroup>';
   }
   if(atual && !todos.includes(atual)){
-    out += '<optgroup label="Outras"><option value="' + esc(atual) + '" selected>' + esc(atual) + '</option></optgroup>';
+    /* Quando uma conta ganha sufixo de desempate, os lançamentos antigos
+       guardaram o rótulo curto ("C6 Bank · Conta Corrente"). Sem isso eles
+       cairiam em "Outras" e pareceriam ter perdido a conta. */
+    const herdeiros = todos.filter(nm => nm.indexOf(atual + ' · ') === 0);
+    if(herdeiros.length === 1){
+      out = out.replace('<option value="' + esc(herdeiros[0]) + '"',
+                        '<option value="' + esc(herdeiros[0]) + '" selected');
+    } else {
+      out += '<optgroup label="' + (herdeiros.length ? 'Confirme qual conta' : 'Outras') + '">'
+           + '<option value="' + esc(atual) + '" selected>' + esc(atual) + '</option></optgroup>';
+    }
   }
   return out;
 }
@@ -84022,6 +84063,7 @@ function dispoLoad(){
       c.dados = { agencia:'', conta:'', digito:'', titular:'', documento:'',
                   pix:'', pixTipo:'', gerente:'', gerenteEmail:'', gerenteTel:'', obs:'' };
     } else {
+      if(typeof c.dados.apelido      !== 'string') c.dados.apelido      = '';
       if(typeof c.dados.agencia      !== 'string') c.dados.agencia      = '';
       if(typeof c.dados.conta        !== 'string') c.dados.conta        = '';
       if(typeof c.dados.digito       !== 'string') c.dados.digito       = '';
@@ -94504,6 +94546,7 @@ function setDispoBancoCodigo(bancoId, codigo){
   cells.forEach(el => { if(el.value !== d) el.value = d; });
 }
 const DISPO_DADOS_FIELDS = new Set([
+  'apelido',
   'agencia','conta','digito','titular','documento',
   'pix','pixTipo','gerente','gerenteEmail','gerenteTel','obs'
 ]);
@@ -94645,6 +94688,9 @@ function __dispoContaCardHTML(c){
       </div>
     </div>
     <div class="dispo-dados-grid">
+      <label style="grid-column:1/-1"><span>Apelido <em style="font-style:normal;color:#94A3B8;font-weight:500">— opcional, é o nome que aparece nos lançamentos</em></span>
+        <input value="${esc(d.apelido||'')}" placeholder="Ex: C6 Operacional"
+               onchange="setDispoDadosField(${c.id},'apelido',this.value)"></label>
       <label><span>Agência</span>
         <input value="${esc(d.agencia||'')}" placeholder="0000"
                onchange="setDispoDadosField(${c.id},'agencia',this.value)"></label>
