@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786575938"/>
+  <meta name="fk-build" content="forekash-v1786631397"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -4765,6 +4765,8 @@
     .ext-imp-editavel .c-dt{width:88px}
     .ext-imp-editavel .c-ds{width:auto}
     .ext-imp-editavel .c-tp{width:146px}   /* cabe "Transferência" inteiro */
+    .ecap-lbl-sub{font-weight:400;color:#94A3B8;text-transform:none;letter-spacing:0;font-size:.92em}
+    .ecap-rev-field .fkc{width:100%}
     .ext-imp-desc{width:100%;padding:4px 7px;border:1px solid transparent;background:transparent;
       border-radius:4px;font-size:.76rem;font-family:inherit;color:#0F172A;outline:none;box-sizing:border-box}
     .ext-imp-desc:hover{border-color:#E2E8F0;background:#fff}
@@ -65190,7 +65192,21 @@ async function cloudExtratoFetch(){
       return;
     }
 
-    extratoData.lancamentos = allRows.map(_extFromRow);
+    /* A nuvem NÃO é a verdade absoluta aqui: o sync é fire-and-forget, então
+       um lançamento criado agora pode ainda não ter subido. Substituir a
+       lista inteira pela da nuvem apagava esse lançamento no próximo boot —
+       sem erro, sem aviso. Foi o que aconteceu com um boleto lançado pela
+       Captura IA.
+       Preserva o que existe só localmente e devolve pra nuvem. */
+    const daNuvem = allRows.map(_extFromRow);
+    const idsNuvem = new Set(daNuvem.map(l => l.id));
+    const sóLocais = (extratoData.lancamentos || []).filter(l => l && !idsNuvem.has(l.id));
+    extratoData.lancamentos = daNuvem.concat(sóLocais);
+    if(sóLocais.length){
+      console.warn('[FK] ' + sóLocais.length + ' lançamento(s) existiam só neste navegador — preservados e reenviados:',
+        sóLocais.map(l => l.descricao || l.id));
+      try{ cloudExtratoSync(); }catch(_){}
+    }
     await cloudExtratoIgnFetch();
     _extRecalcNextId();
     try { localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData)); } catch(_){}
@@ -75667,6 +75683,34 @@ async function _ecapExtractPDFText(file){
 }
 
 // Parser principal · regex Brasil-aware com contexto SUPPLIER vs SELF
+/* O nome vem grudado no que vem depois dele no PDF — "NEXOOS … S.A. CNPJ/CPF
+   34.254.279…". Corta no primeiro rótulo de campo que aparecer. */
+function _ecapLimpaNome(txt){
+  let n = String(txt || '').replace(/\s+/g, ' ').trim();
+  n = n.split(/\s*(?:CNPJ|CPF|AG[ÊE]NCIA|C[ÓO]DIGO|DATA|N[ºO°]?\s*DO\s*DOCUMENTO|ESP[ÉE]CIE|NOSSO\s*N[ÚU]MERO|VENCIMENTO|VALOR|CARTEIRA|USO\s*DO\s*BANCO)\b/i)[0];
+  n = n.replace(/[\s.,;:\-\/]+$/, '').trim();
+  return n.slice(0, 60);
+}
+try{ window._ecapLimpaNome = _ecapLimpaNome; }catch(_){}
+
+/* Dígito verificador de CNPJ (mod 11). Serve pra separar CNPJ de verdade de
+   14 dígitos quaisquer recortados de um código de barras. */
+function _ecapCnpjValido(d){
+  if(!/^\d{14}$/.test(d)) return false;
+  if(/^(\d)\1{13}$/.test(d)) return false;
+  const calc = (base, pesos) => {
+    let soma = 0;
+    for(let i = 0; i < pesos.length; i++) soma += parseInt(base[i], 10) * pesos[i];
+    const r = soma % 11;
+    return r < 2 ? 0 : 11 - r;
+  };
+  const p1 = [5,4,3,2,9,8,7,6,5,4,3,2];
+  const p2 = [6,5,4,3,2,9,8,7,6,5,4,3,2];
+  if(calc(d, p1) !== parseInt(d[12], 10)) return false;
+  return calc(d, p2) === parseInt(d[13], 10);
+}
+try{ window._ecapCnpjValido = _ecapCnpjValido; }catch(_){}
+
 function _ecapParseText(text, file){
   const norm = (text || '').replace(/\s+/g, ' ').trim();
   const lower = norm.toLowerCase();
@@ -75712,19 +75756,47 @@ function _ecapParseText(text, file){
     return 'self';
   }
 
-  // --- VALOR ---
+  /* --- VALOR ---
+     Um boleto tem vários números em reais, e o maior risco é pegar o errado:
+     multa, juros ao dia e desconto aparecem nas Instruções, muitas vezes
+     ANTES do valor do documento no texto extraído do PDF. Um boleto de
+     R$ 54.821,86 com "Multa de R$ 1.400,58" estava sendo lançado como 1.400,58.
+
+     Então: procura primeiro o rótulo exato ("Valor do Documento", "Valor a
+     pagar", "Valor Total"), e descarta qualquer candidato cuja vizinhança
+     fale de multa, juros, mora, desconto ou acréscimo. */
   let valor = null, valorConf = 'no';
+  const RUIDO = /(multa|juros|mora|desconto|abatimento|acr[ée]scimo|ao\s*dia|por\s*dia|taxa)/i;
+  const vizinhancaSuja = (pos) => RUIDO.test(norm.slice(Math.max(0, pos - 90), pos + 20));
+  const NUM = '(\\d{1,3}(?:\\.\\d{3})*,\\d{2}|\\d+,\\d{2})';
   const vAlvos = [
-    /(?:valor\s*(?:total|do\s*documento|a\s*pagar|cobrado|recebido)?|total(?:\s*geral)?|montante|pago)\s*[:R$\-]*\s*(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/i,
-    /R\$\s*(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/,
-    /(\d{1,3}(?:\.\d{3})*,\d{2})/
+    { re: new RegExp('valor\\s*(?:do\\s*)?documento\\s*[:R$\\-()=\\s]*' + NUM, 'i'), conf: 'hi' },
+    { re: new RegExp('valor\\s*(?:total|a\\s*pagar|cobrado|recebido|l[íi]quido)\\s*[:R$\\-()=\\s]*' + NUM, 'i'), conf: 'hi' },
+    { re: new RegExp('(?:total(?:\\s*geral)?|montante)\\s*[:R$\\-()=\\s]*' + NUM, 'i'), conf: 'md' },
+    { re: new RegExp('R\\$\\s*' + NUM, 'ig'), conf: 'md' },
+    { re: new RegExp(NUM, 'g'), conf: 'lo' }
   ];
-  for(let i = 0; i < vAlvos.length; i++){
-    const m = vAlvos[i].exec(norm);
-    if(m){ valor = _ecapBRLNum(m[1]); valorConf = (i===0?'hi':(i===1?'md':'lo')); break; }
+  for(const alvo of vAlvos){
+    if(valor != null) break;
+    if(alvo.re.global){
+      let m;
+      while((m = alvo.re.exec(norm)) !== null){
+        if(vizinhancaSuja(m.index)) continue;          // é multa/juros, não o valor
+        valor = _ecapBRLNum(m[1]); valorConf = alvo.conf; break;
+      }
+    } else {
+      const m = alvo.re.exec(norm);
+      if(m && !vizinhancaSuja(m.index)){ valor = _ecapBRLNum(m[1]); valorConf = alvo.conf; }
+    }
   }
 
-  // --- CNPJs (TODOS no documento, com posição) ---
+  /* --- CNPJs (TODOS no documento, com posição) ---
+     A linha digitável do boleto é uma tira de 47 dígitos, e qualquer pedaço
+     de 14 dela casa com o formato de CNPJ. Foi assim que um boleto da NEXOOS
+     (CNPJ 34.254.279/0001-51) foi lido como 15.370.005/4821-86 — número que
+     nem existe, recortado do código de barras.
+     Duas defesas: só aceita candidato que NÃO esteja no meio de uma sequência
+     maior de dígitos, e valida o dígito verificador. */
   const cnpjRe = /(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2})/g;
   const cnpjs = [];
   let cm;
@@ -75732,6 +75804,11 @@ function _ecapParseText(text, file){
     const raw = cm[1];
     const digits = raw.replace(/\D/g,'');
     if(digits.length !== 14) continue;
+    // recortado de uma sequência maior (linha digitável / nosso número)?
+    const antes = norm[cm.index - 1] || '';
+    const depois = norm[cm.index + raw.length] || '';
+    if(/\d/.test(antes) || /\d/.test(depois)) continue;
+    if(!_ecapCnpjValido(digits)) continue;
     const fmt = digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
     const isSelf = selfCnpjDigits && digits === selfCnpjDigits;
     cnpjs.push({ digits, fmt, pos: cm.index, kind: classify(cm.index), isSelf });
@@ -75796,9 +75873,9 @@ function _ecapParseText(text, file){
       // Nome é o que aparece depois do marcador, até CNPJ/end. Tipicamente em CAIXA ALTA.
       const m = slice.match(/(?:benefici[áa]rio|cedente|emitente|prestador[^:]*)\s*[:\-]?\s*([A-ZÀÂÃÁÉÊÍÓÔÕÚÇ0-9][A-ZÀÂÃÁÉÊÍÓÔÕÚÇ\s\.&\-\/0-9]{6,60})/i);
       if(m){
-        const cand = m[1].trim().replace(/\s+/g,' ').slice(0,60);
+        const cand = _ecapLimpaNome(m[1]);
         // Verifica que não é igual ao nome da empresa (self)
-        if(!selfName || cand.toLowerCase().indexOf(selfName.toLowerCase()) < 0){
+        if(cand && (!selfName || cand.toLowerCase().indexOf(selfName.toLowerCase()) < 0)){
           fornecedor = cand; fornConf = 'md'; break;
         }
       }
@@ -75808,8 +75885,8 @@ function _ecapParseText(text, file){
   if(!fornecedor){
     const upm = norm.match(/(?:^|\s)([A-ZÀÂÃÁÉÊÍÓÔÕÚÇ][A-ZÀÂÃÁÉÊÍÓÔÕÚÇ\s\.\-&\/]{8,60})/);
     if(upm){
-      const cand = upm[1].trim().slice(0,60);
-      if(!selfName || cand.toLowerCase().indexOf(selfName.toLowerCase()) < 0){
+      const cand = _ecapLimpaNome(upm[1]);
+      if(cand && (!selfName || cand.toLowerCase().indexOf(selfName.toLowerCase()) < 0)){
         fornecedor = cand; fornConf = 'lo';
       }
     }
@@ -75931,7 +76008,9 @@ function _ecapRenderReview(file, data){
     + '<div class="ecap-rev-grid">'
     +   '<div class="ecap-rev-field full">'
     +     '<label>Fornecedor / Cliente ' + _ecapConfBadge(data.fornConf) + '</label>'
-    +     '<input type="text" id="ecap-f-forn" value="' + _ecapEsc(data.fornecedor||'') + '" placeholder="Ex: AWS · Amazon Web Services" class="' + (data.fornConf!=='no'?'auto-filled':'') + '">'
+    +     fkcCampo('contraparte', data.fornecedor || '', 'Ex: AWS · Amazon Web Services', '',
+                     'ecap-forn-inp' + (data.fornConf!=='no'?' auto-filled':''))
+              .replace('class="fkc-inp', 'id="ecap-f-forn" class="fkc-inp')
     +     (isNewForn ? '<div class="ecap-rev-forn-new" id="ecap-newforn"><span>🆕</span><div>Esse fornecedor ainda não está cadastrado. <b>Vai ser pré-cadastrado automaticamente</b> quando você confirmar.</div></div>' : '')
     +   '</div>'
     +   '<div class="ecap-rev-field">'
@@ -75947,8 +76026,14 @@ function _ecapRenderReview(file, data){
     +     '<input type="text" id="ecap-f-val" value="' + (data.valor!=null ? data.valor.toFixed(2).replace('.',',') : '') + '" placeholder="0,00" class="' + (data.valorConf!=='no'?'auto-filled':'') + '" inputmode="decimal">'
     +   '</div>'
     +   '<div class="ecap-rev-field">'
-    +     '<label>Data ' + _ecapConfBadge(data.dataConf) + '</label>'
-    +     '<input type="date" id="ecap-f-data" value="' + _ecapEsc(data.data||'') + '" class="' + (data.dataConf!=='no'?'auto-filled':'') + '">'
+    +     '<label>Vencimento ' + _ecapConfBadge(data.dataConf) + '</label>'
+    +     '<input type="date" id="ecap-f-data" value="' + _ecapEsc(data.data||'') + '" class="' + (data.dataConf!=='no'?'auto-filled':'') + '"'
+    +       ' onchange="var c=document.getElementById(&quot;ecap-f-comp&quot;); if(c&&!c.dataset.tocado)c.value=this.value">'
+    +   '</div>'
+    +   '<div class="ecap-rev-field">'
+    +     '<label>Competência <span class="ecap-lbl-sub">quando aconteceu</span></label>'
+    +     '<input type="date" id="ecap-f-comp" value="' + _ecapEsc(data.dataEmissao || data.data || '') + '"'
+    +       ' onchange="this.dataset.tocado=1">'
     +   '</div>'
     +   '<div class="ecap-rev-field">'
     +     '<label>Categoria sugerida ' + _ecapConfBadge(data.catConf) + '</label>'
@@ -76030,6 +76115,9 @@ function extCapturaSubmit(){
     const lan = {
       id: extratoData.nextId || ((Math.max(0, ...extratoData.lancamentos.map(l => l.id||0))) + 1),
       data, descricao,
+      // boleto tem vencimento; a competência é quando o fato aconteceu
+      dataVencimento: data,
+      dataEmissao: (document.getElementById('ecap-f-comp')?.value || '').trim() || data,
       valor: Math.abs(valor),
       tipo: ECAP_STATE.tipo,  // 'gasto' ou 'ganho' · enum do extrato
       categoria: catTxt || '',
