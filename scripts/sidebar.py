@@ -42,7 +42,7 @@ ESTRUTURA = [
 
     ('ferramentas', 'Ferramentas',
      'Apoio operacional — fora do fluxo financeiro',
-     ['notasfiscais', 'workflows', 'kashsociety']),
+     ['notasfiscais', 'workflows']),
 ]
 
 
