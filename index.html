@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786632993"/>
+  <meta name="fk-build" content="forekash-v1786633793"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -65049,9 +65049,40 @@ try{
   window.extIgnReativarSel = extIgnReativarSel; window.extIgnLancarSel = extIgnLancarSel;
   window._extIgnBadge = _extIgnBadge;
 }catch(_){}
+/* Salvar em silêncio era o pior dos dois mundos: o lançamento aparecia na
+   tela (está em memória) e sumia no próximo boot, porque nunca foi gravado.
+   O catch vazio escondia exatamente o caso que mais acontece — QuotaExceeded,
+   quando um anexo em base64 estoura o limite do localStorage.
+   Agora o erro aparece, diz o tamanho, e o lançamento vai pra nuvem mesmo
+   assim: perder o dado por causa do anexo seria trocar o certo pelo acessório. */
 function _extSave(){
-  try { localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData)); } catch(e){}
+  let salvou = false;
+  try {
+    localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData));
+    salvou = true;
+  } catch(e){
+    const mb = (() => { try { return (JSON.stringify(extratoData).length / 1048576).toFixed(1); }catch(_){ return '?'; } })();
+    console.error('[FK] NÃO consegui salvar o Extrato:', e.name, '· tamanho:', mb + ' MB', e.message);
+    const anexos = (extratoData.lancamentos || []).filter(l => l && l.anexo && l.anexo.dataUrl);
+    if(anexos.length){
+      // Tenta de novo sem os anexos inline — o lançamento vale mais que o PDF.
+      const guardados = anexos.map(l => { const a = l.anexo; l.anexoRef = { nome:a.nome, tipo:a.tipo, tamanho:a.tamanho, semInline:true }; delete l.anexo; return [l, a]; });
+      try {
+        localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData));
+        salvou = true;
+        console.warn('[FK] salvo sem ' + anexos.length + ' anexo(s) inline — não coube no navegador');
+        if(typeof toast === 'function') toast('⚠ Lançamento salvo, mas o anexo não coube no armazenamento do navegador');
+      } catch(e2){
+        guardados.forEach(([l, a]) => { l.anexo = a; delete l.anexoRef; });
+        console.error('[FK] falhou mesmo sem anexos:', e2.message);
+      }
+    }
+    if(!salvou && typeof toast === 'function'){
+      toast('⚠ Não consegui salvar no navegador (' + mb + ' MB). O lançamento vai pra nuvem, mas confira depois.');
+    }
+  }
   if (window.FK_MODE === 'cloud') cloudExtratoSync();
+  return salvou;
 }
 _extLoad();
 
@@ -132218,6 +132249,35 @@ function fkDiag(){
     }
     out.nuvem = { modo: window.FK_MODE, logado: !!window._FK_CLOUD_USER,
                   org: (typeof fkcOrgId === 'function') ? fkcOrgId() : null };
+    // armazenamento: a causa silenciosa mais comum de "salvei e sumiu"
+    const bruto = JSON.stringify(extratoData);
+    out.armazenamento = {
+      extratoMB: (bruto.length / 1048576).toFixed(2),
+      totalLocalStorageMB: (Object.keys(localStorage)
+        .reduce((t,k) => t + (localStorage.getItem(k)||'').length + k.length, 0) / 1048576).toFixed(2),
+      anexosInline: L.filter(l => l && l.anexo && l.anexo.dataUrl).length
+    };
+    try{
+      const marca = '__fk_teste__';
+      localStorage.setItem(marca, bruto);      // cabe de verdade?
+      localStorage.removeItem(marca);
+      out.armazenamento.consegueGravar = true;
+    }catch(e){
+      out.armazenamento.consegueGravar = false;
+      out.ALERTA_SEM_ESPACO = e.name + ' — o navegador recusa gravar. Lançamentos somem no próximo boot.';
+    }
+    // o que existe local e ainda não subiu
+    out.gravadoNoNavegador = (() => {
+      try{
+        const disco = JSON.parse(localStorage.getItem(EXTRATO_KEY) || '{}');
+        const ids = new Set((disco.lancamentos || []).map(x => x.id));
+        const faltando = L.filter(l => !ids.has(l.id));
+        return faltando.length
+          ? { ALERTA: faltando.length + ' em memória mas NÃO gravados',
+              quais: faltando.map(l => String(l.descricao||'').slice(0,30)) }
+          : 'todos gravados';
+      }catch(e){ return 'erro ao ler: ' + e.message; }
+    })();
   }catch(e){ out.ERRO = e.message; }
   console.log('%c[FOREKASH · diagnóstico]', 'background:#0F766E;color:#fff;padding:2px 8px;border-radius:4px');
   console.log(JSON.stringify(out, null, 2));
