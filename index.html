@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786654933"/>
+  <meta name="fk-build" content="forekash-v1786656689"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -16899,6 +16899,13 @@
 [class*="-ico"]:empty:not(.fkico):not([style*=background]),
 [class*="-icon"]:empty:not(.fkico):not([style*=background]),
 .ico:empty:not(.fkico):not([style*=background]){display:none}
+/* Célula cujo valor veio do Extrato: sutil, só o suficiente pra diferenciar
+   de um número digitado à mão. */
+.rec-cell.do-extrato .rec-input{font-weight:700}
+.rec-cell-real{position:absolute;right:5px;bottom:2px;font-size:.54rem;letter-spacing:.04em;
+  text-transform:uppercase;color:#059669;opacity:.75;pointer-events:none;font-weight:700}
+.rec-cell-real.parcial{text-transform:none;letter-spacing:0;font-size:.6rem;color:#B45309}
+.rec-cell.do-extrato{position:relative}
 .fkico{display:inline-block;width:1em;height:1em;vertical-align:-.13em;flex:none;
   background-color:currentColor;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;
   -webkit-mask-position:center;mask-position:center;-webkit-mask-size:contain;mask-size:contain}
@@ -28409,6 +28416,185 @@ function deleteClienteIfOrphan(cid){
   return;
 }
 
+/* ══ RECEITA REALIZADA · vem do Extrato ═══════════════════════════════════
+   O Extrato é a fonte da verdade do que entrou na conta. A aba Receita
+   deixa de ter "recebido" digitado à mão: o realizado é lido daqui, e o que
+   fica manual é só a PROJEÇÃO dos meses que ainda não aconteceram.
+
+   Só entra receita OPERACIONAL — o critério é o catmap: categoria mapeada
+   em moduloId 'receita'. Estorno, rendimento de aplicação e afins não estão
+   mapeados ali, então ficam de fora sozinhos, sem lista negra pra manter.
+
+   O mês é o do RECEBIMENTO (data da baixa), não o da competência: aqui a
+   pergunta é "quando o dinheiro entrou".                                   */
+function _recCatsOperacionais(){
+  const set = new Set();
+  try{
+    const cats = (typeof catmapData !== 'undefined' && Array.isArray(catmapData.categorias))
+      ? catmapData.categorias : [];
+    cats.forEach(c => { if(c && c.moduloId === 'receita' && c.nome) set.add(String(c.nome).trim().toLowerCase()); });
+  }catch(_){}
+  return set;
+}
+
+/* Chave de casamento entre a contraparte do lançamento e a linha da Receita.
+   Descarta sufixo societário e fica nas duas primeiras palavras: "BLOOM
+   TECNOLOGIA LTDA" e "BLOOM" viram a mesma chave; "DOT GROUP" continua
+   inteiro, senão colidiria com qualquer outro "DOT". */
+function recNomeChave(nome){
+  const n = String(nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+            .toUpperCase().replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+  if(!n) return '';
+  /* Primeira palavra, que é o que o Anderson chama de "primeiro nome do
+     cliente". Tem que ser assim dos dois lados: no extrato a contraparte vem
+     como razão social ("BLOOM TECNOLOGIA LTDA") e na planilha a linha é
+     "BLOOM" — casar pelo nome inteiro nunca bateria. Palavra de 1-2 letras
+     não identifica ninguém, então nesse caso leva a segunda junto. */
+  const p = n.split(' ');
+  return (p[0].length <= 2 && p[1]) ? (p[0] + ' ' + p[1]) : p[0];
+}
+
+/* Nome curto pra batizar a linha criada automaticamente. */
+function recNomeCurto(nome){
+  let n = String(nome || '').replace(/\s+/g,' ').trim();
+  n = n.replace(/\s*\b(S\.?\/?A\.?|LTDA|ME|EPP|EIRELI|MEI)\b\.?/gi,'').trim();
+  const p = n.split(' ');
+  return (p.length > 2 ? p.slice(0,2).join(' ') : n) || String(nome||'').trim();
+}
+
+/* { chaveCliente: { mes: valorRecebido } } para o ano. */
+function recRealizadoExtrato(ano){
+  const out = {};
+  const y = String(ano || recActiveYear || '');
+  let lans = [];
+  try{ lans = (extratoData && extratoData.lancamentos) || []; }catch(_){ return out; }
+  if(!lans.length) return out;
+  const cats = _recCatsOperacionais();
+  if(!cats.size) return out;                       // sem catmap não dá pra separar operacional
+
+  const soma = (chave, dataStr, valor) => {
+    if(!chave || !dataStr || !valor) return;
+    const ds = String(dataStr);
+    if(ds.slice(0,4) !== y) return;
+    const mi = parseInt(ds.slice(5,7), 10) - 1;
+    if(!(mi >= 0 && mi < 12)) return;
+    const m = REC_MESES[mi];
+    if(!out[chave]) out[chave] = {};
+    out[chave][m] = (out[chave][m] || 0) + valor;
+  };
+
+  for(const l of lans){
+    if(!l || l.tipo !== 'ganho') continue;
+    if(!cats.has(String(l.categoria || '').trim().toLowerCase())) continue;
+    const chave = recNomeChave(l.contraparte);
+    if(!chave) continue;
+    const bs = (typeof extBaixas === 'function') ? extBaixas(l) : [];
+    if(bs.length){
+      // Cada baixa entra no mês em que caiu — parcial em datas diferentes conta certo.
+      bs.forEach(b => soma(chave, b.data, parseFloat(b.valor) || 0));
+    } else if(l.status === 'pago'){
+      soma(chave, l.dataPagamento || l.data, parseFloat(l.valorPago || l.valor) || 0);
+    }
+  }
+  return out;
+}
+
+/* Mês atual no formato da planilha — o corte entre "fechado" e "em curso". */
+function _recMesCorrente(){
+  const h = new Date();
+  return { ano: String(h.getFullYear()), idx: h.getMonth() };
+}
+
+/* Resolve o que a célula VALE, juntando projeção manual e realizado do
+   extrato. Fonte única: tela, KPIs, totais e cliente-por-ano usam esta —
+   é o que impede o total de divergir do que está escrito na célula.
+
+   - Sem realizado          → manual puro (é o caso dos meses que você ainda
+                              não importou; nada do que já está lá se perde)
+   - Realizado, mês fechado → o extrato manda e a célula trava
+   - Realizado, mês em curso→ recebido = realizado, e o que falta pra
+                              projeção continua em aberto                    */
+function recCelulaEfetiva(row, mes, ano, realizadoMap){
+  const c = (row && row.meses && row.meses[mes]) || {valor:'', status:'aberto'};
+  const manual = (c.valor === '' || c.valor == null) ? 0 : (parseFloat(c.valor) || 0);
+  const y = String(ano || recActiveYear || '');
+  const mapa = realizadoMap || recRealizadoExtrato(y);
+  const chave = recNomeChave(row && (row.nome || ''));
+  const real = (chave && mapa[chave] && mapa[chave][mes]) ? mapa[chave][mes] : 0;
+
+  if(!real) return { total:manual, recebido:(c.status==='recebido'?manual:0),
+                     aberto:(c.status==='recebido'?0:manual), realizado:0,
+                     origem:'manual', travado:(c.status==='recebido'), parcial:false };
+
+  const cur = _recMesCorrente();
+  const emCurso = (y === cur.ano && REC_MESES.indexOf(mes) === cur.idx);
+  if(!emCurso){
+    return { total:real, recebido:real, aberto:0, realizado:real,
+             origem:'extrato', travado:true, parcial:false };
+  }
+  const total = Math.max(manual, real);
+  return { total, recebido:real, aberto:Math.max(0, total-real), realizado:real,
+           origem:'extrato', travado:false, parcial:(total > real + 0.005) };
+}
+try{
+  window.recRealizadoExtrato = recRealizadoExtrato;
+  window.recCelulaEfetiva = recCelulaEfetiva;
+  window.recNomeChave = recNomeChave;
+  window.recNomeCurto = recNomeCurto;
+}catch(_){}
+
+/* Cliente que apareceu no Extrato mas ainda não tem linha na Receita.
+
+   O Extrato é a mãe: se entrou receita operacional de alguém, esse alguém
+   PRECISA existir na planilha de receita — senão o dinheiro aparece no caixa
+   e some da visão de cliente. Cria a linha com o nome curto (a razão social
+   inteira não cabe e não ajuda) e deixa o valor vir do realizado.
+
+   Roda no render, é idempotente, e nunca mexe em linha que já existe.      */
+function recSincronizarClientesDoExtrato(ano){
+  if(!receita || !receita.years) return 0;
+  const y = String(ano || recActiveYear || '');
+  const d = receita.years[y];
+  if(!d || !Array.isArray(d.clients)) return 0;
+
+  const mapa = recRealizadoExtrato(y);
+  const chaves = Object.keys(mapa);
+  if(!chaves.length) return 0;
+
+  const existentes = new Set();
+  (d.clients || []).forEach(r => { const k = recNomeChave(r.nome); if(k) existentes.add(k); });
+  (d.leads   || []).forEach(r => { const k = recNomeChave(r.nome); if(k) existentes.add(k); });
+
+  // Nome de origem por chave, pra batizar a linha com algo legível.
+  const origem = {};
+  try{
+    ((extratoData && extratoData.lancamentos) || []).forEach(l => {
+      if(!l || l.tipo !== 'ganho' || !l.contraparte) return;
+      const k = recNomeChave(l.contraparte);
+      if(k && !origem[k]) origem[k] = l.contraparte;
+    });
+  }catch(_){}
+
+  let criados = 0;
+  for(const k of chaves){
+    if(existentes.has(k)) continue;
+    const nome = recNomeCurto(origem[k] || k);
+    const id = d.nextId++;
+    const color = REC_COLORS[(d.clients.length + d.leads.length) % REC_COLORS.length];
+    d.clients.push({ id, clienteId:(typeof UNASSIGNED!=='undefined'?UNASSIGNED:0), nome,
+                     pais:'', tipo:'', projeto:'', color, meses:{}, criadoPeloExtrato:true });
+    existentes.add(k);
+    criados++;
+  }
+  if(criados){
+    receitaSave();
+    try{ if(typeof toast === 'function')
+      toast(criados + (criados>1 ? ' clientes vieram' : ' cliente veio') + ' do Extrato pra Receita', 4000); }catch(_){}
+  }
+  return criados;
+}
+try{ window.recSincronizarClientesDoExtrato = recSincronizarClientesDoExtrato; }catch(_){}
+
 // Soma de valores (recebidos ou em aberto) das linhas do cliente,
 // agrupado por ano (ignora leads — apenas client rows). Também devolve
 // totais gerais em .totalRecebido e .totalAberto.
@@ -28421,13 +28607,12 @@ function clienteValoresPorAno(cid){
     let rec = 0, ab = 0;
     for(const r of (d.clients || [])){
       if(r.clienteId !== cid) continue;
-      const meses = r.meses || {};
-      for(const m of Object.keys(meses)){
-        const cell = meses[m] || {};
-        const v = +cell.valor;
-        if(!v || isNaN(v)) continue;
-        if(cell.status === 'recebido') rec += v;
-        else ab += v;
+      const mapaAno = (typeof recRealizadoExtrato === 'function') ? recRealizadoExtrato(y) : {};
+      for(const m of REC_MESES){
+        const ef = recCelulaEfetiva(r, m, y, mapaAno);
+        if(!ef.total) continue;
+        rec += ef.recebido;
+        ab  += ef.aberto;
       }
     }
     if(rec > 0 || ab > 0){
@@ -30502,6 +30687,12 @@ function createAndLinkCliente(type, id, nome){
   renderReceita();
   toast('Cliente "'+novo.nome+'" criado.');
 }
+
+function notifyDoExtrato(){
+  if(typeof toast === 'function')
+    toast('Esse valor vem do Extrato Financeiro. Pra mudar, edite o lançamento no extrato.', 4000);
+}
+try{ window.notifyDoExtrato = notifyDoExtrato; }catch(_){}
 
 function saveRecMes(type, id, mes, rawVal){
   const d = receita.years[recActiveYear];
@@ -35578,13 +35769,16 @@ function updateRecTotals(){
 
   // Conta clientes "ativos" — com pelo menos um valor em algum mês
   let activeClients = 0;
+  const _kpiReal = recRealizadoExtrato(recActiveYear);
   for(const r of d.clients){
     let rowHas = false;
     for(const m of REC_MESES){
-      const c = r.meses[m]; if(!c || c.valor==='' || c.valor==null) continue;
-      const v = parseFloat(c.valor)||0;
-      porMes[m] += v;
-      if(c.status==='recebido') tRec+=v; else tAbt+=v;
+      // Mesma função da célula — total, recebido e aberto sempre batem com a tela.
+      const ef = recCelulaEfetiva(r, m, recActiveYear, _kpiReal);
+      if(!ef.total) continue;
+      porMes[m] += ef.total;
+      tRec += ef.recebido;
+      tAbt += ef.aberto;
       rowHas = true;
     }
     if(rowHas) activeClients++;
@@ -35649,7 +35843,11 @@ function renderReceita(){
     </button>
   `).join('') + `<button class="rec-year-add" onclick="addRecYear()">+ Novo ano</button>`;
 
+  // Cliente novo no extrato entra na planilha antes de desenhar.
+  try{ recSincronizarClientesDoExtrato(recActiveYear); }catch(_){}
   const d = receita.years[recActiveYear];
+  // Uma leitura do extrato por render — a célula recebe o mapa pronto.
+  const _recRealMap = recRealizadoExtrato(recActiveYear);
 
   // Computa informações de agrupamento de linhas do mesmo cliente (mesmo clienteId)
   // em sequência. Retorna um array paralelo: [{isFirst, groupSize, isSub}].
@@ -35680,24 +35878,39 @@ function renderReceita(){
       : '';
     const cells = REC_MESES.map(m=>{
       const c = r.meses[m] || {valor:'', status:'aberto'};
-      const hasRaw = (c.valor !== '' && c.valor != null);
-      const numVal = hasRaw ? +c.valor : 0;
+      // Lead é projeção por definição — não tem realizado pra buscar no extrato.
+      const ef = isSim ? null : recCelulaEfetiva(r, m, recActiveYear, _recRealMap);
+      const doExtrato = !!(ef && ef.origem === 'extrato');
+      const valorCel = doExtrato ? ef.total : ((c.valor === '' || c.valor == null) ? '' : c.valor);
+      const hasRaw = (valorCel !== '' && valorCel != null);
+      const numVal = hasRaw ? +valorCel : 0;
       const has = hasRaw && !Number.isNaN(numVal) && numVal !== 0;
-      const cls = has ? (c.status==='recebido' ? 'recebido' : 'aberto') : '';
+      const recebidoCel = doExtrato ? (ef.aberto <= 0.005) : (c.status === 'recebido');
+      const cls = has ? (recebidoCel ? 'recebido' : 'aberto') : '';
       const simCls = isSim ? 'sim' : '';
-      const icon = c.status==='recebido' ? '✓' : '';
-      const locked = has && c.status === 'recebido';
+      const icon = recebidoCel ? '✓' : '';
+      const locked = doExtrato ? ef.travado : (has && c.status === 'recebido');
       const ro = locked ? ' readonly' : '';
-      const roTitle = locked ? ' title="Remova o ✓ para editar"' : '';
-      const roClick = locked ? ' onmousedown="notifyLocked()"' : '';
-      return `<td class="rec-cell ${cls} ${simCls}" data-mes="${m}">
-        <input class="rec-input num" type="text" value="${has ? esc(fmtBR(c.valor)) : ''}"
+      const roTitle = locked
+        ? (doExtrato ? ' title="Valor vem do Extrato Financeiro — edite o lançamento lá"'
+                     : ' title="Remova o ✓ para editar"')
+        : '';
+      const roClick = locked ? (doExtrato ? ' onmousedown="notifyDoExtrato()"' : ' onmousedown="notifyLocked()"') : '';
+      // Mês em curso com parte recebida: mostra quanto já entrou, sem esconder a projeção.
+      const marca = doExtrato
+        ? (ef.parcial
+            ? `<span class="rec-cell-real parcial" title="Já recebido segundo o Extrato">${esc(fmtBR(ef.realizado))}</span>`
+            : `<span class="rec-cell-real" title="Valor conciliado com o Extrato Financeiro">extrato</span>`)
+        : '';
+      return `<td class="rec-cell ${cls} ${simCls}${doExtrato ? ' do-extrato' : ''}" data-mes="${m}">
+        <input class="rec-input num" type="text" value="${has ? esc(fmtBR(valorCel)) : ''}"
                placeholder="0,00"
                data-cellref="rec:${type}:${r.id}:${m}"${ro}${roTitle}${roClick}
                onfocus="this.select()"
                onblur="saveRecMes('${type}',${r.id},'${m}',this.value);var _rv=parseBR(this.value);this.value=(_rv===''||_rv===0)?'':fmtBR(_rv)"
                onkeydown="if(event.key==='Enter'){this.blur();}else if(event.key==='Escape'){this.blur();}">
-        <button type="button" class="rec-cell-toggle" onclick="event.stopPropagation();toggleRecMesStatus('${type}',${r.id},'${m}')" title="Alternar recebido / em aberto">${icon}</button>
+        ${marca}
+        ${doExtrato ? '' : `<button type="button" class="rec-cell-toggle" onclick="event.stopPropagation();toggleRecMesStatus('${type}',${r.id},'${m}')" title="Alternar recebido / em aberto">${icon}</button>`}
       </td>`;
     }).join('');
 
