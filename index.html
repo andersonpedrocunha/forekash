@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786632182"/>
+  <meta name="fk-build" content="forekash-v1786632466"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -76144,7 +76144,15 @@ function extCapturaSubmit(){
     }
     // Importante: valor SEMPRE positivo · tipo dita o sinal no render (ganho|gasto)
     const lan = {
-      id: extratoData.nextId || ((Math.max(0, ...extratoData.lancamentos.map(l => l.id||0))) + 1),
+      /* nextId sozinho não bastava: se estivesse defasado (menor que o maior
+         id já usado), o lançamento nascia com um id JÁ EXISTENTE — e como o
+         sync faz upsert por (org_id, local_id), ele SOBRESCREVIA um
+         lançamento antigo na nuvem em vez de criar. Some um, aparece outro no
+         lugar. Usa sempre o maior entre os dois. */
+      id: Math.max(
+            parseInt(extratoData.nextId, 10) || 0,
+            (Math.max(0, ...extratoData.lancamentos.map(l => parseInt(l.id, 10) || 0))) + 1
+          ),
       data, descricao,
       // boleto tem vencimento; a competência é quando o fato aconteceu
       dataVencimento: data,
@@ -76173,7 +76181,7 @@ function extCapturaSubmit(){
       lan.anexoRef = { nome: ECAP_STATE.file.name, tipo: ECAP_STATE.file.type, tamanho: ECAP_STATE.file.size };
     }
     extratoData.lancamentos.push(lan);
-    extratoData.nextId = (extratoData.nextId || 0) + 1;
+    extratoData.nextId = lan.id + 1;
     if(typeof _extSave === 'function') _extSave();
     else { try { localStorage.setItem('forekash:extrato:v1', JSON.stringify(extratoData)); }catch(e){} }
     if(window.FK_MODE === 'cloud' && typeof cloudExtratoSync === 'function') cloudExtratoSync();
@@ -132159,6 +132167,51 @@ function _fkBlobTemConteudo(v){
   }
   return false;
 }
+/* Diagnóstico do Extrato — pra rodar no console quando algo "não aparece".
+   Responde as três perguntas na ordem: existe? passa no filtro? está na tela?
+   Sem isso a investigação vira adivinhação a quatro mãos por mensagem. */
+function fkDiag(){
+  const out = { versao: document.querySelector('meta[name="fk-build"]')?.content };
+  try{
+    const L = extratoData.lancamentos || [];
+    out.lancamentos = L.length;
+    out.ultimos = L.slice(-5).map(l => ({
+      id: l.id, data: l.data, valor: l.valor, status: l.status,
+      desc: String(l.descricao || '').slice(0, 34), origem: l.origem || '—'
+    }));
+    const idsRepetidos = L.map(l => l.id).filter((v, i, a) => a.indexOf(v) !== i);
+    if(idsRepetidos.length) out.ALERTA_IDS_DUPLICADOS = idsRepetidos;
+    out.nextId = extratoData.nextId;
+    const maiorId = Math.max(0, ...L.map(l => parseInt(l.id,10) || 0));
+    if(extratoData.nextId <= maiorId) out.ALERTA_NEXTID_DEFASADO = { nextId: extratoData.nextId, maiorId };
+    out.filtros = {
+      periodo: _extState.period, grao: _extState.grain, modo: _extState.mode,
+      contas: _extState.contas, categoria: _extState.categoria || null,
+      busca: _extState.busca || null
+    };
+    out.periodoVisivel = _extPeriodRange();
+    const coletadas = _extCollectReal();
+    const filtradas = _extFilter(coletadas);
+    out.naColeta = coletadas.length;
+    out.passamNoFiltro = filtradas.length;
+    out.naTela = document.querySelectorAll('tr[data-ext-id]').length;
+    const fora = coletadas.filter(c => !filtradas.some(f => f.id === c.id));
+    if(fora.length){
+      out.FORA_DO_FILTRO = fora.slice(0,5).map(x => ({
+        desc: String(x.descricao||'').slice(0,30), data: x.data,
+        dataEfetiva: _extDateOf(x), conta: x.conta || '(vazia)'
+      }));
+    }
+    out.nuvem = { modo: window.FK_MODE, logado: !!window._FK_CLOUD_USER,
+                  org: (typeof fkcOrgId === 'function') ? fkcOrgId() : null };
+  }catch(e){ out.ERRO = e.message; }
+  console.log('%c[FOREKASH · diagnóstico]', 'background:#0F766E;color:#fff;padding:2px 8px;border-radius:4px');
+  console.log(JSON.stringify(out, null, 2));
+  try{ navigator.clipboard.writeText(JSON.stringify(out, null, 2)); console.log('(copiado — é só colar)'); }catch(_){}
+  return out;
+}
+try{ window.fkDiag = fkDiag; }catch(_){}
+
 /* ══ Aviso de versão nova ═════════════════════════════════════════════════
    O deploy é instantâneo, mas o navegador pode continuar servindo a versão
    antiga do cache — e aí a pessoa reporta um bug que já foi corrigido, ou
