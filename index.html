@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786656689"/>
+  <meta name="fk-build" content="forekash-v1786657535"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -16906,6 +16906,10 @@
   text-transform:uppercase;color:#059669;opacity:.75;pointer-events:none;font-weight:700}
 .rec-cell-real.parcial{text-transform:none;letter-spacing:0;font-size:.6rem;color:#B45309}
 .rec-cell.do-extrato{position:relative}
+.rec-cell-ok{position:absolute;left:5px;top:2px;font-size:.62rem;color:#059669;
+  opacity:.8;pointer-events:none;font-weight:800}
+.rec-cell-nope{animation:recNope .38s ease}
+@keyframes recNope{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
 .fkico{display:inline-block;width:1em;height:1em;vertical-align:-.13em;flex:none;
   background-color:currentColor;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;
   -webkit-mask-position:center;mask-position:center;-webkit-mask-size:contain;mask-size:contain}
@@ -17335,7 +17339,7 @@
             <div class="fk-show-lg-it"><span class="fk-show-lg-sq ab"></span>Em aberto</div>
             <div class="fk-show-lg-it"><span class="fk-show-lg-sq sm"></span>Simulação (lead)</div>
             <div class="fk-show-lg-it" style="margin-left:auto;font-size:.66rem">
-              Dica: clique no quadradinho da célula para marcar como recebido.
+              O recebimento vem do Extrato Financeiro — aqui você só projeta.
             </div>
           </div>
         </div>
@@ -19193,11 +19197,11 @@
 
         <!-- Legenda -->
         <div class="rec-legend">
-          <div class="rec-leg-item"><span class="rec-leg-sq recebido"></span> Recebido</div>
-          <div class="rec-leg-item"><span class="rec-leg-sq aberto"></span> Em aberto</div>
+          <div class="rec-leg-item"><span class="rec-leg-sq recebido"></span> Recebido <em style="font-style:normal;opacity:.6">· vem do Extrato</em></div>
+          <div class="rec-leg-item"><span class="rec-leg-sq aberto"></span> Projetado</div>
           <div class="rec-leg-item"><span class="rec-leg-sq sim"></span> Simulação (lead)</div>
           <div class="rec-leg-item" style="margin-left:auto;color:var(--txl);font-size:.7rem">
-            Dica: passe o mouse sobre uma célula com valor e clique no quadradinho para marcar como recebido.
+            Aqui você projeta. Recebido é só o que entrou na conta — lance no Extrato Financeiro e a célula se fecha sozinha.
           </div>
         </div>
 
@@ -28522,9 +28526,12 @@ function recCelulaEfetiva(row, mes, ano, realizadoMap){
   const chave = recNomeChave(row && (row.nome || ''));
   const real = (chave && mapa[chave] && mapa[chave][mes]) ? mapa[chave][mes] : 0;
 
-  if(!real) return { total:manual, recebido:(c.status==='recebido'?manual:0),
-                     aberto:(c.status==='recebido'?0:manual), realizado:0,
-                     origem:'manual', travado:(c.status==='recebido'), parcial:false };
+  /* Sem realizado no extrato, é PROJEÇÃO — e projeção nunca é "recebido".
+     Recebido passou a significar uma coisa só: o dinheiro entrou na conta e
+     está no Extrato. Por isso o status gravado na célula é ignorado aqui:
+     baixa dada à mão no passado não pode continuar contando como caixa. */
+  if(!real) return { total:manual, recebido:0, aberto:manual, realizado:0,
+                     origem:'manual', travado:false, parcial:false };
 
   const cur = _recMesCorrente();
   const emCurso = (y === cur.ano && REC_MESES.indexOf(mes) === cur.idx);
@@ -28542,6 +28549,40 @@ try{
   window.recNomeChave = recNomeChave;
   window.recNomeCurto = recNomeCurto;
 }catch(_){}
+
+/* Baixa dada à mão na Receita, antes de o Extrato virar a fonte da verdade.
+
+   O status continuava gravado como 'recebido' e aparecia como caixa em
+   qualquer lugar que lesse a célula crua. Volta tudo pra 'aberto': o que foi
+   de fato recebido vem do Extrato, e o que está aqui é projeção. Preserva o
+   VALOR — só o status muda — e guarda a marca em statusOrigem pra dar pra
+   auditar depois. Roda uma vez por ano da planilha.                        */
+function recMigrarBaixaManual(){
+  if(!receita || !receita.years) return 0;
+  let n = 0;
+  for(const y of Object.keys(receita.years)){
+    const d = receita.years[y] || {};
+    for(const lista of [d.clients || [], d.leads || []]){
+      for(const r of lista){
+        const meses = r.meses || {};
+        for(const m of Object.keys(meses)){
+          const cell = meses[m];
+          if(cell && cell.status === 'recebido'){
+            cell.status = 'aberto';
+            if(!cell.statusOrigem) cell.statusOrigem = 'baixa-manual-antiga';
+            n++;
+          }
+        }
+      }
+    }
+  }
+  if(n){
+    receitaSave();
+    try{ console.info('[Forekash] ' + n + ' célula(s) da Receita voltaram pra aberto — recebido agora só vem do Extrato'); }catch(_){}
+  }
+  return n;
+}
+try{ window.recMigrarBaixaManual = recMigrarBaixaManual; }catch(_){}
 
 /* Cliente que apareceu no Extrato mas ainda não tem linha na Receita.
 
@@ -30688,9 +30729,33 @@ function createAndLinkCliente(type, id, nome){
   toast('Cliente "'+novo.nome+'" criado.');
 }
 
-function notifyDoExtrato(){
+/* A tabela tem seleção estilo Excel que intercepta mousedown antes do
+   handler inline chegar. Sem isso o clique numa célula conciliada não dava
+   retorno nenhum e parecia que o app tinha travado. */
+try{
+  document.addEventListener('mousedown', function(ev){
+    const inp = ev.target && ev.target.closest ? ev.target.closest('.rec-cell.do-extrato input[readonly]') : null;
+    if(inp) notifyDoExtrato(inp);
+  }, true);
+}catch(_){}
+
+let _recNotifyUltimo = 0;
+function notifyDoExtrato(el){
+  const agora = (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
+  if(agora && agora - _recNotifyUltimo < 400) return;   // inline + delegado no mesmo clique
+  _recNotifyUltimo = agora;
   if(typeof toast === 'function')
-    toast('Esse valor vem do Extrato Financeiro. Pra mudar, edite o lançamento no extrato.', 4000);
+    toast('Esse valor foi recebido e está conciliado com o Extrato Financeiro. Pra alterar, edite o lançamento no Extrato — aqui ele é só reflexo.', 6000);
+  // Pulso na célula: sem isso o clique parece não ter feito nada.
+  try{
+    const td = el && el.closest ? el.closest('.rec-cell') : null;
+    if(td){
+      td.classList.remove('rec-cell-nope');
+      void td.offsetWidth;
+      td.classList.add('rec-cell-nope');
+      setTimeout(() => td.classList.remove('rec-cell-nope'), 700);
+    }
+  }catch(_){}
 }
 try{ window.notifyDoExtrato = notifyDoExtrato; }catch(_){}
 
@@ -30725,7 +30790,15 @@ function saveRecMes(type, id, mes, rawVal){
   updateRecTotals();
 }
 
+/* Dar baixa pela Receita deixou de existir: o único jeito de algo virar
+   "recebido" é o dinheiro aparecer no Extrato. Mantida como no-op porque
+   ainda há chamadas antigas espalhadas (atalhos, ações em massa). */
 function toggleRecMesStatus(type, id, mes){
+  if(typeof toast === 'function')
+    toast('Baixa não se dá pela Receita. Lance o recebimento no Extrato Financeiro e ele aparece aqui.', 5000);
+  return;
+}
+function _toggleRecMesStatusLegado(type, id, mes){
   const d = receita.years[recActiveYear];
   const list = type==='lead' ? d.leads : d.clients;
   const row = list.find(r=>r.id===id); if(!row) return;
@@ -35844,6 +35917,7 @@ function renderReceita(){
   `).join('') + `<button class="rec-year-add" onclick="addRecYear()">+ Novo ano</button>`;
 
   // Cliente novo no extrato entra na planilha antes de desenhar.
+  try{ recMigrarBaixaManual(); }catch(_){}
   try{ recSincronizarClientesDoExtrato(recActiveYear); }catch(_){}
   const d = receita.years[recActiveYear];
   // Uma leitura do extrato por render — a célula recebe o mapa pronto.
@@ -35885,17 +35959,17 @@ function renderReceita(){
       const hasRaw = (valorCel !== '' && valorCel != null);
       const numVal = hasRaw ? +valorCel : 0;
       const has = hasRaw && !Number.isNaN(numVal) && numVal !== 0;
-      const recebidoCel = doExtrato ? (ef.aberto <= 0.005) : (c.status === 'recebido');
+      const recebidoCel = doExtrato ? (ef.aberto <= 0.005) : false;
       const cls = has ? (recebidoCel ? 'recebido' : 'aberto') : '';
       const simCls = isSim ? 'sim' : '';
       const icon = recebidoCel ? '✓' : '';
-      const locked = doExtrato ? ef.travado : (has && c.status === 'recebido');
+      const locked = !!(doExtrato && ef.travado);
       const ro = locked ? ' readonly' : '';
       const roTitle = locked
         ? (doExtrato ? ' title="Valor vem do Extrato Financeiro — edite o lançamento lá"'
                      : ' title="Remova o ✓ para editar"')
         : '';
-      const roClick = locked ? (doExtrato ? ' onmousedown="notifyDoExtrato()"' : ' onmousedown="notifyLocked()"') : '';
+      const roClick = locked ? (doExtrato ? ' onmousedown="notifyDoExtrato(this)"' : ' onmousedown="notifyLocked()"') : '';
       // Mês em curso com parte recebida: mostra quanto já entrou, sem esconder a projeção.
       const marca = doExtrato
         ? (ef.parcial
@@ -35910,7 +35984,7 @@ function renderReceita(){
                onblur="saveRecMes('${type}',${r.id},'${m}',this.value);var _rv=parseBR(this.value);this.value=(_rv===''||_rv===0)?'':fmtBR(_rv)"
                onkeydown="if(event.key==='Enter'){this.blur();}else if(event.key==='Escape'){this.blur();}">
         ${marca}
-        ${doExtrato ? '' : `<button type="button" class="rec-cell-toggle" onclick="event.stopPropagation();toggleRecMesStatus('${type}',${r.id},'${m}')" title="Alternar recebido / em aberto">${icon}</button>`}
+        ${doExtrato && recebidoCel ? '<span class="rec-cell-ok" title="Recebido — conciliado com o Extrato">✓</span>' : ''}
       </td>`;
     }).join('');
 
@@ -76618,7 +76692,7 @@ async function extBulkBaixar(){
     cancelText: 'Cancelar'
   });
   if(!ok) return;
-  let count = 0;
+  let count = 0, pulados = 0;
   const today = new Date().toISOString().slice(0,10);
   for(const id of pendentes){
     try {
@@ -76629,10 +76703,8 @@ async function extBulkBaixar(){
         const l = (extratoData.lancamentos||[]).find(x => x.id === realId);
         if(l){ l.status = 'pago'; l.dataPagamento = today; count++; }
       } else if(id.startsWith('rec:')){
-        const parts = id.split(':');
-        const y = parseInt(parts[1],10), rowId = parseInt(parts[2],10), mAbbr = parts[3];
-        const cell = receita?.years?.[y]?.clients?.find(r => r.id === rowId)?.meses?.[mAbbr];
-        if(cell){ cell.status = 'recebido'; cell.dataRecebimento = today; count++; }
+        // Receita não recebe baixa: quem decide o que foi recebido é o Extrato.
+        pulados++;
       } else if(id.startsWith('dkb:')){
         const parts = id.split(':');
         const ctxId = parts[1], itemId = parts.slice(2, parts.length-1).join(':'), ym = parts[parts.length-1];
@@ -76660,7 +76732,11 @@ async function extBulkBaixar(){
   _extSave();
   extBulkLimpar();
   renderExtrato();
-  if(typeof toast === 'function') toast('✓ ' + count + ' lançamento(s) baixado(s)');
+  if(typeof toast === 'function'){
+    toast('✓ ' + count + ' lançamento(s) baixado(s)'
+      + (pulados ? ' · ' + pulados + ' da Receita ignorado(s): baixa de receita se dá no Extrato' : ''),
+      pulados ? 5500 : 3000);
+  }
 }
 async function extBulkVoltarAberto(){
   const ids = [..._extSelected];
