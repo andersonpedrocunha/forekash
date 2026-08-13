@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786634255"/>
+  <meta name="fk-build" content="forekash-v1786634620"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -75718,6 +75718,20 @@ async function _ecapExtractPDFText(file){
 }
 
 // Parser principal · regex Brasil-aware com contexto SUPPLIER vs SELF
+// Mesma lista de contas do resto do sistema — banco, cartão e aplicação.
+function _ecapContaOpts(){
+  let grupos = [];
+  try{ grupos = (typeof fkContasAgrupadas === 'function') ? fkContasAgrupadas() : []; }catch(_){}
+  let s = '<option value="">— escolha —</option>';
+  for(const g of grupos){
+    s += '<optgroup label="' + _ecapEsc(g.titulo) + '">';
+    for(const nm of g.itens) s += '<option value="' + _ecapEsc(nm) + '">' + _ecapEsc(nm) + '</option>';
+    s += '</optgroup>';
+  }
+  return s;
+}
+try{ window._ecapContaOpts = _ecapContaOpts; }catch(_){}
+
 /* O nome vem grudado no que vem depois dele no PDF — "NEXOOS … S.A. CNPJ/CPF
    34.254.279…". Corta no primeiro rótulo de campo que aparecer. */
 function _ecapLimpaNome(txt){
@@ -75881,8 +75895,12 @@ function _ecapParseText(text, file){
      e ninguém escreve "0009108861" ao procurar. */
   let numero = null, numeroConf = 'no';
   const alvosNum = [
+    // PDF de boleto é uma tabela: o pdf.js entrega "Nosso Número / Cód do
+    // Documento" e o valor podem sair com outras células no meio. Tolera até
+    // 60 caracteres de distância — mas nada que pareça outro rótulo com número.
+    { re: /nosso\s*n[úu]mero(?:\s*\/\s*c[óo]d(?:igo)?\s*do\s*documento)?[^\d]{0,60}?0*(\d{5,20})/i, conf: 'hi' },
     { re: /nosso\s*n[úu]mero(?:\s*\/\s*c[óo]d(?:igo)?\s*do\s*documento)?\s*[:\-]?\s*0*(\d{5,20})/i, conf: 'hi' },
-    { re: /n[º°.]?\s*do\s*documento\s*[:\-]?\s*0*(\d{4,20})/i,                                       conf: 'hi' },
+    { re: /n[º°.]?\s*do\s*documento[^\d]{0,50}?0*(\d{4,20})/i,                                        conf: 'hi' },
     // aceita "Nº 123", "nº 123", "no. 123" e também "Fatura nº 123" (rótulo antes)
     { re: /(?:nf|nota\s*fiscal|fatura|boleto|duplicata|recibo|contrato)\s*n?[º°.]?\s*[:\-]?\s*0*(\d{3,12})/i, conf: 'hi' },
     { re: /N[º°.]\s*(?:NF|nota\s*fiscal|fatura|boleto)?\s*[:\-]?\s*0*(\d{4,12})/i,                  conf: 'hi' },
@@ -75959,14 +75977,30 @@ function _ecapParseText(text, file){
   if(categoria && fornConf === 'hi') catConf = 'hi';
 
   // --- DESCRIÇÃO ---
-  let descricao = '';
-  if(numero && (file.name.toLowerCase().includes('boleto') || /boleto/i.test(norm))){
-    descricao = 'Boleto ' + (fornecedor || 'fornecedor') + (numero ? ' · nº ' + numero : '');
-  } else if(/nota\s*fiscal|nfse|nf-e|nfs-e/i.test(norm)){
-    descricao = 'NF ' + (fornecedor || 'fornecedor') + (numero ? ' · nº ' + numero : '');
-  } else {
-    descricao = (fornecedor || 'Documento importado') + (numero ? ' · ' + numero : '');
-  }
+  /* A descrição precisa dizer o que é, de quem e quando — repetir a razão
+     social já está na coluna Cliente/Fornecedor, e no extrato uma linha
+     "NEXOOS SOCIEDADE DE EMPRESTIMO ENTRE PESSOAS S.A." não informa nada além
+     do que a coluna ao lado já diz.
+     Vira: "Boleto · NEXOOS · venc 13/08 · nº 9108861". O tipo do documento
+     não dependia do número existir — era o bug que deixava a descrição igual
+     ao nome do fornecedor sempre que o número faltava. */
+  const nomeCurto = (() => {
+    let n = String(fornecedor || '').trim();
+    if(!n) return '';
+    n = n.replace(/\s+(S\.?A\.?|LTDA|ME|EPP|EIRELI|MEI|S\/A)\b\.?/gi, '')
+         .replace(/\bSOCIEDADE\s+DE\b/gi, '').replace(/\s+/g, ' ').trim();
+    const p = n.split(' ');
+    return (p.length > 3 ? p.slice(0, 3).join(' ') : n);
+  })();
+  const vencCurto = data ? (data.slice(8,10) + '/' + data.slice(5,7)) : '';
+  const ehBoleto = /boleto/i.test(file.name || '') || /boleto|ficha\s*de\s*compensa/i.test(norm);
+  const ehNF     = /nota\s*fiscal|nfse|nf-e|nfs-e/i.test(norm);
+  const partes = [];
+  partes.push(ehBoleto ? 'Boleto' : (ehNF ? 'NF' : 'Documento'));
+  if(nomeCurto) partes.push(nomeCurto);
+  if(vencCurto) partes.push((ehBoleto ? 'venc ' : '') + vencCurto);
+  if(numero)    partes.push('nº ' + numero);
+  const descricao = partes.join(' · ');
 
   // --- TIPO (gasto/ganho) ---
   let tipo = 'gasto';
@@ -76103,6 +76137,10 @@ function _ecapRenderReview(file, data){
     +     '<select id="ecap-f-cat" class="' + (data.catConf!=='no'?'auto-filled':'') + '">' + catOpts + '</select>'
     +   '</div>'
     +   '<div class="ecap-rev-field">'
+    +     '<label>Conta <span class="ecap-lbl-sub">banco, cartão ou aplicação</span></label>'
+    +     '<select id="ecap-f-conta">' + _ecapContaOpts() + '</select>'
+    +   '</div>'
+    +   '<div class="ecap-rev-field">'
     +     '<label>Centro de custo</label>'
     +     '<select id="ecap-f-cc" class="' + (data.cc?'auto-filled':'') + '">' + ccOpts + '</select>'
     +   '</div>'
@@ -76196,7 +76234,7 @@ function extCapturaSubmit(){
       tipo: ECAP_STATE.tipo,  // 'gasto' ou 'ganho' · enum do extrato
       categoria: catTxt || '',
       contraparte: fornNome,
-      conta: '',
+      conta: (document.getElementById('ecap-f-conta')?.value || '').trim(),
       documento: numero,
       centroCustoId: ccId ? (parseInt(ccId) || null) : null,
       status: 'pendente',  // user dá baixa depois (botão Pagar) · vai pra KPI Pendentes
