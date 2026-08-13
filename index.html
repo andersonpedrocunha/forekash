@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786631576"/>
+  <meta name="fk-build" content="forekash-v1786631776"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -76020,7 +76020,14 @@ function _ecapRenderReview(file, data){
     +     fkcCampo('contraparte', data.fornecedor || '', 'Ex: AWS · Amazon Web Services', '',
                      'ecap-forn-inp' + (data.fornConf!=='no'?' auto-filled':''))
               .replace('class="fkc-inp', 'id="ecap-f-forn" class="fkc-inp')
-    +     (isNewForn ? '<div class="ecap-rev-forn-new" id="ecap-newforn"><span>🆕</span><div>Esse fornecedor ainda não está cadastrado. <b>Vai ser pré-cadastrado automaticamente</b> quando você confirmar.</div></div>' : '')
+    +     (isNewForn
+            ? '<div class="ecap-rev-forn-new" id="ecap-newforn"><div>'
+              + '<b>' + _ecapEsc(data.fornecedor || 'Este nome') + '</b> não está no seu cadastro. '
+              + 'Ao confirmar, será criado como <b>'
+              + (ECAP_STATE.tipo === 'ganho' ? 'cliente' : 'fornecedor')
+              + '</b> — o nome veio do documento, confira antes.'
+              + '</div></div>'
+            : '')
     +   '</div>'
     +   '<div class="ecap-rev-field">'
     +     '<label>CNPJ ' + _ecapConfBadge(data.cnpjConf || (data.cnpj?'hi':'no')) + '</label>'
@@ -76096,23 +76103,26 @@ function extCapturaSubmit(){
     return;
   }
 
-  // 1. Pré-cadastra fornecedor se for novo
+  /* 1. Cadastra a contraparte se ainda não existir.
+
+     Usa fkGarantirContraparte, a mesma função da importação e da conciliação
+     — antes isso era feito à mão aqui, gravando kind:'forn'. O resto do
+     sistema usa 'fornecedor', e as abas do Cadastro filtram por ele: quem
+     era criado pela Captura IA ficava invisível nas três abas. Existia no
+     registry e não aparecia em lugar nenhum.
+
+     O papel segue o tipo do lançamento: gasto → fornecedor, ganho → cliente.
+     É o que o documento diz — boleto que você paga é de um fornecedor. */
   let fornId = null;
   if(fornNome){
     try {
-      if(typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.registry)){
-        let f = pessoas.registry.find(p => p && (p.nome||'').toLowerCase() === fornNome.toLowerCase());
-        if(!f){
-          f = { id: pessoas.nextRegId || (pessoas.registry.length + 1), nome: fornNome, kind: 'forn', ativo: true };
-          if(cnpj) f.cnpj = cnpj;
-          pessoas.registry.push(f);
-          pessoas.nextRegId = (pessoas.nextRegId || pessoas.registry.length) + 1;
-          if(typeof pessoasSave === 'function') pessoasSave();
-          else { try { localStorage.setItem('taller_pessoas_v1', JSON.stringify(pessoas)); }catch(e){} }
-        }
-        fornId = f.id;
+      const papel = (ECAP_STATE.tipo === 'ganho') ? 'cliente' : 'fornecedor';
+      const reg = fkGarantirContraparte(fornNome, [papel]);
+      if(reg && reg.id != null){
+        fornId = reg.id;
+        if(cnpj && !reg.doc){ reg.doc = cnpj; try{ pessoasSave(); }catch(_){} }
       }
-    } catch(e){ console.warn('[ECAP] forn save:', e); }
+    } catch(e){ console.warn('[ECAP] contraparte:', e); }
   }
 
   // 2. Cria lançamento no extrato
