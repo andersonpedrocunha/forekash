@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786634620"/>
+  <meta name="fk-build" content="forekash-v1786641316"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -33286,10 +33286,12 @@ function _dkbRenderAnexosListUI(list, kind){
     ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>'
     : '<div style="width:34px;height:34px;border-radius:50%;background:#fff;color:' + themeColor + ';display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;border:1.5px solid ' + themeBorder + '"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>';
   const emptyText = list.length === 0
-    ? '<div style="display:flex;flex-direction:column;align-items:flex-start;gap:1px"><span>' + addLabel + '</span><span style="font-size:.7rem;color:#94A3B8;font-weight:500">Imagem ou PDF · até 1 MB cada</span></div>'
+    ? '<div style="display:flex;flex-direction:column;align-items:flex-start;gap:1px"><span>' + addLabel + '</span><span style="font-size:.7rem;color:#94A3B8;font-weight:500">Qualquer arquivo · até 4 MB cada</span></div>'
     : '<span>' + addLabel + '</span>';
   html += '<label style="' + addStyle + '" onmouseover="this.style.background=\'#fff\';this.style.borderStyle=\'solid\'" onmouseout="this.style.background=\'' + themeBg + '\';this.style.borderStyle=\'dashed\'">'
-    + '<input type="file" accept="image/*,application/pdf" multiple onchange="' + ctx.fnAdd + '(this)" style="display:none">'
+    // sem accept: comprovante vem em qualquer formato — XML de NF-e, .ofx,
+    // planilha, .eml do e-mail de cobrança. Restringir só atrapalhava.
+    + '<input type="file" multiple onchange="' + ctx.fnAdd + '(this)" style="display:none">'
     + compactIcon
     + emptyText
   + '</label>';
@@ -33313,8 +33315,11 @@ function _dkbAnexoIngest(inp, callback){
   let pending = files.length;
   const out = [];
   files.forEach((f, idx) => {
-    if(f.size > 1024 * 1024 * 1.05){
-      if(typeof toast === 'function') toast('"' + f.name + '" muito grande (máx 1 MB)');
+    /* 1 MB era apertado demais: boleto e NF escaneados passam disso com
+       facilidade, e o arquivo é justamente o comprovante. 4 MB — o base64
+       cresce ~33%, então o teto real no armazenamento fica perto de 5,3 MB. */
+    if(f.size > 4 * 1024 * 1024){
+      if(typeof toast === 'function') toast('"' + f.name + '" tem ' + Math.round(f.size/1048576*10)/10 + ' MB — o limite é 4 MB');
       pending--;
       if(pending === 0 && out.length > 0) callback(out);
       return;
@@ -65063,10 +65068,16 @@ function _extSave(){
   } catch(e){
     const mb = (() => { try { return (JSON.stringify(extratoData).length / 1048576).toFixed(1); }catch(_){ return '?'; } })();
     console.error('[FK] NÃO consegui salvar o Extrato:', e.name, '· tamanho:', mb + ' MB', e.message);
-    const anexos = (extratoData.lancamentos || []).filter(l => l && l.anexo && l.anexo.dataUrl);
+    const temInline = l => l && l.anexo && (Array.isArray(l.anexo) ? l.anexo.some(a=>a && a.dataUrl) : !!l.anexo.dataUrl);
+    const anexos = (extratoData.lancamentos || []).filter(temInline);
     if(anexos.length){
       // Tenta de novo sem os anexos inline — o lançamento vale mais que o PDF.
-      const guardados = anexos.map(l => { const a = l.anexo; l.anexoRef = { nome:a.nome, tipo:a.tipo, tamanho:a.tamanho, semInline:true }; delete l.anexo; return [l, a]; });
+      const guardados = anexos.map(l => {
+        const a = l.anexo;
+        const lista = Array.isArray(a) ? a : [a];
+        l.anexoRef = lista.map(x => ({ nome:x.nome, tipo:x.tipo, tamanho:x.tamanho, semInline:true }));
+        delete l.anexo; return [l, a];
+      });
       try {
         localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData));
         salvou = true;
@@ -68264,24 +68275,10 @@ function extOpenModal(tipo, editId){
   // Transferência aceita mais que banco: cartão (pagar fatura) e aplicação
   // (aporte/resgate) também são destino legítimo. Usa a mesma lista da
   // importação, pra não divergirem.
+  // fonte única — ver fkContaOptsHTML
   const contaOptsHtml = (cur) => {
-    let grupos = [];
-    try{ grupos = (typeof fkContasAgrupadas === 'function') ? fkContasAgrupadas() : []; }catch(_){}
-    if(!grupos.length) return bancoOptsHtml(cur);
-    let s = '<option value="">— escolha —</option>';
-    const todos = [];
-    for(const g of grupos){
-      s += '<optgroup label="' + _extEsc(g.titulo) + '">';
-      for(const nm of g.itens){
-        todos.push(nm);
-        s += '<option value="' + _extEsc(nm) + '"' + (nm === cur ? ' selected' : '') + '>' + _extEsc(nm) + '</option>';
-      }
-      s += '</optgroup>';
-    }
-    if(cur && !todos.includes(cur)){
-      s += '<optgroup label="Outras"><option value="' + _extEsc(cur) + '" selected>' + _extEsc(cur) + '</option></optgroup>';
-    }
-    return s;
+    const html = (typeof fkContaOptsHTML === 'function') ? fkContaOptsHTML(cur) : '';
+    return html || bancoOptsHtml(cur);
   };
   // Pré-computa opções de forma de pagamento (evita IIFE inline complexa)
   const _extFormaPagOpts = (function(){
@@ -71419,13 +71416,9 @@ function extBaixaOpen(id){
   const lblValorAcao = isEntrada ? 'Valor recebido' : 'Valor pago';
 
   // Bancos ativos pra Conta
-  const ativos = (typeof _recKbActiveBancos === 'function') ? _recKbActiveBancos() : [];
   const contaCur = it.conta || '';
-  let contaOpts = '<option value="">— escolha —</option>';
-  for(const b of ativos){
-    const nm = b.nome || b.id;
-    contaOpts += '<option value="' + _extEsc(nm) + '"' + (nm === contaCur ? ' selected' : '') + '>' + _extEsc(nm) + '</option>';
-  }
+  let contaOpts = fkContaOptsHTML(contaCur);
+  const ativos = [];
   if(contaCur && !ativos.some(b => (b.nome || b.id) === contaCur)){
     contaOpts += '<option value="' + _extEsc(contaCur) + '" selected>' + _extEsc(contaCur) + ' (inativo)</option>';
   }
@@ -73770,6 +73763,33 @@ function fkContasAgrupadas(){
     { titulo: 'Cartões',                   itens: ord(cartoes_) }
   ].filter(g => g.itens.length);
 }
+/* <option>s de conta agrupados — fonte única pra TODO seletor onde se
+   escolhe "de onde saiu / pra onde entrou o dinheiro". Existiam quatro
+   lugares montando essa lista à mão, e três só listavam bancos: cartão e
+   aplicação ficavam de fora justamente onde mais importa (a baixa).
+   Bancos emissores de cartão e vínculo de pessoa continuam usando a lista de
+   bancos — lá é banco mesmo, não conta. */
+function fkContaOptsHTML(atual, rotuloVazio){
+  const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x||''));
+  let grupos = [];
+  try{ grupos = fkContasAgrupadas(); }catch(_){}
+  let out = '<option value="">' + esc(rotuloVazio || '— escolha —') + '</option>';
+  const todos = [];
+  for(const g of grupos){
+    out += '<optgroup label="' + esc(g.titulo) + '">';
+    for(const nm of g.itens){
+      todos.push(nm);
+      out += '<option value="' + esc(nm) + '"' + (nm === atual ? ' selected' : '') + '>' + esc(nm) + '</option>';
+    }
+    out += '</optgroup>';
+  }
+  if(atual && !todos.includes(atual)){
+    out += '<optgroup label="Outras"><option value="' + esc(atual) + '" selected>' + esc(atual) + '</option></optgroup>';
+  }
+  return out;
+}
+try{ window.fkContaOptsHTML = fkContaOptsHTML; }catch(_){}
+
 // Lista achatada — pros combos que não têm agrupamento.
 function fkContasDisponiveis(extras){
   const set = new Set();
@@ -75720,15 +75740,7 @@ async function _ecapExtractPDFText(file){
 // Parser principal · regex Brasil-aware com contexto SUPPLIER vs SELF
 // Mesma lista de contas do resto do sistema — banco, cartão e aplicação.
 function _ecapContaOpts(){
-  let grupos = [];
-  try{ grupos = (typeof fkContasAgrupadas === 'function') ? fkContasAgrupadas() : []; }catch(_){}
-  let s = '<option value="">— escolha —</option>';
-  for(const g of grupos){
-    s += '<optgroup label="' + _ecapEsc(g.titulo) + '">';
-    for(const nm of g.itens) s += '<option value="' + _ecapEsc(nm) + '">' + _ecapEsc(nm) + '</option>';
-    s += '</optgroup>';
-  }
-  return s;
+  try{ return fkContaOptsHTML(''); }catch(_){ return '<option value="">— escolha —</option>'; }
 }
 try{ window._ecapContaOpts = _ecapContaOpts; }catch(_){}
 
@@ -76255,11 +76267,15 @@ function extCapturaSubmit(){
     const gravou = (typeof _extSave === 'function') ? _extSave() : false;
 
     if(ECAP_STATE.file){
-      lan.anexoRef = { nome: ECAP_STATE.file.name, tipo: ECAP_STATE.file.type, tamanho: ECAP_STATE.file.size };
+      lan.anexoRef = [{ name: ECAP_STATE.file.name, type: ECAP_STATE.file.type, size: ECAP_STATE.file.size, semInline:true }];
       if(ECAP_STATE.fileBase64){
         const antes = lan.anexo;
-        lan.anexo = { nome: ECAP_STATE.file.name, tipo: ECAP_STATE.file.type,
-                      tamanho: ECAP_STATE.file.size, dataUrl: ECAP_STATE.fileBase64 };
+        /* ARRAY, não objeto: o modal de edição lê `l.anexo` como lista
+           (Array.isArray(...) ? ... : []) — gravando objeto, o anexo existia
+           no dado e não aparecia em lugar nenhum. E como é lista, dá pra
+           juntar outros arquivos ao mesmo lançamento depois. */
+        lan.anexo = [{ name: ECAP_STATE.file.name, type: ECAP_STATE.file.type,
+                       size: ECAP_STATE.file.size, dataUrl: ECAP_STATE.fileBase64 }];
         let coube = false;
         try{
           localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData));
@@ -76381,18 +76397,7 @@ function _extImpRenderBody(){
   const fmt = _extImpState.format;
   const isOFX = fmt === 'ofx';
   // Lista de contas pra default
-  let contasOpts = '<option value="">— manter conta do arquivo / em branco —</option>';
-  try {
-    const ativos = (typeof _recKbActiveBancos === 'function') ? _recKbActiveBancos() : [];
-    const seen = new Set();
-    for(const b of ativos){
-      if(b && b.nome && !seen.has(b.nome)){
-        seen.add(b.nome);
-        const sel = (b.nome === _extImpState.contaDefault) ? ' selected' : '';
-        contasOpts += '<option value="' + _extEsc(b.nome) + '"' + sel + '>' + _extEsc(b.nome) + '</option>';
-      }
-    }
-  } catch(e){}
+  const contasOpts = fkContaOptsHTML(_extImpState.contaDefault, '— manter conta do arquivo / em branco —');
   let html = '<div class="ext-imp-section">';
   if(isOFX){
     html += '<h4>Importar extrato bancário (.ofx)</h4>'
@@ -132311,7 +132316,8 @@ function fkDiag(){
       extratoMB: (bruto.length / 1048576).toFixed(2),
       totalLocalStorageMB: (Object.keys(localStorage)
         .reduce((t,k) => t + (localStorage.getItem(k)||'').length + k.length, 0) / 1048576).toFixed(2),
-      anexosInline: L.filter(l => l && l.anexo && l.anexo.dataUrl).length
+      anexosInline: L.filter(l => l && l.anexo &&
+        (Array.isArray(l.anexo) ? l.anexo.some(a=>a&&a.dataUrl) : !!l.anexo.dataUrl)).length
     };
     try{
       const marca = '__fk_teste__';
