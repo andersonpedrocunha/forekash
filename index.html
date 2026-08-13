@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786631776"/>
+  <meta name="fk-build" content="forekash-v1786632022"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -75846,12 +75846,33 @@ function _ecapParseText(text, file){
   if(!data) data = new Date().toISOString().slice(0,10);
 
   // --- NÚMERO DO DOCUMENTO ---
-  let numero = null;
-  const nNF = norm.match(/(?:N[º°.]?\s*(?:NF|nota\s*fiscal|fatura|boleto|documento)|nota\s*fiscal\s*n[º°.]?|n[º°.]\s*do\s*documento)\s*[:\-]?\s*0*(\d{4,12})/i);
-  if(nNF) numero = nNF[1];
-  else {
-    const cb = norm.replace(/\s/g,'').match(/\d{47,48}/);
-    if(cb) numero = 'BOL-' + cb[0].slice(-8);
+  /* Boleto traz dois identificadores e eles servem a coisas diferentes:
+     "Nosso Número" é como o BANCO identifica o título — é o que você informa
+     ao ligar pro banco, e o que aparece no comprovante. "Nº do Documento" é
+     o número interno de quem emitiu.
+     Prefere Nosso Número quando existe; é o mais útil pra rastrear depois.
+     O corte de zeros à esquerda é intencional: bancos preenchem com zeros
+     e ninguém escreve "0009108861" ao procurar. */
+  let numero = null, numeroConf = 'no';
+  const alvosNum = [
+    { re: /nosso\s*n[úu]mero(?:\s*\/\s*c[óo]d(?:igo)?\s*do\s*documento)?\s*[:\-]?\s*0*(\d{5,20})/i, conf: 'hi' },
+    { re: /n[º°.]?\s*do\s*documento\s*[:\-]?\s*0*(\d{4,20})/i,                                       conf: 'hi' },
+    // aceita "Nº 123", "nº 123", "no. 123" e também "Fatura nº 123" (rótulo antes)
+    { re: /(?:nf|nota\s*fiscal|fatura|boleto|duplicata|recibo|contrato)\s*n?[º°.]?\s*[:\-]?\s*0*(\d{3,12})/i, conf: 'hi' },
+    { re: /N[º°.]\s*(?:NF|nota\s*fiscal|fatura|boleto)?\s*[:\-]?\s*0*(\d{4,12})/i,                  conf: 'hi' },
+    // "NOTA FISCAL … Nº 001234" — o número vem depois do título inteiro
+    { re: /nota\s*fiscal[^\n]{0,40}?n[º°.]\s*[:\-]?\s*0*(\d{3,12})/i,                              conf: 'hi' },
+    { re: /(?:nfs-?e|nf-?e|nfse)[^\n]{0,30}?n?[º°.]?\s*[:\-]?\s*0*(\d{3,12})/i,                     conf: 'md' },
+    { re: /(?:n[uú]mero|n[º°.])\s*[:\-]\s*0*(\d{4,12})/i,                                             conf: 'md' }
+  ];
+  for(const a of alvosNum){
+    const m = a.re.exec(norm);
+    if(m && m[1]){ numero = m[1]; numeroConf = a.conf; break; }
+  }
+  if(!numero){
+    // Sem rótulo: usa o fim da linha digitável, que identifica o título.
+    const cb = norm.replace(/\s/g,'').match(/\d{44,48}/);
+    if(cb){ numero = 'BOL-' + cb[0].slice(-8); numeroConf = 'lo'; }
   }
 
   // --- FORNECEDOR ---
@@ -75936,7 +75957,7 @@ function _ecapParseText(text, file){
     tipo, valor, valorConf,
     data, dataConf,
     fornecedor, fornConf, fornKnown, cnpj, cnpjConf,
-    numero,
+    numero, numeroConf,
     categoria, catConf,
     descricao,
     cc: categoria ? ECAP_CC_BY_CAT[categoria] || null : null,
@@ -76034,7 +76055,7 @@ function _ecapRenderReview(file, data){
     +     '<input type="text" id="ecap-f-cnpj" value="' + _ecapEsc(data.cnpj||'') + '" placeholder="00.000.000/0000-00" class="' + (data.cnpj?'auto-filled':'') + '">'
     +   '</div>'
     +   '<div class="ecap-rev-field">'
-    +     '<label>Nº do documento ' + (data.numero ? _ecapConfBadge('md') : _ecapConfBadge('no')) + '</label>'
+    +     '<label>Nº do documento ' + _ecapConfBadge(data.numeroConf || (data.numero ? 'md' : 'no')) + '</label>'
     +     '<input type="text" id="ecap-f-num" value="' + _ecapEsc(data.numero||'') + '" placeholder="123456" class="' + (data.numero?'auto-filled':'') + '">'
     +   '</div>'
     +   '<div class="ecap-rev-field">'
