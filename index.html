@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786641316"/>
+  <meta name="fk-build" content="forekash-v1786641987"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -33305,6 +33305,7 @@ function _dkbAnexoCtxFor(kind){
   if(kind === 'rec-comp') return { fnAdd:'_recKbCompChange', fnOpenAt:'_recKbCompOpenAt', fnRemoveAt:'_recKbCompRemoveAt' };
   if(kind === 'rec-doc')  return { fnAdd:'_recKbAnexoChange', fnOpenAt:'_recKbAnexoOpenAt', fnRemoveAt:'_recKbAnexoRemoveAt' };
   if(kind === 'bx-comp')  return { fnAdd:'_extBxCompChange', fnOpenAt:'_extBxCompOpenAt', fnRemoveAt:'_extBxCompRemoveAt' };
+  if(kind === 'ecap')     return { fnAdd:'_ecapAnexoChange', fnOpenAt:'_ecapAnexoOpenAt', fnRemoveAt:'_ecapAnexoRemoveAt' };
   return { fnAdd:'_dkbAnexoChange', fnOpenAt:'_dkbAnexoOpenAt', fnRemoveAt:'_dkbAnexoRemoveAt' };
 }
 
@@ -75553,6 +75554,7 @@ function concRevert(histId){
 try { window.concRevert = concRevert; } catch(e){}
 
 function extCapturaOpen(){
+  _ecapAnexos = [];   // começa limpo a cada documento
   ECAP_STATE.file = null; ECAP_STATE.fileBase64 = null;
   ECAP_STATE.extracted = null; ECAP_STATE.tipo = 'gasto'; ECAP_STATE.step = 'drop';
   const ov = document.getElementById('ecap-ov');
@@ -75739,6 +75741,31 @@ async function _ecapExtractPDFText(file){
 
 // Parser principal · regex Brasil-aware com contexto SUPPLIER vs SELF
 // Mesma lista de contas do resto do sistema — banco, cartão e aplicação.
+/* Anexos extras na própria tela da captura — nota fiscal, contrato, e-mail
+   de cobrança. O documento lido entra automaticamente como primeiro anexo;
+   estes vão junto no mesmo lançamento. */
+let _ecapAnexos = [];
+function _ecapAnexoChange(inp){
+  _dkbAnexoIngest(inp, (novos) => {
+    _ecapAnexos = _ecapAnexos.concat(novos);
+    _ecapAnexoRender();
+  });
+}
+function _ecapAnexoRemoveAt(i){ _ecapAnexos.splice(i, 1); _ecapAnexoRender(); }
+function _ecapAnexoOpenAt(i){
+  const a = _ecapAnexos[i];
+  if(a && a.dataUrl) window.open(a.dataUrl, '_blank');
+}
+function _ecapAnexoRender(){
+  const w = document.getElementById('ecap-anexos-wrap');
+  if(w && typeof _dkbRenderAnexoUI === 'function') w.innerHTML = _dkbRenderAnexoUI(_ecapAnexos, 'ecap');
+}
+try{
+  window._ecapAnexoChange = _ecapAnexoChange;
+  window._ecapAnexoRemoveAt = _ecapAnexoRemoveAt;
+  window._ecapAnexoOpenAt = _ecapAnexoOpenAt;
+}catch(_){}
+
 function _ecapContaOpts(){
   try{ return fkContaOptsHTML(''); }catch(_){ return '<option value="">— escolha —</option>'; }
 }
@@ -75748,7 +75775,18 @@ try{ window._ecapContaOpts = _ecapContaOpts; }catch(_){}
    34.254.279…". Corta no primeiro rótulo de campo que aparecer. */
 function _ecapLimpaNome(txt){
   let n = String(txt || '').replace(/\s+/g, ' ').trim();
-  n = n.split(/\s*(?:CNPJ|CPF|AG[ÊE]NCIA|C[ÓO]DIGO|DATA|N[ºO°]?\s*DO\s*DOCUMENTO|ESP[ÉE]CIE|NOSSO\s*N[ÚU]MERO|VENCIMENTO|VALOR|CARTEIRA|USO\s*DO\s*BANCO)\b/i)[0];
+  n = n.split(/\s*(?:CNPJ|CPF|AG[ÊE]NCIA|C[ÓO]DIGO|DATA|N[ºO°]?\s*DO\s*DOCUMENTO|ESP[ÉE]CIE|NOSSO\s*N[ÚU]MERO|VENCIMENTO|VALOR|CARTEIRA|USO\s*DO\s*BANCO|PAGADOR|SACADO)\b/i)[0];
+
+  /* Boleto é uma TABELA: o PDF entrega a linha inteira, então o nome vem
+     colado na coluna vizinha ("...S.A. 3200 / 0001234-5"). O rótulo daquela
+     coluna está na linha DE CIMA, então cortar por rótulo não resolve —
+     é preciso cortar pelo formato do que veio junto. */
+  const soc = n.match(/\b(S[\.\s]*A|LTDA|ME|EPP|EIRELI|MEI|S\/A|SA)\b\.?/i);
+  if(soc) n = n.slice(0, soc.index + soc[0].length);      // sufixo societário fecha a razão social
+  n = n.split(/\s\d{3,}/)[0];                              // agência, código do cedente, nosso número
+  n = n.split(/\s\d{1,2}\/\d{1,2}\/\d{2,4}/)[0];          // data
+  n = n.split(/\s[\d\.]{1,12},\d{2}\b/)[0];                // valor
+
   n = n.replace(/[\s.,;:\-\/]+$/, '').trim();
   return n.slice(0, 60);
 }
@@ -75926,7 +75964,15 @@ function _ecapParseText(text, file){
     if(m && m[1]){ numero = m[1]; numeroConf = a.conf; break; }
   }
   if(!numero){
-    // Sem rótulo: usa o fim da linha digitável, que identifica o título.
+    /* O nome do arquivo costuma trazer o número — "Boleto de quitação -
+       2280446 - TALLER.pdf" é o padrão de vários emissores, e é informação
+       melhor que um pedaço do código de barras. */
+    const nome = String((file && file.name) || '');
+    const mNome = nome.replace(/\.[a-z0-9]+$/i, '').match(/(?:^|[\s\-_·])(\d{5,12})(?:[\s\-_·]|$)/);
+    if(mNome){ numero = mNome[1]; numeroConf = 'md'; }
+  }
+  if(!numero){
+    // Último recurso: fim da linha digitável, que identifica o título.
     const cb = norm.replace(/\s/g,'').match(/\d{44,48}/);
     if(cb){ numero = 'BOL-' + cb[0].slice(-8); numeroConf = 'lo'; }
   }
@@ -76002,7 +76048,8 @@ function _ecapParseText(text, file){
     n = n.replace(/\s+(S\.?A\.?|LTDA|ME|EPP|EIRELI|MEI|S\/A)\b\.?/gi, '')
          .replace(/\bSOCIEDADE\s+DE\b/gi, '').replace(/\s+/g, ' ').trim();
     const p = n.split(' ');
-    return (p.length > 3 ? p.slice(0, 3).join(' ') : n);
+    return (p.length > 3 ? p.slice(0, 3).join(' ') : n)
+             .replace(/\s+(DE|DA|DO|DAS|DOS|E|ENTRE|COM|EM|PARA)$/i, '');
   })();
   const vencCurto = data ? (data.slice(8,10) + '/' + data.slice(5,7)) : '';
   const ehBoleto = /boleto/i.test(file.name || '') || /boleto|ficha\s*de\s*compensa/i.test(norm);
@@ -76157,6 +76204,10 @@ function _ecapRenderReview(file, data){
     +     '<select id="ecap-f-cc" class="' + (data.cc?'auto-filled':'') + '">' + ccOpts + '</select>'
     +   '</div>'
     +   '<div class="ecap-rev-field full">'
+    +     '<label>Outros anexos <span class="ecap-lbl-sub">o documento lido já vai junto</span></label>'
+    +     '<div id="ecap-anexos-wrap">' + (typeof _dkbRenderAnexoUI === 'function' ? _dkbRenderAnexoUI(_ecapAnexos, 'ecap') : '') + '</div>'
+    +   '</div>'
+    +   '<div class="ecap-rev-field full">'
     +     '<label>Descrição</label>'
     +     '<input type="text" id="ecap-f-desc" value="' + _ecapEsc(data.descricao||'') + '" placeholder="Como vai aparecer no extrato">'
     +   '</div>'
@@ -76266,6 +76317,9 @@ function extCapturaSubmit(){
     extratoData.nextId = lan.id + 1;
     const gravou = (typeof _extSave === 'function') ? _extSave() : false;
 
+    if((_ecapAnexos || []).length && !ECAP_STATE.fileBase64){
+      lan.anexo = (_ecapAnexos || []).slice();   // extras vão mesmo sem o documento inline
+    }
     if(ECAP_STATE.file){
       lan.anexoRef = [{ name: ECAP_STATE.file.name, type: ECAP_STATE.file.type, size: ECAP_STATE.file.size, semInline:true }];
       if(ECAP_STATE.fileBase64){
@@ -76275,7 +76329,8 @@ function extCapturaSubmit(){
            no dado e não aparecia em lugar nenhum. E como é lista, dá pra
            juntar outros arquivos ao mesmo lançamento depois. */
         lan.anexo = [{ name: ECAP_STATE.file.name, type: ECAP_STATE.file.type,
-                       size: ECAP_STATE.file.size, dataUrl: ECAP_STATE.fileBase64 }];
+                       size: ECAP_STATE.file.size, dataUrl: ECAP_STATE.fileBase64 }]
+                    .concat(_ecapAnexos || []);
         let coube = false;
         try{
           localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData));
