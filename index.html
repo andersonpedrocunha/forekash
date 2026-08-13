@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786631397"/>
+  <meta name="fk-build" content="forekash-v1786631576"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5464,6 +5464,15 @@
     [data-theme="dark"] .ext-row-saldo{color:#D9A441;background:#251D0E;border-color:#4A3A14}
     [data-theme="dark"] tr.is-saldo td{background:#1C1708}
     /* trava de lançamento baixado */
+    .fk-versao-nova{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:99999;
+      display:flex;align-items:center;gap:12px;flex-wrap:wrap;max-width:min(560px,92vw);
+      padding:12px 16px;border-radius:10px;font-size:.82rem;
+      background:#0F172A;color:#F1F5F9;box-shadow:0 12px 32px -8px rgba(15,23,42,.5)}
+    .fk-versao-nova button{padding:6px 13px;border-radius:6px;cursor:pointer;font-family:inherit;
+      font-size:.78rem;font-weight:700;border:none;background:#0F766E;color:#fff}
+    .fk-versao-nova button:hover{background:#115E59}
+    .fk-versao-nova button.depois{background:transparent;color:#94A3B8;font-weight:500}
+    .fk-versao-nova button.depois:hover{color:#E2E8F0}
     .ext-trava{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
       padding:10px 13px;margin-bottom:14px;border-radius:8px;font-size:.78rem;line-height:1.45;
       background:#FFFBEB;border:1px solid #FDE68A;color:#92400E}
@@ -132128,6 +132137,53 @@ function _fkBlobTemConteudo(v){
   }
   return false;
 }
+/* ══ Aviso de versão nova ═════════════════════════════════════════════════
+   O deploy é instantâneo, mas o navegador pode continuar servindo a versão
+   antiga do cache — e aí a pessoa reporta um bug que já foi corrigido, ou
+   não encontra um campo que já existe. Aconteceu várias vezes.
+
+   version.txt tem só a string da versão (~24 bytes). Compara com a que está
+   carregada; se divergir, oferece recarregar. Não recarrega sozinho: o
+   usuário pode estar no meio de um lançamento.                             */
+let _fkVersaoAvisada = false;
+async function fkChecarVersao(){
+  if(_fkVersaoAvisada) return;
+  const atual = document.querySelector('meta[name="fk-build"]')?.content || '';
+  if(!atual) return;
+  let servidor = '';
+  try{
+    const r = await fetch('version.txt?t=' + Date.now(), { cache: 'no-store' });
+    if(!r.ok) return;
+    servidor = (await r.text()).trim();
+  }catch(_){ return; }
+  if(!servidor || servidor === atual) return;
+  _fkVersaoAvisada = true;
+  const b = document.createElement('div');
+  b.className = 'fk-versao-nova';
+  b.innerHTML = '<span>Tem uma versão nova do Forekash. A que está aberta é de antes.</span>'
+    + '<button type="button" onclick="fkAtualizarAgora()">Atualizar</button>'
+    + '<button type="button" class="depois" onclick="this.parentNode.remove()">Depois</button>';
+  document.body.appendChild(b);
+}
+// Limpa service worker e caches antes de recarregar — o motivo mais comum de
+// a versão velha insistir em voltar.
+async function fkAtualizarAgora(){
+  try{
+    if(navigator.serviceWorker){
+      const rs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(rs.map(r => r.unregister()));
+    }
+    if(window.caches){
+      const ks = await caches.keys();
+      await Promise.all(ks.map(k => caches.delete(k)));
+    }
+  }catch(_){}
+  location.reload();
+}
+try{ window.fkChecarVersao = fkChecarVersao; window.fkAtualizarAgora = fkAtualizarAgora; }catch(_){}
+setTimeout(() => { fkChecarVersao(); }, 4000);
+setInterval(() => { fkChecarVersao(); }, 10 * 60 * 1000);
+
 async function fkCloudGarantirBlobs(){
   if(window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER){
     return { pulado: 'sem sessão cloud' };

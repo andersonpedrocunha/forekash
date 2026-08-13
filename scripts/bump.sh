@@ -31,6 +31,12 @@ for arquivo in ('sw.js', 'index.html'):
         print(f'  {arquivo}: nenhuma ocorrência de forekash-v<n>')
 PY
 
+# Arquivo minúsculo com a versão. O app busca ele de tempos em tempos pra
+# saber se o que está aberto no navegador ainda é o que está no servidor —
+# sem baixar os 6,8 MB do index só pra comparar uma string.
+printf '%s' "$VER" > version.txt
+echo "  version.txt: $VER"
+
 # valida o JS embutido no index antes de liberar o deploy
 python3 - <<'PY'
 import re
