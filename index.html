@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786632466"/>
+  <meta name="fk-build" content="forekash-v1786632770"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -103290,7 +103290,17 @@ async function pwaRegisterSW(){
 
     // Registra do arquivo fixo: o navegador compara bytes a cada visita e
     // atualiza sozinho quando o deploy muda a versão do CACHE.
-    PWA_REGISTRATION = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    /* updateViaCache:'none' — sem isso o navegador pode servir o próprio sw.js
+       do cache HTTP por até 24h, e o worker novo nunca é notado. Era metade
+       do motivo de a versão velha insistir em voltar. */
+    PWA_REGISTRATION = await navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' });
+    // procura worker novo a cada 2 min e quando a aba volta ao primeiro plano
+    try{
+      setInterval(() => { PWA_REGISTRATION.update().catch(()=>{}); }, 120000);
+      document.addEventListener('visibilitychange', () => {
+        if(document.visibilityState === 'visible') PWA_REGISTRATION.update().catch(()=>{});
+      });
+    }catch(_){}
     // Listen pra updates
     PWA_REGISTRATION.addEventListener('updatefound', () => {
       const nw = PWA_REGISTRATION.installing;
@@ -132232,13 +132242,39 @@ async function fkChecarVersao(){
     servidor = (await r.text()).trim();
   }catch(_){ return; }
   if(!servidor || servidor === atual) return;
+
+  /* Atualiza sozinho — ninguém deveria precisar limpar cache pra ver uma
+     correção. Só espera se houver trabalho em andamento, porque recarregar
+     no meio de um lançamento perderia o que foi digitado. */
+  if(_fkPodeRecarregar()){
+    console.log('[FK] versão nova (' + servidor + ') — atualizando');
+    return fkAtualizarAgora();
+  }
   _fkVersaoAvisada = true;
   const b = document.createElement('div');
   b.className = 'fk-versao-nova';
-  b.innerHTML = '<span>Tem uma versão nova do Forekash. A que está aberta é de antes.</span>'
-    + '<button type="button" onclick="fkAtualizarAgora()">Atualizar</button>'
-    + '<button type="button" class="depois" onclick="this.parentNode.remove()">Depois</button>';
+  b.innerHTML = '<span>Versão nova disponível. Atualiza assim que você terminar o que está fazendo.</span>'
+    + '<button type="button" onclick="fkAtualizarAgora()">Atualizar agora</button>';
   document.body.appendChild(b);
+  // assim que a tela ficar livre, atualiza sem pedir nada
+  const esperar = setInterval(() => {
+    if(_fkPodeRecarregar()){ clearInterval(esperar); fkAtualizarAgora(); }
+  }, 5000);
+}
+/* Tem trabalho em andamento? Modal aberto, campo em foco ou texto digitado
+   num formulário — qualquer um desses significa "não recarregue agora". */
+function _fkPodeRecarregar(){
+  try{
+    const modalAberto = document.querySelector(
+      '#ext-modal-ov, #ext-imp-ov, #ecap-ov.on, .overlay.open, #conc-ov.on, .ext-ign-ov.on');
+    if(modalAberto) return false;
+    const foco = document.activeElement;
+    if(foco && /^(INPUT|TEXTAREA|SELECT)$/.test(foco.tagName)) return false;
+    if(document.querySelector('[contenteditable="true"]:focus')) return false;
+    // planilhas com célula em edição
+    if(document.querySelector('.rec-cell.editing, .est-cell.editing, td.editing')) return false;
+    return true;
+  }catch(_){ return false; }
 }
 // Limpa service worker e caches antes de recarregar — o motivo mais comum de
 // a versão velha insistir em voltar.
@@ -132255,9 +132291,17 @@ async function fkAtualizarAgora(){
   }catch(_){}
   location.reload();
 }
-try{ window.fkChecarVersao = fkChecarVersao; window.fkAtualizarAgora = fkAtualizarAgora; }catch(_){}
-setTimeout(() => { fkChecarVersao(); }, 4000);
-setInterval(() => { fkChecarVersao(); }, 10 * 60 * 1000);
+try{
+  window.fkChecarVersao = fkChecarVersao;
+  window.fkAtualizarAgora = fkAtualizarAgora;
+  window._fkPodeRecarregar = _fkPodeRecarregar;
+}catch(_){}
+setTimeout(() => { fkChecarVersao(); }, 2500);
+setInterval(() => { fkChecarVersao(); }, 90 * 1000);
+// e sempre que a aba volta pro primeiro plano — é quando o usuário retoma
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible') fkChecarVersao();
+});
 
 async function fkCloudGarantirBlobs(){
   if(window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER){
