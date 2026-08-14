@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786723369"/>
+  <meta name="fk-build" content="forekash-v1786724457"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -4632,6 +4632,8 @@
                           font-weight:600;font-family:inherit}
     .ecap-rev-file-act:hover{background:#fff;border-color:#94A3B8;color:#1E293B}
 
+    .ecap-aviso-anexo{background:#FEF3C7;border:1px solid #FDE68A;border-radius:7px;padding:9px 11px;
+      margin-bottom:9px;font-size:.74rem;line-height:1.45;color:#92400E}
     .ecap-rev-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
     .ecap-rev-field{display:flex;flex-direction:column;gap:5px}
     .ecap-rev-field.full{grid-column:1 / -1}
@@ -32342,6 +32344,34 @@ let _dkbCompData  = []; // comprovante DKB Pagamento
 
 function _dkbEscAttr(s){ return _dkbEsc(s); }
 
+/* Resumo da seção "Documento, notas e anexo".
+
+   Dizia só "Preenchido" pra qualquer coisa — com um nº de documento salvo e
+   nenhum anexo, parecia que havia anexo. Mora aqui porque existe em DOIS
+   modais (transferência e ganho/gasto): editei um e usei no outro por engano,
+   e o modal quebrou inteiro com "_resumoDoc is not defined". */
+function _extContaAnexos(l){
+  if(!l) return 0;
+  return Array.isArray(l.anexo) ? l.anexo.length : (l.anexo ? 1 : 0);
+}
+function _extTemDoc(l){
+  return !!(l && (l.documento || l.refInterna || l.notas || _extContaAnexos(l)));
+}
+function _extResumoDoc(l){
+  if(!l) return 'Vazio';
+  const n = _extContaAnexos(l);
+  const p = [];
+  if(l.documento) p.push('nº ' + String(l.documento).slice(0, 14));
+  if(n) p.push(n + (n > 1 ? ' anexos' : ' anexo'));
+  else if(l.notas) p.push('notas');
+  else if(l.refInterna) p.push('ref.');
+  return p.length ? p.join(' · ') : 'Vazio';
+}
+try{
+  window._extTemDoc = _extTemDoc;
+  window._extResumoDoc = _extResumoDoc;
+}catch(_){}
+
 function _dkbRenderAnexoUI(input, kind){
   // kind: 'doc' | 'comp' | 'rec-doc' | 'rec-comp' | 'bx-comp' (extBaixa)
   // input: pode ser objeto único (legacy) OU array
@@ -32402,7 +32432,17 @@ function _dkbRenderAnexosListUI(list, kind){
   const emptyText = list.length === 0
     ? '<div style="display:flex;flex-direction:column;align-items:flex-start;gap:1px"><span>' + addLabel + '</span><span style="font-size:.7rem;color:#94A3B8;font-weight:500">Qualquer arquivo · até 4 MB cada</span></div>'
     : '<span>' + addLabel + '</span>';
-  html += '<label style="' + addStyle + '" onmouseover="this.style.background=\'#fff\';this.style.borderStyle=\'solid\'" onmouseout="this.style.background=\'' + themeBg + '\';this.style.borderStyle=\'dashed\'">'
+  /* A área sempre disse "clique ou arraste", mas só tinha input de arquivo —
+     arrastar não fazia nada. Os handlers ficam no próprio label, e o dragover
+     precisa de preventDefault senão o navegador abre o arquivo na aba. */
+  html += '<label style="' + addStyle + '"'
+    + ' data-dropzone="' + _dkbEscAttr(kind) + '"'
+    + ' onmouseover="this.style.background=\'#fff\';this.style.borderStyle=\'solid\'"'
+    + ' onmouseout="if(!this.dataset.dragging){this.style.background=\'' + themeBg + '\';this.style.borderStyle=\'dashed\'}"'
+    + ' ondragover="_dkbDropOver(event,this)"'
+    + ' ondragenter="_dkbDropOver(event,this)"'
+    + ' ondragleave="_dkbDropLeave(event,this,\'' + themeBg + '\')"'
+    + ' ondrop="_dkbDropFiles(event,this,\'' + _dkbEscAttr(ctx.fnAdd) + '\',\'' + themeBg + '\')">'
     // sem accept: comprovante vem em qualquer formato — XML de NF-e, .ofx,
     // planilha, .eml do e-mail de cobrança. Restringir só atrapalhava.
     + '<input type="file" multiple onchange="' + ctx.fnAdd + '(this)" style="display:none">'
@@ -32411,6 +32451,52 @@ function _dkbRenderAnexosListUI(list, kind){
   + '</label>';
   return html;
 }
+
+/* Soltar arquivo na área de anexo. Reaproveita o mesmo caminho do input —
+   monta um DataTransfer e dispara o handler já existente, então validação de
+   tamanho, leitura em base64 e render seguem valendo sem duplicar código. */
+function _dkbDropOver(ev, el){
+  ev.preventDefault();
+  ev.stopPropagation();
+  try{ ev.dataTransfer.dropEffect = 'copy'; }catch(_){}
+  el.dataset.dragging = '1';
+  el.style.background = '#fff';
+  el.style.borderStyle = 'solid';
+  el.style.transform = 'scale(1.01)';
+}
+function _dkbDropLeave(ev, el, bg){
+  ev.preventDefault();
+  ev.stopPropagation();
+  delete el.dataset.dragging;
+  el.style.background = bg;
+  el.style.borderStyle = 'dashed';
+  el.style.transform = '';
+}
+function _dkbDropFiles(ev, el, fnAdd, bg){
+  ev.preventDefault();
+  ev.stopPropagation();
+  _dkbDropLeave(ev, el, bg);
+  const files = (ev.dataTransfer && ev.dataTransfer.files) ? ev.dataTransfer.files : null;
+  if(!files || !files.length) return;
+  const inp = el.querySelector('input[type=file]');
+  if(!inp) return;
+  try{
+    const dt = new DataTransfer();
+    for(let i = 0; i < files.length; i++) dt.items.add(files[i]);
+    inp.files = dt.files;
+  }catch(_){
+    // Navegador que não deixa escrever em input.files — chama direto.
+    const fake = { files: files, value: '' };
+    try{ (window[fnAdd] || function(){})(fake); }catch(__){}
+    return;
+  }
+  try{ (window[fnAdd] || function(){})(inp); }catch(_){}
+}
+try{
+  window._dkbDropOver = _dkbDropOver;
+  window._dkbDropLeave = _dkbDropLeave;
+  window._dkbDropFiles = _dkbDropFiles;
+}catch(_){}
 
 function _dkbAnexoCtxFor(kind){
   // Retorna { fnAdd, fnOpenAt, fnRemoveAt } correspondendo ao contexto
@@ -32515,11 +32601,26 @@ function _dkbOpenAttachment(anexo){
     const bin = atob(m[2]);
     const bytes = new Uint8Array(bin.length);
     for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
-    const blob = new Blob([bytes], { type: mime });
+    /* O mime tem que ser o real: com application/octet-stream o navegador
+       baixa em vez de exibir, que era a reclamação. Quando o arquivo não
+       trouxe tipo, deduz pela extensão pros formatos que dá pra ver na aba. */
+    const ext = String(anexo.name || '').split('.').pop().toLowerCase();
+    const porExt = { pdf:'application/pdf', png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg',
+                     gif:'image/gif', webp:'image/webp', svg:'image/svg+xml', txt:'text/plain',
+                     html:'text/html', json:'application/json', xml:'text/xml', csv:'text/csv' };
+    const mimeBom = (!mime || mime === 'application/octet-stream') ? (porExt[ext] || mime) : mime;
+    const blob = new Blob([bytes], { type: mimeBom });
     const url = URL.createObjectURL(blob);
-    const win = window.open(url, '_blank');
+    /* <a target=_blank> em vez de window.open: o open é tratado como popup e
+       bloqueado com mais frequência, e o clique do usuário já autoriza este. */
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
     setTimeout(() => { try { URL.revokeObjectURL(url); } catch(_){} }, 60000);
-    if(!win){ if(typeof toast === 'function') toast('⚠ Permita pop-ups pra abrir o anexo'); }
   } catch(e){ console.error(e); if(typeof toast === 'function') toast('Erro abrindo anexo'); }
 }
 try {
@@ -67577,7 +67678,7 @@ function extOpenModal(tipo, editId){
   if(t === 'transferencia'){
     // Mesmo esqueleto de Ganho/Gasto: cabeçalho com badge, faixa de resumo,
     // campos essenciais no grid e o resto recolhido.
-    const _temDoc = !!(l.documento || l.refInterna || l.notas || l.anexo);
+    const _temDoc = _extTemDoc(l);
     ov.innerHTML = '<div class="dkb-modal">'
       + '<div class="dkb-modal-hd">'
       +   '<div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">'
@@ -67608,7 +67709,7 @@ function extOpenModal(tipo, editId){
       +     '</select></div>'
       +     '<details class="dkb-sec" id="ext-sec-doc"' + (_temDoc ? ' open' : '') + '>'
       +       '<summary>Documento, notas e anexo <span class="sec-hint">comprovante, TED, contrato</span>'
-      +         '<span class="sec-resumo' + (_temDoc ? ' on' : '') + '">' + (_temDoc ? 'Preenchido' : 'Vazio') + '</span></summary>'
+      +         '<span class="sec-resumo' + (_temDoc ? ' on' : '') + '">' + _extEsc(_extResumoDoc(l)) + '</span></summary>'
       +       '<div class="dkb-sec-bd">'
       +         '<div class="dkb-modal-grid" style="gap:12px">'
       +           '<div class="field"><label>Nº do documento <span class="hint">— comprovante</span></label>'
@@ -67641,7 +67742,7 @@ function extOpenModal(tipo, editId){
     // essas seções; um lançamento novo começa com tudo recolhido.
     const _temReten = Array.isArray(l.retencoes) && l.retencoes.length > 0;
     const _temRep   = !!(l.repete && l.repete !== 'once');
-    const _temDoc   = !!(l.documento || l.refInterna || l.notas || l.anexo);
+    const _temDoc   = _extTemDoc(l);
     ov.innerHTML = '<div class="dkb-modal">'
       + '<div class="dkb-modal-hd">'
       +   '<div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">'
@@ -67707,7 +67808,7 @@ function extOpenModal(tipo, editId){
       +       '</details>'
       +       '<details class="dkb-sec" id="ext-sec-doc"' + (_temDoc ? ' open' : '') + '>'
       +         '<summary>Documento, notas e anexo <span class="sec-hint">NF, boleto, contrato</span>'
-      +           '<span class="sec-resumo' + (_temDoc ? ' on' : '') + '">' + (_temDoc ? 'Preenchido' : 'Vazio') + '</span></summary>'
+      +           '<span class="sec-resumo' + (_temDoc ? ' on' : '') + '">' + _extEsc(_extResumoDoc(l)) + '</span></summary>'
       +         '<div class="dkb-sec-bd">'
       +           '<div class="dkb-modal-grid" style="gap:12px">'
       +             '<div class="field"><label>Nº do documento <span class="hint">— NF, boleto, fatura</span></label>'
@@ -75020,11 +75121,17 @@ async function _ecapHandleFile(file){
     return;
   }
   ECAP_STATE.file = file;
-  // Salva como base64 pra anexar no lançamento (até 2 MB)
-  if(file.size <= 2 * 1024 * 1024){
-    try { ECAP_STATE.fileBase64 = await _ecapFileToBase64(file); } catch(e){ ECAP_STATE.fileBase64 = null; }
+  /* Acima deste tamanho o arquivo não vira anexo — só os dados lidos entram.
+     Era 2 MB e, pior, em silêncio: o boleto era processado, o lançamento
+     criado e o anexo não estava lá, sem nenhum aviso. Sobe pro mesmo limite
+     dos outros anexos (4 MB) e o aviso aparece na tela de revisão. */
+  ECAP_STATE.semInline = false;
+  if(file.size <= 4 * 1024 * 1024){
+    try { ECAP_STATE.fileBase64 = await _ecapFileToBase64(file); }
+    catch(e){ ECAP_STATE.fileBase64 = null; ECAP_STATE.semInline = true; }
   } else {
-    ECAP_STATE.fileBase64 = null;  // muito grande pra inline · só metadados
+    ECAP_STATE.fileBase64 = null;
+    ECAP_STATE.semInline = true;
   }
   _ecapRenderProcessing();
   try {
@@ -75614,7 +75721,15 @@ function _ecapRenderReview(file, data){
     +     '<select id="ecap-f-cc" class="' + (data.cc?'auto-filled':'') + '">' + ccOpts + '</select>'
     +   '</div>'
     +   '<div class="ecap-rev-field full">'
-    +     '<label>Outros anexos <span class="ecap-lbl-sub">o documento lido já vai junto</span></label>'
+    +     (ECAP_STATE.semInline
+        ? '<div class="ecap-aviso-anexo">O documento tem '
+          + (Math.round((file.size/1024/1024) * 10) / 10) + ' MB e <b>não vai junto como anexo</b> '
+          + '(limite 4 MB). Os dados lidos entram normalmente — se precisar do arquivo guardado, '
+          + 'anexe uma versão menor abaixo.</div>'
+        : '')
+    +     '<label>Outros anexos <span class="ecap-lbl-sub">'
+    +       (ECAP_STATE.semInline ? 'o documento lido NÃO vai junto' : 'o documento lido já vai junto')
+    +     '</span></label>'
     +     '<div id="ecap-anexos-wrap">' + (typeof _dkbRenderAnexoUI === 'function' ? _dkbRenderAnexoUI(_ecapAnexos, 'ecap') : '') + '</div>'
     +   '</div>'
     +   '<div class="ecap-rev-field full">'
