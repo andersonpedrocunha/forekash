@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786737537"/>
+  <meta name="fk-build" content="forekash-v1786738395"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -97952,7 +97952,27 @@ function seedDemoDataIfEmpty(){
 
 function seedDemoData(opts){
   const FORCE = !!(opts && opts.force);
-  // Se o user apagou tudo e marcou flag, não rePopula automático no boot
+
+  /* ══ NUNCA SEMEAR EM CONTA NA NUVEM ═════════════════════════════════════
+     Este seed decidia olhando o localStorage: vazio = preencher. Só que em
+     conta cloud o localStorage começa vazio TODA VEZ que o cache é limpo — e
+     a hidratação da nuvem leva alguns segundos. Nessa janela o seed rodava e
+     misturava clientes fictícios (Construtora Horizonte, Varejo Plus…) com os
+     reais, e o sync depois empurrava a mistura pro banco.
+
+     Aconteceu de verdade, com dados reais em produção. A trava anterior era
+     uma flag no próprio localStorage — some junto quando o storage é limpo,
+     ou seja, protegia exatamente até o momento em que era necessária.
+
+     Em cloud, o dado vem do servidor. Tela vazia é resposta correta enquanto
+     hidrata; dado inventado nunca é. O botão "Preencher com dados de exemplo"
+     continua funcionando, porque passa force:true. */
+  if(!FORCE && window.FK_MODE === 'cloud'){
+    try{ console.log('[FK] conta na nuvem · seed automático não roda (dados vêm do servidor)'); }catch(_){}
+    return;
+  }
+
+  // Modo local: respeita a flag de quem já apagou tudo de propósito.
   try{
     if(!FORCE && localStorage.getItem('forekash:seed:disabled') === '1'){
       console.log('[FK] seed desabilitado pelo user · pulando');
