@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786738395"/>
+  <meta name="fk-build" content="forekash-v1786739246"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -97950,6 +97950,124 @@ function seedDemoDataIfEmpty(){
   return true;
 }
 
+/* ══ FAXINA · remove o que o seed plantou em conta real ══════════════════
+   O seed automático rodou numa conta em produção e misturou clientes
+   fictícios com os do Anderson. Limpar só o servidor não resolveu: o
+   navegador ressincronizava a cópia suja de volta em segundos, num ciclo.
+   Então a limpeza tem que acontecer AQUI, antes de qualquer sync.
+
+   Só remove o que tem assinatura inequívoca de seed: nome fictício conhecido
+   E sem marca de origem real (importação OFX, captura por IA, edição manual).
+   Na dúvida, mantém — errar apagando dado real é pior do que deixar sujeira. */
+const FK_NOMES_SEED = [
+  'construtora horizonte','varejo plus','edtech foco','startup nova',
+  'agronegócio sa','agronegocio sa','fintech beta','logística alpha',
+  'logistica alpha','indústria sigma','industria sigma','ana silva',
+  'imobiliária centro','imobiliaria centro'
+];
+function _fkEhSeed(nome){
+  const n = String(nome || '').trim().toLowerCase();
+  return !!n && FK_NOMES_SEED.indexOf(n) >= 0;
+}
+
+function fkFaxinaSeed(){
+  if(window.FK_MODE !== 'cloud') return 0;
+  let n = 0;
+
+  // ── Extrato ──
+  try{
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      const antes = extratoData.lancamentos.length;
+      extratoData.lancamentos = extratoData.lancamentos.filter(l => {
+        if(!l) return false;
+        if(!_fkEhSeed(l.contraparte)) return true;
+        // tem origem real? então é dado dele, mesmo com nome parecido
+        if(l.importadoDe || l.fitid || (l.origem && l.origem !== 'seed')) return true;
+        return false;
+      });
+      n += antes - extratoData.lancamentos.length;
+      if(antes !== extratoData.lancamentos.length){
+        try{ _extSave(); }catch(_){}
+      }
+    }
+  }catch(_){}
+
+  // ── Receita: linhas e cadastro de clientes ──
+  try{
+    if(typeof receita !== 'undefined' && receita && receita.years){
+      let mexeu = false;
+      for(const y of Object.keys(receita.years)){
+        const d = receita.years[y] || {};
+        for(const campo of ['clients','leads']){
+          if(!Array.isArray(d[campo])) continue;
+          const antes = d[campo].length;
+          d[campo] = d[campo].filter(r => !(r && _fkEhSeed(r.nome)));
+          if(d[campo].length !== antes){ mexeu = true; n += antes - d[campo].length; }
+        }
+      }
+      if(Array.isArray(receita.clientes)){
+        const antes = receita.clientes.length;
+        receita.clientes = receita.clientes.filter(c => !(c && _fkEhSeed(c.nome)));
+        if(receita.clientes.length !== antes) mexeu = true;
+      }
+      if(mexeu){ try{ receitaSave(); }catch(_){} }
+    }
+  }catch(_){}
+
+  // ── NF-e, cobranças e post-its de demonstração ──
+  const demo = (obj, campo, save) => {
+    try{
+      if(!obj || !Array.isArray(obj[campo])) return;
+      const antes = obj[campo].length;
+      obj[campo] = obj[campo].filter(x => !(x && (x.mode === 'demo' || _fkEhSeed(x.cliente))));
+      if(obj[campo].length !== antes){ n += antes - obj[campo].length; try{ save && save(); }catch(_){} }
+    }catch(_){}
+  };
+  /* NF e cobranças moram em NF e no blob do Asaas — o estado do seed usava
+     outros nomes, que só existem dentro dele. */
+  try{ demo(typeof NF !== 'undefined' ? NF : null, 'notas',
+            typeof nfSave === 'function' ? nfSave : null); }catch(_){}
+  try{
+    const raw = localStorage.getItem('forekash:asaas:v1');
+    if(raw){
+      const a = JSON.parse(raw);
+      if(Array.isArray(a.cobrancas)){
+        const antes = a.cobrancas.length;
+        a.cobrancas = a.cobrancas.filter(x => !(x && (x.mode === 'demo' || _fkEhSeed(x.cliente))));
+        if(a.cobrancas.length !== antes){
+          n += antes - a.cobrancas.length;
+          localStorage.setItem('forekash:asaas:v1', JSON.stringify(a));
+          if(typeof cloudBlobSync === 'function') cloudBlobSync('asaas', () => a);
+        }
+      }
+    }
+  }catch(_){}
+  // post-its de demonstração
+  try{
+    const raw = localStorage.getItem('forekash:notas:v1');
+    if(raw){
+      const o = JSON.parse(raw);
+      if(Array.isArray(o.list)){
+        const antes = o.list.length;
+        o.list = o.list.filter(x => !(x && /Construtora|Varejo Plus|Edtech|Diego/i.test(String(x.title||'') + String(x.body||''))));
+        if(o.list.length !== antes){
+          n += antes - o.list.length;
+          localStorage.setItem('forekash:notas:v1', JSON.stringify(o));
+          if(typeof cloudBlobSync === 'function') cloudBlobSync('notas', () => o);
+        }
+      }
+    }
+  }catch(_){}
+
+  if(n){
+    try{ console.warn('[FK] faxina: ' + n + ' registro(s) de exemplo removidos desta conta'); }catch(_){}
+    try{ if(typeof renderExtrato === 'function') renderExtrato(); }catch(_){}
+    try{ if(typeof renderReceita === 'function') renderReceita(); }catch(_){}
+  }
+  return n;
+}
+try{ window.fkFaxinaSeed = fkFaxinaSeed; }catch(_){}
+
 function seedDemoData(opts){
   const FORCE = !!(opts && opts.force);
 
@@ -122871,6 +122989,10 @@ async function fkCloudFullHydrate(){
   } else if(alreadyLocal > 0){
     console.log('[FK] ☁ ' + alreadyLocal + ' módulos · todos local');
   }
+  /* Depois de hidratar — e antes que qualquer sync suba de volta — tira o que
+     o seed plantou nesta conta. Limpar só o servidor não adiantava: o
+     navegador ressincronizava a cópia suja em segundos. */
+  try{ if(typeof fkFaxinaSeed === 'function') fkFaxinaSeed(); }catch(_){}
 }
 /* ══ Garantia de que TUDO está na nuvem ═══════════════════════════════════
    Os módulos grandes (Estrutura, Pessoas, Receita…) só subiam quando o
