@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786736392"/>
+  <meta name="fk-build" content="forekash-v1786737185"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -102412,6 +102412,15 @@ async function fkcHandleLogin(ev){
   const btn = document.getElementById('fk-login-btn');
   if (btn) btn.disabled = true;
   try {
+    if (!window.sb) {
+      fkAlert('fk-login-err', 'Não consegui falar com o servidor. Recarregue a página (Cmd+Shift+R).');
+      return;
+    }
+    /* O token de sessão vai pro localStorage. Cheio, o SDK autentica e falha
+       ao gravar — QuotaExceededError — e a pessoa fica trancada fora sem ver
+       erro nenhum. Abre espaço ANTES de tentar. */
+    try{ fkLiberarEspaco(); }catch(_){}
+
     const { data, error } = await window.sb.auth.signInWithPassword({ email, password: pass });
     if (error) {
       fkAlert('fk-login-err',
@@ -102423,7 +102432,33 @@ async function fkcHandleLogin(ev){
     fkAlert('fk-login-err', 'Tudo certo. Abrindo seu painel…', 'ok');
     setTimeout(() => { fkHideGate(); fkRenderUserMenu(); fkBootApp(); }, 240);
   } catch(e) {
-    fkAlert('fk-login-err', 'Erro inesperado: ' + (e && e.message || e));
+    const msg = (e && e.message) || String(e);
+    if (/quota/i.test(msg) || (e && e.name === 'QuotaExceededError')){
+      /* Última linha de defesa: limpa tudo que é reconstruível e tenta de
+         novo. O dado está na nuvem — o navegador aqui é só cache. */
+      try{
+        FK_DESCARTAVEIS.forEach(d => {
+          const fora = [];
+          for (let i = 0; i < localStorage.length; i++){
+            const k = localStorage.key(i);
+            if (k && (k === d || k.indexOf(d) === 0)) fora.push(k);
+          }
+          fora.forEach(k => localStorage.removeItem(k));
+        });
+        const r2 = await window.sb.auth.signInWithPassword({ email, password: pass });
+        if (!r2.error){
+          window._FK_CLOUD_SESSION = r2.data.session;
+          window._FK_CLOUD_USER = fkcNormalizeUser(r2.data.user);
+          fkAlert('fk-login-err', 'Tudo certo. Abrindo seu painel…', 'ok');
+          setTimeout(() => { fkHideGate(); fkRenderUserMenu(); fkBootApp(); }, 240);
+          return;
+        }
+      }catch(_){}
+      fkAlert('fk-login-err', 'O armazenamento do navegador está cheio. '
+        + 'Limpe os dados do site (cadeado na barra de endereço) e entre de novo.');
+      return;
+    }
+    fkAlert('fk-login-err', 'Erro inesperado: ' + msg);
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -102506,6 +102541,67 @@ async function fkcHandleForgotPassword(ev){
 //   - intervalo (30min)
 //   - visibilitychange (aba esconde)
 //   - beforeunload (via fetch keepalive)
+
+/* ══ ESPAÇO DA SESSÃO É SAGRADO ═══════════════════════════════════════════
+   O token do Supabase mora no localStorage. Se o storage encher, o SDK
+   autentica mas não consegue gravar a sessão — QuotaExceededError dentro do
+   signInWithPassword — e a pessoa fica TRANCADA FORA do sistema: senha certa,
+   botão clicado, nada acontece, nenhum erro na tela. Aconteceu de verdade,
+   com 4,3 MB de snapshots do Time Travel ocupando o navegador.
+
+   Nada que cresce sem limite pode morar aqui. Estas chaves são cache ou
+   histórico — existem (ou deveriam existir) na nuvem, e são as primeiras a
+   sair quando o espaço aperta. */
+const FK_DESCARTAVEIS = [
+  'forekash:timetravel:v1',
+  'forekash:access-log:v1',
+  'home_market_', 'home_news_', 'home_quote_'
+];
+const FK_QUOTA_LIMITE = 3.6 * 1024 * 1024;   // folga real antes dos ~5 MB
+
+function fkStorageBytes(){
+  let n = 0;
+  try{
+    for (let i = 0; i < localStorage.length; i++){
+      const k = localStorage.key(i);
+      if (!k) continue;
+      n += k.length + (localStorage.getItem(k) || '').length;
+    }
+  }catch(_){}
+  return n;
+}
+
+/* Libera espaço descartando o que é reconstruível. Devolve quantos bytes
+   saíram. Roda antes de login e periodicamente. */
+function fkLiberarEspaco(){
+  const antes = fkStorageBytes();
+  if (antes < FK_QUOTA_LIMITE) return 0;
+  let libertos = 0;
+  try{
+    const chaves = [];
+    for (let i = 0; i < localStorage.length; i++){
+      const k = localStorage.key(i);
+      if (k) chaves.push(k);
+    }
+    for (const k of chaves){
+      const alvo = FK_DESCARTAVEIS.some(d => k === d || k.indexOf(d) === 0);
+      if (!alvo) continue;
+      const tam = (localStorage.getItem(k) || '').length;
+      localStorage.removeItem(k);
+      libertos += tam;
+      if (fkStorageBytes() < FK_QUOTA_LIMITE * 0.75) break;
+    }
+  }catch(_){}
+  if (libertos){
+    try{ console.warn('[FK] espaço liberado no navegador: ' + Math.round(libertos/1024)
+      + ' KB (histórico local descartado — o dado vive na nuvem)'); }catch(_){}
+  }
+  return libertos;
+}
+try{
+  window.fkStorageBytes = fkStorageBytes;
+  window.fkLiberarEspaco = fkLiberarEspaco;
+}catch(_){}
 
 const FK_BACKUP_DEBOUNCE_MS  = 5 * 1000;        // 5s após mudança
 const FK_BACKUP_INTERVAL_MS  = 30 * 60 * 1000;  // 30min
@@ -122236,7 +122332,21 @@ try {
 // ════════════════════════════════════════════════════════════════════
 const FK_TIME_KEY = 'forekash:timetravel:v1';
 function fkTimeState(){ try{ return JSON.parse(localStorage.getItem(FK_TIME_KEY)||'{"snapshots":[]}'); }catch(_){ return {snapshots:[]}; } }
-function fkTimeSave(s){ try{ localStorage.setItem(FK_TIME_KEY, JSON.stringify(s)); }catch(_){} }
+function fkTimeSave(s){
+  try{ localStorage.setItem(FK_TIME_KEY, JSON.stringify(s)); }
+  catch(_){
+    /* Não cabe: corta pela metade e tenta de novo. Se ainda não couber,
+       desiste do histórico local — ele existe na nuvem, e manter o espaço
+       livre importa mais (sem espaço, não há sessão e não há login). */
+    try{
+      s.snapshots = (s.snapshots || []).slice(-20);
+      localStorage.setItem(FK_TIME_KEY, JSON.stringify(s));
+    }catch(__){
+      try{ localStorage.removeItem(FK_TIME_KEY); }catch(___){}
+      try{ console.warn('[FK] histórico local descartado por falta de espaço — permanece na nuvem'); }catch(___){}
+    }
+  }
+}
 // Captura snapshot do estado atual de TODOS módulos relevantes
 /* O snapshot serve pra ver os NÚMEROS de um dia passado. Carregar junto os
    anexos em base64 multiplicava cada arquivo por até 365 snapshots — era o
@@ -122277,8 +122387,11 @@ function fkTimeTakeDailySnap(){
   const snap = _fkTimeCapture();
   state.snapshots = state.snapshots || [];
   state.snapshots.push(snap);
-  // Mantém só os últimos 365 snapshots
-  if(state.snapshots.length > 365) state.snapshots = state.snapshots.slice(-365);
+  /* No navegador ficam só os 60 mais recentes. O histórico completo vive na
+     nuvem (module_blobs · timetravel_snaps) — guardar 365 cópias do estado
+     inteiro aqui foi o que encheu o localStorage e trancou o login: sem
+     espaço, o Supabase não grava o token de sessão. */
+  if(state.snapshots.length > 60) state.snapshots = state.snapshots.slice(-60);
   fkTimeSave(state);
 }
 // Resumo de um snapshot (números que o user vai querer ver)
