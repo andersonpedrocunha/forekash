@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786732437"/>
+  <meta name="fk-build" content="forekash-v1786733670"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -102977,27 +102977,85 @@ function fkcRevealMenuCloudSection(){
 
 // Detecta hash fragment "#access_token=...&type=recovery" deixado pelo link de
 // reset de senha do Supabase. Mostra prompt simples pra setar nova senha.
+/* Redefinição de senha.
+
+   Era window.prompt(). O Chrome SUPRIME prompt() em várias situações — entre
+   elas logo após um redirect de outra origem, que é exatamente como se chega
+   aqui. Resultado: a pessoa clicava no link, caía na landing e nada
+   acontecia; parecia link quebrado, e o token queimava à toa.
+   Agora é uma tela do próprio app, que não depende do navegador permitir
+   diálogo nativo. */
 async function fkcMaybeHandleRecoveryHash(){
   const hash = window.location.hash || '';
   if (!/type=recovery/.test(hash)) return false;
-  // O SDK já processa o hash automaticamente no onAuthStateChange (PASSWORD_RECOVERY).
-  // Aqui só interceptamos pra coletar a nova senha.
-  const newPass = window.prompt('Digite a nova senha (mínimo 6 caracteres):', '');
-  if (!newPass || newPass.length < 6) {
-    alert('Senha muito curta. Recarregue a página e clique no link do e-mail novamente.');
-    return true;
-  }
-  try {
-    const { error } = await window.sb.auth.updateUser({ password: newPass });
-    if (error) { alert('Erro ao atualizar senha: ' + error.message); return true; }
-    alert('Senha atualizada. Você já está logado.');
-    // limpa o hash da URL
-    history.replaceState(null, '', window.location.pathname + window.location.search);
-  } catch(e) {
-    alert('Erro inesperado: ' + (e && e.message || e));
-  }
+  _fkRecoveryUI();
   return true;
 }
+
+function _fkRecoveryUI(){
+  if (document.getElementById('fk-recovery-ov')) return;
+  const ov = document.createElement('div');
+  ov.id = 'fk-recovery-ov';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:rgba(15,23,42,.72);'
+    + 'display:flex;align-items:center;justify-content:center;padding:20px;'
+    + 'font-family:system-ui,-apple-system,Segoe UI,sans-serif';
+  ov.innerHTML =
+      '<div style="background:#fff;border-radius:14px;max-width:420px;width:100%;padding:26px 26px 22px;'
+    +   'box-shadow:0 20px 60px rgba(0,0,0,.3)">'
+    +   '<h2 style="margin:0 0 6px;font-size:1.15rem;color:#0F172A;font-weight:800">Definir nova senha</h2>'
+    +   '<p style="margin:0 0 18px;font-size:.82rem;color:#64748B;line-height:1.5">'
+    +     'Escolha uma senha com pelo menos 6 caracteres. Você entra direto depois de salvar.</p>'
+    +   '<label style="display:block;font-size:.68rem;font-weight:800;letter-spacing:.05em;'
+    +     'text-transform:uppercase;color:#475569;margin-bottom:5px">Nova senha</label>'
+    +   '<input id="fk-rec-p1" type="password" autocomplete="new-password" '
+    +     'style="width:100%;box-sizing:border-box;padding:11px 12px;border:1.5px solid #CBD5E1;'
+    +     'border-radius:8px;font-size:.92rem;margin-bottom:12px;font-family:inherit">'
+    +   '<label style="display:block;font-size:.68rem;font-weight:800;letter-spacing:.05em;'
+    +     'text-transform:uppercase;color:#475569;margin-bottom:5px">Repita a senha</label>'
+    +   '<input id="fk-rec-p2" type="password" autocomplete="new-password" '
+    +     'style="width:100%;box-sizing:border-box;padding:11px 12px;border:1.5px solid #CBD5E1;'
+    +     'border-radius:8px;font-size:.92rem;font-family:inherit">'
+    +   '<div id="fk-rec-msg" style="min-height:18px;margin:10px 0 0;font-size:.76rem;color:#DC2626"></div>'
+    +   '<button id="fk-rec-ok" type="button" style="width:100%;margin-top:8px;padding:12px;'
+    +     'background:#0F172A;color:#fff;border:none;border-radius:9px;font-size:.92rem;'
+    +     'font-weight:700;cursor:pointer;font-family:inherit">Salvar e entrar</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+
+  const p1 = ov.querySelector('#fk-rec-p1');
+  const p2 = ov.querySelector('#fk-rec-p2');
+  const msg = ov.querySelector('#fk-rec-msg');
+  const btn = ov.querySelector('#fk-rec-ok');
+  setTimeout(() => p1.focus(), 60);
+
+  const salvar = async () => {
+    const a1 = p1.value || '', a2 = p2.value || '';
+    if (a1.length < 6){ msg.textContent = 'A senha precisa de pelo menos 6 caracteres.'; p1.focus(); return; }
+    if (a1 !== a2){ msg.textContent = 'As duas senhas não são iguais.'; p2.focus(); return; }
+    btn.disabled = true; btn.textContent = 'Salvando…'; msg.style.color = '#64748B';
+    msg.textContent = 'Aplicando…';
+    try {
+      const { error } = await window.sb.auth.updateUser({ password: a1 });
+      if (error){
+        msg.style.color = '#DC2626';
+        msg.textContent = 'Não deu: ' + error.message + ' — peça um link novo.';
+        btn.disabled = false; btn.textContent = 'Salvar e entrar';
+        return;
+      }
+      msg.style.color = '#059669';
+      msg.textContent = 'Senha atualizada. Entrando…';
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      setTimeout(() => location.reload(), 700);
+    } catch(e){
+      msg.style.color = '#DC2626';
+      msg.textContent = 'Erro inesperado: ' + ((e && e.message) || e);
+      btn.disabled = false; btn.textContent = 'Salvar e entrar';
+    }
+  };
+  btn.addEventListener('click', salvar);
+  [p1, p2].forEach(el => el.addEventListener('keydown', ev => { if(ev.key === 'Enter') salvar(); }));
+}
+try{ window._fkRecoveryUI = _fkRecoveryUI; }catch(_){}
 
 // ═══════════════════════════════════════════════════
 //  CONFIGURAÇÕES · Segurança (trocar e-mail / senha)
