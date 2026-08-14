@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786721208"/>
+  <meta name="fk-build" content="forekash-v1786721458"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -16931,6 +16931,13 @@
 .fk-help-close{margin-top:12px;padding:5px 12px;border:1px solid #C7D2FE;border-radius:6px;
   background:#fff;color:#4F46E5;font-size:.68rem;font-weight:700;cursor:pointer;font-family:inherit}
 .fk-help-close:hover{background:#EEF2FF}
+
+/* Mês fechado: a projeção dele não decide mais nada, então recua
+   visualmente pra não competir com os meses que ainda estão em jogo. */
+.est-sheet tbody td.pes-cell.mes-fechado .est-val-input{color:#B6C0CE}
+.est-sheet tbody td.pes-cell.mes-fechado{background:#FCFDFE}
+.est-sheet tbody td.pes-cell.mes-fechado .est-val-input:focus{color:#0F172A}
+.est-sheet thead th.mes-fechado{color:#CBD5E1}
 
 /* Realizado por categoria · painel acima da planilha da Estrutura */
 .est-real-wrap{margin:0 0 16px;border:1px solid var(--bd,#E2E8F0);border-radius:10px;background:#fff;overflow:hidden}
@@ -79329,7 +79336,8 @@ function _renderEstComissaoRows(year){
       const ym = year + '-' + String(m+1).padStart(2,'0');
       const hasOverride = v.overrides && v.overrides[ym] !== undefined && v.overrides[ym] !== '';
       const pago = v.pagos && v.pagos[ym];
-      let tdCls = 'pes-cell est-comissao-mes' + (val > 0 ? ' has-val' : '') + (isCur ? ' is-current-mes' : '');
+      let tdCls = 'pes-cell est-comissao-mes' + (val > 0 ? ' has-val' : '') + (isCur ? ' is-current-mes' : '')
+                + (estMesFechado(year, m) ? ' mes-fechado' : '');
       if(pago) tdCls += ' pago';
       if(hasOverride) tdCls += ' has-override';
       const ro = pago ? ' readonly' : '';
@@ -79390,7 +79398,8 @@ function renderEstSheet(){
     <th class="yr-tot">Total</th>
     <th class="del"></th>
   </tr>`;
-  const mesCols = EST_MESES.map(m => `<th class="mes">${m.toUpperCase()}/${year.slice(2)}</th>`).join('');
+  const mesCols = EST_MESES.map((m, i) =>
+    `<th class="mes${estMesFechado(year, i) ? ' mes-fechado' : ''}">${m.toUpperCase()}/${year.slice(2)}</th>`).join('');
   const yrRow2 = `<tr class="mo">
     <th class="stk stk-1"></th>
     <th class="stk stk-2"></th>
@@ -79468,6 +79477,18 @@ function renderEstSheet(){
   `;
 }
 
+/* Mês que já acabou. A projeção dele virou história — o que vale pra aquele
+   período é o realizado, no painel de cima. Mantém editável (dá pra corrigir
+   um orçamento antigo), só perde o destaque. */
+function estMesFechado(year, mIdx){
+  const h = new Date();
+  const y = parseInt(year, 10);
+  if(y < h.getFullYear()) return true;
+  if(y > h.getFullYear()) return false;
+  return mIdx < h.getMonth();
+}
+try{ window.estMesFechado = estMesFechado; }catch(_){}
+
 function renderEstRow(it, year){
   const tipo = estTipo(it.tipoId);
   const tag  = estTag(it.tagId);
@@ -79505,6 +79526,7 @@ function renderEstRow(it, year){
     let cellExtra = '';
     if(pago) cellExtra += ' pago';
     if(!hasReal) cellExtra += ' empty';
+    if(estMesFechado(year, m)) cellExtra += ' mes-fechado';
     // Baixa não se dá aqui: o pago vem do Extrato, agregado por categoria
     // no painel acima. Sem botão, pra não prometer o que a tela não faz.
     const btnPagar = '';
