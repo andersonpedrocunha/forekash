@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786659323"/>
+  <meta name="fk-build" content="forekash-v1786660222"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -78889,6 +78889,30 @@ function estProjetadoPorCategoria(ano){
       out[k].meses[ym] = (out[k].meses[ym] || 0) + v;
     }
   }
+
+  /* Comissão não é linha de estrutura.itens — é calculada a partir do módulo
+     Vendedores e desenhada na planilha como linha própria. Sem isto,
+     Comercial apareceria no painel só com o realizado e marcada "sem linha",
+     como se não houvesse previsão nenhuma. Comercial é a categoria das
+     comissões, e vai ter pagamento no extrato. */
+  try{
+    if(typeof vendedores !== 'undefined' && vendedores && Array.isArray(vendedores.lista)
+       && typeof comissaoVendedorMes === 'function'){
+      const tagCom = (estrutura.tags || []).find(t => _estNormCat(t.nome) === 'comercial');
+      const nomeCom = (tagCom && tagCom.nome) || 'Comercial';
+      const kc = _estNormCat(nomeCom);
+      for(const v of vendedores.lista){
+        if(!v || v.ativo === false) continue;
+        for(let m = 0; m < 12; m++){
+          const val = comissaoVendedorMes(v, y, m) || 0;
+          if(!val) continue;
+          const ym = y + '-' + String(m+1).padStart(2,'0');
+          if(!out[kc]) out[kc] = { nome: nomeCom, meses:{} };
+          out[kc].meses[ym] = (out[kc].meses[ym] || 0) + val;
+        }
+      }
+    }
+  }catch(_){}
   return out;
 }
 
@@ -78904,6 +78928,24 @@ function estMigrarBaixaManual(){
       n++;
     }
   }
+  /* Comissão segue a mesma regra: o pago vem do Extrato, categoria Comercial.
+     As baixas ficavam no próprio vendedor, não em estrutura.itens. */
+  try{
+    if(typeof vendedores !== 'undefined' && vendedores && Array.isArray(vendedores.lista)){
+      let nv = 0;
+      for(const v of vendedores.lista){
+        if(v && v.pagos && Object.keys(v.pagos).length){
+          v.pagosLegado = v.pagos;
+          v.pagos = {};
+          nv++;
+        }
+      }
+      if(nv){
+        if(typeof vendedoresSave === 'function') vendedoresSave();
+        n += nv;
+      }
+    }
+  }catch(_){}
   if(n){
     estSave();
     try{ console.info('[Forekash] baixa manual removida de ' + n + ' linha(s) da Estrutura'); }catch(_){}
@@ -79158,6 +79200,11 @@ function setVendOverride(vendId, ym, rawVal){
 }
 // Toggle ✓ pago pra célula de comissão
 function toggleVendPago(vendId, ym){
+  if(typeof toast === 'function')
+    toast('Baixa de comissão não se dá aqui. Lance o pagamento no Extrato Financeiro com a categoria Comercial — ele aparece no painel de realizado.', 5500);
+  return;
+}
+function _toggleVendPagoLegado(vendId, ym){
   const v = vendedores.lista.find(x => x.id === vendId);
   if(!v) return;
   if(!v.pagos) v.pagos = {};
@@ -79202,11 +79249,7 @@ function _renderEstComissaoRows(year){
       if(pago) tdCls += ' pago';
       if(hasOverride) tdCls += ' has-override';
       const ro = pago ? ' readonly' : '';
-      const pagoBtn = val > 0 || pago
-        ? `<button class="est-pagar-btn" tabindex="-1" onmousedown="event.preventDefault()"
-                   onclick="event.stopPropagation();toggleVendPago(${v.id},'${ym}')"
-                   title="${pago ? 'Desfazer baixa' : 'Dar baixa (pago)'}">✓</button>`
-        : '';
+      const pagoBtn = '';   // mesma regra da linha normal: pago vem do Extrato
       // Usa classe "est-val-input" (mesma dos outros cells da planilha) pra que o
       // sistema global de seleção/multi-select/fill reconheça e funcione.
       const display = val > 0 ? fmtBR(val, 2) : '';
@@ -79378,12 +79421,9 @@ function renderEstRow(it, year){
     let cellExtra = '';
     if(pago) cellExtra += ' pago';
     if(!hasReal) cellExtra += ' empty';
-    const btnPagar = hasReal
-      ? `<button type="button" class="est-pagar-btn" tabindex="-1"
-              onmousedown="event.preventDefault()"
-              onclick="event.stopPropagation(); toggleEstPago(${it.id},'${key}')"
-              title="${pago ? 'Marcar como não pago' : 'Marcar como pago'}">✓</button>`
-      : '';
+    // Baixa não se dá aqui: o pago vem do Extrato, agregado por categoria
+    // no painel acima. Sem botão, pra não prometer o que a tela não faz.
+    const btnPagar = '';
     const ro = pago ? ' readonly' : '';
     const roTitle = pago ? ' title="Remova o ✓ para editar"' : '';
     const roClick = pago ? ' onmousedown="notifyLocked()"' : '';
