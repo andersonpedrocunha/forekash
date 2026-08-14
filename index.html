@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786721458"/>
+  <meta name="fk-build" content="forekash-v1786721801"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -32300,6 +32300,7 @@ function _dkbRemoverLancExtratoPagamentos(extratoIds){
   try {
     if(typeof extratoData === 'undefined' || !extratoData || !Array.isArray(extratoIds) || extratoIds.length === 0) return;
     const idSet = new Set(extratoIds.filter(x => x != null));
+    try{ idSet.forEach(_id => extRemoveEncargosDe(_id)); }catch(_){}
     extratoData.lancamentos = extratoData.lancamentos.filter(l => !idSet.has(l.id));
     if(typeof _extSave === 'function') try { _extSave(); } catch(_){}
   } catch(e){ console.warn('_dkbRemoverLancExtratoPagamentos', e); }
@@ -34361,6 +34362,7 @@ function _recRemoverLancExtratoRecebimentos(extratoIds){
   try {
     if(typeof extratoData === 'undefined' || !extratoData || !Array.isArray(extratoIds) || extratoIds.length === 0) return;
     const idSet = new Set(extratoIds.filter(x => x != null));
+    try{ idSet.forEach(_id => extRemoveEncargosDe(_id)); }catch(_){}
     extratoData.lancamentos = extratoData.lancamentos.filter(l => !idSet.has(l.id));
     if(typeof _extSave === 'function') try { _extSave(); } catch(_){}
   } catch(e){ console.warn('_recRemoverLancExtratoRecebimentos', e); }
@@ -63939,6 +63941,12 @@ function extAddBaixa(l, dados){
     conta: dados.conta || l.conta || '',
     forma: dados.forma || '',
     notas: dados.notas || '',
+    // Encargos ficam NA BAIXA, não no lançamento: o mesmo título pode ser
+    // pago em partes e só uma delas ter atraso. Antes eles nem eram gravados
+    // aqui — apareciam no total da tela e sumiam ao salvar.
+    juros: Math.abs(parseFloat(dados.juros) || 0),
+    multa: Math.abs(parseFloat(dados.multa) || 0),
+    desconto: Math.abs(parseFloat(dados.desconto) || 0),
     criadoEm: new Date().toISOString()
   };
   if(b.valor <= 0 || !b.data) return null;
@@ -63946,6 +63954,90 @@ function extAddBaixa(l, dados){
   extSincronizaBaixas(l);
   return b;
 }
+/* Juros e multa NÃO pertencem ao lançamento original.
+
+   Um cliente que atrasa e paga R$ 1.000 + R$ 50 de juros não comprou R$ 1.050
+   de serviço — comprou R$ 1.000, e os R$ 50 são receita financeira. Somar
+   tudo infla o ticket daquele cliente e, do lado do gasto, faz a categoria de
+   custo estourar por causa de atraso, não por causa do custo.
+
+   Então o encargo vira um lançamento PRÓPRIO, já pago, na mesma conta e data
+   da baixa, ligado ao original por `encargoDe`. Fica no Extrato (é caixa de
+   verdade) mas não entra na Receita nem na Estrutura, porque a categoria não
+   está mapeada pra esses módulos.                                          */
+const EXT_CAT_ENCARGO_GANHO = 'Juros e multas recebidos';
+const EXT_CAT_ENCARGO_GASTO = 'Juros e multas pagos';
+
+function extSincronizaEncargo(l, ref, dados){
+  if(!l || !extratoData) return null;
+  const juros = Math.abs(parseFloat(dados && dados.juros) || 0);
+  const multa = Math.abs(parseFloat(dados && dados.multa) || 0);
+  const total = juros + multa;
+  const chave = String(l.id) + ':' + (ref || 'unico');
+
+  const lista = extratoData.lancamentos || [];
+  const existente = lista.find(x => x && x.encargoDe === chave);
+
+  if(total <= 0.005){
+    // Encargo zerado (ou corrigido pra zero): o lançamento não deve sobrar.
+    if(existente){
+      const i = lista.indexOf(existente);
+      if(i >= 0) lista.splice(i, 1);
+    }
+    return null;
+  }
+
+  const ehGanho = (l.tipo === 'ganho');
+  const partes = [];
+  if(juros > 0) partes.push('juros');
+  if(multa > 0) partes.push('multa');
+  const desc = partes.join(' e ').replace(/^./, c => c.toUpperCase())
+             + ' · ' + String(l.descricao || 'lançamento').slice(0, 60);
+
+  const campos = {
+    tipo: l.tipo,
+    valor: total,
+    data: dados.data || l.dataPagamento || l.data || '',
+    dataVencimento: dados.data || l.dataPagamento || l.data || '',
+    descricao: desc,
+    categoria: ehGanho ? EXT_CAT_ENCARGO_GANHO : EXT_CAT_ENCARGO_GASTO,
+    contraparte: l.contraparte || '',
+    conta: dados.conta || l.contaPagamento || l.conta || '',
+    contaPagamento: dados.conta || l.contaPagamento || l.conta || '',
+    status: 'pago',
+    dataPagamento: dados.data || l.dataPagamento || '',
+    valorPago: total,
+    manual: true,
+    origem: 'encargo',
+    encargoDe: chave,
+    notas: 'Gerado a partir do ' + (ehGanho ? 'recebimento' : 'pagamento')
+           + ' com atraso do lançamento #' + l.id + '.'
+  };
+
+  if(existente){ Object.assign(existente, campos); return existente; }
+
+  const novo = Object.assign({
+    id: Math.max(parseInt(extratoData.nextId, 10) || 0,
+                 Math.max(0, ...lista.map(x => parseInt(x && x.id, 10) || 0)) + 1),
+    criadoEm: new Date().toISOString()
+  }, campos);
+  lista.push(novo);
+  extratoData.nextId = novo.id + 1;
+  return novo;
+}
+try{ window.extSincronizaEncargo = extSincronizaEncargo; }catch(_){}
+
+/* Encargos de um lançamento somem junto com ele. */
+function extRemoveEncargosDe(lancId){
+  if(!extratoData || !Array.isArray(extratoData.lancamentos)) return 0;
+  const pre = String(lancId) + ':';
+  const antes = extratoData.lancamentos.length;
+  extratoData.lancamentos = extratoData.lancamentos.filter(
+    x => !(x && typeof x.encargoDe === 'string' && x.encargoDe.indexOf(pre) === 0));
+  return antes - extratoData.lancamentos.length;
+}
+try{ window.extRemoveEncargosDe = extRemoveEncargosDe; }catch(_){}
+
 function extRemoveBaixa(l, baixaId){
   if(!l || !Array.isArray(l.baixas)) return false;
   const i = l.baixas.findIndex(b => b.id === baixaId);
@@ -67647,8 +67739,18 @@ function extOpenModal(tipo, editId){
       +       '</div>'
       +       '<div class="dkb-pag-row" style="margin-top:10px">'
       +         '<div class="field"><label>Forma</label><select id="ext-nb-forma">' + _extFormaPagOpts + '</select></div>'
-      +         '<div class="field" style="grid-column:span 2;align-self:end">'
+      +         '<div class="field"><label>Juros <span class="hint">— atraso</span></label>'
+      +           '<div class="dkb-pag-money"><span class="prefix">R$</span>'
+      +           '<input type="text" inputmode="decimal" id="ext-nb-juros" placeholder="0,00"></div></div>'
+      +         '<div class="field"><label>Multa <span class="hint">— atraso</span></label>'
+      +           '<div class="dkb-pag-money"><span class="prefix">R$</span>'
+      +           '<input type="text" inputmode="decimal" id="ext-nb-multa" placeholder="0,00"></div></div>'
+      +       '</div>'
+      +       '<div class="dkb-pag-row" style="margin-top:8px">'
+      +         '<div class="field" style="grid-column:1/-1">'
       +           '<button type="button" class="ext-nb-btn" onclick="extBaixaAdicionar()">+ Adicionar pagamento</button>'
+      +           '<span class="hint" style="display:block;margin-top:5px">Juros e multa entram como lançamento separado, '
+      +             'pra não inflar o valor deste título.</span>'
       +         '</div>'
       +       '</div>'
       +       '<div class="ext-nb-hint" id="ext-nb-hint"></div>'
@@ -68025,10 +68127,14 @@ function extBaixaAdicionar(){
   const forma = (document.getElementById('ext-nb-forma')?.value || '').trim();
   if(!data){ aviso('Informe a data do pagamento.', true); return; }
   if(!(valor > 0)){ aviso('Informe um valor maior que zero.', true); return; }
-  const b = extAddBaixa(l, { data, valor, conta, forma });
+  const juros = parse(document.getElementById('ext-nb-juros')?.value);
+  const multa = parse(document.getElementById('ext-nb-multa')?.value);
+  const b = extAddBaixa(l, { data, valor, conta, forma, juros, multa });
   if(!b){ aviso('Não consegui registrar — confira data e valor.', true); return; }
+  try{ extSincronizaEncargo(l, b.id, { juros, multa, data, conta }); }catch(_){}
   _extSave();
   document.getElementById('ext-nb-valor').value = '';
+  ['ext-nb-juros','ext-nb-multa'].forEach(id => { const e = document.getElementById(id); if(e) e.value = ''; });
   _extBaixasRender();
   if(typeof renderExtrato === 'function') try{ renderExtrato(); }catch(_){}
   const saldo = extSaldo(l);
@@ -68465,6 +68571,9 @@ function extDeleteManual(){
   if(!_extEditingId) return;
   anaConfirm({eyebrow:'Extrato', title:'Excluir este lançamento?', message:'A ação não pode ser desfeita.', okText:'Excluir', cancelText:'Cancelar', danger:true}, () => {
     const realId = parseInt(_extEditingId.replace(/^m:/, ''), 10);
+    // Encargo é filho do lançamento: se o pai sai, ele sai junto — senão
+    // sobra um juros solto no extrato sem nada que o explique.
+    try{ extRemoveEncargosDe(realId); }catch(_){}
     extratoData.lancamentos = (extratoData.lancamentos || []).filter(l => l.id !== realId);
     _extSave();
     extCloseModal();
@@ -70879,6 +70988,8 @@ function extBaixaSave(){
     if(conta && !l.conta) l.conta = conta;
     l.formaPagamento = forma;
     l.valorPago = valor; l.juros = juros; l.multa = multa; l.desconto = desc;
+    // Juros e multa viram lançamento próprio — não inflam este.
+    try{ extSincronizaEncargo(l, 'unico', { juros, multa, data, conta }); }catch(_){}
     if(_fornFieldShown){
       if(fornIdNew) l.fornecedorId = fornIdNew; else delete l.fornecedorId;
     }
