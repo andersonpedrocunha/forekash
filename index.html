@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786725471"/>
+  <meta name="fk-build" content="forekash-v1786732437"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -102499,6 +102499,15 @@ async function fkcHandleForgotPassword(ev){
 
 const FK_BACKUP_DEBOUNCE_MS  = 5 * 1000;        // 5s após mudança
 const FK_BACKUP_INTERVAL_MS  = 30 * 60 * 1000;  // 30min
+const FK_BACKUP_MIN_GAP_MS   = 15 * 60 * 1000;  // piso entre snapshots automáticos
+
+/* djb2 sobre o conteúdo inteiro — barato o bastante pra rodar a cada save e
+   suficiente pra dizer "nada mudou desde o último backup". */
+function _fkHashRapido(str){
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
+  return String(h) + ':' + str.length;
+}
 const FK_BACKUP_PREFIXES = ['taller_', 'forekash_', 'forekash:', 'home_market_', 'home_news_', 'home_quote_'];
 
 let _fkBackupTimer = null;
@@ -102506,14 +102515,28 @@ let _fkBackupLastHash = null;
 let _fkBackupInFlight = false;
 let _fkBackupLoopStarted = false;
 
-function fkcCollectBackupPayload(){
+/* Chaves que só precisam ir num backup por dia. O timetravel já É um
+   histórico: mandar ele em todo snapshot é backup de backup, e era 83% do
+   peso de cada um. Continua sendo salvo — só não a cada 15 minutos. */
+const FK_BACKUP_PESADOS = ['forekash:timetravel:v1'];
+
+function fkcCollectBackupPayload(opts){
+  opts = opts || {};
+  const hoje = new Date().toISOString().slice(0,10);
+  let ultimoPesado = '';
+  try{ ultimoPesado = localStorage.getItem('forekash:backup:pesados_em') || ''; }catch(_){}
+  const incluirPesados = !!opts.completo || ultimoPesado !== hoje;
+
   const obj = {};
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
     if (!k) continue;
-    if (FK_BACKUP_PREFIXES.some(p => k.startsWith(p))) {
-      obj[k] = localStorage.getItem(k);
-    }
+    if (!FK_BACKUP_PREFIXES.some(p => k.startsWith(p))) continue;
+    if (!incluirPesados && FK_BACKUP_PESADOS.indexOf(k) >= 0) continue;
+    obj[k] = localStorage.getItem(k);
+  }
+  if (incluirPesados){
+    try{ localStorage.setItem('forekash:backup:pesados_em', hoje); }catch(_){}
   }
   return obj;
 }
@@ -102525,9 +102548,26 @@ async function fkcBackupNow(opts){
   if (_fkBackupInFlight) return { ok:false, reason:'in_flight' };
   const payload = fkcCollectBackupPayload();
   const json = JSON.stringify(payload);
-  // pseudo-hash leve: tamanho + prefixo. Não é seguro, mas pega 99% das mudanças.
-  const hash = String(json.length) + ':' + json.slice(0, 256);
+  /* O detector antigo era tamanho + 256 primeiros caracteres. Como o extrato
+     costuma ficar no fim do JSON, mudança real quase nunca alterava esse
+     prefixo — mas o tamanho mudava, então TODO save virava backup novo de
+     ~5 MB. Deu 20 backups num dia só, 101 MB. Hash sobre o conteúdo inteiro
+     (djb2, rápido) só grava quando algo realmente mudou. */
+  const hash = _fkHashRapido(json);
   if (!opts.force && hash === _fkBackupLastHash) return { ok:true, skipped:true };
+
+  /* Piso de tempo entre backups. Sem isto, uma sessão de trabalho normal
+     (importar OFX, categorizar, dar baixas) gera dezenas de snapshots do
+     estado inteiro — cada um custa o localStorage completo. O beforeunload e
+     o pedido manual passam por cima com force. */
+  if (!opts.force){
+    let ultimo = 0;
+    try{ ultimo = parseInt(localStorage.getItem('forekash:backup:last_at'), 10) || 0; }catch(_){}
+    const desde = Date.now() - ultimo;
+    if (ultimo && desde < FK_BACKUP_MIN_GAP_MS){
+      return { ok:true, skipped:true, reason:'muito_recente' };
+    }
+  }
   _fkBackupInFlight = true;
   try {
     const { error } = await window.sb.from('user_backups').insert({
@@ -122130,12 +122170,29 @@ const FK_TIME_KEY = 'forekash:timetravel:v1';
 function fkTimeState(){ try{ return JSON.parse(localStorage.getItem(FK_TIME_KEY)||'{"snapshots":[]}'); }catch(_){ return {snapshots:[]}; } }
 function fkTimeSave(s){ try{ localStorage.setItem(FK_TIME_KEY, JSON.stringify(s)); }catch(_){} }
 // Captura snapshot do estado atual de TODOS módulos relevantes
+/* O snapshot serve pra ver os NÚMEROS de um dia passado. Carregar junto os
+   anexos em base64 multiplicava cada arquivo por até 365 snapshots — era o
+   que fazia o timetravel sozinho ocupar 4,3 MB e, por tabela, inchar todo
+   backup da nuvem. O anexo continua inteiro no lançamento atual. */
+function _fkSemAnexos(obj){
+  if(!obj) return obj;
+  const copia = JSON.parse(JSON.stringify(obj));
+  if(Array.isArray(copia.lancamentos)){
+    copia.lancamentos.forEach(l => {
+      if(!l) return;
+      const n = Array.isArray(l.anexo) ? l.anexo.length : (l.anexo ? 1 : 0);
+      if(n) l.anexoQtd = n;              // preserva a informação "tinha anexo"
+      delete l.anexo; delete l.anexoRef; delete l.comprovante;
+    });
+  }
+  return copia;
+}
 function _fkTimeCapture(){
   const snap = {
     id: 't_' + Date.now().toString(36),
     date: new Date().toISOString().slice(0,10),
     ts: Date.now(),
-    extrato: (typeof extratoData !== 'undefined' && extratoData) ? JSON.parse(JSON.stringify(extratoData)) : null,
+    extrato: (typeof extratoData !== 'undefined' && extratoData) ? _fkSemAnexos(extratoData) : null,
     dispo: (typeof dispo !== 'undefined' && dispo) ? JSON.parse(JSON.stringify(dispo)) : null,
     fluxo: (typeof fluxo !== 'undefined' && fluxo) ? JSON.parse(JSON.stringify(fluxo)) : null,
     receita: (typeof receita !== 'undefined' && receita) ? JSON.parse(JSON.stringify(receita)) : null,
