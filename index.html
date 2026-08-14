@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786737185"/>
+  <meta name="fk-build" content="forekash-v1786737537"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -102285,7 +102285,7 @@ function fkOpenAuth(tab){
   const panel = document.getElementById('fk-panel-' + which);
   if(panel) panel.classList.add('active');
   // limpa alertas
-  fkAlert('fk-login-err',''); fkAlert('fk-signup-err','');
+  fkGateAlert('fk-login-err',''); fkGateAlert('fk-signup-err','');
   // foco no primeiro input
   setTimeout(() => {
     const first = which === 'login' ? document.getElementById('fk-login-email') : document.getElementById('fk-signup-name');
@@ -102347,13 +102347,19 @@ function fkLogout(){
   cleanup();
 }
 
-function fkAlert(id, msg, kind){
+/* NOME PRÓPRIO, de propósito: existia outra fkAlert() mais adiante no arquivo
+   — a de modal, que recebe um objeto. Sendo declarada depois, ela SOBRESCREVIA
+   esta, e o gate de login passava a chamar o modal com 'fk-login-err' como se
+   fosse o texto. Resultado: caixa preta escrita "fk-login-err" em vez da
+   mensagem de erro. Duas funções com o mesmo nome em 123 mil linhas. */
+function fkGateAlert(id, msg, kind){
   const el = document.getElementById(id);
   if(!el) return;
   if(!msg){ el.className = 'fk-alert'; el.textContent=''; return; }
   el.className = 'fk-alert show ' + (kind === 'ok' ? 'ok' : 'err');
   el.textContent = msg;
 }
+try{ window.fkGateAlert = fkGateAlert; }catch(_){}
 
 // ═══════════════════════════════════════════════════
 //  AUTH CLOUD (Supabase) — usado quando FK_MODE='cloud'
@@ -102405,15 +102411,15 @@ async function fkcInit(){
 
 async function fkcHandleLogin(ev){
   if (ev) ev.preventDefault();
-  fkAlert('fk-login-err', '');
+  fkGateAlert('fk-login-err', '');
   const email = fkNormEmail(document.getElementById('fk-login-email').value);
   const pass  = document.getElementById('fk-login-pass').value;
-  if (!email || !pass) { fkAlert('fk-login-err', 'Preencha e-mail e senha.'); return; }
+  if (!email || !pass) { fkGateAlert('fk-login-err', 'Preencha e-mail e senha.'); return; }
   const btn = document.getElementById('fk-login-btn');
   if (btn) btn.disabled = true;
   try {
     if (!window.sb) {
-      fkAlert('fk-login-err', 'Não consegui falar com o servidor. Recarregue a página (Cmd+Shift+R).');
+      fkGateAlert('fk-login-err', 'Não consegui falar com o servidor. Recarregue a página (Cmd+Shift+R).');
       return;
     }
     /* O token de sessão vai pro localStorage. Cheio, o SDK autentica e falha
@@ -102423,13 +102429,13 @@ async function fkcHandleLogin(ev){
 
     const { data, error } = await window.sb.auth.signInWithPassword({ email, password: pass });
     if (error) {
-      fkAlert('fk-login-err',
+      fkGateAlert('fk-login-err',
         /invalid|credentials/i.test(error.message) ? 'E-mail ou senha incorretos.' : error.message);
       return;
     }
     window._FK_CLOUD_SESSION = data.session;
     window._FK_CLOUD_USER = fkcNormalizeUser(data.user);
-    fkAlert('fk-login-err', 'Tudo certo. Abrindo seu painel…', 'ok');
+    fkGateAlert('fk-login-err', 'Tudo certo. Abrindo seu painel…', 'ok');
     setTimeout(() => { fkHideGate(); fkRenderUserMenu(); fkBootApp(); }, 240);
   } catch(e) {
     const msg = (e && e.message) || String(e);
@@ -102449,16 +102455,16 @@ async function fkcHandleLogin(ev){
         if (!r2.error){
           window._FK_CLOUD_SESSION = r2.data.session;
           window._FK_CLOUD_USER = fkcNormalizeUser(r2.data.user);
-          fkAlert('fk-login-err', 'Tudo certo. Abrindo seu painel…', 'ok');
+          fkGateAlert('fk-login-err', 'Tudo certo. Abrindo seu painel…', 'ok');
           setTimeout(() => { fkHideGate(); fkRenderUserMenu(); fkBootApp(); }, 240);
           return;
         }
       }catch(_){}
-      fkAlert('fk-login-err', 'O armazenamento do navegador está cheio. '
+      fkGateAlert('fk-login-err', 'O armazenamento do navegador está cheio. '
         + 'Limpe os dados do site (cadeado na barra de endereço) e entre de novo.');
       return;
     }
-    fkAlert('fk-login-err', 'Erro inesperado: ' + msg);
+    fkGateAlert('fk-login-err', 'Erro inesperado: ' + msg);
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -102466,13 +102472,13 @@ async function fkcHandleLogin(ev){
 
 async function fkcHandleSignup(ev){
   if (ev) ev.preventDefault();
-  fkAlert('fk-signup-err', '');
+  fkGateAlert('fk-signup-err', '');
   const name  = String(document.getElementById('fk-signup-name').value || '').trim();
   const email = fkNormEmail(document.getElementById('fk-signup-email').value);
   const pass  = document.getElementById('fk-signup-pass').value;
-  if (!name || !email || !pass) { fkAlert('fk-signup-err', 'Preencha nome, e-mail e senha.'); return; }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { fkAlert('fk-signup-err', 'E-mail inválido.'); return; }
-  if (pass.length < 6) { fkAlert('fk-signup-err', 'A senha precisa de no mínimo 6 caracteres.'); return; }
+  if (!name || !email || !pass) { fkGateAlert('fk-signup-err', 'Preencha nome, e-mail e senha.'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { fkGateAlert('fk-signup-err', 'E-mail inválido.'); return; }
+  if (pass.length < 6) { fkGateAlert('fk-signup-err', 'A senha precisa de no mínimo 6 caracteres.'); return; }
   const btn = document.getElementById('fk-signup-btn');
   if (btn) btn.disabled = true;
   try {
@@ -102482,23 +102488,23 @@ async function fkcHandleSignup(ev){
       options: { data: { name, razao_social: name } }
     });
     if (error) {
-      fkAlert('fk-signup-err',
+      fkGateAlert('fk-signup-err',
         /already registered|exists/i.test(error.message) ?
           'Já existe uma conta com esse e-mail. Use "Entrar".' : error.message);
       return;
     }
     if (!data.session) {
       // Confirm email está ligado no Supabase — orienta o user
-      fkAlert('fk-signup-err',
+      fkGateAlert('fk-signup-err',
         'Conta criada. Confirme o e-mail (caixa de entrada e spam) e depois faça login.', 'ok');
       return;
     }
     window._FK_CLOUD_SESSION = data.session;
     window._FK_CLOUD_USER = fkcNormalizeUser(data.user);
-    fkAlert('fk-signup-err', 'Conta criada. Bem-vindo.', 'ok');
+    fkGateAlert('fk-signup-err', 'Conta criada. Bem-vindo.', 'ok');
     setTimeout(() => { fkHideGate(); fkRenderUserMenu(); fkBootApp(); }, 320);
   } catch(e) {
-    fkAlert('fk-signup-err', 'Erro inesperado: ' + (e && e.message || e));
+    fkGateAlert('fk-signup-err', 'Erro inesperado: ' + (e && e.message || e));
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -102515,20 +102521,20 @@ async function fkcHandleForgotPassword(ev){
   const inp = document.getElementById('fk-login-email');
   const email = fkNormEmail(inp ? inp.value : '');
   if (!email) {
-    fkAlert('fk-login-err', 'Informe seu e-mail no campo acima e clique de novo.');
+    fkGateAlert('fk-login-err', 'Informe seu e-mail no campo acima e clique de novo.');
     if (inp) inp.focus();
     return;
   }
-  fkAlert('fk-login-err', 'Enviando link de recuperação…', 'ok');
+  fkGateAlert('fk-login-err', 'Enviando link de recuperação…', 'ok');
   try {
     const { error } = await window.sb.auth.resetPasswordForEmail(email, {
       redirectTo: window.location.origin + '/'
     });
-    if (error) { fkAlert('fk-login-err', error.message); return; }
-    fkAlert('fk-login-err',
+    if (error) { fkGateAlert('fk-login-err', error.message); return; }
+    fkGateAlert('fk-login-err',
       'Pronto. Se houver conta com esse e-mail, você vai receber o link em alguns minutos.', 'ok');
   } catch(e) {
-    fkAlert('fk-login-err', 'Erro inesperado: ' + (e && e.message || e));
+    fkGateAlert('fk-login-err', 'Erro inesperado: ' + (e && e.message || e));
   }
 }
 
@@ -103320,28 +103326,28 @@ async function cfgHandleChangePassword(ev){
 async function fkHandleLogin(ev){
   if (window.FK_MODE === 'cloud') return fkcHandleLogin(ev);
   if(ev) ev.preventDefault();
-  fkAlert('fk-login-err', '');
+  fkGateAlert('fk-login-err', '');
   const email = fkNormEmail(document.getElementById('fk-login-email').value);
   const pass  = document.getElementById('fk-login-pass').value;
   const remember = !!document.getElementById('fk-login-remember').checked;
   if(!email || !pass){
-    fkAlert('fk-login-err', 'Preencha e-mail e senha.'); return;
+    fkGateAlert('fk-login-err', 'Preencha e-mail e senha.'); return;
   }
   const btn = document.getElementById('fk-login-btn');
   if(btn) btn.disabled = true;
   try{
     const d = fkLoad();
     const user = (d.users || []).find(u => u.email === email);
-    if(!user){ fkAlert('fk-login-err', 'Conta não encontrada. Crie uma primeiro.'); return; }
+    if(!user){ fkGateAlert('fk-login-err', 'Conta não encontrada. Crie uma primeiro.'); return; }
     const h = await fkHash(pass, user.salt);
-    if(h !== user.hash){ fkAlert('fk-login-err', 'Senha incorreta.'); return; }
+    if(h !== user.hash){ fkGateAlert('fk-login-err', 'Senha incorreta.'); return; }
     const ttlMs = (remember ? FK_SESSION_DAYS : 1) * 24 * 60 * 60 * 1000;
     d.session = { userId: user.id, startedAt: Date.now(), expiresAt: Date.now() + ttlMs };
     fkSave(d);
-    fkAlert('fk-login-err', 'Tudo certo. Abrindo seu painel…', 'ok');
+    fkGateAlert('fk-login-err', 'Tudo certo. Abrindo seu painel…', 'ok');
     setTimeout(() => { fkHideGate(); fkRenderUserMenu(); fkBootApp(); }, 240);
   }catch(e){
-    fkAlert('fk-login-err', 'Erro inesperado: ' + (e && e.message || e));
+    fkGateAlert('fk-login-err', 'Erro inesperado: ' + (e && e.message || e));
   }finally{
     if(btn) btn.disabled = false;
   }
@@ -103350,19 +103356,19 @@ async function fkHandleLogin(ev){
 async function fkHandleSignup(ev){
   if (window.FK_MODE === 'cloud') return fkcHandleSignup(ev);
   if(ev) ev.preventDefault();
-  fkAlert('fk-signup-err', '');
+  fkGateAlert('fk-signup-err', '');
   const name  = String(document.getElementById('fk-signup-name').value || '').trim();
   const email = fkNormEmail(document.getElementById('fk-signup-email').value);
   const pass  = document.getElementById('fk-signup-pass').value;
-  if(!name || !email || !pass){ fkAlert('fk-signup-err', 'Preencha nome, e-mail e senha.'); return; }
-  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ fkAlert('fk-signup-err', 'E-mail inválido.'); return; }
-  if(pass.length < 6){ fkAlert('fk-signup-err', 'A senha precisa de no mínimo 6 caracteres.'); return; }
+  if(!name || !email || !pass){ fkGateAlert('fk-signup-err', 'Preencha nome, e-mail e senha.'); return; }
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ fkGateAlert('fk-signup-err', 'E-mail inválido.'); return; }
+  if(pass.length < 6){ fkGateAlert('fk-signup-err', 'A senha precisa de no mínimo 6 caracteres.'); return; }
   const btn = document.getElementById('fk-signup-btn');
   if(btn) btn.disabled = true;
   try{
     const d = fkLoad();
     if((d.users || []).some(u => u.email === email)){
-      fkAlert('fk-signup-err', 'Já existe uma conta com esse e-mail. Use "Entrar".'); return;
+      fkGateAlert('fk-signup-err', 'Já existe uma conta com esse e-mail. Use "Entrar".'); return;
     }
     const salt = fkRandomSalt();
     const hash = await fkHash(pass, salt);
@@ -103376,10 +103382,10 @@ async function fkHandleSignup(ev){
     const ttlMs = FK_SESSION_DAYS * 24 * 60 * 60 * 1000;
     d.session = { userId: user.id, startedAt: Date.now(), expiresAt: Date.now() + ttlMs };
     fkSave(d);
-    fkAlert('fk-signup-err', 'Conta criada. Bem-vindo.', 'ok');
+    fkGateAlert('fk-signup-err', 'Conta criada. Bem-vindo.', 'ok');
     setTimeout(() => { fkHideGate(); fkRenderUserMenu(); fkBootApp(); }, 320);
   }catch(e){
-    fkAlert('fk-signup-err', 'Erro inesperado: ' + (e && e.message || e));
+    fkGateAlert('fk-signup-err', 'Erro inesperado: ' + (e && e.message || e));
   }finally{
     if(btn) btn.disabled = false;
   }
@@ -103395,7 +103401,7 @@ function fkWireGate(){
       const panel = document.getElementById('fk-panel-' + tab);
       if(panel) panel.classList.add('active');
       // limpa alertas ao trocar
-      fkAlert('fk-login-err',''); fkAlert('fk-signup-err','');
+      fkGateAlert('fk-login-err',''); fkGateAlert('fk-signup-err','');
     });
   });
   // Toggle senha
