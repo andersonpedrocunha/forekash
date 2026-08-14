@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786724457"/>
+  <meta name="fk-build" content="forekash-v1786725471"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -64616,6 +64616,35 @@ async function cloudExtratoFetch(){
     const daNuvem = allRows.map(_extFromRow);
     const idsNuvem = new Set(daNuvem.map(l => l.id));
     const sóLocais = (extratoData.lancamentos || []).filter(l => l && !idsNuvem.has(l.id));
+
+    /* PERDA DE ANEXO — o pior bug desta tela.
+
+       O anexo vai em base64 dentro de metadata. Quando o arquivo é grande o
+       upsert falha, e o sync é fire-and-forget: ninguém fica sabendo. Aí o
+       fetch trazia a linha do banco (sem anexo) e ela SUBSTITUÍA a local,
+       destruindo o arquivo que só existia aqui. O usuário anexava, recarregava
+       e o anexo tinha sumido — sem erro, sem aviso.
+
+       A nuvem não pode apagar o que ela não sabe guardar: campo pesado que
+       existe local e não veio de lá é preservado. */
+    const PESADOS = ['anexo', 'anexoRef', 'comprovante'];
+    const localPorId = new Map();
+    (extratoData.lancamentos || []).forEach(l => { if(l) localPorId.set(l.id, l); });
+    let resgatados = 0;
+    daNuvem.forEach(l => {
+      const antigo = localPorId.get(l.id);
+      if(!antigo) return;
+      PESADOS.forEach(k => {
+        const temLocal = antigo[k] && (!Array.isArray(antigo[k]) || antigo[k].length);
+        const temNuvem = l[k] && (!Array.isArray(l[k]) || l[k].length);
+        if(temLocal && !temNuvem){ l[k] = antigo[k]; resgatados++; }
+      });
+    });
+    if(resgatados){
+      console.warn('[FK] ' + resgatados + ' anexo(s) existiam só neste navegador e foram preservados — '
+        + 'a nuvem ainda não os guarda.');
+    }
+
     extratoData.lancamentos = daNuvem.concat(sóLocais);
     if(sóLocais.length){
       console.warn('[FK] ' + sóLocais.length + ' lançamento(s) existiam só neste navegador — preservados e reenviados:',
@@ -66119,6 +66148,56 @@ try {
   window._extContaClear = _extContaClear;
 } catch(e){}
 
+/* Clipe na linha do extrato quando o lançamento tem anexo.
+
+   Existia um, mas só para lançamento de cartão: a condição exigia
+   `it.anexo.dataUrl` (objeto) e `raw.lancamentoId`. No lançamento manual o
+   anexo é ARRAY e não tem lancamentoId, então o ícone nunca aparecia — não
+   dava pra saber quais lançamentos tinham documento sem abrir um por um. */
+function _extAnexosDaLinha(id){
+  const s = String(id || '');
+  if(s.indexOf('m:') !== 0) return [];
+  const realId = parseInt(s.slice(2).split('#')[0], 10);
+  const l = (extratoData.lancamentos || []).find(x => x && x.id === realId);
+  if(!l) return [];
+  if(Array.isArray(l.anexo)) return l.anexo;
+  return l.anexo ? [l.anexo] : [];
+}
+function _extClipeHTML(id){
+  const n = _extAnexosDaLinha(id).length;
+  if(!n) return '';
+  const titulo = n === 1 ? 'Abrir anexo' : ('Abrir anexos (' + n + ')');
+  return ' <button type="button" onclick="event.stopPropagation();_extAbrirAnexoDaLinha(\'' + _extEsc(String(id)) + '\')"'
+       + ' title="' + titulo + '"'
+       + ' style="background:#FAF5FF;color:#7C3AED;border:1px solid #DDD6FE;padding:1px 6px;border-radius:9px;'
+       + 'cursor:pointer;font-size:.62rem;font-weight:800;font-family:inherit;margin-left:5px;'
+       + 'display:inline-flex;align-items:center;gap:3px;vertical-align:middle">'
+       + '<span class="fkico fkico-clip" style="width:.72em;height:.72em"></span>'
+       + (n > 1 ? n : '')
+       + '</button>';
+}
+/* Um anexo abre direto; vários abrem o lançamento, que é onde dá pra
+   escolher — abrir todos em abas seria bloqueado como popup. */
+function _extAbrirAnexoDaLinha(id){
+  const lista = _extAnexosDaLinha(id);
+  if(!lista.length) return;
+  if(lista.length === 1 && typeof _dkbOpenAttachment === 'function'){
+    _dkbOpenAttachment(lista[0]);
+    return;
+  }
+  if(typeof extEditManual === 'function'){
+    extEditManual(id);
+    setTimeout(() => {
+      const sec = document.getElementById('ext-sec-doc');
+      if(sec){ sec.open = true; sec.scrollIntoView({ block:'center', behavior:'smooth' }); }
+    }, 350);
+  }
+}
+try{
+  window._extClipeHTML = _extClipeHTML;
+  window._extAbrirAnexoDaLinha = _extAbrirAnexoDaLinha;
+}catch(_){}
+
 function renderExtrato(){
   _extLoad();
   try{ _extIgnBadge(); }catch(_){}   // contador de ignorados no menu Importar
@@ -66276,7 +66355,11 @@ function renderExtrato(){
       + '<td class="col-sel"><input type="checkbox" data-ext-sel="' + it.id + '" onchange="extToggleSel(\''+ it.id + '\',this.checked)"' + (isSel ? ' checked' : '') + '></td>'
       + '<td class="col-data" title="' + (dEff || '') + '">' + dataLbl + '</td>'
       + '<td class="col-cat">' + catCellHtml + '</td>'
-      + '<td>' + descPrefix + _extEsc(it.descricao || '—') + ((it.anexo && it.anexo.dataUrl && it.raw && it.raw.lancamentoId) ? ' <button type="button" onclick="event.stopPropagation();_cartOpenAnexoFromLanc(' + it.raw.lancamentoId + ')" title="Abrir anexo: ' + _extEsc(it.anexo.name || 'arquivo') + '" style="background:#FAF5FF;color:#7C3AED;border:1px solid #DDD6FE;padding:1px 6px;border-radius:9px;cursor:pointer;font-size:.62rem;font-weight:800;font-family:inherit;margin-left:4px" class="fkico fkico-clip"></button>' : '') + '</td>'
+      + '<td>' + descPrefix + _extEsc(it.descricao || '—')
+        + ((it.anexo && it.anexo.dataUrl && it.raw && it.raw.lancamentoId)
+            ? ' <button type="button" onclick="event.stopPropagation();_cartOpenAnexoFromLanc(' + it.raw.lancamentoId + ')" title="Abrir anexo: ' + _extEsc(it.anexo.name || 'arquivo') + '" style="background:#FAF5FF;color:#7C3AED;border:1px solid #DDD6FE;padding:1px 6px;border-radius:9px;cursor:pointer;font-size:.62rem;font-weight:800;font-family:inherit;margin-left:4px" class="fkico fkico-clip"></button>'
+            : _extClipeHTML(it.id))
+        + '</td>'
       // Transferência não tem cliente nem fornecedor — o que está aí é a conta
       // de destino. A seta diz isso sem precisar de outra coluna.
       + '<td class="col-cliente">'
