@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786722669"/>
+  <meta name="fk-build" content="forekash-v1786723369"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -18128,7 +18128,7 @@
         <span class="sb-icon" style="background:#7C3AED">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-3V4a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2v3H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zM9 4h6v3H9V4z"/></svg>
         </span>
-        <span class="sb-lbl">Comercial</span>
+        <span class="sb-lbl">Negócios</span>
         </button>
         <button class="sb-item" data-module="receita" onclick="switchModule('receita',this)">
         <span class="sb-icon c-green">
@@ -20999,8 +20999,8 @@
            MÓDULO: COMERCIAL · Recorrência + Comissões + Recibos + Contratos
            ══════════════════════════════════════════════ -->
       <div class="mod" id="mod-comercial">
-        <h1 class="pg-title">Comercial</h1>
-        <p class="pg-sub">Hub comercial completo: assinaturas recorrentes, comissões de vendedores, recibos avulsos e gestão de contratos com alertas de vencimento. Tudo num só lugar.</p>
+        <h1 class="pg-title">Negócios</h1>
+        <p class="pg-sub">Assinaturas recorrentes, comissões de vendedores, recibos avulsos e gestão de contratos com alertas de vencimento. Tudo num só lugar.</p>
 
         <div class="tabs" style="margin-bottom:14px">
           <button class="tab-btn active" id="com-tab-rec-btn"  onclick="comSwitchTab('rec',this)">Cobrança Recorrente</button>
@@ -73044,9 +73044,11 @@ function fkContasAgrupadas(){
         if(!b || !b.nome) return;
         const d = c.dados || {};
         const apelido = String(d.apelido || '').trim();
+        const semApelido = t ? (b.nome + ' · ' + t.nome) : b.nome;
         brutos.push({
           c: c,
-          base: apelido || (t ? (b.nome + ' · ' + t.nome) : b.nome),
+          base: apelido || semApelido,
+          semApelido: semApelido,
           temApelido: !!apelido,
           conta: String(d.conta || '').trim(),
           agencia: String(d.agencia || '').trim(),
@@ -73065,6 +73067,18 @@ function fkContasAgrupadas(){
         while(usados[nome]) nome = x.base + ' · conta #' + x.c.id;   // apelido repetido
         usados[nome] = true;
         x.c._fkRotulo = nome;
+        /* Os outros nomes pelos quais esta MESMA conta já foi chamada. Dar um
+           apelido troca o rótulo inteiro, e os lançamentos antigos guardaram o
+           texto velho — sem isto eles caem em "Outras" e a conta aparece
+           duplicada no seletor. */
+        const alias = [x.semApelido];
+        const marca2 = x.conta || x.agencia;
+        if(marca2){
+          alias.push(x.semApelido + ' · ' + marca2);
+          if(x.temApelido) alias.push(x.base + ' · ' + marca2);
+        }
+        alias.push(x.semApelido + ' · conta #' + x.c.id);
+        x.c._fkAliases = alias.filter(a2 => a2 && a2 !== nome);
         (x.reserva ? reserva : caixa).push(nome);
       });
     }
@@ -73114,6 +73128,11 @@ function fkResolverConta(texto){
 
   if(contas.some(x => x.rotulo === t)) return t;        // já é canônico
 
+  /* Nome antigo da MESMA conta — foi o que aconteceu quando o apelido entrou:
+     o rótulo virou outro e o lançamento ficou apontando pro anterior. */
+  const porAlias = contas.find(x => Array.isArray(x.c._fkAliases) && x.c._fkAliases.indexOf(t) >= 0);
+  if(porAlias) return porAlias.rotulo;
+
   const so = v => String(v || '').replace(/\D/g, '');
   const norm = v => String(v || '').toLowerCase()
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -73158,9 +73177,17 @@ function fkContaOptsHTML(atual, rotuloVazio){
     out += '</optgroup>';
   }
   if(atual && !todos.includes(atual)){
-    /* Quando uma conta ganha sufixo de desempate, os lançamentos antigos
-       guardaram o rótulo curto ("C6 Bank · Conta Corrente"). Sem isso eles
-       cairiam em "Outras" e pareceriam ter perdido a conta. */
+    /* O rótulo da conta muda quando ela ganha apelido ou sufixo de desempate,
+       e o lançamento antigo continua com o texto anterior. Sem reconhecer
+       isso, a mesma conta aparecia duas vezes: a nova em "Contas" e a velha
+       em "Outras". */
+    let canonico = '';
+    try{ if(typeof fkResolverConta === 'function') canonico = fkResolverConta(atual); }catch(_){}
+    if(canonico && canonico !== atual && todos.includes(canonico)){
+      out = out.replace('<option value="' + esc(canonico) + '"',
+                        '<option value="' + esc(canonico) + '" selected');
+      return out;
+    }
     const herdeiros = todos.filter(nm => nm.indexOf(atual + ' · ') === 0);
     if(herdeiros.length === 1){
       out = out.replace('<option value="' + esc(herdeiros[0]) + '"',
@@ -103619,7 +103646,7 @@ function cmdkRender(query){
   if(!q && typeof MOD_HISTORY !== 'undefined' && Array.isArray(MOD_HISTORY) && MOD_HISTORY.length){
     const _modLabels = { dashboard:'Início', kashtrack:'KASHtrack', extrato:'Extrato',
       disponibilidades:'Disponibilidades', cartoes:'Cartões', receita:'Receita',
-      notasfiscais:'Notas Fiscais', comercial:'Comercial', 'outras-op':'Outras Operações',
+      notasfiscais:'Notas Fiscais', comercial:'Negócios', 'outras-op':'Outras Operações',
       pessoas:'Pessoas', colaboradores:'Colaboradores', estrutura:'Estrutura', impostos:'Impostos',
       emprestimos:'Empréstimos', analise:'KASHBOARD', fluxo:'Fluxo', orcamento:'Orçamento',
       patrimonio:'Patrimônio', fklab:'FK Lab', relatorios:'Relatórios', workflows:'Workflows',
