@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786739246"/>
+  <meta name="fk-build" content="forekash-v1786983953"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -28699,6 +28699,10 @@ try{ window.recMigrarBaixaManual = recMigrarBaixaManual; }catch(_){}
 
    Roda no render, é idempotente, e nunca mexe em linha que já existe.      */
 function recSincronizarClientesDoExtrato(ano){
+  /* Com a receita ainda não hidratada, "cliente que falta" é TODO mundo — a
+     função criaria linhas do zero e o save levaria isso pra nuvem por cima
+     dos dados reais. Só roda depois que a nuvem desceu. */
+  if(!fkPodeSincronizar()) return 0;
   if(!receita || !receita.years) return 0;
   const y = String(ano || recActiveYear || '');
   const d = receita.years[y];
@@ -64706,6 +64710,10 @@ async function cloudExtratoIgnFetch(){
 
 async function cloudExtratoSync(){
   if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
+  if (!fkPodeSincronizar()){
+    try{ console.warn('[FK] sync do extrato adiado — nuvem ainda não desceu'); }catch(_){}
+    return;
+  }
   if (_extCloudSyncInFlight) { _extCloudSyncPending = true; return; }
   _extCloudSyncInFlight = true;
   try {
@@ -97965,10 +97973,54 @@ const FK_NOMES_SEED = [
   'logistica alpha','indústria sigma','industria sigma','ana silva',
   'imobiliária centro','imobiliaria centro'
 ];
+
+/* Alguns lançamentos do seed usam fornecedor que a empresa PODE ter de
+   verdade — Receita Federal, Google, AWS. Apagar por nome levaria dado real
+   junto. Aqui o par (fornecedor + descrição exata que o seed escreve) é a
+   assinatura: quem pagou DAS de verdade não terá a descrição idêntica à do
+   exemplo, e mesmo assim ainda exigimos que não tenha origem de importação. */
+const FK_LANC_SEED = [
+  ['receita federal',    'das simples nacional'],
+  ['receita federal',    'irpj trimestral'],
+  ['google',             'ads google'],
+  ['amazon web services','aws — infra mensal'],
+  ['amazon web services','aws - infra mensal'],
+  ['caixa fgts',         'fgts · 13º provisão'],
+  ['meta platforms',     'marketing · meta ads'],
+  ['notion',             'pagamento notion + slack'],
+  ['figma',              'pagamento figma'],
+  ['imobiliária centro', 'pagamento aluguel escritório'],
+  ['ana silva',          'salário · ana silva']
+];
 function _fkEhSeed(nome){
   const n = String(nome || '').trim().toLowerCase();
   return !!n && FK_NOMES_SEED.indexOf(n) >= 0;
 }
+function _fkLancEhSeed(l){
+  if(!l) return false;
+  if(l.importadoDe || l.fitid || (l.origem && l.origem !== 'seed')) return false;  // veio de fonte real
+  const cp = String(l.contraparte || '').trim().toLowerCase();
+  const ds = String(l.descricao   || '').trim().toLowerCase();
+  if(_fkEhSeed(cp)) return true;
+  return FK_LANC_SEED.some(par => par[0] === cp && par[1] === ds);
+}
+
+/* ══ NADA SOBE ANTES DE DESCER ═══════════════════════════════════════════
+   O app salva no localStorage e sincroniza pra nuvem no mesmo movimento. Com
+   o cache vazio (primeiro acesso, storage limpo, aba anônima), qualquer save
+   que aconteça ANTES da hidratação terminar sobe um estado quase vazio e
+   sobrescreve o que estava no servidor.
+
+   Foi assim que a Receita do Anderson caiu de 11 clientes pra 2: a rotina que
+   traz cliente novo do Extrato rodou com a receita ainda não hidratada, criou
+   duas linhas e salvou — e o save empurrou isso por cima dos 11 na nuvem.
+
+   Enquanto FK_HIDRATADO for false, escrita na nuvem fica bloqueada. */
+window.FK_HIDRATADO = false;
+function fkPodeSincronizar(){
+  return window.FK_MODE !== 'cloud' || window.FK_HIDRATADO === true;
+}
+try{ window.fkPodeSincronizar = fkPodeSincronizar; }catch(_){}
 
 function fkFaxinaSeed(){
   if(window.FK_MODE !== 'cloud') return 0;
@@ -97978,13 +98030,7 @@ function fkFaxinaSeed(){
   try{
     if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
       const antes = extratoData.lancamentos.length;
-      extratoData.lancamentos = extratoData.lancamentos.filter(l => {
-        if(!l) return false;
-        if(!_fkEhSeed(l.contraparte)) return true;
-        // tem origem real? então é dado dele, mesmo com nome parecido
-        if(l.importadoDe || l.fitid || (l.origem && l.origem !== 'seed')) return true;
-        return false;
-      });
+      extratoData.lancamentos = extratoData.lancamentos.filter(l => !_fkLancEhSeed(l));
       n += antes - extratoData.lancamentos.length;
       if(antes !== extratoData.lancamentos.length){
         try{ _extSave(); }catch(_){}
@@ -103052,6 +103098,12 @@ async function cloudBlobFetch(moduleName){
 
 async function cloudBlobSync(moduleName, getDataFn){
   if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
+  /* Antes da hidratação o estado local é parcial: subir agora apaga o que
+     está no servidor. Foi o que reduziu a Receita de 11 clientes pra 2. */
+  if (!fkPodeSincronizar()){
+    try{ console.warn('[FK] sync de ' + moduleName + ' adiado — nuvem ainda não desceu'); }catch(_){}
+    return;
+  }
   const flagK = moduleName;
   const pendK = moduleName + '__pending';
   if (_FK_BLOB_FLAGS[flagK]) { _FK_BLOB_FLAGS[pendK] = true; return; }
@@ -122989,6 +123041,8 @@ async function fkCloudFullHydrate(){
   } else if(alreadyLocal > 0){
     console.log('[FK] ☁ ' + alreadyLocal + ' módulos · todos local');
   }
+  // A partir daqui a nuvem já desceu: escrever de volta é seguro.
+  window.FK_HIDRATADO = true;
   /* Depois de hidratar — e antes que qualquer sync suba de volta — tira o que
      o seed plantou nesta conta. Limpar só o servidor não adiantava: o
      navegador ressincronizava a cópia suja em segundos. */
@@ -123246,7 +123300,14 @@ try{
 async function _fkWaitForCloud(){
   for(let i = 0; i < 60; i++){
     if(window.FK_MODE === 'cloud' && window.sb && window._FK_CLOUD_USER){
-      try{ await fkCloudFullHydrate(); }catch(e){ console.warn('[FK] hydrate err:', e); }
+      try{ await fkCloudFullHydrate(); }
+      catch(e){
+        console.warn('[FK] hydrate err:', e);
+        /* Falhou a hidratação: libera assim mesmo, senão o app trava em
+           somente-leitura e o trabalho da sessão inteira não sobe. */
+        window.FK_HIDRATADO = true;
+      }
+      window.FK_HIDRATADO = true;
       // Depois de hidratar (nuvem → local), garante o caminho inverso:
       // o que só existe aqui precisa subir. Espera os módulos carregarem.
       setTimeout(() => {
@@ -123257,6 +123318,8 @@ async function _fkWaitForCloud(){
     await new Promise(res => setTimeout(res, 500));
   }
   console.warn('[FK] cloud não inicializou em 30s · hidratação pulada');
+  /* Sem nuvem não há o que sobrescrever — deixa o app salvar normalmente. */
+  window.FK_HIDRATADO = true;
 }
 setTimeout(_fkWaitForCloud, 1500);
 
