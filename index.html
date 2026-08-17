@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786995859"/>
+  <meta name="fk-build" content="forekash-v1786996055"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1273,10 +1273,12 @@
     .est-tag{color:#B45309;font-size:.62rem;font-weight:700;background:#FEF3C7;
       border:1px solid #FDE68A;padding:1px 6px;border-radius:8px}
     /* Carimbo de atualização compacto */
-    .meta-dot{background:#EEF2FF;color:#4F46E5;border:1px solid #C7D2FE;border-radius:9px;
-      font-size:.58rem;font-weight:800;padding:0 5px;line-height:1.5;cursor:pointer;font-family:inherit}
-    .meta-dot:hover{background:#4F46E5;color:#fff}
-    .meta-vazio{color:#CBD5E1;font-size:.7rem}
+    .meta-dot{background:#F1F5F9;color:#64748B;border:1px solid #E2E8F0;border-radius:9px;
+      font-size:.58rem;font-weight:700;padding:1px 7px;line-height:1.4;cursor:pointer;font-family:inherit}
+    .meta-dot:hover{background:#4F46E5;color:#fff;border-color:#4F46E5}
+    .meta-dot.velho{background:#FEF3C7;color:#B45309;border-color:#FDE68A}
+    .meta-dot.velho:hover{background:#B45309;color:#fff;border-color:#B45309}
+    .meta-vazio{color:#CBD5E1;font-size:.58rem;font-style:italic}
     /* Modalidade como etiqueta, não seletor */
     .tipo-tag{display:inline-block;font-size:.66rem;font-weight:700;padding:2px 9px;border-radius:9px;
       background:#F1F5F9;color:#475569;white-space:nowrap}
@@ -26271,13 +26273,28 @@ function fmtInp(el,d=2){ const n=parseFloat(el.value); el.value=(!isNaN(n)&&el.v
 /* O carimbo aparecia duas vezes por linha (parcela e saldo), somando dezenas
    de linhas de texto cinza na tela. Vira um ponto discreto: a data e o
    histórico continuam a um hover/clique de distância. */
+/* O contador só dizia QUANTAS vezes o valor mudou, o que não ajuda a decidir
+   nada. A pergunta real é "esse número ainda vale?" — então mostra HÁ QUANTO
+   TEMPO foi atualizado, e fica âmbar quando passou de 45 dias. */
 function buildMeta(hist,id,type){
-  if(!hist || hist.length === 0) return '<span class="meta-vazio" title="Nunca atualizado">·</span>';
+  if(!hist || hist.length === 0){
+    return '<span class="meta-vazio" title="Nunca atualizado — o valor é o do cadastro">nunca</span>';
+  }
   const last = hist[hist.length-1];
   const quando = fmtTs(last.ts);
-  return `<button class="meta-dot" onclick="showHist(${id},'${type}')"
-            title="Atualizado ${quando} · ${hist.length} registro${hist.length!==1?'s':''} — clique pra ver">
-            ${hist.length}</button>`;
+  let dias = null;
+  try{ dias = Math.floor((Date.now() - new Date(last.ts).getTime()) / 86400000); }catch(_){}
+  let rotulo;
+  if(dias == null) rotulo = 'ver';
+  else if(dias <= 0) rotulo = 'hoje';
+  else if(dias === 1) rotulo = 'ontem';
+  else if(dias < 30) rotulo = dias + 'd';
+  else if(dias < 365) rotulo = Math.round(dias/30) + 'm';
+  else rotulo = Math.floor(dias/365) + 'a';
+  const velho = (dias != null && dias > 45) ? ' velho' : '';
+  return `<button class="meta-dot${velho}" onclick="showHist(${id},'${type}')"
+            title="Atualizado ${quando} · ${hist.length} registro${hist.length!==1?'s':''} — clique pra ver o histórico">
+            ${rotulo}</button>`;
 }
 
 // Guia de uso da extração por PDF — persiste "ocultado" no localStorage
