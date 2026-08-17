@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786990187"/>
+  <meta name="fk-build" content="forekash-v1786990465"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -23392,10 +23392,31 @@ let sortOrder    = 'desc';    // 'asc' | 'desc'
 let activeContratoId = null;
 let filterProgress = 'emprestimo'; // 'emprestimo' | 'banco'
 
-const BANCOS = ['','Banco do Brasil','Bradesco','Caixa Econômica Federal',
-  'Itaú','Santander','Nubank','Inter','Sicredi','Banrisul',
-  'BTG Pactual','XP Investimentos','C6 Bank','Safra',
-  'Daycoval','Banco Votorantim','PicPay','Mercado Pago',
+/* Lista ampla de propósito: crédito PJ no Brasil não vem só de banco grande.
+   Cooperativa (Únilos, Cresol, Sicoob) e fintech de empréstimo (Nexoos,
+   Creditas, BizCapital) financiam empresa pequena todo dia — e faltando na
+   lista, o cadastro trava ou vira texto solto. */
+const BANCOS = ['',
+  // Grandes
+  'Banco do Brasil','Bradesco','Caixa Econômica Federal','Itaú','Santander',
+  // Digitais e fintechs de conta
+  'Nubank','Inter','C6 Bank','Neon','Original','PicPay','Mercado Pago',
+  'BS2','Agibank','Banco Pan','Will Bank','Next','Digio',
+  // Cooperativas
+  'Sicredi','Sicoob','Cresol','Únilos','Unicred','Ailos','Uniprime','Credisis',
+  // Investimento e médio porte
+  'BTG Pactual','XP Investimentos','Safra','Daycoval','Banco Votorantim','ABC Brasil',
+  'Sofisa','Pine','Fibra','Modal','Paulista','Rendimento','Industrial do Brasil',
+  // Públicos e regionais
+  'Banrisul','Banestes','BRB','Banco do Nordeste','Banco da Amazônia','BNDES',
+  'Banco de Brasília','Mercantil do Brasil','BRDE','Desenvolve SP','Badesul',
+  // Fintechs de crédito PJ
+  'Nexoos','Creditas','BizCapital','Biz Capital','Capital Empreendedor','A55',
+  'Antecipa','Adiante','Monkey Exchange','Provi','Omie Cash','Cora','Stone',
+  'PagBank','SumUp','InfinitePay','Asaas','Conta Simples','Klavi',
+  // Consórcios e financeiras
+  'Rodobens','Embracon','Porto Seguro','Bradesco Consórcio','Randon Consórcio',
+  'Omni','Crefisa','BV Financeira','Banco Yamaha','Banco Volkswagen','Banco Toyota',
   '— Digitar manualmente —'];
 
 // ═══════════════════════════════════════════════════
@@ -24541,8 +24562,15 @@ function empNovoModal(loanId){
   const L = (loanId != null) ? (loans || []).find(x => x.id === loanId) : null;
   const ed = !!L;
   const esc = x => String(x == null ? '' : x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
-  const bancoOpts = BANCOS.filter(b => b && b !== '— Digitar manualmente —')
-    .map(b => '<option value="' + b + '"' + (ed && L.banco === b ? ' selected' : '') + '>' + b + '</option>').join('');
+  const listaBancos = BANCOS.filter(b => b && b !== '— Digitar manualmente —');
+  /* Banco que já foi digitado à mão precisa aparecer selecionado, senão o
+     campo "some" ao reabrir a edição. */
+  const bancoAtual = ed ? (L.banco || '') : '';
+  const forasDaLista = (bancoAtual && listaBancos.indexOf(bancoAtual) < 0) ? [bancoAtual] : [];
+  const bancoOpts = listaBancos.concat(forasDaLista).sort((x,y)=>x.localeCompare(y,'pt'))
+    .map(b => '<option value="' + b + '"' + (bancoAtual === b ? ' selected' : '') + '>' + b + '</option>').join('')
+    + '<option disabled>──────────</option>'
+    + '<option value="__outro__">Outro — digitar o nome…</option>';
   const modOpts = (loanModalidades || []).map(m =>
     '<option value="' + m.id + '"' + (ed && (L.tipo||'price') === m.id ? ' selected' : '') + '>'
     + (m.nome || m.id) + '</option>').join('');
@@ -24588,7 +24616,10 @@ function empNovoModal(loanId){
     +     '</div>' : '')
     +     '<div class="emp-novo-grid">'
     +       '<div class="f"><label>Banco <i>*</i></label>'
-    +         '<select id="emp-n-banco"><option value="">— escolha —</option>' + bancoOpts + '</select></div>'
+    +         '<select id="emp-n-banco" onchange="empNovoBancoChange(this)">'
+    +           '<option value="">— escolha —</option>' + bancoOpts + '</select>'
+    +         '<input type="text" id="emp-n-banco-outro" maxlength="40" style="display:none;margin-top:6px"'
+    +           ' placeholder="Nome do banco ou financeira"></div>'
     +       '<div class="f"><label>Descrição <i>*</i></label>'
     +         '<input type="text" id="emp-n-desc" maxlength="60" placeholder="Ex: Pronampe 306.338" value="' + v('descricao') + '"></div>'
     +       '<div class="f"><label>Valor tomado <i>*</i></label>'
@@ -24694,6 +24725,18 @@ async function empNovoLerPdf(inp){
   }
 }
 
+/* "Outro" revela o campo livre. O banco digitado entra na lista da sessão,
+   então some da condição de "outro" na próxima vez que abrir. */
+function empNovoBancoChange(sel){
+  const inp = document.getElementById('emp-n-banco-outro');
+  if(!inp) return;
+  const outro = sel.value === '__outro__';
+  inp.style.display = outro ? '' : 'none';
+  if(outro){ inp.focus(); }
+  else { inp.value = ''; }
+}
+try{ window.empNovoBancoChange = empNovoBancoChange; }catch(_){}
+
 /* "+ Nova modalidade" direto do modal, sem sair pra outra tela. */
 function empNovoTipoChange(sel){
   if(sel.value !== '__new__') return;
@@ -24720,7 +24763,13 @@ try{ window.empNovoExcluir = empNovoExcluir; }catch(_){}
 function empNovoSalvar(idEdit){
   const err = document.getElementById('emp-novo-err');
   const g = id => (document.getElementById(id)?.value || '').trim();
-  const banco = g('emp-n-banco'), desc = g('emp-n-desc');
+  let banco = g('emp-n-banco');
+  if(banco === '__outro__'){
+    banco = g('emp-n-banco-outro');
+    // Entra na lista pra aparecer normalmente da próxima vez
+    if(banco && BANCOS.indexOf(banco) < 0) BANCOS.splice(BANCOS.length - 1, 0, banco);
+  }
+  const desc = g('emp-n-desc');
   const valor = parseFloat(g('emp-n-valor')) || 0;
   const taxa  = parseFloat(g('emp-n-taxa'));
   const parc  = parseInt(g('emp-n-parcelas'), 10) || 0;
