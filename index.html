@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786991887"/>
+  <meta name="fk-build" content="forekash-v1786992595"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -21753,15 +21753,15 @@
           <span class="st-val" id="s-valor">R$ 0,00</span>
         </div>
         <div class="st-item">
-          <span class="st-lbl">Saldo Devedor</span>
+          <span class="st-lbl" id="s-saldo-lbl">Saldo Devedor</span>
           <span class="st-val red" id="s-saldo">R$ 0,00</span>
         </div>
         <div class="st-item">
-          <span class="st-lbl">Total Amortizado</span>
+          <span class="st-lbl" id="s-amort-lbl">Total Amortizado</span>
           <span class="st-val grn" id="s-amort">R$ 0,00</span>
         </div>
         <div class="st-item">
-          <span class="st-lbl">Parcela Mensal Total</span>
+          <span class="st-lbl" id="s-parcela-lbl">Parcela Mensal Total</span>
           <span class="st-val" id="s-parcela">R$ 0,00</span>
         </div>
         <div class="st-item">
@@ -26419,21 +26419,49 @@ try{
 }catch(_){}
 
 function updateSummary(){
+  /* Os KPIs seguem o filtro da tabela. Antes eram sempre "só ativos", e com o
+     filtro em Todos a tela se contradizia: "Todos 7" em cima, "Empréstimos 4"
+     no card. O que está somado tem que ser o que está listado. */
+  const f = loanFiltroStatus();
+  const ativos = loansAtivos(), quitados = loansQuitados();
+  const lista = f === 'ativos' ? ativos : f === 'quitados' ? quitados : ativos.concat(quitados);
+
   let tV=0,tS=0,tP=0;
-  /* Só os ativos: dívida quitada não tem parcela mensal e não entra na
-     contagem. Sem esta linha o updateSummary quebrava com "ativos is not
-     defined" e derrubava o render inteiro do módulo. */
-  const ativos = loansAtivos();
-  ativos.forEach(l=>{ tV+=parseFloat(l.valor)||0; tS+=parseFloat(l.saldo)||0; tP+=parseFloat(l.parcelaVal)||0; });
-  document.getElementById('s-valor').textContent  =fmtBRL(tV);
-  document.getElementById('s-saldo').textContent  =fmtBRL(tS);
-  document.getElementById('s-amort').textContent  =fmtBRL(Math.max(0,tV-tS));
-  document.getElementById('s-parcela').textContent=fmtBRL(tP);
-  const nQ = loansQuitados().length;
-  document.getElementById('s-count').textContent  =ativos.length;
-  document.getElementById('count-lbl').textContent=
-    `${ativos.length} empréstimo${ativos.length!==1?'s':''} ativo${ativos.length!==1?'s':''}`
-    + (nQ ? ` · ${nQ} quitado${nQ!==1?'s':''}` : '');
+  lista.forEach(l=>{ tV+=parseFloat(l.valor)||0; tS+=parseFloat(l.saldo)||0; tP+=parseFloat(l.parcelaVal)||0; });
+
+  const setTxt = (id, v) => { const e = document.getElementById(id); if(e) e.textContent = v; };
+  setTxt('s-valor', fmtBRL(tV));
+
+  if(f === 'quitados'){
+    /* Em dívida encerrada, "saldo devedor" e "parcela mensal" são zero por
+       definição — números que não dizem nada. No lugar entra o que essa
+       quitação custou e o que ela poupou. */
+    let juros = 0, economia = 0;
+    quitados.forEach(l => {
+      juros += (loanResumoQuitacao(l).juros || 0);
+      economia += (l.quitacao && parseFloat(l.quitacao.economia)) || 0;
+    });
+    setTxt('s-saldo-lbl', 'Juros pagos');
+    setTxt('s-saldo', fmtBRL(juros));
+    setTxt('s-amort-lbl', 'Total quitado');
+    setTxt('s-amort', fmtBRL(tV));
+    setTxt('s-parcela-lbl', economia > 0 ? 'Economia na quitação' : 'Parcela Mensal Total');
+    setTxt('s-parcela', economia > 0 ? fmtBRL(economia) : fmtBRL(tP));
+  } else {
+    setTxt('s-saldo-lbl', 'Saldo Devedor');
+    setTxt('s-saldo', fmtBRL(tS));
+    setTxt('s-amort-lbl', 'Total Amortizado');
+    setTxt('s-amort', fmtBRL(Math.max(0, tV - tS)));
+    setTxt('s-parcela-lbl', 'Parcela Mensal Total');
+    setTxt('s-parcela', fmtBRL(tP));
+  }
+
+  setTxt('s-count', lista.length);
+  const nQ = quitados.length;
+  document.getElementById('count-lbl').textContent =
+      f === 'quitados' ? `${nQ} empréstimo${nQ!==1?'s':''} quitado${nQ!==1?'s':''}`
+    : f === 'ativos'   ? `${ativos.length} empréstimo${ativos.length!==1?'s':''} ativo${ativos.length!==1?'s':''}`
+    : `${ativos.length} ativo${ativos.length!==1?'s':''}` + (nQ ? ` · ${nQ} quitado${nQ!==1?'s':''}` : '');
   refreshActiveChart();
 }
 
