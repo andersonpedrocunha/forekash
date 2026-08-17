@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786991061"/>
+  <meta name="fk-build" content="forekash-v1786991764"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1294,6 +1294,20 @@
     .amort-op span b{display:inline;color:#4F46E5;font-size:.75rem}
     .amort-op.nada{border-style:dashed}
     .amort-op.nada b{color:#64748B;font-weight:700}
+    .btn-quitar{background:#059669;color:#fff;border:none;font-weight:700}
+    .btn-quitar:hover{background:#047857}
+    .quitar-cmp{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+    .quitar-cmp > div{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:9px;padding:11px 13px}
+    .quitar-cmp span{display:block;font-size:.62rem;text-transform:uppercase;letter-spacing:.04em;
+      color:#64748B;font-weight:700;margin-bottom:3px}
+    .quitar-cmp b{font-size:1rem;color:#0F172A;font-variant-numeric:tabular-nums}
+    .quitar-cmp small{display:block;font-size:.66rem;color:#94A3B8;margin-top:2px}
+    .quitar-eco{margin-top:14px;display:flex;flex-direction:column;gap:6px}
+    .quitar-eco > div{padding:9px 12px;border-radius:8px;font-size:.78rem}
+    .quitar-eco .ok{background:#ECFDF5;border:1px solid #A7F3D0;color:#065F46}
+    .quitar-eco .alerta{background:#FEF3C7;border:1px solid #FDE68A;color:#92400E}
+    .quitar-eco .eco{background:#EEF2FF;border:1px solid #C7D2FE;color:#3730A3;font-weight:600}
+    .quitar-eco b{font-weight:800}
     /* Banco e Descrição ficam presos na rolagem horizontal: sem eles à vista,
        as 12 colunas de números viram uma fileira sem dono. O drag vai junto
        porque é a primeira coluna e ficaria órfão. */
@@ -24653,7 +24667,8 @@ function empNovoModal(loanId){
     +     '<div class="emp-novo-err" id="emp-novo-err"></div>'
     +   '</div>'
     +   '<div class="emp-novo-ft">'
-    +     (ed ? '<button type="button" class="btn btn-del-txt" onclick="empNovoExcluir(' + L.id + ')">Excluir</button>' : '')
+    +     (ed ? '<button type="button" class="btn btn-del-txt" onclick="empNovoExcluir(' + L.id + ')">Excluir</button>'
+                 + '<button type="button" class="btn btn-quitar" onclick="empQuitarModal(' + L.id + ')">Quitar</button>' : '')
     +     '<button type="button" class="btn btn-sec" onclick="empNovoFechar()">Cancelar</button>'
     +     '<button type="button" class="btn btn-p" onclick="empNovoSalvar(' + (ed ? L.id : '') + ')">'
     +       (ed ? 'Salvar alterações' : 'Cadastrar empréstimo') + '</button>'
@@ -24724,6 +24739,132 @@ async function empNovoLerPdf(inp){
     if(st) st.innerHTML = '<span class="warn">Não consegui ler o PDF: ' + (e.message || e) + '</span>';
   }
 }
+
+/* ══ QUITAÇÃO ANTECIPADA ═════════════════════════════════════════════════
+   Quitar antes do fim quase nunca custa o saldo contábil: o banco desconta os
+   juros que não vão mais correr. Nos dois Nexoos do Anderson o saldo somava
+   R$ 116.560,44 e a quitação saiu por R$ 106.710,55.
+
+   A "Amortização Total" que já existia pré-preenchia com o saldo cheio e
+   deixava as parcelas em 18/36 — o empréstimo não zerava direito nem era
+   reconhecido como quitado. Aqui o valor PAGO é que manda: a diferença vira
+   desconto registrado, o saldo vai a zero e as parcelas fecham. */
+function empQuitarModal(loanId){
+  const L = (loans || []).find(x => x.id === loanId);
+  if(!L) return;
+  empNovoFechar();
+  const saldo = parseFloat(L.saldo) || 0;
+  const parc  = parseFloat(L.parcelaVal) || 0;
+  const tot   = parseInt(L.parcelas, 10) || 0;
+  const pagas = parseInt(L.parcelasPagas, 10) || 0;
+  const restam = Math.max(0, tot - pagas);
+  const faltaPagar = parc * restam;          // o que sairia seguindo o contrato
+  const fmt = v => 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const hoje = new Date().toISOString().slice(0,10);
+
+  const ov = document.createElement('div');
+  ov.className = 'emp-novo-ov';
+  ov.id = 'emp-quitar-ov';
+  ov.innerHTML =
+      '<div class="emp-novo-card" style="max-width:520px">'
+    +   '<div class="emp-novo-hd"><div>'
+    +     '<h3>Quitar ' + (L.descricao || 'empréstimo') + '</h3>'
+    +     '<p>Informe o valor do boleto de quitação — o desconto é calculado.</p></div>'
+    +     '<button type="button" class="emp-novo-x" onclick="document.getElementById(\'emp-quitar-ov\').remove()">✕</button>'
+    +   '</div>'
+    +   '<div class="emp-novo-bd">'
+    +     '<div class="quitar-cmp">'
+    +       '<div><span>Saldo devedor hoje</span><b>' + fmt(saldo) + '</b></div>'
+    +       '<div><span>Seguindo o contrato</span><b>' + fmt(faltaPagar) + '</b>'
+    +         '<small>' + restam + ' parcelas de ' + fmt(parc) + '</small></div>'
+    +     '</div>'
+    +     '<div class="emp-novo-grid" style="grid-template-columns:1fr 1fr">'
+    +       '<div class="f"><label>Valor pago na quitação <i>*</i></label>'
+    +         '<div class="pre"><span>R$</span><input type="number" step="0.01" min="0" id="emp-q-valor"'
+    +           ' value="' + saldo.toFixed(2) + '" oninput="empQuitarCalc(' + saldo + ',' + faltaPagar + ')"></div></div>'
+    +       '<div class="f"><label>Data do pagamento</label>'
+    +         '<input type="date" id="emp-q-data" value="' + hoje + '"></div>'
+    +     '</div>'
+    +     '<div class="quitar-eco" id="emp-q-eco"></div>'
+    +   '</div>'
+    +   '<div class="emp-novo-ft">'
+    +     '<button type="button" class="btn btn-sec" onclick="document.getElementById(\'emp-quitar-ov\').remove()">Cancelar</button>'
+    +     '<button type="button" class="btn btn-p" onclick="empQuitarConfirmar(' + L.id + ')">Confirmar quitação</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  empQuitarCalc(saldo, faltaPagar);
+}
+function empQuitarCalc(saldo, faltaPagar){
+  const el = document.getElementById('emp-q-eco');
+  if(!el) return;
+  const pago = parseFloat(document.getElementById('emp-q-valor')?.value) || 0;
+  const fmt = v => 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const descSaldo = saldo - pago;                    // abatimento sobre o saldo
+  const ecoTotal  = Math.max(0, faltaPagar - pago);  // o que deixou de pagar no total
+  let html = '';
+  if(Math.abs(descSaldo) > 0.005){
+    html += '<div class="' + (descSaldo > 0 ? 'ok' : 'alerta') + '">'
+          + (descSaldo > 0 ? 'Desconto sobre o saldo: <b>' + fmt(descSaldo) + '</b>'
+                           : 'Pagou <b>' + fmt(-descSaldo) + '</b> acima do saldo — juros e encargos da quitação')
+          + '</div>';
+  }
+  if(ecoTotal > 0.005){
+    html += '<div class="eco">Economia frente a seguir pagando: <b>' + fmt(ecoTotal) + '</b></div>';
+  }
+  el.innerHTML = html;
+}
+function empQuitarConfirmar(loanId){
+  const L = (loans || []).find(x => x.id === loanId);
+  if(!L) return;
+  const pago = parseFloat(document.getElementById('emp-q-valor')?.value) || 0;
+  const data = (document.getElementById('emp-q-data')?.value || '').trim();
+  if(!(pago > 0)){ if(typeof toast === 'function') toast('Informe o valor pago'); return; }
+
+  const saldoAntes = parseFloat(L.saldo) || 0;
+  const tot = parseInt(L.parcelas, 10) || 0;
+  const parcAntes = parseFloat(L.parcelaVal) || 0;
+  const pagasAntes = parseInt(L.parcelasPagas, 10) || 0;
+
+  /* Registra no mês do pagamento, pra aparecer no histórico e na Evolução. */
+  const mes = (data || new Date().toISOString().slice(0,10)).slice(0,7);
+  L.registros = L.registros || [];
+  let reg = L.registros.find(r => r.mes === mes);
+  if(!reg){ reg = { mes, extras: [], ts: new Date().toISOString() }; L.registros.push(reg); }
+  reg.extras = reg.extras || [];
+  reg.extras.push({
+    id: 'q' + Date.now().toString(36),
+    tipo: 'amort_total',
+    parcela: pago, juros: 0, amort: pago,
+    descricao: 'Quitação antecipada' + (saldoAntes > pago
+      ? ' · desconto de R$ ' + (saldoAntes - pago).toFixed(2) : ''),
+    ts: new Date().toISOString()
+  });
+  reg.saldoEfetivado = 0;
+
+  L.quitacao = { data: data || '', valorPago: pago, saldoNaEpoca: saldoAntes,
+                 desconto: Math.max(0, saldoAntes - pago),
+                 economia: Math.max(0, parcAntes * Math.max(0, tot - pagasAntes) - pago) };
+  (L.saldoHist = L.saldoHist || []).push({ val:0, prev:saldoAntes, ts:new Date().toISOString(),
+                                           motivo:'quitação antecipada' });
+  L.saldo = 0;
+  L.parcelasPagas = tot;      // fecha o contrato — senão não conta como quitado
+  if(data) L.termino = data;
+
+  saveData();
+  document.getElementById('emp-quitar-ov')?.remove();
+  try{ render(); }catch(_){}
+  const fmt = v => 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  if(typeof toast === 'function'){
+    toast('Quitado · ' + fmt(pago) + (L.quitacao.economia > 0
+      ? ' · economia de ' + fmt(L.quitacao.economia) : ''), 5000);
+  }
+}
+try{
+  window.empQuitarModal = empQuitarModal;
+  window.empQuitarCalc = empQuitarCalc;
+  window.empQuitarConfirmar = empQuitarConfirmar;
+}catch(_){}
 
 /* "Outro" revela o campo livre. O banco digitado entra na lista da sessão,
    então some da condição de "outro" na próxima vez que abrir. */
