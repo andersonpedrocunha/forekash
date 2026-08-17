@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786983953"/>
+  <meta name="fk-build" content="forekash-v1786984937"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -98021,6 +98021,79 @@ function fkPodeSincronizar(){
   return window.FK_MODE !== 'cloud' || window.FK_HIDRATADO === true;
 }
 try{ window.fkPodeSincronizar = fkPodeSincronizar; }catch(_){}
+
+/* ══ VÍRGULA DECIMAL EM TODO LUGAR ═══════════════════════════════════════
+   <input type="number"> é do navegador: ele exibe e aceita ponto, ignorando
+   que o país inteiro escreve 1.234,56. Trocar os 36 campos de dinheiro para
+   texto quebraria os handlers, que leem `this.value` esperando número.
+
+   Aqui o campo vira texto com vírgula na TELA, e `value` continua devolvendo
+   ponto para o JS — via getter/setter próprio no elemento. Nenhum handler
+   existente precisa mudar, e o usuário digita como fala. Vírgula e ponto são
+   aceitos na digitação; a exibição é sempre vírgula. */
+function _fkVirgulizarInput(inp){
+  if(!inp || inp._fkVirgulado) return;
+  const step = inp.getAttribute('step') || '';
+  const casas = /0\.0(\d)/.test(step) ? (step.split('.')[1] || '').length : 2;
+
+  inp.type = 'text';
+  inp.setAttribute('inputmode', 'decimal');
+  inp._fkVirgulado = true;
+
+  const proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  const paraTela = v => {
+    if(v === '' || v == null) return '';
+    const n = parseFloat(String(v).replace(',', '.'));
+    return isNaN(n) ? '' : n.toFixed(casas).replace('.', ',');
+  };
+
+  Object.defineProperty(inp, 'value', {
+    configurable: true,
+    get(){
+      // JS sempre recebe ponto — é o que os handlers já esperam
+      const bruto = proto.get.call(this);
+      return String(bruto).replace(/\./g, '').replace(',', '.');
+    },
+    set(v){ proto.set.call(this, paraTela(v)); }
+  });
+
+  proto.set.call(inp, paraTela(proto.get.call(inp)));
+
+  inp.addEventListener('input', function(){
+    // deixa digitar vírgula, ponto e nada mais
+    const limpo = proto.get.call(this).replace(/[^\d,.-]/g, '').replace(/\./g, ',');
+    if(limpo !== proto.get.call(this)) proto.set.call(this, limpo);
+  });
+  inp.addEventListener('blur', function(){
+    proto.set.call(this, paraTela(proto.get.call(this).replace(',', '.')));
+  });
+}
+
+/* Passa em tudo que é dinheiro e ainda está como número do navegador. */
+function fkVirgulizarTudo(raiz){
+  try{
+    const alvo = (raiz || document).querySelectorAll('input[type="number"][step="0.01"], input[type="number"].fk-money');
+    alvo.forEach(_fkVirgulizarInput);
+  }catch(_){}
+}
+try{
+  window.fkVirgulizarTudo = fkVirgulizarTudo;
+  /* Campo novo nasce a qualquer momento (modal, linha de tabela, render
+     parcial), então observa o DOM em vez de depender de chamar em cada tela. */
+  const _obs = new MutationObserver(muts => {
+    for(const m of muts){
+      for(const nó of m.addedNodes){
+        if(nó.nodeType !== 1) continue;
+        if(nó.matches && nó.matches('input[type="number"]')) _fkVirgulizarInput(nó);
+        else fkVirgulizarTudo(nó);
+      }
+    }
+  });
+  document.addEventListener('DOMContentLoaded', () => {
+    fkVirgulizarTudo();
+    _obs.observe(document.body, { childList:true, subtree:true });
+  });
+}catch(_){}
 
 function fkFaxinaSeed(){
   if(window.FK_MODE !== 'cloud') return 0;
