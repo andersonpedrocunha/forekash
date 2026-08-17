@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786993443"/>
+  <meta name="fk-build" content="forekash-v1786993942"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1267,6 +1267,11 @@
     .c-desc-txt{font-size:.82rem;color:#0F172A;font-weight:600;line-height:1.35;
       white-space:normal;overflow-wrap:anywhere;padding:2px 0}
     .c-desc-txt .vazio{color:#94A3B8;font-weight:400;font-style:italic}
+    /* Saldo estimado: mesmo peso do informado, mas dá pra ver que é conta e
+       não extrato do banco. */
+    .ci.is-estimado{color:#B45309 !important;font-style:italic}
+    .est-tag{color:#B45309;font-size:.62rem;font-weight:700;background:#FEF3C7;
+      border:1px solid #FDE68A;padding:1px 6px;border-radius:8px}
     /* Quitado: presente, mas claramente encerrado — mesmo tratamento que o
        módulo de Impostos já dava aos parcelamentos liquidados. */
     /* Quitado fica na lista, com identidade própria: faixa verde na borda,
@@ -17013,6 +17018,9 @@
   font-family:inherit;background:#fff;width:100%;box-sizing:border-box}
 .emp-novo-mensal .pre{display:flex;align-items:center;gap:6px}
 .emp-novo-mensal .pre span{font-size:.78rem;color:#92400E;font-weight:700;flex:none}
+.aviso-price{font-size:.68rem;line-height:1.4;color:#92400E;margin-top:5px}
+.aviso-price:empty{display:none}
+.aviso-price b{font-weight:800}
 .emp-novo-grid label .auto{font-weight:600;text-transform:none;letter-spacing:0;color:#94A3B8;font-size:.62rem}
 .btn-del-txt{background:none;border:none;color:#DC2626;font-weight:700;font-size:.8rem;cursor:pointer;
   margin-right:auto;padding:8px 4px;font-family:inherit}
@@ -24620,7 +24628,9 @@ function empNovoModal(loanId){
     +       '<div class="tit">Atualização mensal</div>'
     +       '<div class="par">'
     +         '<div class="f"><label>Valor da parcela</label>'
-    +           '<div class="pre"><span>R$</span><input type="number" step="0.01" min="0" id="emp-n-parcelaval" value="' + (parseFloat(L.parcelaVal)||0) + '"></div></div>'
+    +           ('<div class="pre"><span>R$</span><input type="number" step="0.01" min="0" id="emp-n-parcelaval"'
+                 + ' value="' + (parseFloat(L.parcelaVal)||0) + '" oninput="empAvisoParcelaPrice()"></div>'
+                 + '<div class="aviso-price" id="emp-aviso-price"></div></div>')
     +         '<div class="f"><label>Saldo devedor</label>'
     +           '<div class="pre"><span>R$</span><input type="number" step="0.01" min="0" id="emp-n-saldo" value="' + (parseFloat(L.saldo)||0) + '"></div></div>'
     +         '<div class="f"><label>Parcelas pagas</label>'
@@ -24866,6 +24876,30 @@ try{
   window.empQuitarCalc = empQuitarCalc;
   window.empQuitarConfirmar = empQuitarConfirmar;
 }catch(_){}
+
+/* Em Price a parcela é fixa por definição — se ela muda, ou houve amortização
+   com redução de parcela, ou o contrato tem seguro/tarifa embutidos, ou é
+   erro de digitação. Não bloqueia (o valor que o banco cobra é que vale), mas
+   avisa e mostra quanto seria pelo contrato. */
+function empAvisoParcelaPrice(){
+  const el = document.getElementById('emp-aviso-price');
+  if(!el) return;
+  const tipo = (document.getElementById('emp-n-tipo')?.value || '').toLowerCase();
+  if(tipo !== 'price'){ el.innerHTML = ''; return; }
+  const pv = parseFloat(document.getElementById('emp-n-valor')?.value) || 0;
+  const i  = (parseFloat(document.getElementById('emp-n-taxa')?.value) || 0) / 100;
+  const n  = parseInt(document.getElementById('emp-n-parcelas')?.value, 10) || 0;
+  const atual = parseFloat(document.getElementById('emp-n-parcelaval')?.value) || 0;
+  if(!(pv > 0 && n > 0 && atual > 0)){ el.innerHTML = ''; return; }
+  const teorica = i > 0 ? (pv * i) / (1 - Math.pow(1 + i, -n)) : (pv / n);
+  const dif = atual - teorica;
+  if(Math.abs(dif) < 0.5){ el.innerHTML = ''; return; }
+  const fmt = v => 'R$ ' + Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  el.innerHTML = 'Em Price a parcela é fixa. Pelo contrato seria <b>' + fmt(teorica) + '</b> — '
+    + fmt(dif) + (dif > 0 ? ' a mais' : ' a menos')
+    + '. Pode salvar assim: amortização, seguro ou tarifa mudam o valor real.';
+}
+try{ window.empAvisoParcelaPrice = empAvisoParcelaPrice; }catch(_){}
 
 /* "Outro" revela o campo livre. O banco digitado entra na lista da sessão,
    então some da condição de "outro" na próxima vez que abrir. */
@@ -26217,10 +26251,15 @@ function render(){
         <div class="c-meta parc-lbl">${tot>0?`${pag} de ${tot} pagas`:''}</div>
       </td>
       <td class="c-saldo">
-        <input class="ci r m red" type="text"${ro} value="${fmtBR(loan.saldo)}" placeholder="0,00"
-          data-cellref="loan:${loan.id}:saldo"
-          onfocus="unfmt(this)" onblur="fmtInp(this);saveField(${loan.id},'saldo',this.value)">
-        <div class="c-meta saldo-meta">${buildMeta(loan.saldoHist,loan.id,'saldo')}</div>
+        ${(()=>{
+          const ef = loanSaldoEfetivo(loan);
+          return `<input class="ci r m red${ef.estimado?' is-estimado':''}" type="text"${ro} value="${fmtBR(ef.valor)}" placeholder="0,00"
+            data-cellref="loan:${loan.id}:saldo"${ef.estimado?' title="Estimado pelo contrato — informe o saldo do banco pra travar o valor"':''}
+            onfocus="unfmt(this)" onblur="fmtInp(this);saveField(${loan.id},'saldo',this.value)">`;
+        })()}
+        <div class="c-meta saldo-meta">${(Array.isArray(loan.saldoHist)&&loan.saldoHist.length)
+          ? buildMeta(loan.saldoHist,loan.id,'saldo')
+          : (loanSaldoEstimado(loan)!=null ? '<span class="est-tag">estimado</span>' : buildMeta(loan.saldoHist,loan.id,'saldo'))}</div>
       </td>
       <td class="c-term">
         <input class="ci" type="date"${ro} value="${loan.inicio||''}"
@@ -26372,8 +26411,51 @@ function loanRowDrop(ev, targetId){
    parcela mensal total contando quem não paga mais nada.
 
    Detecta sozinho, sem checkbox: saldo zerado E todas as parcelas pagas. */
+/* ══ SALDO DEVEDOR ESTIMADO ══════════════════════════════════════════════
+   Quem não atualiza o saldo todo mês fica com o valor do dia do cadastro — e
+   o "Saldo Devedor" do topo passa a somar dívida que já foi paga em parte.
+   Melhor estimar pelo próprio contrato: com valor, taxa, parcelas e quantas
+   já foram pagas, o saldo teórico é exato para Price e SAC.
+
+   A estimativa NUNCA sobrescreve o dado: se a pessoa informou o saldo real
+   (extrato do banco), esse vale. A estimativa só cobre o silêncio.          */
+function loanSaldoEstimado(l){
+  if(!l) return null;
+  const pv = parseFloat(l.valor) || 0;
+  const i  = (parseFloat(l.taxa) || 0) / 100;
+  const n  = parseInt(l.parcelas, 10) || 0;
+  const k  = Math.min(parseInt(l.parcelasPagas, 10) || 0, n);
+  if(!(pv > 0 && n > 0)) return null;
+  if(k >= n) return 0;
+  const modal = (l.tipo || 'price').toLowerCase();
+  if(modal === 'sac'){
+    // SAC: amortização constante, saldo cai linear
+    return pv * (n - k) / n;
+  }
+  if(i <= 0) return pv * (n - k) / n;          // sem juros, Price == linear
+  // Price: saldo = PV · [(1+i)^n − (1+i)^k] / [(1+i)^n − 1]
+  const a = Math.pow(1 + i, n), b = Math.pow(1 + i, k);
+  return pv * (a - b) / (a - 1);
+}
+
+/* Saldo que vale para somar e exibir: o informado, se houver; senão o
+   estimado. Devolve também a origem, pra tela poder marcar. */
+function loanSaldoEfetivo(l){
+  const informado = Array.isArray(l && l.saldoHist) && l.saldoHist.length > 0;
+  if(informado) return { valor: parseFloat(l.saldo) || 0, estimado: false };
+  if(l && l.quitacao) return { valor: 0, estimado: false };
+  const est = loanSaldoEstimado(l);
+  if(est == null) return { valor: parseFloat(l && l.saldo) || 0, estimado: false };
+  return { valor: est, estimado: true };
+}
+try{
+  window.loanSaldoEstimado = loanSaldoEstimado;
+  window.loanSaldoEfetivo = loanSaldoEfetivo;
+}catch(_){}
+
 function loanEstaQuitado(l){
   if(!l) return false;
+  if(l.quitacao) return true;
   const saldo = parseFloat(l.saldo);
   const tot   = parseInt(l.parcelas, 10) || 0;
   const pag   = parseInt(l.parcelasPagas, 10) || 0;
@@ -26448,7 +26530,11 @@ function updateSummary(){
   const lista = f === 'ativos' ? ativos : f === 'quitados' ? quitados : ativos.concat(quitados);
 
   let tV=0,tS=0,tP=0;
-  lista.forEach(l=>{ tV+=parseFloat(l.valor)||0; tS+=parseFloat(l.saldo)||0; tP+=parseFloat(l.parcelaVal)||0; });
+  lista.forEach(l=>{
+    tV += parseFloat(l.valor) || 0;
+    tS += loanSaldoEfetivo(l).valor;      // informado ou estimado pelo contrato
+    tP += parseFloat(l.parcelaVal) || 0;
+  });
 
   const setTxt = (id, v) => { const e = document.getElementById(id); if(e) e.textContent = v; };
   setTxt('s-valor', fmtBRL(tV));
