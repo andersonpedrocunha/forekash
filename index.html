@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787000522"/>
+  <meta name="fk-build" content="forekash-v1787000783"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1370,6 +1370,10 @@
     .amort-op span b{display:inline;color:#4F46E5;font-size:.75rem}
     .amort-op.nada{border-style:dashed}
     .amort-op.nada b{color:#64748B;font-weight:700}
+    .btn-amort{background:#fff;color:#4F46E5;border:1.5px solid #C7D2FE;font-weight:700}
+    .btn-amort:hover{background:#EEF2FF;border-color:#4F46E5}
+    .sim-rodape{font-size:.7rem;color:#94A3B8;margin-right:auto;align-self:center;line-height:1.4}
+    .sim-rodape b{color:#4F46E5}
     .btn-quitar{background:#059669;color:#fff;border:none;font-weight:700}
     .btn-quitar:hover{background:#047857}
     .quitar-cmp{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
@@ -24753,6 +24757,7 @@ function empNovoModal(loanId){
     +   '</div>'
     +   '<div class="emp-novo-ft">'
     +     (ed ? '<button type="button" class="btn btn-del-txt" onclick="empNovoExcluir(' + L.id + ')">Excluir</button>'
+                 + '<button type="button" class="btn btn-amort" onclick="empAmortizarModal(' + L.id + ')">Amortizar</button>'
                  + '<button type="button" class="btn btn-quitar" onclick="empQuitarModal(' + L.id + ')">Quitar</button>' : '')
     +     '<button type="button" class="btn btn-sec" onclick="empNovoFechar()">Cancelar</button>'
     +     '<button type="button" class="btn btn-p" onclick="empNovoSalvar(' + (ed ? L.id : '') + ')">'
@@ -24913,6 +24918,94 @@ async function empNovoLerPdf(inp){
     if(st) st.innerHTML = '<span class="warn">Não consegui ler o PDF: ' + (e.message || e) + '</span>';
   }
 }
+
+/* ══ AMORTIZAÇÃO PARCIAL ═════════════════════════════════════════════════
+   Existia só dentro da aba Registro — abrir o mês, achar o botão de
+   lançamento extra, escolher o tipo. Trabalhoso pra uma ação comum, e por
+   isso a aba nem era usada. Fica aqui, ao lado de Quitar: mesma origem, mesmo
+   gesto. Pergunta valor e data, e depois o que o banco fez com o pagamento —
+   reduzir parcela ou prazo. */
+function empAmortizarModal(loanId){
+  const L = (loans || []).find(x => x.id === loanId);
+  if(!L) return;
+  empNovoFechar();
+  const e = (typeof _fkSimEstado === 'function') ? _fkSimEstado(L)
+          : { saldo: parseFloat(L.saldo)||0, parcela: parseFloat(L.parcelaVal)||0,
+              restam: Math.max(0,(parseInt(L.parcelas,10)||0)-(parseInt(L.parcelasPagas,10)||0)) };
+  const fmt = v => 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const hoje = new Date().toISOString().slice(0,10);
+
+  const ov = document.createElement('div');
+  ov.className = 'emp-novo-ov';
+  ov.id = 'emp-amort-ov';
+  ov.innerHTML =
+      '<div class="emp-novo-card" style="max-width:520px">'
+    +   '<div class="emp-novo-hd"><div>'
+    +     '<h3>Amortizar ' + _fkEsc(L.descricao || 'empréstimo') + '</h3>'
+    +     '<p>Pagamento extra que abate o saldo devedor.</p></div>'
+    +     '<button type="button" class="emp-novo-x" onclick="document.getElementById(\'emp-amort-ov\').remove()">✕</button>'
+    +   '</div>'
+    +   '<div class="emp-novo-bd">'
+    +     '<div class="quitar-cmp">'
+    +       '<div><span>Saldo devedor hoje</span><b>' + fmt(e.saldo) + '</b></div>'
+    +       '<div><span>Parcela atual</span><b>' + fmt(e.parcela) + '</b>'
+    +         '<small>faltam ' + e.restam + ' parcelas</small></div>'
+    +     '</div>'
+    +     '<div class="emp-novo-grid" style="grid-template-columns:1fr 1fr">'
+    +       '<div class="f"><label>Valor amortizado <i>*</i></label>'
+    +         '<div class="pre"><span>R$</span><input type="number" step="0.01" min="0" id="emp-a-valor"'
+    +           ' placeholder="0,00" oninput="empAmortPrevia(' + e.saldo + ')"></div></div>'
+    +       '<div class="f"><label>Data do pagamento</label>'
+    +         '<input type="date" id="emp-a-data" value="' + hoje + '"></div>'
+    +     '</div>'
+    +     '<div class="quitar-eco" id="emp-a-eco"></div>'
+    +   '</div>'
+    +   '<div class="emp-novo-ft">'
+    +     '<button type="button" class="btn btn-sec" onclick="document.getElementById(\'emp-amort-ov\').remove()">Cancelar</button>'
+    +     '<button type="button" class="btn btn-p" onclick="empAmortConfirmar(' + L.id + ')">Registrar amortização</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+}
+function empAmortPrevia(saldo){
+  const el = document.getElementById('emp-a-eco');
+  if(!el) return;
+  const v = parseFloat(document.getElementById('emp-a-valor')?.value) || 0;
+  const fmt = x => 'R$ ' + (x||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  if(!(v > 0)){ el.innerHTML = ''; return; }
+  if(v >= saldo - 0.005){
+    el.innerHTML = '<div class="alerta">Esse valor cobre o saldo inteiro — '
+      + 'use o botão <b>Quitar</b>, que registra o desconto da quitação.</div>';
+    return;
+  }
+  el.innerHTML = '<div class="ok">Saldo cai de <b>' + fmt(saldo) + '</b> para <b>'
+    + fmt(saldo - v) + '</b>. Em seguida pergunto se o banco reduziu a parcela ou o prazo.</div>';
+}
+function empAmortConfirmar(loanId){
+  const L = (loans || []).find(x => x.id === loanId);
+  if(!L) return;
+  const v = parseFloat(document.getElementById('emp-a-valor')?.value) || 0;
+  const data = (document.getElementById('emp-a-data')?.value || '').trim();
+  if(!(v > 0)){ if(typeof toast === 'function') toast('Informe o valor amortizado'); return; }
+  const mes = (data || new Date().toISOString().slice(0,10)).slice(0,7);
+  document.getElementById('emp-amort-ov')?.remove();
+
+  /* Entra como lançamento extra do mês, igual ao caminho da aba Registro —
+     assim aparece no histórico e na Evolução, e cai no fluxo que pergunta o
+     efeito da amortização. */
+  if(typeof addRegistroExtra === 'function'){
+    const id = addRegistroExtra(L.id, mes, 'amort_parcial');
+    if(id && typeof saveRegistroExtraField === 'function'){
+      saveRegistroExtraField(L.id, mes, id, 'parcela', String(v));
+    }
+  }
+  try{ render(); }catch(_){}
+}
+try{
+  window.empAmortizarModal = empAmortizarModal;
+  window.empAmortPrevia = empAmortPrevia;
+  window.empAmortConfirmar = empAmortConfirmar;
+}catch(_){}
 
 /* ══ QUITAÇÃO ANTECIPADA ═════════════════════════════════════════════════
    Quitar antes do fim quase nunca custa o saldo contábil: o banco desconta os
@@ -113214,8 +113307,9 @@ function fkLoanScheduleOpen(initial){
     +     '<div id="sim-res" class="sim-res"></div>'
     +   '</div>'
     +   '<div class="emp-novo-ft">'
-    +     '<button type="button" class="btn btn-sec" onclick="fkLoanScheduleClose()">Fechar</button>'
-    +     '<button type="button" class="btn btn-p" id="sim-aplicar" onclick="fkSimAplicar()" style="display:none">Registrar amortização</button>'
+    +     '<span class="sim-rodape">Simulação — nada é gravado. Pra registrar de verdade, '
+    +       'use <b>Amortizar</b> no empréstimo.</span>'
+    +     '<button type="button" class="btn btn-p" onclick="fkLoanScheduleClose()">Fechar</button>'
     +   '</div>'
     + '</div>';
   document.body.appendChild(ov);
@@ -113260,7 +113354,6 @@ function fkSimCalc(){
   const elHoje = document.getElementById('sim-hoje');
   const elRes  = document.getElementById('sim-res');
   const elAt   = document.getElementById('sim-atalhos');
-  const btn    = document.getElementById('sim-aplicar');
   if(!l || !elHoje) return;
 
   const e = _fkSimEstado(l);
@@ -113285,7 +113378,7 @@ function fkSimCalc(){
   }
 
   const valor = parseFloat(document.getElementById('sim-valor') && document.getElementById('sim-valor').value) || 0;
-  if(!(valor > 0)){ elRes.innerHTML = ''; if(btn) btn.style.display = 'none'; return; }
+  if(!(valor > 0)){ elRes.innerHTML = ''; return; }
 
   if(valor >= e.saldo - 0.005){
     const eco = Math.max(0, totalSemAmortizar - e.saldo);
@@ -113296,7 +113389,6 @@ function fkSimCalc(){
       + _fkSimFmt(eco) + '</b> de juros que não vão correr.</p>'
       + '<small>O banco costuma dar desconto na quitação, então o boleto real tende a ser menor. '
       + 'Use o botão <b>Quitar</b> no empréstimo pra registrar com o valor exato.</small></div>';
-    if(btn) btn.style.display = 'none';
     return;
   }
 
@@ -113328,33 +113420,15 @@ function fkSimCalc(){
     + '</div>'
     + '<p class="sim-nota">Reduzir o prazo quase sempre economiza mais, porque corta os juros das últimas '
     + 'parcelas. Reduzir a parcela alivia o caixa do mês — vale quando o aperto é agora.</p>';
-  if(btn) btn.style.display = '';
 }
 function fkSimSet(v){
   const el = document.getElementById('sim-valor');
   if(el){ el.value = v; fkSimCalc(); }
 }
-/* Leva a simulação pro empréstimo real: registra a amortização no mês corrente
-   e cai no fluxo que já existe, que pergunta se reduz parcela ou prazo. */
-function fkSimAplicar(){
-  const sel = document.getElementById('sim-loan');
-  const l = (loans || []).find(function(x){ return String(x.id) === String(sel && sel.value); });
-  const valor = parseFloat(document.getElementById('sim-valor') && document.getElementById('sim-valor').value) || 0;
-  if(!l || !(valor > 0)) return;
-  const mes = new Date().toISOString().slice(0,7);
-  if(typeof addRegistroExtra === 'function'){
-    const id = addRegistroExtra(l.id, mes, 'amort_parcial');
-    if(id && typeof saveRegistroExtraField === 'function'){
-      saveRegistroExtraField(l.id, mes, id, 'parcela', String(valor));
-    }
-  }
-  fkLoanScheduleClose();
-  if(typeof toast === 'function') toast('Amortização de ' + _fkSimFmt(valor) + ' registrada em ' + mes);
-}
 try{
   window.fkLoanScheduleOpen = fkLoanScheduleOpen;
   window.fkLoanScheduleClose = fkLoanScheduleClose;
-  window.fkSimCalc = fkSimCalc; window.fkSimSet = fkSimSet; window.fkSimAplicar = fkSimAplicar;
+  window.fkSimCalc = fkSimCalc; window.fkSimSet = fkSimSet;
 }catch(_){}
 
 function fkLoanScheduleSetMethod(m){
