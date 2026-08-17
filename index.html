@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786996055"/>
+  <meta name="fk-build" content="forekash-v1786996226"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1273,9 +1273,11 @@
     .est-tag{color:#B45309;font-size:.62rem;font-weight:700;background:#FEF3C7;
       border:1px solid #FDE68A;padding:1px 6px;border-radius:8px}
     /* Carimbo de atualização compacto */
-    .meta-dot{background:#F1F5F9;color:#64748B;border:1px solid #E2E8F0;border-radius:9px;
-      font-size:.58rem;font-weight:700;padding:1px 7px;line-height:1.4;cursor:pointer;font-family:inherit}
-    .meta-dot:hover{background:#4F46E5;color:#fff;border-color:#4F46E5}
+    .meta-dot{width:7px;height:7px;padding:0;border-radius:50%;background:#CBD5E1;border:none;
+      cursor:pointer;font-family:inherit;display:inline-block;transition:all .15s}
+    .meta-dot:hover{background:#4F46E5;transform:scale(1.5)}
+    .meta-dot.velho{width:auto;height:auto;border-radius:9px;padding:1px 7px;font-size:.58rem;
+      font-weight:800;line-height:1.4;border:1px solid #FDE68A}
     .meta-dot.velho{background:#FEF3C7;color:#B45309;border-color:#FDE68A}
     .meta-dot.velho:hover{background:#B45309;color:#fff;border-color:#B45309}
     .meta-vazio{color:#CBD5E1;font-size:.58rem;font-style:italic}
@@ -26284,16 +26286,18 @@ function buildMeta(hist,id,type){
   const quando = fmtTs(last.ts);
   let dias = null;
   try{ dias = Math.floor((Date.now() - new Date(last.ts).getTime()) / 86400000); }catch(_){}
-  let rotulo;
-  if(dias == null) rotulo = 'ver';
-  else if(dias <= 0) rotulo = 'hoje';
-  else if(dias === 1) rotulo = 'ontem';
-  else if(dias < 30) rotulo = dias + 'd';
-  else if(dias < 365) rotulo = Math.round(dias/30) + 'm';
-  else rotulo = Math.floor(dias/365) + 'a';
-  const velho = (dias != null && dias > 45) ? ' velho' : '';
-  return `<button class="meta-dot${velho}" onclick="showHist(${id},'${type}')"
-            title="Atualizado ${quando} · ${hist.length} registro${hist.length!==1?'s':''} — clique pra ver o histórico">
+  /* Em dia, um ponto — a linha fica limpa e o olho não é puxado por dezenas
+     de "hoje" repetidos. Passou de 45 dias, aí sim vira etiqueta âmbar com o
+     tempo, porque o número em cima provavelmente não vale mais. */
+  const velho = (dias != null && dias > 45);
+  if(!velho){
+    return `<button class="meta-dot" onclick="showHist(${id},'${type}')"
+              title="Atualizado ${quando} · ${hist.length} registro${hist.length!==1?'s':''} — clique pra ver o histórico"
+              aria-label="Atualizado ${quando}"></button>`;
+  }
+  const rotulo = dias < 365 ? Math.round(dias/30) + 'm' : Math.floor(dias/365) + 'a';
+  return `<button class="meta-dot velho" onclick="showHist(${id},'${type}')"
+            title="Atualizado ${quando} — faz ${dias} dias. Clique pra ver o histórico.">
             ${rotulo}</button>`;
 }
 
