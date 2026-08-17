@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787000435"/>
+  <meta name="fk-build" content="forekash-v1787000522"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1304,8 +1304,14 @@
     .sim-top .pre{display:flex;align-items:center;gap:6px}
     .sim-top .pre span{font-size:.8rem;color:#64748B;font-weight:700;flex:none}
     .sim-atalhos{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+    .sim-at-lbl{font-size:.68rem;color:#94A3B8;font-weight:600;align-self:center;margin-right:2px}
     .sim-atalhos button{padding:4px 10px;border:1px solid #CBD5E1;border-radius:14px;background:#fff;
-      font-size:.7rem;font-weight:700;color:#475569;cursor:pointer;font-family:inherit}
+      font-size:.7rem;font-weight:700;color:#475569;cursor:pointer;font-family:inherit;
+      display:inline-flex;align-items:center;gap:5px}
+    .sim-atalhos button em{font-style:normal;font-size:.6rem;font-weight:800;color:#94A3B8;
+      background:#F1F5F9;padding:1px 5px;border-radius:7px}
+    .sim-atalhos button:hover em{background:#E0E7FF;color:#4F46E5}
+    .sim-atalhos .tudo em{background:#D1FAE5;color:#047857}
     .sim-atalhos button:hover{border-color:#4F46E5;color:#4F46E5}
     .sim-atalhos .tudo{border-color:#A7F3D0;color:#047857;background:#ECFDF5}
     .sim-hoje{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:16px;
@@ -113178,11 +113184,11 @@ function fkLoanScheduleOpen(initial){
     return;
   }
   const preId = (initial && initial.loanId) || ativos[0].id;
+  /* Sem o saldo no rótulo: <select> não quebra linha e o texto era cortado no
+     meio do número. O saldo aparece logo abaixo, no cartão do contrato. */
   const opts = ativos.map(function(l){
-    const ef = (typeof loanSaldoEfetivo === 'function') ? loanSaldoEfetivo(l) : { valor: parseFloat(l.saldo)||0 };
     return '<option value="' + l.id + '"' + (l.id === preId ? ' selected' : '') + '>'
-         + _fkEsc(l.banco || '') + ' · ' + _fkEsc(l.descricao || 'sem descrição')
-         + ' — saldo ' + _fkSimFmt(ef.valor) + '</option>';
+         + _fkEsc(l.banco || '') + ' · ' + _fkEsc(l.descricao || 'sem descrição') + '</option>';
   }).join('');
 
   const ov = document.createElement('div');
@@ -113267,11 +113273,15 @@ function fkSimCalc(){
     + '<div><span>Pagando até o fim</span><b>' + _fkSimFmt(totalSemAmortizar) + '</b></div>';
 
   if(elAt){
-    elAt.innerHTML = [0.1, 0.25, 0.5].map(function(pp){
-      const v = Math.round(e.saldo * pp);
-      return '<button type="button" onclick="fkSimSet(' + v + ')">' + _fkSimFmt(v) + '</button>';
-    }).join('') + '<button type="button" class="tudo" onclick="fkSimSet('
-      + (Math.round(e.saldo*100)/100) + ')">Quitar tudo</button>';
+    elAt.innerHTML = '<span class="sim-at-lbl">Sugestões:</span>'
+      + [0.1, 0.25, 0.5].map(function(pp){
+          const v = Math.round(e.saldo * pp);
+          return '<button type="button" onclick="fkSimSet(' + v + ')" title="'
+               + Math.round(pp*100) + '% do saldo devedor"><em>' + Math.round(pp*100) + '%</em>'
+               + _fkSimFmt(v) + '</button>';
+        }).join('')
+      + '<button type="button" class="tudo" onclick="fkSimSet(' + (Math.round(e.saldo*100)/100)
+      + ')" title="Amortizar o saldo inteiro"><em>100%</em>quitar tudo</button>';
   }
 
   const valor = parseFloat(document.getElementById('sim-valor') && document.getElementById('sim-valor').value) || 0;
