@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786985403"/>
+  <meta name="fk-build" content="forekash-v1786986806"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1263,6 +1263,16 @@
     tr.loan-drop-before{box-shadow:inset 0 3px 0 #4C1D95}
     tr.loan-drop-after {box-shadow:inset 0 -3px 0 #4C1D95}
     .c-banco  {min-width:148px}.c-desc  {min-width:165px}
+    /* Banco e Descrição ficam presos na rolagem horizontal: sem eles à vista,
+       as 12 colunas de números viram uma fileira sem dono. O drag vai junto
+       porque é a primeira coluna e ficaria órfão. */
+    .tbl-wrap table td.c-drag, .tbl-wrap table th.c-drag{position:sticky;left:0;z-index:3;background:#fff}
+    .tbl-wrap table td.c-banco,.tbl-wrap table th.c-banco{position:sticky;left:26px;z-index:3;background:#fff}
+    .tbl-wrap table td.c-desc, .tbl-wrap table th.c-desc{position:sticky;left:174px;z-index:3;background:#fff;
+      box-shadow:6px 0 8px -6px rgba(15,23,42,.16)}
+    .tbl-wrap table thead th.c-drag,.tbl-wrap table thead th.c-banco,.tbl-wrap table thead th.c-desc{z-index:5}
+    .tbl-wrap table tr:hover td.c-drag,.tbl-wrap table tr:hover td.c-banco,
+    .tbl-wrap table tr:hover td.c-desc{background:#F8FAFC}
     .c-valor  {min-width:122px}.c-taxa  {min-width:96px}
     .c-parcela{min-width:130px}.c-parc  {min-width:130px}
     .c-saldo  {min-width:158px}.c-term  {min-width:122px}
@@ -16944,6 +16954,21 @@
 .emp-novo-pdf-st .ok{color:#059669;font-weight:600}
 .emp-novo-pdf-st .warn{color:#B45309}
 .emp-novo-pdf-st .lendo{color:#64748B}
+.emp-novo-mensal{background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:12px 14px;margin-bottom:4px}
+.emp-novo-mensal .tit{font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;font-weight:800;
+  color:#92400E;margin-bottom:9px}
+.emp-novo-mensal .par{display:grid;grid-template-columns:1fr 1fr 110px;gap:10px}
+.emp-novo-mensal .f{display:flex;flex-direction:column;gap:4px}
+.emp-novo-mensal label{font-size:.64rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#78350F}
+.emp-novo-mensal input{padding:8px 10px;border:1.5px solid #FCD34D;border-radius:7px;font-size:.88rem;
+  font-family:inherit;background:#fff;width:100%;box-sizing:border-box}
+.emp-novo-mensal .pre{display:flex;align-items:center;gap:6px}
+.emp-novo-mensal .pre span{font-size:.78rem;color:#92400E;font-weight:700;flex:none}
+.emp-novo-grid label .auto{font-weight:600;text-transform:none;letter-spacing:0;color:#94A3B8;font-size:.62rem}
+.btn-del-txt{background:none;border:none;color:#DC2626;font-weight:700;font-size:.8rem;cursor:pointer;
+  margin-right:auto;padding:8px 4px;font-family:inherit}
+.btn-del-txt:hover{text-decoration:underline}
+@media(max-width:620px){ .emp-novo-mensal .par{grid-template-columns:1fr} }
 .emp-novo-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px;margin-top:16px}
 .emp-novo-grid .f{display:flex;flex-direction:column;gap:4px}
 .emp-novo-grid label{font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#475569}
@@ -24477,13 +24502,18 @@ function importJSON(e){
    (parcela, saldo, término) o sistema calcula. */
 function addRow(){ empNovoModal(); }
 
-function empNovoModal(){
+function empNovoModal(loanId){
   if(document.getElementById('emp-novo-ov')) return;
+  const L = (loanId != null) ? (loans || []).find(x => x.id === loanId) : null;
+  const ed = !!L;
+  const esc = x => String(x == null ? '' : x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
   const bancoOpts = BANCOS.filter(b => b && b !== '— Digitar manualmente —')
-    .map(b => '<option value="' + b + '">' + b + '</option>').join('');
+    .map(b => '<option value="' + b + '"' + (ed && L.banco === b ? ' selected' : '') + '>' + b + '</option>').join('');
   const modOpts = (loanModalidades || []).map(m =>
-    '<option value="' + m.id + '">' + (m.nome || m.id) + '</option>').join('');
+    '<option value="' + m.id + '"' + (ed && (L.tipo||'price') === m.id ? ' selected' : '') + '>'
+    + (m.nome || m.id) + '</option>').join('');
   const hoje = new Date().toISOString().slice(0,10);
+  const v = (campo, alt) => ed ? esc(L[campo] != null && L[campo] !== '' ? L[campo] : (alt || '')) : (alt || '');
 
   const ov = document.createElement('div');
   ov.id = 'emp-novo-ov';
@@ -24491,12 +24521,14 @@ function empNovoModal(){
   ov.innerHTML =
       '<div class="emp-novo-card">'
     +   '<div class="emp-novo-hd">'
-    +     '<div><h3>Novo empréstimo</h3>'
-    +       '<p>Com estes campos o sistema calcula parcela, saldo devedor e cronograma.</p></div>'
+    +     '<div><h3>' + (ed ? 'Editar empréstimo' : 'Novo empréstimo') + '</h3>'
+    +       '<p>' + (ed ? 'Parcela e saldo devedor guardam histórico a cada atualização.'
+                        : 'Com estes campos o sistema calcula parcela, saldo devedor e cronograma.') + '</p></div>'
     +     '<button type="button" class="emp-novo-x" onclick="empNovoFechar()">✕</button>'
     +   '</div>'
     +   '<div class="emp-novo-bd">'
-    +     '<div class="emp-novo-pdf" id="emp-novo-pdf">'
+    +     (ed ? '' :
+        '<div class="emp-novo-pdf" id="emp-novo-pdf">'
     +       '<label>'
     +         '<input type="file" accept="application/pdf" style="display:none" onchange="empNovoLerPdf(this)">'
     +         '<span class="fkico fkico-doc"></span>'
@@ -24504,31 +24536,54 @@ function empNovoModal(){
     +         '<small>opcional · tento preencher valor, taxa e parcelas sozinho</small></div>'
     +       '</label>'
     +       '<div class="emp-novo-pdf-st" id="emp-novo-pdf-st"></div>'
-    +     '</div>'
+    +     '</div>')
+    /* Parcela e saldo mudam todo mês — ficam no topo, separados do resto,
+       porque é o que ele volta aqui pra atualizar. O histórico de cada um é
+       preservado (parcelaHist / saldoHist) pra evolução continuar valendo. */
+    +     (ed ?
+        '<div class="emp-novo-mensal">'
+    +       '<div class="tit">Atualização mensal</div>'
+    +       '<div class="par">'
+    +         '<div class="f"><label>Valor da parcela</label>'
+    +           '<div class="pre"><span>R$</span><input type="number" step="0.01" min="0" id="emp-n-parcelaval" value="' + (parseFloat(L.parcelaVal)||0) + '"></div></div>'
+    +         '<div class="f"><label>Saldo devedor</label>'
+    +           '<div class="pre"><span>R$</span><input type="number" step="0.01" min="0" id="emp-n-saldo" value="' + (parseFloat(L.saldo)||0) + '"></div></div>'
+    +         '<div class="f"><label>Parcelas pagas</label>'
+    +           '<input type="number" step="1" min="0" id="emp-n-pagas" value="' + (parseInt(L.parcelasPagas,10)||0) + '"></div>'
+    +       '</div>'
+    +     '</div>' : '')
     +     '<div class="emp-novo-grid">'
     +       '<div class="f"><label>Banco <i>*</i></label>'
     +         '<select id="emp-n-banco"><option value="">— escolha —</option>' + bancoOpts + '</select></div>'
     +       '<div class="f"><label>Descrição <i>*</i></label>'
-    +         '<input type="text" id="emp-n-desc" placeholder="Ex: Pronampe 306.338" maxlength="60"></div>'
+    +         '<input type="text" id="emp-n-desc" maxlength="60" placeholder="Ex: Pronampe 306.338" value="' + v('descricao') + '"></div>'
     +       '<div class="f"><label>Valor tomado <i>*</i></label>'
-    +         '<div class="pre"><span>R$</span><input type="number" step="0.01" min="0" id="emp-n-valor" placeholder="0,00"></div></div>'
+    +         '<div class="pre"><span>R$</span><input type="number" step="0.01" min="0" id="emp-n-valor" placeholder="0,00" value="' + (ed ? (parseFloat(L.valor)||'') : '') + '"></div></div>'
     +       '<div class="f"><label>Juros ao mês <i>*</i></label>'
-    +         '<div class="pre"><input type="number" step="0.001" min="0" id="emp-n-taxa" placeholder="0,000"><span>%</span></div></div>'
+    +         '<div class="pre"><input type="number" step="0.001" min="0" id="emp-n-taxa" placeholder="0,000" value="' + (ed ? (parseFloat(L.taxa)||'') : '') + '"><span>%</span></div></div>'
     +       '<div class="f"><label>Nº de parcelas <i>*</i></label>'
-    +         '<input type="number" step="1" min="1" id="emp-n-parcelas" placeholder="Ex: 48"></div>'
-    +       '<div class="f"><label>1ª parcela vence em <i>*</i></label>'
-    +         '<input type="date" id="emp-n-inicio" value="' + hoje + '"></div>'
+    +         '<input type="number" step="1" min="1" id="emp-n-parcelas" placeholder="Ex: 48" value="' + (ed ? (parseInt(L.parcelas,10)||'') : '') + '"></div>'
     +       '<div class="f"><label>Modalidade</label>'
-    +         '<select id="emp-n-tipo">' + modOpts + '</select></div>'
-    +       '<div class="f"><label>Parcelas já pagas</label>'
-    +         '<input type="number" step="1" min="0" id="emp-n-pagas" value="0"></div>'
+    +         '<select id="emp-n-tipo" onchange="empNovoTipoChange(this)">' + modOpts
+    +           + '<option disabled>──────────</option>'
+    +           + '<option value="__new__">+ Nova modalidade…</option></select></div>'
+    +       '<div class="f"><label>1ª parcela vence em <i>*</i></label>'
+    +         '<input type="date" id="emp-n-inicio" value="' + v('inicio', ed ? '' : hoje) + '" onchange="empNovoPrevia()"></div>'
+    +       '<div class="f"><label>Dia do vencimento</label>'
+    +         '<input type="number" min="1" max="31" step="1" id="emp-n-diavenc" placeholder="usa o dia do início" value="' + (ed ? (parseInt(L.diaVencimento,10)||'') : '') + '"></div>'
+    +       '<div class="f"><label>Término <span class="auto">calculado</span></label>'
+    +         '<input type="date" id="emp-n-termino" value="' + v('termino') + '"></div>'
+    +       (ed ? '' : '<div class="f"><label>Parcelas já pagas</label>'
+    +         '<input type="number" step="1" min="0" id="emp-n-pagas" value="0"></div>')
     +     '</div>'
     +     '<div class="emp-novo-previa" id="emp-novo-previa"></div>'
     +     '<div class="emp-novo-err" id="emp-novo-err"></div>'
     +   '</div>'
     +   '<div class="emp-novo-ft">'
+    +     (ed ? '<button type="button" class="btn btn-del-txt" onclick="empNovoExcluir(' + L.id + ')">Excluir</button>' : '')
     +     '<button type="button" class="btn btn-sec" onclick="empNovoFechar()">Cancelar</button>'
-    +     '<button type="button" class="btn btn-p" onclick="empNovoSalvar()">Cadastrar empréstimo</button>'
+    +     '<button type="button" class="btn btn-p" onclick="empNovoSalvar(' + (ed ? L.id : '') + ')">'
+    +       (ed ? 'Salvar alterações' : 'Cadastrar empréstimo') + '</button>'
     +   '</div>'
     + '</div>';
   document.body.appendChild(ov);
@@ -24597,7 +24652,30 @@ async function empNovoLerPdf(inp){
   }
 }
 
-function empNovoSalvar(){
+/* "+ Nova modalidade" direto do modal, sem sair pra outra tela. */
+function empNovoTipoChange(sel){
+  if(sel.value !== '__new__') return;
+  const nome = prompt('Nome da nova modalidade (ex: Pronampe, FGI, Consignado):', '');
+  sel.value = (loanModalidades[0] || {}).id || 'price';
+  if(!nome || !nome.trim()) return;
+  const id = nome.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 20) || ('m' + Date.now());
+  if((loanModalidades || []).some(m => m.id === id)){ sel.value = id; return; }
+  loanModalidades.push({ id, nome: nome.trim(), engine: 'price', builtin: false });
+  try{ if(typeof loanModalidadesSave === 'function') loanModalidadesSave(); }catch(_){}
+  const opt = document.createElement('option');
+  opt.value = id; opt.textContent = nome.trim();
+  sel.insertBefore(opt, sel.querySelector('option[disabled]'));
+  sel.value = id;
+}
+try{ window.empNovoTipoChange = empNovoTipoChange; }catch(_){}
+
+async function empNovoExcluir(id){
+  empNovoFechar();
+  if(typeof delRow === 'function') await delRow(id);
+}
+try{ window.empNovoExcluir = empNovoExcluir; }catch(_){}
+
+function empNovoSalvar(idEdit){
   const err = document.getElementById('emp-novo-err');
   const g = id => (document.getElementById(id)?.value || '').trim();
   const banco = g('emp-n-banco'), desc = g('emp-n-desc');
@@ -24633,13 +24711,42 @@ function empNovoSalvar(){
     return Math.max(0, s);
   })();
 
+  const diaVenc = parseInt(g('emp-n-diavenc'), 10) || '';
+  const termino = g('emp-n-termino') || fim.toISOString().slice(0,10);
+
+  if(idEdit != null && idEdit !== ''){
+    const L = (loans || []).find(x => x.id === idEdit);
+    if(!L){ if(err) err.textContent = 'Empréstimo não encontrado.'; return; }
+    /* Parcela e saldo mudam mês a mês — cada alteração vira registro no
+       histórico, que é o que alimenta a aba Evolução. Sem isso a curva
+       perderia os pontos anteriores. */
+    const novaParc  = parseFloat(g('emp-n-parcelaval'));
+    const novoSaldo = parseFloat(g('emp-n-saldo'));
+    const antesParc  = parseFloat(L.parcelaVal) || 0;
+    const antesSaldo = parseFloat(L.saldo) || 0;
+    if(!isNaN(novaParc) && Math.abs(novaParc - antesParc) > 0.005){
+      (L.parcelaHist = L.parcelaHist || []).push({ val:novaParc, prev:antesParc, ts:new Date().toISOString() });
+      L.parcelaVal = novaParc;
+    }
+    if(!isNaN(novoSaldo) && Math.abs(novoSaldo - antesSaldo) > 0.005){
+      (L.saldoHist = L.saldoHist || []).push({ val:novoSaldo, prev:antesSaldo, ts:new Date().toISOString() });
+      L.saldo = novoSaldo;
+    }
+    Object.assign(L, { banco, descricao:desc, valor, taxa, parcelas:parc,
+                       parcelasPagas:pagas, inicio, termino,
+                       diaVencimento: diaVenc, tipo: g('emp-n-tipo') || L.tipo || 'price' });
+    saveData(); empNovoFechar(); render();
+    if(typeof toast === 'function') toast('Empréstimo atualizado');
+    return;
+  }
+
   const id = nextId++;
   loans.push({
     id, banco, bancoManual:'', descricao:desc,
     valor, taxa, parcelas:parc, parcelasPagas:pagas,
     parcelaVal: Math.round(parcelaVal * 100) / 100,
     parcelaHist: [], saldo: Math.round(saldo * 100) / 100, saldoHist: [],
-    inicio, termino: fim.toISOString().slice(0,10),
+    inicio, termino, diaVencimento: diaVenc,
     tipo: g('emp-n-tipo') || 'price', contratos: [], registros: []
   });
   saveData();
@@ -25876,10 +25983,8 @@ function render(){
       </td>
       <td class="c">
         <div class="loan-row-actions">
-          <button class="btn-edit${editing?' is-on':''}" onclick="toggleLoanEdit(${loan.id})" title="${editing?'Concluir edição':'Editar esta linha'}">
-            ${editing
-              ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>'
-              : '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>'}
+          <button class="btn-edit" onclick="empNovoModal(${loan.id})" title="Editar no formulário">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>
           </button>
           ${(loan.contratos||[]).length > 0 ? `
           <button class="btn-extract" onclick="extractAllFromContrato(${loan.id})" title="Extrair dados automaticamente do contrato PDF anexado">
