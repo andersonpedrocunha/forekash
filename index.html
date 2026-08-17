@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786984937"/>
+  <meta name="fk-build" content="forekash-v1786985403"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -16922,6 +16922,47 @@
   opacity:.8;pointer-events:none;font-weight:800}
 .rec-cell-nope{animation:recNope .38s ease}
 @keyframes recNope{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+/* Modal de novo empréstimo · cadastro completo em vez de linha vazia */
+.emp-novo-ov{position:fixed;inset:0;background:rgba(15,23,42,.7);z-index:9000;display:flex;
+  align-items:center;justify-content:center;padding:20px;overflow:auto}
+.emp-novo-card{background:#fff;border-radius:14px;max-width:640px;width:100%;
+  box-shadow:0 24px 70px rgba(0,0,0,.32);overflow:hidden;font-family:inherit}
+.emp-novo-hd{display:flex;align-items:flex-start;gap:14px;padding:20px 22px 16px;border-bottom:1px solid #E2E8F0}
+.emp-novo-hd h3{margin:0 0 3px;font-size:1.06rem;font-weight:800;color:#0F172A;letter-spacing:-.01em}
+.emp-novo-hd p{margin:0;font-size:.76rem;color:#64748B;line-height:1.45}
+.emp-novo-x{margin-left:auto;background:none;border:none;font-size:1.1rem;color:#94A3B8;cursor:pointer;
+  padding:2px 6px;border-radius:6px;line-height:1}
+.emp-novo-x:hover{background:#F1F5F9;color:#0F172A}
+.emp-novo-bd{padding:18px 22px}
+.emp-novo-pdf label{display:flex;align-items:center;gap:12px;border:1.5px dashed #C7D2FE;border-radius:9px;
+  padding:12px 14px;cursor:pointer;background:#F8FAFF;transition:all .15s}
+.emp-novo-pdf label:hover{background:#fff;border-style:solid;border-color:#6366F1}
+.emp-novo-pdf .fkico{width:22px;height:22px;color:#4F46E5;flex:none}
+.emp-novo-pdf b{display:block;font-size:.82rem;color:#0F172A}
+.emp-novo-pdf small{font-size:.7rem;color:#64748B}
+.emp-novo-pdf-st{font-size:.72rem;margin-top:7px;min-height:16px}
+.emp-novo-pdf-st .ok{color:#059669;font-weight:600}
+.emp-novo-pdf-st .warn{color:#B45309}
+.emp-novo-pdf-st .lendo{color:#64748B}
+.emp-novo-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px;margin-top:16px}
+.emp-novo-grid .f{display:flex;flex-direction:column;gap:4px}
+.emp-novo-grid label{font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#475569}
+.emp-novo-grid label i{color:#DC2626;font-style:normal}
+.emp-novo-grid input,.emp-novo-grid select{padding:9px 11px;border:1.5px solid #CBD5E1;border-radius:7px;
+  font-size:.88rem;font-family:inherit;color:#0F172A;background:#fff;width:100%;box-sizing:border-box}
+.emp-novo-grid input:focus,.emp-novo-grid select:focus{outline:none;border-color:#4F46E5}
+.emp-novo-grid .pre{display:flex;align-items:center;gap:6px}
+.emp-novo-grid .pre span{font-size:.8rem;color:#64748B;font-weight:700;flex:none}
+.emp-novo-previa{display:flex;gap:20px;flex-wrap:wrap;margin-top:16px;padding:12px 14px;
+  background:#F0FDF4;border:1px solid #A7F3D0;border-radius:9px}
+.emp-novo-previa:empty{display:none}
+.emp-novo-previa span{display:block;font-size:.62rem;text-transform:uppercase;letter-spacing:.04em;
+  color:#047857;font-weight:700}
+.emp-novo-previa b{font-size:.95rem;color:#064E3B;font-variant-numeric:tabular-nums}
+.emp-novo-err{margin-top:12px;font-size:.78rem;color:#DC2626;font-weight:600;min-height:18px}
+.emp-novo-ft{display:flex;gap:8px;justify-content:flex-end;padding:14px 22px;border-top:1px solid #E2E8F0;background:#F8FAFC}
+@media(max-width:620px){ .emp-novo-grid{grid-template-columns:1fr} }
+
 /* Ajuda recolhível · o "?" e o painel que ele abre */
 .fk-help-btn{width:19px;height:19px;border-radius:50%;border:1.5px solid #CBD5E1;background:#fff;
   color:#64748B;font-size:.7rem;font-weight:800;line-height:1;cursor:pointer;padding:0;
@@ -24424,14 +24465,193 @@ function importJSON(e){
 // ═══════════════════════════════════════════════════
 //  CRUD
 // ═══════════════════════════════════════════════════
-function addRow(){
-  const id=nextId++;
-  loans.push({id,banco:'',bancoManual:'',descricao:'',valor:'',taxa:'',
-    parcelaVal:'',parcelaHist:[],parcelas:'',parcelasPagas:'',
-    saldo:'',saldoHist:[],inicio:'',termino:'',tipo:'price',contratos:[],registros:[]});
-  saveData(); render();
-  setTimeout(()=>{ const tr=document.querySelector(`tr[data-id="${id}"]`); if(tr)tr.querySelector('select').focus(); },40);
+/* Cadastro de empréstimo em modal, não em célula de planilha.
+
+   addRow() criava uma LINHA VAZIA e o usuário preenchia 12 colunas na
+   horizontal. Resultado real: o Pronampe do BB ficou com taxa 0, parcelas
+   0/0 e sem data — e sem esses campos o cronograma não é gerado, então o
+   empréstimo some do extrato e do fluxo em silêncio ("1 empréstimo PULADOS"
+   no console). Meio cadastrado é pior que não cadastrado.
+
+   Aqui os cinco campos que definem um empréstimo são obrigatórios; o resto
+   (parcela, saldo, término) o sistema calcula. */
+function addRow(){ empNovoModal(); }
+
+function empNovoModal(){
+  if(document.getElementById('emp-novo-ov')) return;
+  const bancoOpts = BANCOS.filter(b => b && b !== '— Digitar manualmente —')
+    .map(b => '<option value="' + b + '">' + b + '</option>').join('');
+  const modOpts = (loanModalidades || []).map(m =>
+    '<option value="' + m.id + '">' + (m.nome || m.id) + '</option>').join('');
+  const hoje = new Date().toISOString().slice(0,10);
+
+  const ov = document.createElement('div');
+  ov.id = 'emp-novo-ov';
+  ov.className = 'emp-novo-ov';
+  ov.innerHTML =
+      '<div class="emp-novo-card">'
+    +   '<div class="emp-novo-hd">'
+    +     '<div><h3>Novo empréstimo</h3>'
+    +       '<p>Com estes campos o sistema calcula parcela, saldo devedor e cronograma.</p></div>'
+    +     '<button type="button" class="emp-novo-x" onclick="empNovoFechar()">✕</button>'
+    +   '</div>'
+    +   '<div class="emp-novo-bd">'
+    +     '<div class="emp-novo-pdf" id="emp-novo-pdf">'
+    +       '<label>'
+    +         '<input type="file" accept="application/pdf" style="display:none" onchange="empNovoLerPdf(this)">'
+    +         '<span class="fkico fkico-doc"></span>'
+    +         '<div><b>Anexar o contrato em PDF</b>'
+    +         '<small>opcional · tento preencher valor, taxa e parcelas sozinho</small></div>'
+    +       '</label>'
+    +       '<div class="emp-novo-pdf-st" id="emp-novo-pdf-st"></div>'
+    +     '</div>'
+    +     '<div class="emp-novo-grid">'
+    +       '<div class="f"><label>Banco <i>*</i></label>'
+    +         '<select id="emp-n-banco"><option value="">— escolha —</option>' + bancoOpts + '</select></div>'
+    +       '<div class="f"><label>Descrição <i>*</i></label>'
+    +         '<input type="text" id="emp-n-desc" placeholder="Ex: Pronampe 306.338" maxlength="60"></div>'
+    +       '<div class="f"><label>Valor tomado <i>*</i></label>'
+    +         '<div class="pre"><span>R$</span><input type="number" step="0.01" min="0" id="emp-n-valor" placeholder="0,00"></div></div>'
+    +       '<div class="f"><label>Juros ao mês <i>*</i></label>'
+    +         '<div class="pre"><input type="number" step="0.001" min="0" id="emp-n-taxa" placeholder="0,000"><span>%</span></div></div>'
+    +       '<div class="f"><label>Nº de parcelas <i>*</i></label>'
+    +         '<input type="number" step="1" min="1" id="emp-n-parcelas" placeholder="Ex: 48"></div>'
+    +       '<div class="f"><label>1ª parcela vence em <i>*</i></label>'
+    +         '<input type="date" id="emp-n-inicio" value="' + hoje + '"></div>'
+    +       '<div class="f"><label>Modalidade</label>'
+    +         '<select id="emp-n-tipo">' + modOpts + '</select></div>'
+    +       '<div class="f"><label>Parcelas já pagas</label>'
+    +         '<input type="number" step="1" min="0" id="emp-n-pagas" value="0"></div>'
+    +     '</div>'
+    +     '<div class="emp-novo-previa" id="emp-novo-previa"></div>'
+    +     '<div class="emp-novo-err" id="emp-novo-err"></div>'
+    +   '</div>'
+    +   '<div class="emp-novo-ft">'
+    +     '<button type="button" class="btn btn-sec" onclick="empNovoFechar()">Cancelar</button>'
+    +     '<button type="button" class="btn btn-p" onclick="empNovoSalvar()">Cadastrar empréstimo</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  ['emp-n-valor','emp-n-taxa','emp-n-parcelas','emp-n-tipo'].forEach(id => {
+    const e = document.getElementById(id);
+    if(e) e.addEventListener('input', empNovoPrevia);
+  });
+  setTimeout(() => document.getElementById('emp-n-banco')?.focus(), 60);
 }
+function empNovoFechar(){ document.getElementById('emp-novo-ov')?.remove(); }
+
+/* Mostra a parcela antes de salvar — se sair um número estranho, o erro está
+   num dos campos e dá pra ver na hora, não depois de cadastrar. */
+function empNovoPrevia(){
+  const el = document.getElementById('emp-novo-previa');
+  if(!el) return;
+  const v = parseFloat(document.getElementById('emp-n-valor')?.value) || 0;
+  const t = parseFloat(document.getElementById('emp-n-taxa')?.value) || 0;
+  const n = parseInt(document.getElementById('emp-n-parcelas')?.value, 10) || 0;
+  if(!(v > 0 && n > 0)){ el.innerHTML = ''; return; }
+  const i = t / 100;
+  const parcela = i > 0 ? (v * i) / (1 - Math.pow(1 + i, -n)) : (v / n);
+  const total = parcela * n;
+  const fmt = x => 'R$ ' + x.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+  el.innerHTML = '<div><span>Parcela estimada</span><b>' + fmt(parcela) + '</b></div>'
+               + '<div><span>Total a pagar</span><b>' + fmt(total) + '</b></div>'
+               + '<div><span>Juros no período</span><b>' + fmt(total - v) + '</b></div>';
+}
+
+async function empNovoLerPdf(inp){
+  const f = inp && inp.files && inp.files[0];
+  const st = document.getElementById('emp-novo-pdf-st');
+  if(!f) return;
+  if(st) st.innerHTML = '<span class="lendo">Lendo ' + f.name + '…</span>';
+  try{
+    // Reaproveita o extrator que o módulo já tem, que recebe dataURL.
+    const dataUrl = await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = () => rej(new Error('falha lendo o arquivo'));
+      fr.readAsDataURL(f);
+    });
+    const texto = (typeof _extractPdfText === 'function') ? await _extractPdfText(dataUrl) : '';
+    let achou = 0;
+    const set = (id, val) => {
+      const e = document.getElementById(id);
+      if(e && val != null && val !== ''){ e.value = val; achou++; }
+    };
+    const norm = String(texto || '').replace(/\s+/g, ' ');
+    const num = (re, casas) => {
+      const m = norm.match(re);
+      if(!m) return null;
+      return parseFloat(m[1].replace(/\./g, '').replace(',', '.'));
+    };
+    set('emp-n-valor', num(/valor\s*(?:total\s*)?(?:do\s*)?(?:cr[ée]dito|financiado|liberado|contrato)[^\d]{0,20}([\d.,]+)/i));
+    set('emp-n-taxa',  num(/taxa[^\d%]{0,40}?([\d,]+)\s*%\s*a\.?\s*m/i));
+    const p = norm.match(/(\d{1,3})\s*(?:parcelas|presta[çc][õo]es|meses)/i);
+    if(p) set('emp-n-parcelas', p[1]);
+    empNovoPrevia();
+    if(st) st.innerHTML = achou
+      ? '<span class="ok">' + f.name + ' · ' + achou + ' campo(s) preenchido(s) — confira antes de salvar</span>'
+      : '<span class="warn">' + f.name + ' anexado, mas não reconheci os números. Preencha à mão.</span>';
+    window._empNovoPdf = f;
+  }catch(e){
+    if(st) st.innerHTML = '<span class="warn">Não consegui ler o PDF: ' + (e.message || e) + '</span>';
+  }
+}
+
+function empNovoSalvar(){
+  const err = document.getElementById('emp-novo-err');
+  const g = id => (document.getElementById(id)?.value || '').trim();
+  const banco = g('emp-n-banco'), desc = g('emp-n-desc');
+  const valor = parseFloat(g('emp-n-valor')) || 0;
+  const taxa  = parseFloat(g('emp-n-taxa'));
+  const parc  = parseInt(g('emp-n-parcelas'), 10) || 0;
+  const inicio = g('emp-n-inicio');
+  const pagas = parseInt(g('emp-n-pagas'), 10) || 0;
+
+  const faltando = [];
+  if(!banco) faltando.push('banco');
+  if(!desc) faltando.push('descrição');
+  if(!(valor > 0)) faltando.push('valor');
+  if(isNaN(taxa)) faltando.push('juros');
+  if(!(parc > 0)) faltando.push('nº de parcelas');
+  if(!inicio) faltando.push('data da 1ª parcela');
+  if(faltando.length){
+    if(err) err.textContent = 'Falta preencher: ' + faltando.join(', ') + '.';
+    return;
+  }
+  if(pagas > parc){
+    if(err) err.textContent = 'Parcelas pagas não pode ser maior que o total.';
+    return;
+  }
+
+  const i = taxa / 100;
+  const parcelaVal = i > 0 ? (valor * i) / (1 - Math.pow(1 + i, -parc)) : (valor / parc);
+  const dt = new Date(inicio + 'T12:00:00');
+  const fim = new Date(dt); fim.setMonth(fim.getMonth() + parc - 1);
+  const saldo = (() => {
+    let s = valor;
+    for(let k = 0; k < pagas; k++) s = s * (1 + i) - parcelaVal;
+    return Math.max(0, s);
+  })();
+
+  const id = nextId++;
+  loans.push({
+    id, banco, bancoManual:'', descricao:desc,
+    valor, taxa, parcelas:parc, parcelasPagas:pagas,
+    parcelaVal: Math.round(parcelaVal * 100) / 100,
+    parcelaHist: [], saldo: Math.round(saldo * 100) / 100, saldoHist: [],
+    inicio, termino: fim.toISOString().slice(0,10),
+    tipo: g('emp-n-tipo') || 'price', contratos: [], registros: []
+  });
+  saveData();
+  empNovoFechar();
+  render();
+  if(typeof toast === 'function') toast('Empréstimo cadastrado · cronograma gerado');
+}
+try{
+  window.empNovoModal = empNovoModal; window.empNovoFechar = empNovoFechar;
+  window.empNovoSalvar = empNovoSalvar; window.empNovoLerPdf = empNovoLerPdf;
+  window.empNovoPrevia = empNovoPrevia;
+}catch(_){}
 
 async function delRow(id){
   const ok = await showConfirm({
