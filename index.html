@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786987258"/>
+  <meta name="fk-build" content="forekash-v1786988920"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1263,6 +1263,29 @@
     tr.loan-drop-before{box-shadow:inset 0 3px 0 #4C1D95}
     tr.loan-drop-after {box-shadow:inset 0 -3px 0 #4C1D95}
     .c-banco  {min-width:148px}.c-desc  {min-width:165px}
+    /* Quitado: presente, mas claramente encerrado — mesmo tratamento que o
+       módulo de Impostos já dava aos parcelamentos liquidados. */
+    tr.loan-quitado{opacity:.55}
+    tr.loan-quitado td.c-desc::after{content:'✓ quitado';margin-left:8px;font-size:.58rem;font-weight:800;
+      color:#059669;background:#ECFDF5;border:1px solid #A7F3D0;padding:1px 6px;border-radius:9px;
+      letter-spacing:.03em;white-space:nowrap}
+    tr.loan-quitado:hover{opacity:1}
+    tr.loan-quitados-bar td{padding:0;background:#F8FAFC;border-top:1px solid #E2E8F0}
+    tr.loan-quitados-bar button{display:flex;align-items:center;gap:10px;width:100%;padding:11px 16px;
+      background:none;border:none;cursor:pointer;font-family:inherit;text-align:left;color:#475569}
+    tr.loan-quitados-bar button:hover{background:#F1F5F9}
+    tr.loan-quitados-bar .fkico{width:15px;height:15px;color:#059669;flex:none}
+    tr.loan-quitados-bar b{font-size:.8rem;color:#0F172A;font-weight:800}
+    tr.loan-quitados-bar .det{font-size:.72rem;color:#64748B}
+    tr.loan-quitados-bar .ver{margin-left:auto;font-size:.72rem;font-weight:700;color:#4F46E5}
+    .amort-op{display:block;width:100%;text-align:left;padding:13px 15px;margin-bottom:9px;border-radius:9px;
+      border:1.5px solid #CBD5E1;background:#fff;cursor:pointer;font-family:inherit;transition:all .15s}
+    .amort-op:hover{border-color:#4F46E5;background:#F5F3FF}
+    .amort-op b{display:block;font-size:.88rem;color:#0F172A;margin-bottom:2px}
+    .amort-op span{font-size:.75rem;color:#64748B;line-height:1.45}
+    .amort-op span b{display:inline;color:#4F46E5;font-size:.75rem}
+    .amort-op.nada{border-style:dashed}
+    .amort-op.nada b{color:#64748B;font-weight:700}
     /* Banco e Descrição ficam presos na rolagem horizontal: sem eles à vista,
        as 12 colunas de números viram uma fileira sem dono. O drag vai junto
        porque é a primeira coluna e ficaria órfão. */
@@ -25884,7 +25907,16 @@ function render(){
     tbody.innerHTML=`<tr class="empty-row"><td colspan="12">Nenhum empréstimo cadastrado.<br><span style="font-size:.73rem">Clique em "Novo Empréstimo" para adicionar.</span></td></tr>`;
     updateSummary(); return;
   }
-  loans.forEach(loan=>{
+  /* Ativos primeiro; quitados no fim, atrás de uma faixa que dá pra recolher.
+     Padrão é esconder — dívida encerrada não precisa estar na frente todo dia. */
+  const _ativos = loansAtivos();
+  const _quitados = loansQuitados();
+  const _mostrarQuitados = (localStorage.getItem('forekash:emp:mostrar-quitados') === '1');
+  const _lista = _mostrarQuitados ? _ativos.concat(_quitados) : _ativos;
+  if(_lista.length === 0 && _quitados.length){
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="12">Nenhum empréstimo ativo — todos os ${_quitados.length} estão quitados.</td></tr>`;
+  }
+  _lista.forEach(loan=>{
     const tr=document.createElement('tr'); tr.dataset.id=loan.id;
     const editing = isLoanEditing(loan.id);
     tr.className = editing ? 'is-editing' : 'is-locked';
@@ -26009,10 +26041,35 @@ function render(){
           </button>
         </div>
       </td>`;
+    if(loanEstaQuitado(loan)) tr.classList.add('loan-quitado');
     tbody.appendChild(tr);
   });
+
+  /* Faixa dos quitados — some da lista por padrão, mas fica acessível e
+     mostra o que a dívida custou. É o "arquivo de conquistas". */
+  if(_quitados.length){
+    const trQ = document.createElement('tr');
+    trQ.className = 'loan-quitados-bar';
+    const totalTomado = _quitados.reduce((a,l)=>a+(parseFloat(l.valor)||0),0);
+    const totalJuros  = _quitados.reduce((a,l)=>a+(loanResumoQuitacao(l).juros||0),0);
+    const fmt = v => 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+    trQ.innerHTML = '<td colspan="12">'
+      + '<button type="button" onclick="loanToggleQuitados()">'
+      +   '<span class="fkico fkico-check"></span>'
+      +   '<b>' + _quitados.length + ' empréstimo' + (_quitados.length!==1?'s':'') + ' quitado' + (_quitados.length!==1?'s':'') + '</b>'
+      +   '<span class="det">' + fmt(totalTomado) + ' tomados · ' + fmt(totalJuros) + ' de juros pagos</span>'
+      +   '<span class="ver">' + (_mostrarQuitados ? 'ocultar' : 'ver') + '</span>'
+      + '</button></td>';
+    tbody.appendChild(trQ);
+  }
   updateSummary();
 }
+function loanToggleQuitados(){
+  const atual = localStorage.getItem('forekash:emp:mostrar-quitados') === '1';
+  try{ localStorage.setItem('forekash:emp:mostrar-quitados', atual ? '0' : '1'); }catch(_){}
+  render();
+}
+try{ window.loanToggleQuitados = loanToggleQuitados; }catch(_){}
 
 // ═══════════════════════════════════════════════════
 // DRAG & DROP — Reordenar linhas de empréstimos
@@ -26086,9 +26143,11 @@ function updateSummary(){
   document.getElementById('s-saldo').textContent  =fmtBRL(tS);
   document.getElementById('s-amort').textContent  =fmtBRL(Math.max(0,tV-tS));
   document.getElementById('s-parcela').textContent=fmtBRL(tP);
-  document.getElementById('s-count').textContent  =loans.length;
+  const nQ = loansQuitados().length;
+  document.getElementById('s-count').textContent  =ativos.length;
   document.getElementById('count-lbl').textContent=
-    `${loans.length} empréstimo${loans.length!==1?'s':''} cadastrado${loans.length!==1?'s':''}`;
+    `${ativos.length} empréstimo${ativos.length!==1?'s':''} ativo${ativos.length!==1?'s':''}`
+    + (nQ ? ` · ${nQ} quitado${nQ!==1?'s':''}` : '');
   refreshActiveChart();
 }
 
@@ -28083,7 +28142,96 @@ function saveRegistroExtraField(loanId, mes, extraId, field, rawVal){
   if(autoFilled){ try { renderRegistro(); } catch(e){} }
   else { try { const el = document.getElementById('reg-mes'); if(el && el.value === mes) updateRegistroKPIs(mes); } catch(e){} }
   try { if(document.getElementById('tab-divida').classList.contains('active')) drawDivida(); } catch(e){}
+
+  /* Amortizar antecipado tem duas saídas, e o banco pergunta qual: abater no
+     PRAZO (parcela igual, acaba antes) ou na PARCELA (mesmo prazo, mensalidade
+     menor). O app só fazia a primeira em silêncio — quem teve a parcela
+     reduzida no banco tinha que corrigir à mão e o valor voltava a divergir. */
+  if(ex.tipo === 'amort_parcial' && field === 'parcela' && (parseFloat(ex.parcela) || 0) > 0){
+    setTimeout(() => _loanPerguntarEfeitoAmortizacao(loan, ex), 120);
+  }
 }
+
+async function _loanPerguntarEfeitoAmortizacao(loan, ex){
+  if(!loan || !ex || ex._efeitoPerguntado) return;
+  ex._efeitoPerguntado = true;
+
+  const valorAmort = parseFloat(ex.parcela) || 0;
+  const saldoAtual = parseFloat(loan.saldo) || 0;
+  const i = (parseFloat(loan.taxa) || 0) / 100;
+  const parcAtual = parseFloat(loan.parcelaVal) || 0;
+  const restantes = Math.max(0, (parseInt(loan.parcelas,10)||0) - (parseInt(loan.parcelasPagas,10)||0));
+  if(!(saldoAtual > 0 && restantes > 0)) return;
+
+  const novoSaldo = Math.max(0, saldoAtual - valorAmort);
+  // Reduzir parcela: mesmo prazo, mensalidade recalculada sobre o saldo novo
+  const novaParcela = i > 0
+    ? (novoSaldo * i) / (1 - Math.pow(1 + i, -restantes))
+    : (novoSaldo / restantes);
+  // Reduzir prazo: mesma parcela, quantas cabem no saldo novo
+  let novasParcelas = restantes;
+  if(i > 0 && parcAtual > novoSaldo * i){
+    novasParcelas = Math.ceil(-Math.log(1 - (novoSaldo * i) / parcAtual) / Math.log(1 + i));
+  } else if(parcAtual > 0){
+    novasParcelas = Math.ceil(novoSaldo / parcAtual);
+  }
+  const fmt = v => 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  const escolha = await new Promise(resolve => {
+    const ov = document.createElement('div');
+    ov.className = 'emp-novo-ov';
+    ov.innerHTML =
+        '<div class="emp-novo-card" style="max-width:520px">'
+      +   '<div class="emp-novo-hd"><div>'
+      +     '<h3>Amortização de ' + fmt(valorAmort) + '</h3>'
+      +     '<p>O que o banco fez com esse pagamento?</p></div></div>'
+      +   '<div class="emp-novo-bd">'
+      +     '<button type="button" class="amort-op" data-op="prazo">'
+      +       '<b>Reduziu o prazo</b>'
+      +       '<span>Parcela segue ' + fmt(parcAtual) + ' · faltam <b>' + novasParcelas
+      +         '</b> em vez de ' + restantes + '</span>'
+      +     '</button>'
+      +     '<button type="button" class="amort-op" data-op="parcela">'
+      +       '<b>Reduziu a parcela</b>'
+      +       '<span>Continuam ' + restantes + ' parcelas · de ' + fmt(parcAtual)
+      +         ' para <b>' + fmt(novaParcela) + '</b></span>'
+      +     '</button>'
+      +     '<button type="button" class="amort-op nada" data-op="">'
+      +       '<b>Deixar como está</b><span>só abate o saldo, sem mexer em prazo nem parcela</span>'
+      +     '</button>'
+      +   '</div></div>';
+    ov.querySelectorAll('.amort-op').forEach(b => b.addEventListener('click', () => {
+      const op = b.getAttribute('data-op'); ov.remove(); resolve(op);
+    }));
+    document.body.appendChild(ov);
+  });
+
+  if(escolha === 'parcela'){
+    const antes = parcAtual;
+    loan.parcelaVal = Math.round(novaParcela * 100) / 100;
+    (loan.parcelaHist = loan.parcelaHist || []).push({
+      val: loan.parcelaVal, prev: antes, ts: new Date().toISOString(),
+      motivo: 'amortização de ' + fmt(valorAmort) });
+  } else if(escolha === 'prazo'){
+    loan.parcelas = (parseInt(loan.parcelasPagas,10)||0) + novasParcelas;
+    try{
+      const base = loan.inicio ? new Date(loan.inicio + 'T12:00:00') : new Date();
+      base.setMonth(base.getMonth() + (parseInt(loan.parcelas,10)||0) - 1);
+      loan.termino = base.toISOString().slice(0,10);
+    }catch(_){}
+  }
+  if(escolha){
+    saveData();
+    try{ render(); }catch(_){}
+    try{ renderRegistro(); }catch(_){}
+    if(typeof toast === 'function'){
+      toast(escolha === 'parcela'
+        ? 'Parcela ajustada para ' + fmt(loan.parcelaVal)
+        : 'Prazo ajustado — faltam ' + novasParcelas + ' parcelas');
+    }
+  }
+}
+try{ window._loanPerguntarEfeitoAmortizacao = _loanPerguntarEfeitoAmortizacao; }catch(_){}
 // Saldo base para cálculo de juros de um extra específico.
 // = saldo_anterior_ao_mes − amort do lançamento principal − amort dos extras anteriores.
 function _regSaldoBaseParaExtra(loan, mes, extraId){
