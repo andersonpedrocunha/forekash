@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786993109"/>
+  <meta name="fk-build" content="forekash-v1786993443"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -21769,6 +21769,10 @@
           <span class="st-val" id="s-parcela">R$ 0,00</span>
         </div>
         <div class="st-item">
+          <span class="st-lbl" id="s-taxa-lbl">Taxa Média</span>
+          <span class="st-val" id="s-taxa">—</span>
+        </div>
+        <div class="st-item">
           <span class="st-lbl">Empréstimos</span>
           <span class="st-val" id="s-count">0</span>
         </div>
@@ -26472,6 +26476,32 @@ function updateSummary(){
     setTxt('s-parcela-lbl', 'Parcela Mensal Total');
     setTxt('s-parcela', fmtBRL(tP));
   }
+
+  /* Taxa média PONDERADA, não média simples: um empréstimo de R$ 1 milhão a
+     1,39% e outro de R$ 50 mil a 2,67% não pesam igual. Pondera pelo saldo
+     devedor — é a taxa que incide sobre o que ainda se deve. Sem saldo
+     (quitados), pondera pelo valor tomado. */
+  (function(){
+    let base = 0, acum = 0;
+    lista.forEach(l => {
+      const t = parseFloat(l.taxa) || 0;
+      if(!t) return;
+      const peso = (parseFloat(l.saldo) || 0) > 0 ? parseFloat(l.saldo) : (parseFloat(l.valor) || 0);
+      if(peso <= 0) return;
+      base += peso; acum += t * peso;
+    });
+    const media = base > 0 ? acum / base : 0;
+    const anual = media > 0 ? (Math.pow(1 + media/100, 12) - 1) * 100 : 0;
+    setTxt('s-taxa-lbl', f === 'quitados' ? 'Taxa Média (que era)' : 'Taxa Média a.m.');
+    setTxt('s-taxa', media > 0
+      ? media.toLocaleString('pt-BR',{minimumFractionDigits:3, maximumFractionDigits:3}) + '%'
+      : '—');
+    const el = document.getElementById('s-taxa');
+    if(el) el.title = media > 0
+      ? 'Ponderada pelo ' + (f === 'quitados' ? 'valor tomado' : 'saldo devedor')
+        + ' · equivale a ' + anual.toLocaleString('pt-BR',{maximumFractionDigits:2}) + '% ao ano'
+      : '';
+  })();
 
   setTxt('s-count', lista.length);
   const nQ = quitados.length;
