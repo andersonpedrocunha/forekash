@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786990465"/>
+  <meta name="fk-build" content="forekash-v1786991061"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -24760,6 +24760,25 @@ async function empNovoExcluir(id){
 }
 try{ window.empNovoExcluir = empNovoExcluir; }catch(_){}
 
+/* A tabela desenha o banco pelo REGISTRO COMPARTILHADO (loan.bancoId), não
+   pela string loan.banco. Trocar só a string fazia o modal mostrar "Nexoos" e
+   a linha continuar "SAFRA" — o bancoId antigo mandava. Aqui o nome é
+   resolvido pro id (criando o registro se for banco novo). */
+function _loanBancoIdPorNome(nome){
+  const raw = String(nome || '').trim();
+  if(!raw || raw === '— Digitar manualmente —') return '';
+  if(typeof dispo === 'undefined' || !dispo || !Array.isArray(dispo.bancos)) return '';
+  const norm = x => String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  let b = dispo.bancos.find(x => norm(x.nome) === norm(raw));
+  if(!b){
+    const id = (typeof dispoNextId === 'function') ? dispoNextId('bancos') : ('b-u' + (dispo.bancos.length + 1));
+    b = { id, nome: raw, domain: null, color: '#E5E7EB' };
+    dispo.bancos.push(b);
+    try{ if(typeof dispoSave === 'function') dispoSave(); }catch(_){}
+  }
+  return b.id;
+}
+
 function empNovoSalvar(idEdit){
   const err = document.getElementById('emp-novo-err');
   const g = id => (document.getElementById(id)?.value || '').trim();
@@ -24823,7 +24842,8 @@ function empNovoSalvar(idEdit){
       (L.saldoHist = L.saldoHist || []).push({ val:novoSaldo, prev:antesSaldo, ts:new Date().toISOString() });
       L.saldo = novoSaldo;
     }
-    Object.assign(L, { banco, descricao:desc, valor, taxa, parcelas:parc,
+    Object.assign(L, { banco, bancoId: _loanBancoIdPorNome(banco), bancoManual: '',
+                       descricao:desc, valor, taxa, parcelas:parc,
                        parcelasPagas:pagas, inicio, termino,
                        contratacao: g('emp-n-contratacao') || L.contratacao || '',
                        diaVencimento: diaVenc, tipo: g('emp-n-tipo') || L.tipo || 'price' });
@@ -24834,7 +24854,7 @@ function empNovoSalvar(idEdit){
 
   const id = nextId++;
   loans.push({
-    id, banco, bancoManual:'', descricao:desc,
+    id, banco, bancoId: _loanBancoIdPorNome(banco), bancoManual:'', descricao:desc,
     valor, taxa, parcelas:parc, parcelasPagas:pagas,
     parcelaVal: Math.round(parcelaVal * 100) / 100,
     parcelaHist: [], saldo: Math.round(saldo * 100) / 100, saldoHist: [],
