@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786992595"/>
+  <meta name="fk-build" content="forekash-v1786992836"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -21776,18 +21776,9 @@
           <div class="loan-filtro" id="loan-filtro"></div>
         </div>
         <div class="tl">
-          <button class="btn btn-g" onclick="openShare()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-            Compartilhar
-          </button>
-          <button class="btn btn-g" onclick="exportJSON()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Exportar
-          </button>
-          <button class="btn btn-g" onclick="document.getElementById('file-import').click()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            Importar
-          </button>
+          <!-- Compartilhar/Exportar/Importar saíram: o dado vive na nuvem e o
+               backup é automático, então eram três botões concorrendo com a
+               única ação que importa aqui. -->
           <button class="btn btn-p" onclick="addRow()">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><line x1="12" y1="4" x2="12" y2="20"/><line x1="4" y1="12" x2="20" y2="12"/></svg>
             Novo Empréstimo
@@ -24843,6 +24834,8 @@ function empQuitarConfirmar(loanId){
   reg.saldoEfetivado = 0;
 
   L.quitacao = { data: data || '', valorPago: pago, saldoNaEpoca: saldoAntes,
+                 parcelasPagasAntes: pagasAntes,   // sem isto, os juros ficam sem base
+                 parcelaNaEpoca: parcAntes,
                  desconto: Math.max(0, saldoAntes - pago),
                  economia: Math.max(0, parcAntes * Math.max(0, tot - pagasAntes) - pago) };
   (L.saldoHist = L.saldoHist || []).push({ val:0, prev:saldoAntes, ts:new Date().toISOString(),
@@ -26395,7 +26388,25 @@ function loanResumoQuitacao(l){
   if(!temReg){
     const parc = parseFloat(l.parcelaVal) || 0;
     const n = parseInt(l.parcelas, 10) || 0;
-    juros = Math.max(0, parc * n - valor);
+    /* Sem registro mês a mês, os juros saem do que foi PAGO menos o principal.
+       Usar parcela × n só vale para contrato levado até o fim: quem quitou
+       antes pagou X parcelas + o boleto de quitação, e contar as parcelas que
+       nunca aconteceram inflava os juros exatamente no valor da economia. */
+    if(l.quitacao){
+      const q = l.quitacao;
+      const pagoQuit = parseFloat(q.valorPago) || 0;
+      let pagasAntes = parseInt(q.parcelasPagasAntes, 10);
+      if(isNaN(pagasAntes)){
+        /* Quitações registradas antes deste campo existir: reconstitui pela
+           economia, que é parcela × parcelas_que_faltavam − valor pago. */
+        const eco = parseFloat(q.economia) || 0;
+        const restavam = parc > 0 ? Math.round((eco + pagoQuit) / parc) : 0;
+        pagasAntes = Math.max(0, n - restavam);
+      }
+      juros = Math.max(0, (parc * pagasAntes + pagoQuit) - valor);
+    } else {
+      juros = Math.max(0, parc * n - valor);
+    }
   }
   let fim = l.termino || '';
   const datas = (l.registros || []).map(r => r.mes).filter(Boolean).sort();
