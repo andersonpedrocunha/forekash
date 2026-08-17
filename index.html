@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786988920"/>
+  <meta name="fk-build" content="forekash-v1786989362"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -26136,6 +26136,61 @@ function loanRowDrop(ev, targetId){
 // ═══════════════════════════════════════════════════
 //  SUMMARY
 // ═══════════════════════════════════════════════════
+/* ══ EMPRÉSTIMO QUITADO ══════════════════════════════════════════════════
+   Dívida encerrada não é dívida. Antes ela ficava idêntica a uma ativa na
+   tabela e somava nos KPIs — "2 empréstimos" com um vivo e um morto, e
+   parcela mensal total contando quem não paga mais nada.
+
+   Detecta sozinho, sem checkbox: saldo zerado E todas as parcelas pagas. */
+function loanEstaQuitado(l){
+  if(!l) return false;
+  const saldo = parseFloat(l.saldo);
+  const tot   = parseInt(l.parcelas, 10) || 0;
+  const pag   = parseInt(l.parcelasPagas, 10) || 0;
+  return !isNaN(saldo) && Math.abs(saldo) < 0.01 && tot > 0 && pag >= tot;
+}
+function loansAtivos(){   return (loans || []).filter(l => !loanEstaQuitado(l)); }
+function loansQuitados(){ return (loans || []).filter(l =>  loanEstaQuitado(l)); }
+
+/* O que a dívida custou. Soma os juros efetivamente lançados nos registros;
+   sem registro, cai no cálculo (parcela × n − valor tomado). */
+function loanResumoQuitacao(l){
+  const valor = parseFloat(l.valor) || 0;
+  let juros = 0, temReg = false;
+  for(const r of (l.registros || [])){
+    const j = parseFloat(r.jurosEfetivado);
+    if(!isNaN(j) && j > 0){ juros += j; temReg = true; }
+    for(const ex of (r.extras || [])){
+      const je = parseFloat(ex.juros);
+      if(!isNaN(je) && je > 0){ juros += je; temReg = true; }
+    }
+  }
+  if(!temReg){
+    const parc = parseFloat(l.parcelaVal) || 0;
+    const n = parseInt(l.parcelas, 10) || 0;
+    juros = Math.max(0, parc * n - valor);
+  }
+  let fim = l.termino || '';
+  const datas = (l.registros || []).map(r => r.mes).filter(Boolean).sort();
+  if(datas.length) fim = datas[datas.length - 1];
+  let meses = 0;
+  try{
+    const ini = l.contratacao || l.inicio;
+    if(ini && fim){
+      const a = new Date(ini.length === 7 ? ini + '-01' : ini);
+      const b = new Date(fim.length === 7 ? fim + '-01' : fim);
+      meses = Math.max(0, Math.round((b - a) / (1000*60*60*24*30.44)));
+    }
+  }catch(_){}
+  return { valor, juros, fim, meses, custoPct: valor > 0 ? (juros / valor * 100) : 0 };
+}
+try{
+  window.loanEstaQuitado = loanEstaQuitado;
+  window.loansAtivos = loansAtivos;
+  window.loansQuitados = loansQuitados;
+  window.loanResumoQuitacao = loanResumoQuitacao;
+}catch(_){}
+
 function updateSummary(){
   let tV=0,tS=0,tP=0;
   loans.forEach(l=>{ tV+=parseFloat(l.valor)||0; tS+=parseFloat(l.saldo)||0; tP+=parseFloat(l.parcelaVal)||0; });
