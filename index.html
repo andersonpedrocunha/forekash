@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786994561"/>
+  <meta name="fk-build" content="forekash-v1786995024"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1272,6 +1272,22 @@
     .ci.is-estimado{color:#B45309 !important;font-style:italic}
     .est-tag{color:#B45309;font-size:.62rem;font-weight:700;background:#FEF3C7;
       border:1px solid #FDE68A;padding:1px 6px;border-radius:8px}
+    /* Carimbo de atualização compacto */
+    .meta-dot{background:#EEF2FF;color:#4F46E5;border:1px solid #C7D2FE;border-radius:9px;
+      font-size:.58rem;font-weight:800;padding:0 5px;line-height:1.5;cursor:pointer;font-family:inherit}
+    .meta-dot:hover{background:#4F46E5;color:#fff}
+    .meta-vazio{color:#CBD5E1;font-size:.7rem}
+    /* Modalidade como etiqueta, não seletor */
+    .tipo-tag{display:inline-block;font-size:.66rem;font-weight:700;padding:2px 9px;border-radius:9px;
+      background:#F1F5F9;color:#475569;white-space:nowrap}
+    .tipo-tag.price{background:#DBEAFE;color:#1E40AF}
+    .tipo-tag.sac{background:#FEF3C7;color:#92400E}
+    .tipo-tag.custom{background:#EDE9FE;color:#5B21B6}
+    /* Período: uma coluna no lugar de duas e meia */
+    .c-periodo{min-width:150px;white-space:nowrap}
+    .per-linha{font-size:.74rem;color:#334155;font-variant-numeric:tabular-nums}
+    .per-linha span{color:#CBD5E1;margin:0 2px}
+    .per-dia{font-size:.64rem;color:#94A3B8;margin-top:2px}
     /* Quitado: presente, mas claramente encerrado — mesmo tratamento que o
        módulo de Impostos já dava aos parcelamentos liquidados. */
     /* Quitado fica na lista, com identidade própria: faixa verde na borda,
@@ -1320,11 +1336,18 @@
     /* Banco e Descrição ficam presos na rolagem horizontal: sem eles à vista,
        as 12 colunas de números viram uma fileira sem dono. O drag vai junto
        porque é a primeira coluna e ficaria órfão. */
-    .tbl-wrap table td.c-drag, .tbl-wrap table th.c-drag{position:sticky;left:0;z-index:3;background:#fff}
-    .tbl-wrap table td.c-banco,.tbl-wrap table th.c-banco{position:sticky;left:26px;z-index:3;background:#fff}
-    .tbl-wrap table td.c-desc, .tbl-wrap table th.c-desc{position:sticky;left:174px;z-index:3;background:#fff;
+    .tbl-wrap table td.c-drag, .tbl-wrap table th.c-drag{position:sticky;left:0;z-index:3}
+    .tbl-wrap table td.c-banco,.tbl-wrap table th.c-banco{position:sticky;left:26px;z-index:3}
+    .tbl-wrap table td.c-desc, .tbl-wrap table th.c-desc{position:sticky;left:174px;z-index:3;
       box-shadow:6px 0 8px -6px rgba(15,23,42,.16)}
-    .tbl-wrap table thead th.c-drag,.tbl-wrap table thead th.c-banco,.tbl-wrap table thead th.c-desc{z-index:5}
+    /* Fundo opaco é obrigatório em célula sticky (senão o conteúdo passa por
+       baixo), mas cada uma herda a cor da SUA faixa: cabeçalho continua
+       escuro, corpo continua branco. Pintar tudo de branco fazia o cabeçalho
+       ficar bicolor. */
+    .tbl-wrap table tbody td.c-drag,.tbl-wrap table tbody td.c-banco,
+    .tbl-wrap table tbody td.c-desc{background:#fff}
+    .tbl-wrap table thead th.c-drag,.tbl-wrap table thead th.c-banco,
+    .tbl-wrap table thead th.c-desc{background:var(--bg);z-index:5}
     .tbl-wrap table tr:hover td.c-drag,.tbl-wrap table tr:hover td.c-banco,
     .tbl-wrap table tr:hover td.c-desc{background:#F8FAFC}
     .c-valor  {min-width:122px}.c-taxa  {min-width:96px}
@@ -21815,8 +21838,7 @@
               <th class="c-parcela r">Valor da Parcela (R$)</th>
               <th class="c-parc c">Parcelas / Pagas</th>
               <th class="c-saldo r">Saldo Devedor (R$)</th>
-              <th class="c-term" title="Data da primeira parcela (carência). Se vazio, assume-se que as parcelas já começaram.">Início</th>
-              <th class="c-term">Término</th>
+              <th class="c-periodo" title="Primeira parcela → término, e o dia fixo de vencimento">Período</th>
               <th class="c-cont c">Contrato</th>
               <th style="width:40px" class="c"></th>
             </tr>
@@ -26207,11 +26229,16 @@ function fmtInp(el,d=2){ const n=parseFloat(el.value); el.value=(!isNaN(n)&&el.v
 // ═══════════════════════════════════════════════════
 //  RENDER
 // ═══════════════════════════════════════════════════
+/* O carimbo aparecia duas vezes por linha (parcela e saldo), somando dezenas
+   de linhas de texto cinza na tela. Vira um ponto discreto: a data e o
+   histórico continuam a um hover/clique de distância. */
 function buildMeta(hist,id,type){
-  const last=hist.length>0?hist[hist.length-1]:null;
-  const ts=last?`${fmtTs(last.ts)}`:'Nunca atualizado';
-  const link=hist.length>0?`&nbsp;·&nbsp;<button class="btn-hist" onclick="showHist(${id},'${type}')">ver ${hist.length} reg.</button>`:'';
-  return ts+link;
+  if(!hist || hist.length === 0) return '<span class="meta-vazio" title="Nunca atualizado">·</span>';
+  const last = hist[hist.length-1];
+  const quando = fmtTs(last.ts);
+  return `<button class="meta-dot" onclick="showHist(${id},'${type}')"
+            title="Atualizado ${quando} · ${hist.length} registro${hist.length!==1?'s':''} — clique pra ver">
+            ${hist.length}</button>`;
 }
 
 // Guia de uso da extração por PDF — persiste "ocultado" no localStorage
@@ -26327,12 +26354,12 @@ function render(){
         </div>
       </td>
       <td class="c-tipo">
-        <select class="tipo-sel ${getModalidadeClass(loan.tipo||'price')}"${dis} onchange="saveTipo(${loan.id},this)">
-          ${loanModalidades.map(m => `<option value="${esc(m.id)}"${(loan.tipo||'price')===m.id?' selected':''}>${esc(m.nome)}</option>`).join('')}
-          <option disabled>──────────</option>
-          <option value="__new__">+ Nova modalidade…</option>
-          <option value="__manage__">Gerenciar modalidades…</option>
-        </select>
+        ${(()=>{
+          // Era um <select> amarelo por linha puxando o olho pra uma
+          // informação que quase nunca muda. Vira etiqueta; troca pelo modal.
+          const m = (loanModalidades||[]).find(x => x.id === (loan.tipo||'price'));
+          return `<span class="tipo-tag ${getModalidadeClass(loan.tipo||'price')}">${esc(m ? m.nome : (loan.tipo||'price'))}</span>`;
+        })()}
       </td>
       <td class="c-parcela">
         <input class="ci r m" type="text"${ro} value="${fmtBR(loan.parcelaVal)}" placeholder="0,00"
@@ -26348,8 +26375,7 @@ function render(){
           <input class="ci r" style="width:50px" type="number"${ro} value="${loan.parcelasPagas??''}"
             placeholder="0" min="0" step="1" onchange="saveInt(${loan.id},'parcelasPagas',this.value)">
         </div>
-        <div class="prog-bar"><div class="prog-fill" style="width:${pct}%"></div></div>
-        <div class="c-meta parc-lbl">${tot>0?`${pag} de ${tot} pagas`:''}</div>
+        <div class="prog-bar" title="${tot>0?`${pag} de ${tot} pagas`:''}"><div class="prog-fill" style="width:${pct}%"></div></div>
       </td>
       <td class="c-saldo">
         ${(()=>{
@@ -26364,22 +26390,16 @@ function render(){
               ? '<span class="est-tag">estimado</span>'
               : buildMeta(loan.saldoHist,loan.id,'saldo'))}</div>
       </td>
-      <td class="c-term">
-        <input class="ci" type="date"${ro} value="${loan.inicio||''}"
-          title="Data da primeira parcela (ex.: carência). Antes dessa data, parcelas e amortização ficam zeradas."
-          onchange="saveText(${loan.id},'inicio',this.value)">
-        <div style="display:flex;align-items:center;gap:4px;margin-top:3px;font-size:.65rem;color:var(--txm)">
-          <span title="Dia fixo de vencimento das parcelas (sobrescreve o dia do início)">Vence dia</span>
-          <input class="ci" type="number" min="1" max="31" step="1"${ro} value="${loan.diaVencimento||''}"
-            placeholder="${loan.inicio ? String(parseInt((loan.inicio.split('-')[2]||'1'),10)) : '—'}"
-            style="width:42px;padding:2px 5px;font-size:.74rem;text-align:center"
-            title="Dia fixo do mês em que cada parcela vence (1-31). Se vazio, usa o dia do Início."
-            onchange="saveInt(${loan.id},'diaVencimento',this.value)">
-        </div>
-      </td>
-      <td class="c-term">
-        <input class="ci" type="date"${ro} value="${loan.termino||''}"
-          onchange="saveText(${loan.id},'termino',this.value)">
+      <td class="c-periodo">
+        ${(()=>{
+          // Início, término e dia de vencimento são o mesmo assunto: quando
+          // paga. Ocupavam duas colunas e meia com três campos de formulário
+          // numa tabela que virou leitura.
+          const br = d => d ? d.split('-').reverse().join('/') : '—';
+          const dia = loan.diaVencimento || (loan.inicio ? parseInt((loan.inicio.split('-')[2]||''),10) : '');
+          return `<div class="per-linha">${br(loan.inicio)} <span>→</span> ${br(loan.termino)}</div>`
+               + (dia ? `<div class="per-dia">vence dia ${dia}</div>` : '');
+        })()}
       </td>
       <td class="c-cont">
         ${(()=>{
