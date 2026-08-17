@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1786989362"/>
+  <meta name="fk-build" content="forekash-v1786990187"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1265,19 +1265,27 @@
     .c-banco  {min-width:148px}.c-desc  {min-width:165px}
     /* Quitado: presente, mas claramente encerrado — mesmo tratamento que o
        módulo de Impostos já dava aos parcelamentos liquidados. */
-    tr.loan-quitado{opacity:.55}
-    tr.loan-quitado td.c-desc::after{content:'✓ quitado';margin-left:8px;font-size:.58rem;font-weight:800;
-      color:#059669;background:#ECFDF5;border:1px solid #A7F3D0;padding:1px 6px;border-radius:9px;
-      letter-spacing:.03em;white-space:nowrap}
-    tr.loan-quitado:hover{opacity:1}
-    tr.loan-quitados-bar td{padding:0;background:#F8FAFC;border-top:1px solid #E2E8F0}
-    tr.loan-quitados-bar button{display:flex;align-items:center;gap:10px;width:100%;padding:11px 16px;
-      background:none;border:none;cursor:pointer;font-family:inherit;text-align:left;color:#475569}
-    tr.loan-quitados-bar button:hover{background:#F1F5F9}
-    tr.loan-quitados-bar .fkico{width:15px;height:15px;color:#059669;flex:none}
-    tr.loan-quitados-bar b{font-size:.8rem;color:#0F172A;font-weight:800}
-    tr.loan-quitados-bar .det{font-size:.72rem;color:#64748B}
-    tr.loan-quitados-bar .ver{margin-left:auto;font-size:.72rem;font-weight:700;color:#4F46E5}
+    /* Quitado fica na lista, com identidade própria: faixa verde na borda,
+       fundo levemente esverdeado, números em cinza (não mandam mais em nada)
+       e selo na descrição. Distinto sem precisar sumir. */
+    tr.loan-quitado td{background:#F6FDF9}
+    tr.loan-quitado td.c-drag{box-shadow:inset 3px 0 0 #10B981}
+    tr.loan-quitado .ci{color:#94A3B8}
+    tr.loan-quitado .ci.red{color:#94A3B8 !important}
+    tr.loan-quitado .prog-fill{background:#10B981}
+    tr.loan-quitado td.c-desc::after{content:'✓ QUITADO';margin-left:8px;font-size:.56rem;font-weight:800;
+      color:#047857;background:#D1FAE5;border:1px solid #6EE7B7;padding:2px 7px;border-radius:9px;
+      letter-spacing:.06em;white-space:nowrap;vertical-align:middle}
+    tr.loan-quitado:hover td{background:#ECFDF5}
+    .loan-filtro{display:inline-flex;gap:2px;margin-left:12px;background:#F1F5F9;padding:2px;border-radius:8px}
+    .loan-filtro button{border:none;background:none;padding:4px 10px;border-radius:6px;cursor:pointer;
+      font-family:inherit;font-size:.72rem;font-weight:700;color:#64748B;display:inline-flex;
+      align-items:center;gap:5px;transition:all .15s}
+    .loan-filtro button:hover{color:#0F172A}
+    .loan-filtro button.on{background:#fff;color:#0F172A;box-shadow:0 1px 2px rgba(15,23,42,.1)}
+    .loan-filtro button span{background:#E2E8F0;color:#475569;font-size:.62rem;padding:1px 5px;
+      border-radius:8px;font-weight:800}
+    .loan-filtro button.on span{background:#4F46E5;color:#fff}
     .amort-op{display:block;width:100%;text-align:left;padding:13px 15px;margin-bottom:9px;border-radius:9px;
       border:1.5px solid #CBD5E1;background:#fff;cursor:pointer;font-family:inherit;transition:all .15s}
     .amort-op:hover{border-color:#4F46E5;background:#F5F3FF}
@@ -21749,7 +21757,10 @@
       </div>
 
       <div class="toolbar">
-        <div class="tl"><span class="ti" id="count-lbl">0 empréstimos</span></div>
+        <div class="tl">
+          <span class="ti" id="count-lbl">0 empréstimos</span>
+          <div class="loan-filtro" id="loan-filtro"></div>
+        </div>
         <div class="tl">
           <button class="btn btn-g" onclick="openShare()">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
@@ -25907,14 +25918,16 @@ function render(){
     tbody.innerHTML=`<tr class="empty-row"><td colspan="12">Nenhum empréstimo cadastrado.<br><span style="font-size:.73rem">Clique em "Novo Empréstimo" para adicionar.</span></td></tr>`;
     updateSummary(); return;
   }
-  /* Ativos primeiro; quitados no fim, atrás de uma faixa que dá pra recolher.
-     Padrão é esconder — dívida encerrada não precisa estar na frente todo dia. */
+  /* Todos aparecem por padrão — o quitado se distingue pela formatação, não
+     por sumir. O filtro acima da tabela é que restringe, se a pessoa quiser. */
   const _ativos = loansAtivos();
   const _quitados = loansQuitados();
-  const _mostrarQuitados = (localStorage.getItem('forekash:emp:mostrar-quitados') === '1');
-  const _lista = _mostrarQuitados ? _ativos.concat(_quitados) : _ativos;
-  if(_lista.length === 0 && _quitados.length){
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="12">Nenhum empréstimo ativo — todos os ${_quitados.length} estão quitados.</td></tr>`;
+  const _f = loanFiltroStatus();
+  const _lista = _f === 'ativos' ? _ativos
+               : _f === 'quitados' ? _quitados
+               : _ativos.concat(_quitados);
+  if(_lista.length === 0){
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="12">Nenhum empréstimo ${_f === 'ativos' ? 'ativo' : 'quitado'}.</td></tr>`;
   }
   _lista.forEach(loan=>{
     const tr=document.createElement('tr'); tr.dataset.id=loan.id;
@@ -26045,31 +26058,35 @@ function render(){
     tbody.appendChild(tr);
   });
 
-  /* Faixa dos quitados — some da lista por padrão, mas fica acessível e
-     mostra o que a dívida custou. É o "arquivo de conquistas". */
-  if(_quitados.length){
-    const trQ = document.createElement('tr');
-    trQ.className = 'loan-quitados-bar';
-    const totalTomado = _quitados.reduce((a,l)=>a+(parseFloat(l.valor)||0),0);
-    const totalJuros  = _quitados.reduce((a,l)=>a+(loanResumoQuitacao(l).juros||0),0);
-    const fmt = v => 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-    trQ.innerHTML = '<td colspan="12">'
-      + '<button type="button" onclick="loanToggleQuitados()">'
-      +   '<span class="fkico fkico-check"></span>'
-      +   '<b>' + _quitados.length + ' empréstimo' + (_quitados.length!==1?'s':'') + ' quitado' + (_quitados.length!==1?'s':'') + '</b>'
-      +   '<span class="det">' + fmt(totalTomado) + ' tomados · ' + fmt(totalJuros) + ' de juros pagos</span>'
-      +   '<span class="ver">' + (_mostrarQuitados ? 'ocultar' : 'ver') + '</span>'
-      + '</button></td>';
-    tbody.appendChild(trQ);
-  }
+  _loanRenderFiltro();
   updateSummary();
 }
-function loanToggleQuitados(){
-  const atual = localStorage.getItem('forekash:emp:mostrar-quitados') === '1';
-  try{ localStorage.setItem('forekash:emp:mostrar-quitados', atual ? '0' : '1'); }catch(_){}
+
+/* Filtro acima da tabela. Quitado NÃO some da lista — só fica com formatação
+   própria; quem quiser ver só os ativos escolhe aqui. */
+function _loanRenderFiltro(){
+  const el = document.getElementById('loan-filtro');
+  if(!el) return;
+  const nA = loansAtivos().length, nQ = loansQuitados().length;
+  if(!nQ){ el.innerHTML = ''; return; }
+  const atual = loanFiltroStatus();
+  const bt = (val, txt, n) =>
+    '<button type="button" class="' + (atual === val ? 'on' : '') + '"'
+    + ' onclick="loanSetFiltroStatus(\'' + val + '\')">' + txt
+    + '<span>' + n + '</span></button>';
+  el.innerHTML = bt('todos','Todos', nA + nQ) + bt('ativos','Ativos', nA) + bt('quitados','Quitados', nQ);
+}
+function loanFiltroStatus(){
+  try{ return localStorage.getItem('forekash:emp:filtro-status') || 'todos'; }catch(_){ return 'todos'; }
+}
+function loanSetFiltroStatus(v){
+  try{ localStorage.setItem('forekash:emp:filtro-status', v); }catch(_){}
   render();
 }
-try{ window.loanToggleQuitados = loanToggleQuitados; }catch(_){}
+try{
+  window.loanFiltroStatus = loanFiltroStatus;
+  window.loanSetFiltroStatus = loanSetFiltroStatus;
+}catch(_){}
 
 // ═══════════════════════════════════════════════════
 // DRAG & DROP — Reordenar linhas de empréstimos
