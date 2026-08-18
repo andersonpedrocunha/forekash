@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787094435"/>
+  <meta name="fk-build" content="forekash-v1787095218"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17195,9 +17195,18 @@ tr.imp-par-avulso .imp-grp-txt{color:#475569}
   border-radius:8px;padding:9px 11px;cursor:pointer;background:#fff;transition:border-color .12s}
 .ipm-motivo:hover{border-color:#CBD5E1;background:#F8FAFC}
 .ipm-motivo:has(input:checked){border-color:#BE185D;background:#FDF2F8}
-.ipm-motivo input{margin-top:3px;flex:0 0 auto;accent-color:#BE185D}
-.ipm-motivo b{display:block;font-size:.79rem;color:#0F172A;font-weight:700}
-.ipm-motivo small{display:block;font-size:.7rem;color:#64748B;line-height:1.45;margin-top:2px}
+/* O grid dá width:100% a todo input — no radio isso comia a linha inteira e
+   empurrava o texto pra largura zero, quebrando letra a letra. */
+.emp-novo-grid .ipm-motivo input[type=radio]{width:15px;height:15px;min-width:0;
+  margin:3px 0 0;flex:0 0 auto;accent-color:#BE185D;padding:0;border:0}
+/* Sem isso o texto do cartão encolhe pra min-content e quebra letra a letra. */
+.ipm-motivo > span{flex:1 1 auto;min-width:0}
+.emp-novo-grid label.ipm-motivo{font-size:inherit;font-weight:400;text-transform:none;
+  letter-spacing:0;color:inherit}
+.ipm-motivo b{display:block;font-size:.79rem;color:#0F172A;font-weight:700;
+  text-transform:none;letter-spacing:0}
+.ipm-motivo small{display:block;font-size:.7rem;color:#64748B;line-height:1.45;margin-top:2px;
+  text-transform:none;letter-spacing:0}
 /* Mês pago antes do controle — informado no cadastro, não veio do Extrato. */
 .imp-par-sheet tbody td.mes.historico{background:#F8FAFC;color:#94A3B8}
 .imp-par-sheet tbody td.mes.historico::after{content:'';position:absolute;left:4px;top:50%;
@@ -84378,6 +84387,16 @@ function _impParcRotuloFim(p){
 }
 try{ window._impParcRotuloFim = _impParcRotuloFim; }catch(_){}
 
+/* Saldo que seria preciso pagar HOJE para zerar o contrato: o nominal que
+   resta, corrigido pela Selic acumulada do período. Parcelamento parado não
+   fica no mesmo saldo — a dívida corre mesmo sem ninguém pagar. */
+function impParcSaldoCorrigido(p, ym){
+  const nominal = impParcSaldoFim(p, ym);
+  if(nominal == null || nominal <= 0.005) return nominal;
+  return nominal * impParcFatorCorrecao(p.mesInicio, ym);
+}
+try{ window.impParcSaldoCorrigido = impParcSaldoCorrigido; }catch(_){}
+
 /* Contrato encerrado — quitado, migrado pra outro programa ou rescindido. */
 function impParcEncerrado(p){
   return !!(p && p.quitacao && p.quitacao.data);
@@ -84397,7 +84416,7 @@ function impParcPrevistoGrupo(gid, ym){
    → { porParc:{parcId:{ym:valor}}, porGrupo:{gid:{ym:valor}},
        naoIdent:[{lancId,ym,valor,desc,cat,motivo}], totalMes:{ym:valor} }   */
 function impParcConciliar(ano){
-  const out = { porParc:{}, porGrupo:{}, naoIdent:[], avulsos:[], totalMes:{} };
+  const out = { porParc:{}, porGrupo:{}, naoIdent:[], avulsos:[], totalMes:{}, acumuladas:{} };
   const y = (ano == null) ? null : String(ano);   // null = todos os anos
   let lans = [];
   try{ lans = (extratoData && extratoData.lancamentos) || []; }catch(_){ return out; }
@@ -84447,15 +84466,29 @@ function impParcConciliar(ano){
         }
       }
       /* 3 · casa por valor: só vale se identificar UM contrato.
-             Tolerância de 2% cobre a correção SELIC do mês. */
-      const cand = ativos.filter(p => {
+             Aceita MÚLTIPLOS da parcela — ficar dois meses sem pagar e quitar
+             três guias de uma vez é rotina, e um pagamento desses nunca bateria
+             com o valor de uma parcela só. Tolerância maior conforme k, porque
+             cada guia acumulada carrega a correção do seu próprio mês. */
+      const _multiplo = (p) => {
         const prev = impParcPrevistoMes(p, ym);
-        if(prev <= 0.005) return false;
-        return Math.abs(ev.valor - prev) <= Math.max(prev * 0.02, 1);
-      });
+        if(prev <= 0.005) return 0;
+        for(let k = 1; k <= 12; k++){
+          const alvo = prev * k;
+          if(Math.abs(ev.valor - alvo) <= Math.max(alvo * 0.03, 2)) return k;
+          if(alvo > ev.valor * 1.2) break;   // já passou, não adianta seguir
+        }
+        return 0;
+      };
+      const cand = ativos.filter(p => _multiplo(p) > 0);
       if(cand.length === 1){
         soma(out.porParc, cand[0].id, ym, ev.valor);
         soma(out.porGrupo, impParcGrupoDe(cand[0]), ym, ev.valor);
+        const k = _multiplo(cand[0]);
+        if(k > 1){
+          if(!out.acumuladas) out.acumuladas = {};
+          out.acumuladas[cand[0].id + '|' + ym] = k;   // quantas guias esse pagamento cobriu
+        }
         continue;
       }
       /* 4 · a categoria nomeia o bloco — concilia no bloco, sem chutar contrato */
@@ -84506,27 +84539,42 @@ function impParcAlertas(ano, conc){
   }
   for(const gid of grupos){
     if(gid === IMP_GRUPO_AVULSO) continue;   // sem contrato, não há previsto pra cobrar
+
+    /* Comparação ACUMULADA, não mês a mês. Ficar dois meses sem pagar e
+       quitar três guias no terceiro é rotina — no modelo antigo os dois meses
+       pulados continuavam acusando atraso para sempre, mesmo depois de pagos. */
+    let accPrev = 0, accPago = 0;
     const meses = [];
+    let nMeses = 0;
     for(let m = 0; m < 12; m++){
       if(y > anoAtual || (y === anoAtual && m >= mesAtual)) break;   // mês em curso não cobra
       const ym = impMesKey(String(y), m);
       const prev = impParcPrevistoGrupo(gid, ym);
-      if(prev <= 0.005) continue;
       const pago = (conc.porGrupo[gid] || {})[ym] || 0;
-      const falta = prev - pago;
-      if(falta > Math.max(prev * 0.05, 50)) meses.push({ ym, m, prev, pago, falta });
+      accPrev += prev; accPago += pago;
+      if(prev > 0.005) nMeses++;
+      const deficit = accPrev - accPago;
+      if(prev > 0.005 && pago <= 0.005 && deficit > 0.005){
+        meses.push({ ym, m, prev, pago, falta: Math.min(prev, deficit) });
+      }
     }
-    if(!meses.length) continue;
-    /* Sequência final de meses em falta — é ela que aciona a exclusão. */
-    let seq = 1;
-    for(let i = meses.length - 1; i > 0; i--){
-      if(meses[i].m - meses[i-1].m === 1) seq++; else break;
-    }
+    const deficit = accPrev - accPago;
+    /* Parcela típica = média dos meses cobrados. Usar o maior subestimava o
+       atraso, porque a parcela cresce com a Selic e o mês mais recente é
+       sempre o mais caro. */
+    const parcelaTipica = nMeses > 0 ? (accPrev / nMeses) : 0;
+    /* Tolerância: menos de meia parcela de diferença é arredondamento de
+       correção, não atraso. */
+    if(deficit <= Math.max(parcelaTipica * 0.5, 50)) continue;
+
+    /* O que a Receita conta é PARCELA em atraso, não mês sem lançamento. */
+    const emAtraso = parcelaTipica > 0.005 ? Math.round(deficit / parcelaTipica) : meses.length;
+    const risco = emAtraso >= 3 ? 'exclusao' : (emAtraso === 2 ? 'alto' : 'medio');
     out.push({
       grupo: gid, nome: impGrupoNome(gid), meses,
-      total: meses.reduce((s,x)=>s+x.falta,0),
-      consecutivos: seq,
-      risco: seq >= 3 ? 'exclusao' : (seq === 2 ? 'alto' : 'medio')
+      total: deficit,
+      previsto: accPrev, pago: accPago,
+      emAtraso, consecutivos: emAtraso, risco
     });
   }
   return out;
@@ -84592,11 +84640,13 @@ function impParcSaldoFim(p, ym){
 }
 
 // Saldo devedor CONSOLIDADO (todos parcelamentos ativos) no mês ym
+/* Consolidado do módulo — mesmo número da coluna: o que seria preciso pagar
+   hoje, com a correção já dentro. */
 function impParcSaldoConsolidado(ym){
   let s = 0;
   for(const p of (impostos.parcelamentos||[])){
     if(p.ativo === false) continue;
-    s += impParcSaldoFim(p, ym);
+    s += impParcSaldoCorrigido(p, ym) || 0;
   }
   return s;
 }
@@ -84623,7 +84673,7 @@ function renderImpParSheet(){
   const mesCols = IMP_MESES.map(m => `<th class="mes">${m.toUpperCase()}/${year.slice(2)}</th>`).join('');
   const yrRow2 = `<tr class="mo">
     <th class="stk stk-1"></th>
-    <th class="stk stk-2">hoje · % amortizado</th>
+    <th class="stk stk-2">para zerar hoje</th>
     <th class="stk stk-3"></th>
     <th class="stk stk-4">${(()=>{const r=impParcMesRef(year);return (IMP_MESES[parseInt(r.slice(5,7),10)-1]||'').toUpperCase()+'/'+r.slice(2,4);})()}</th>
     <th class="stk stk-5">MMM-YY</th>
@@ -84699,7 +84749,7 @@ function renderImpParSheet(){
   /* Sem contrato não existe saldo devedor calculável — "R$ 0,00" seria uma
      afirmação falsa pra quem tem dívida. */
   const temContratoAtivo = (impostos.parcelamentos || []).some(x => x.ativo !== false);
-  const saldoDezTxt = temContratoAtivo ? fmtBRL(saldoDez) : '<span style="opacity:.55">—</span>';
+  const saldoDezTxt = temContratoAtivo ? fmtBRL(saldoDez) : '<span style="opacity:.55">—</span>';   // já corrigido
 
   tfoot.innerHTML = `<tr>
     <td class="stk stk-1">Total Parcelamentos</td>
@@ -84731,8 +84781,8 @@ function renderImpParGrupoRow(gid, lista, year, conc, colapsado){
   let prevAno = 0, pagoAno = 0, saldoHojeG = 0, saldoDezG = 0, parcelaG = 0;
   const _ymHoje = impParcMesRef(year);
   for(const x of ativos){
-    saldoHojeG += impParcSaldoFim(x, _ymHoje) || 0;
-    saldoDezG  += impParcSaldoFim(x, impMesKey(year, 11)) || 0;
+    saldoHojeG += impParcSaldoCorrigido(x, _ymHoje) || 0;
+    saldoDezG  += impParcSaldoCorrigido(x, impMesKey(year, 11)) || 0;
     parcelaG   += impParcPrevistoMes(x, _ymHoje) || 0;
   }
   const cells = IMP_MESES.map((_,m) => {
@@ -84837,17 +84887,22 @@ function renderImpParPainel(year, conc){
     const pior = alertas.some(a => a.risco === 'exclusao') ? 'grave'
                : (alertas.some(a => a.risco === 'alto') ? 'alto' : '');
     const linhas = alertas.map((a, i) => {
-      const mesesTxt = a.meses.map(x =>
-        (IMP_MESES[x.m] || x.ym) + ' −' + fmtShortBR(x.falta)).join(' · ');
+      const mesesTxt = a.meses.length
+        ? a.meses.map(x => (IMP_MESES[x.m] || x.ym) + ' −' + fmtShortBR(x.falta)).join(' · ')
+        : 'pago a menos que o previsto no acumulado do ano';
       const risco = a.risco === 'exclusao'
-        ? `<span class="imp-al-chip grave">${a.consecutivos} seguidos</span>`
-        : (a.risco === 'alto' ? `<span class="imp-al-chip alto">${a.consecutivos} seguidos</span>` : '');
-      return `<button type="button" class="imp-al-linha" onclick="this.classList.toggle('aberto')">
+        ? `<span class="imp-al-chip grave">risco de exclusão</span>`
+        : (a.risco === 'alto' ? `<span class="imp-al-chip alto">atenção</span>` : '');
+      const qtd = a.emAtraso >= 1
+        ? `${a.emAtraso} parcela${a.emAtraso === 1 ? '' : 's'} em atraso`
+        : 'abaixo do previsto';
+      return `<button type="button" class="imp-al-linha" onclick="this.classList.toggle('aberto')"
+              title="Previsto até aqui ${esc(fmtBRL(a.previsto))} · identificado no Extrato ${esc(fmtBRL(a.pago))}">
         <span class="imp-al-nome">${esc(a.nome)}</span>
-        <span class="imp-al-qtd">${a.meses.length === 1 ? '1 mês' : a.meses.length + ' meses'} sem pagamento</span>
+        <span class="imp-al-qtd">${qtd}</span>
         ${risco}
         <span class="imp-al-val">${fmtBRL(a.total)}</span>
-        <span class="imp-al-det">${esc(mesesTxt)}</span>
+        <span class="imp-al-det">${esc(mesesTxt)} · previsto ${esc(fmtBRL(a.previsto))} contra ${esc(fmtBRL(a.pago))} identificado</span>
       </button>`;
     }).join('');
     const temGrave = pior === 'grave';
@@ -84864,7 +84919,7 @@ function renderImpParPainel(year, conc){
       <div class="imp-al-corpo">
         <div class="imp-al-linhas">${linhas}</div>
         <p class="imp-al-pe">${temGrave
-          ? 'Três parcelas em atraso rescindem o parcelamento e a dívida volta inteira pra dívida ativa. Se já pagou, confira se o lançamento está no Extrato com a categoria do parcelamento.'
+          ? 'A conta é acumulada: pagar três guias de uma vez zera o atraso dos meses pulados. A partir de três parcelas em atraso o parcelamento é rescindido e a dívida volta inteira pra dívida ativa. Se já pagou, confira se o lançamento está no Extrato com a categoria do parcelamento.'
           : 'Se já pagou, confira se o lançamento está no Extrato com a categoria do parcelamento.'}</p>
       </div>
     </div>`;
@@ -85147,20 +85202,26 @@ function renderImpParRow(p, year, conc){
            então em vez de dois números soltos o usuário lê uma coisa só —
            quanto do parcelamento já andou. */
         const hojeYM = impMesKey(String(new Date().getFullYear()), new Date().getMonth());
-        const est = impParcSaldoFim(p, hojeYM);
-        if(est == null) return `<span class="imp-par-ro">${saldoIniVal}</span>`;
-        const quit = est <= 0.005;
+        const nom = impParcSaldoFim(p, hojeYM);
+        if(nom == null) return `<span class="imp-par-ro">${saldoIniVal}</span>`;
+        const quit = nom <= 0.005;
+        const est  = quit ? 0 : impParcSaldoCorrigido(p, hojeYM);
         const ini  = +p.saldoInicial || 0;
-        const pago = Math.max(0, ini - est);
-        const pct  = ini > 0 ? Math.min(100, (pago / ini) * 100) : 0;
-        const _pagas = Object.keys(impParcPagamentosEfetivos(p)).filter(k => +impParcPagamentosEfetivos(p)[k] > 0.005).length;
-        const _tip = pago > 0.005
-          ? `Saldo hoje ${fmtBRL(est)} · inicial ${fmtBRL(ini)} · ${fmtBR(pct,0)}% abatido por ${_pagas} guia${_pagas===1?'':'s'} identificada${_pagas===1?'':'s'} no Extrato`
-          : `Saldo hoje ${fmtBRL(est)} — nenhuma guia identificada no Extrato ainda, então nada foi abatido`;
+        const amortizado = Math.max(0, ini - nom);
+        const pct  = ini > 0 ? Math.min(100, (amortizado / ini) * 100) : 0;
+        const correcao = Math.max(0, est - nom);
+        const _pg = impParcPagamentosEfetivos(p);
+        const _pagas = Object.keys(_pg).filter(k => +_pg[k] > 0.005).length;
+        const _tip = quit
+          ? 'Contrato encerrado'
+          : `Para zerar hoje: ${fmtBRL(est)} — ${fmtBRL(nom)} de saldo consolidado mais ${fmtBRL(correcao)} de Selic acumulada e 1% do mês.`
+            + (amortizado > 0.005
+               ? ` Já amortizou ${fmtBRL(amortizado)} (${fmtBR(pct,0)}%) com ${_pagas} guia${_pagas===1?'':'s'} identificada${_pagas===1?'':'s'} no Extrato.`
+               : ' Nenhuma guia identificada no Extrato ainda.');
         return `<div class="imp-saldo-cel" title="${esc(_tip)}">
           <span class="imp-saldo-hoje${quit?' quit':''}">${quit ? _impParcRotuloFim(p) : fmtBR(est, 2)}</span>
           <span class="imp-saldo-bar"><i style="width:${pct.toFixed(1)}%"></i></span>
-          <span class="imp-saldo-ini">${fmtBR(pct,0)}% de ${fmtBR(ini, 2)}</span>
+          <span class="imp-saldo-ini">${quit ? '' : fmtBR(nom, 2) + ' + ' + fmtBR(correcao, 2) + ' correção'}</span>
         </div>`;
       })()}
     </td>
@@ -85173,10 +85234,14 @@ function renderImpParRow(p, year, conc){
                  as guias que o Extrato identificou. Mês transcorrido não conta.
                  Contrato encerrado conta como completo, seja por quitação,
                  migração ou rescisão — de um jeito ou de outro acabou. */
-              const pags = impParcPagamentosEfetivos(p);
-              const antes = Math.max(0, parseInt(p.pagasAntes, 10) || 0);
-              const doExtrato = Object.keys(pags).filter(k => parseFloat(pags[k]) > 0.005).length;
-              const pagas = impParcEncerrado(p) ? total : Math.min(total, antes + doExtrato);
+              /* Vem do saldo amortizado, não da contagem de meses com guia:
+                 pagar três parcelas de uma vez conta como três, não como uma. */
+              const _hoje = impMesKey(String(new Date().getFullYear()), new Date().getMonth());
+              const _nomHoje = impParcSaldoFim(p, _hoje);
+              const _amort = Math.max(0, (+p.saldoInicial || 0) - (_nomHoje == null ? 0 : _nomHoje));
+              const pagas = impParcEncerrado(p)
+                ? total
+                : Math.min(total, Math.round(_amort / (+p.parcelaMensal || 1)));
               const denom = growing ? '∞' : (total > 0 ? total : '?');
               const pct = (!growing && total > 0) ? Math.min(100, (pagas/total)*100) : 0;
               const fillCls = (!growing && total > 0 && pagas >= total) ? 'prog-fill is-quitado' : 'prog-fill';
@@ -85210,7 +85275,7 @@ function renderImpParRow(p, year, conc){
     <td class="yr-tot" style="background:#F5F3FF;color:#4C1D95">${
       (!p.saldoInicial || !p.parcelaMensal || !p.mesInicio)
         ? '<span style="color:#D1D5DB">—</span>'
-        : (saldoFim ? fmtBRL(saldoFim) : `<span style="color:#10B981">✓ ${_impParcRotuloFim(p)}</span>`)
+        : (saldoFim ? fmtBRL(impParcSaldoCorrigido(p, impMesKey(year, 11))) : `<span style="color:#10B981">✓ ${_impParcRotuloFim(p)}</span>`)
     }</td>
     <td class="att">
       ${(()=>{
@@ -85456,16 +85521,18 @@ function impParcEncerrarModal(id, tipo){
     +     '<button type="button" class="emp-novo-x" onclick="impParcEncerrarFechar()">✕</button>'
     +   '</div>'
     +   '<div class="emp-novo-bd">'
-    +     (quitar
-        ? ('<div class="f full" style="margin-bottom:12px"><label>O que aconteceu <i>*</i></label>'
+    +     '<div class="emp-novo-grid" style="margin-top:0">'
+    /* O bloco de motivos vive DENTRO do grid: fora dele o seletor
+       `.emp-novo-grid label` não alcançava e o rótulo saía sem formatação. */
+    +       (quitar
+        ? ('<div class="f full"><label>O que aconteceu <i>*</i></label>'
          + '<div class="ipm-motivos">'
          + IMP_MOTIVOS.map((m, i) =>
              '<label class="ipm-motivo">'
            + '<input type="radio" name="ipm-motivo" value="' + m.id + '"' + (i===0?' checked':'') + ' onchange="_ipmMotivoMuda()">'
            + '<span><b>' + e(m.nome) + '</b><small>' + e(m.ajuda) + '</small></span></label>').join('')
          + '</div></div>')
-        : '<div class="imp-parc-hint" style="margin-bottom:12px">Pagamento além da parcela do mês. Abate o saldo devedor e encurta o parcelamento — a parcela continua a mesma.</div>')
-    +     '<div class="emp-novo-grid" style="margin-top:0">'
+        : '<div class="f full"><div class="imp-parc-hint">Pagamento além da parcela do mês. Abate o saldo devedor e encurta o parcelamento — a parcela continua a mesma.</div></div>')
     +       '<div class="f"><label>Data do pagamento <i>*</i></label>'
     +         '<input type="date" id="ipm-enc-data" value="' + hoje + '"></div>'
     +       '<div class="f"><label>' + (quitar ? 'Valor pago' : 'Valor amortizado') + ' <i>*</i></label>'
