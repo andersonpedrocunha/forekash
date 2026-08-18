@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787095218"/>
+  <meta name="fk-build" content="forekash-v1787095718"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17179,6 +17179,9 @@ tr.imp-par-avulso .imp-grp-txt{color:#475569}
 .imp-par-edit:hover{background:#F1F5F9;color:#BE185D}
 .imp-npar-total{font-weight:700;font-size:.72rem;color:#334155}
 .imp-npar-total.growing{color:#B45309}
+.ipm-sub{display:block;font-size:.66rem;color:#94A3B8;line-height:1.45;margin-top:4px;
+  text-transform:none;letter-spacing:0;font-weight:500}
+.ipm-sub b{color:#64748B;font-weight:700}
 .imp-parc-hint{font-size:.7rem;color:#64748B;line-height:1.5;background:#F8FAFC;
   border:1px solid #E2E8F0;border-radius:7px;padding:7px 10px}
 /* Encerramento e amortização */
@@ -85420,25 +85423,27 @@ function impParcModal(id){
     +         '<div class="pre"><span>R$</span><input type="number" step="0.01" min="0" id="ipm-parcela" placeholder="0,00" value="' + (ed ? num(_impParcPrimeira(P)) : '') + '" oninput="impParcModalDeriva(\'parcela\')"></div></div>'
     +       '<div class="f"><label>Nº de parcelas</label>'
     +         '<input type="number" step="1" min="1" id="ipm-total" placeholder="60" value="' + e(totalAtual) + '" oninput="impParcModalDeriva(\'total\')"></div>'
-    +       '<div class="f full"><label>Parcelas já pagas antes de usar o Forekash</label>'
-    +         '<input type="number" step="1" min="0" id="ipm-pagas" placeholder="0" value="' + (ed && P.pagasAntes ? P.pagasAntes : '') + '" oninput="impParcModalDeriva(\'pagas\')">'
-    +         '<div class="imp-parc-hint" id="ipm-pagas-hint" style="margin-top:6px"></div></div>'
     +       '<div class="f full"><div class="imp-parc-hint" id="ipm-hint">Informe o valor da <b>primeira guia</b>, como veio no boleto. As seguintes sobem sozinhas: Selic acumulada do período mais 1% no mês do pagamento.</div></div>'
-    +       '<div class="f"><label>Bloco</label>'
-    +         '<select id="ipm-bloco">'
-    +           '<option value="">— sem bloco —</option>' + blocoOpts + '</select></div>'
-    +       '<div class="f"><label>Controle</label>'
-    +         '<select id="ipm-modo">'
-    +           '<option value="consolidado"' + (ed && P.modo === 'detalhado' ? '' : ' selected') + '>Consolidado — acompanha pelo bloco</option>'
-    +           '<option value="detalhado"' + (ed && P.modo === 'detalhado' ? ' selected' : '') + '>Detalhado — parcela a parcela</option>'
-    +         '</select></div>'
+    +       '<div class="f"><label>Parcelas já pagas <span class="hint-lbl">antes do Forekash</span></label>'
+    +         '<input type="number" step="1" min="0" id="ipm-pagas" placeholder="0" value="' + (ed && P.pagasAntes ? P.pagasAntes : '') + '" oninput="impParcModalDeriva(\'pagas\')">'
+    +         '<small class="ipm-sub" id="ipm-pagas-hint"></small></div>'
     +       '<div class="f"><label>Data de adesão</label>'
     +         '<input type="date" id="ipm-adesao" value="' + e(ed ? (P.dataAdesao || '') : '') + '"></div>'
+    +       '<div class="f"><label>Bloco</label>'
+    +         '<select id="ipm-bloco">'
+    +           '<option value="">— sem bloco —</option>' + blocoOpts + '</select>'
+    +         '<small class="ipm-sub">Onde a conferência com o Extrato fecha. Vários contratos num bloco viram uma linha só.</small></div>'
     +       '<div class="f"><label>Situação</label>'
     +         '<select id="ipm-ativo">'
     +           '<option value="1"' + (ed && P.ativo === false ? '' : ' selected') + '>Ativo</option>'
     +           '<option value="0"' + (ed && P.ativo === false ? ' selected' : '') + '>Inativo</option>'
     +         '</select></div>'
+    +       '<div class="f full"><label>Controle</label>'
+    +         '<select id="ipm-modo" onchange="_ipmModoHint()">'
+    +           '<option value="consolidado"' + (ed && P.modo === 'detalhado' ? '' : ' selected') + '>Consolidado</option>'
+    +           '<option value="detalhado"' + (ed && P.modo === 'detalhado' ? ' selected' : '') + '>Detalhado</option>'
+    +         '</select>'
+    +         '<small class="ipm-sub" id="ipm-modo-hint"></small></div>'
     +     '</div>'
     +     '<div class="ipm-anexos">'
     +       '<label class="ipm-drop" id="ipm-drop"'
@@ -85469,7 +85474,7 @@ function impParcModal(id){
      o salvar — senão um cadastro cancelado deixaria arquivo órfão. */
   _ipmAnexos = ed ? ((P.contratos || []).slice()) : [];
   ipmRenderAnexos();
-  try{ _ipmAtualizaPagasHint(); }catch(e){}
+  try{ _ipmAtualizaPagasHint(); _ipmModoHint(); }catch(e){}
   setTimeout(() => { const el = document.getElementById('ipm-nome'); if(el) el.focus(); }, 40);
 }
 const IMP_MOTIVOS = [
@@ -85733,6 +85738,18 @@ function impParcModalDeriva(origem){
 
 /* Mostra na hora o saldo que sobra depois das parcelas já pagas, pra ele
    conferir contra o extrato do e-CAC antes de salvar. */
+/* O campo "Controle" não se explica sozinho — e é a decisão que define se o
+   contrato vai dar trabalho todo mês ou não. */
+function _ipmModoHint(){
+  const el = document.getElementById('ipm-modo-hint');
+  const sel = document.getElementById('ipm-modo');
+  if(!el || !sel) return;
+  el.innerHTML = (sel.value === 'detalhado')
+    ? 'A conferência desce até <b>este contrato</b>: o Forekash casa cada guia com ele e, quando dois contratos têm a mesma parcela, pergunta qual foi. Use nos que merecem o cuidado — o maior, o que está em renegociação, o que já tem parcela em atraso.'
+    : 'A conferência acontece no <b>bloco</b>, não neste contrato: o Forekash compara o previsto do bloco com o que saiu da conta. Você olha uma linha por bloco em vez de uma por contrato — é o que faz dez ou doze parcelamentos caberem numa pessoa só.';
+}
+try{ window._ipmModoHint = _ipmModoHint; }catch(_){}
+
 function _ipmAtualizaPagasHint(){
   const el = document.getElementById('ipm-pagas-hint');
   if(!el) return;
@@ -85741,22 +85758,21 @@ function _ipmAtualizaPagasHint(){
   const primeira = num('ipm-parcela');
   const pagas = parseInt((document.getElementById('ipm-pagas') || {}).value, 10) || 0;
   if(!saldo || saldo <= 0 || !primeira || primeira <= 0){
-    el.textContent = 'Se o parcelamento já estava em andamento, diga quantas parcelas você pagou antes. Elas não vão aparecer no Extrato, e sem isso o saldo ficaria parado no valor de origem.';
+    el.textContent = 'As que você pagou antes de cadastrar aqui — essas não estão no Extrato.';
     return;
   }
   const nominal = primeira / IMP_FATOR_1A;
   const total = Math.max(1, Math.ceil(saldo / nominal - 0.0001));
   if(pagas <= 0){
-    el.textContent = 'Nenhuma paga antes: o saldo começa em ' + fmtBRL(saldo) + ', com ' + total + ' parcelas pela frente.';
+    el.textContent = 'Nenhuma. Se o contrato já vinha correndo, informe aqui.';
     return;
   }
   if(pagas >= total){
-    el.innerHTML = '<b>' + pagas + ' parcelas</b> cobre o parcelamento inteiro (' + total + '). Se ele já acabou, use <b>Quitar</b> em vez deste campo.';
+    el.innerHTML = 'Cobre o contrato inteiro (' + total + '). Se ele acabou, use <b>Quitar</b>.';
     return;
   }
   const resta = saldo - pagas * nominal;
-  el.innerHTML = 'Saldo hoje: <b>' + fmtBRL(resta) + '</b> · faltam ' + (total - pagas)
-               + ' de ' + total + ' parcelas. Confira com o demonstrativo do e-CAC.';
+  el.innerHTML = 'Restam <b>' + fmtBRL(resta) + '</b> em ' + (total - pagas) + ' parcelas — confira no e-CAC.';
 }
 try{ window._ipmAtualizaPagasHint = _ipmAtualizaPagasHint; }catch(_){}
 
