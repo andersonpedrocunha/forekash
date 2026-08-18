@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787093075"/>
+  <meta name="fk-build" content="forekash-v1787093925"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17091,7 +17091,15 @@ tr.imp-par-grupo.colapsado > td{opacity:.92}
   padding:11px 13px;margin:0 0 10px}
 .imp-alerta.alto{border-color:#FDBA74;background:#FFF7ED}
 .imp-alerta.grave{border-color:#FCA5A5;background:#FEF2F2}
-.imp-al-hd{display:flex;align-items:baseline;gap:10px}
+.imp-al-hd{display:flex;align-items:baseline;gap:9px;width:100%;text-align:left;
+  font:inherit;background:none;border:0;padding:0;cursor:pointer}
+.imp-al-hd:hover strong{text-decoration:underline}
+.imp-al-hd:focus-visible{outline:2px solid #B45309;outline-offset:3px;border-radius:4px}
+.imp-al-chevron{font-size:.7rem;color:#B45309;flex:0 0 auto;line-height:1.4}
+.imp-alerta.grave .imp-al-chevron{color:#B91C1C}
+.imp-al-resumo{font-size:.7rem;color:#92400E;opacity:.75}
+.imp-alerta.min{padding:8px 13px}
+.imp-alerta.min .imp-al-corpo{display:none}
 .imp-al-hd strong{font-size:.78rem;font-weight:700;color:#92400E}
 .imp-alerta.grave .imp-al-hd strong{color:#991B1B}
 .imp-al-tot{margin-left:auto;font-size:.76rem;font-weight:800;color:#B45309;
@@ -82388,6 +82396,7 @@ function impLoad(){
   if(!impostos.parcColapsados || typeof impostos.parcColapsados !== 'object'){
     impostos.parcColapsados = {};
   }
+  if(typeof impostos.alertaParcMin !== 'boolean') impostos.alertaParcMin = false;
   /* Até a v4 o campo guardava a parcela como o usuário digitava — que é a guia
      paga, com o 1% dentro. O motor agora trabalha com o valor nominal. */
   if(!impostos.migradoParcNominal){
@@ -84125,6 +84134,11 @@ function _impParcPlan(p){
   let saldo = +p.saldoInicial;
   let quitadoEm = -1;
   const LIMIT = 600;   // 50 anos de teto
+  /* Mês passado sem guia identificada NÃO abate saldo: o dinheiro não saiu.
+     Antes o plano descia pelo cronograma e a barra dizia "13% amortizado" na
+     mesma tela em que o alerta dizia "7 meses sem pagamento". */
+  const _hj = new Date();
+  const mesAtual = impMesKey(String(_hj.getFullYear()), _hj.getMonth());
 
   for(let i = 0; i < LIMIT; i++){
     if(saldo <= 0.005){ quitadoEm = i; break; }
@@ -84140,8 +84154,11 @@ function _impParcPlan(p){
     const parcelaBruta = hasManual ? manualVal : parcelaPrev;
 
     /* Pagou mais (ou menos) que o previsto? A diferença amortiza (ou deixa de
-       amortizar) o nominal — basta deflacionar pelo fator do mês. */
-    let amort = hasManual ? (manualVal / fator) : amortPrev;
+       amortizar) o nominal — basta deflacionar pelo fator do mês.
+       Mês futuro é projeção: assume que vai ser pago. Mês já vencido sem
+       pagamento no Extrato fica em zero — atraso não abate dívida. */
+    const futuro = ym > mesAtual;
+    let amort = hasManual ? (manualVal / fator) : (futuro ? amortPrev : 0);
     if(amort > saldo) amort = saldo;
     if(amort < 0) amort = 0;
 
@@ -84156,7 +84173,9 @@ function _impParcPlan(p){
       manual: hasManual, manualVal,
       saldoFim,
       baseMes: nominal,
-      fator, amort
+      fator, amort, futuro,
+      /* vencido e sem guia identificada — não abateu nada */
+      emAtraso: !hasManual && !futuro
     });
 
     /* Parcela zerada (mês pulado) não derruba o saldo — e não trava o loop,
@@ -84172,11 +84191,13 @@ function _impParcPlan(p){
   return p._plan;
 }
 
-// Número total de parcelas até quitar (0 se ainda não determinado / growing)
+/* Número de parcelas do CONTRATO — saldo dividido pela parcela nominal.
+   É propriedade do contrato, não do histórico: mês em atraso empurra a data
+   final, mas não cria parcela nova. Usar rows.length aqui faria o total
+   inchar a cada mês não pago ("0 / 63 pagas"). */
 function impParcelasTotais(p){
-  const plan = _impParcPlan(p);
-  if(plan.growing) return 0;
-  return plan.rows.length;
+  if(!p || !p.saldoInicial || !p.parcelaMensal) return 0;
+  return Math.max(1, Math.ceil((+p.saldoInicial / +p.parcelaMensal) - 0.0001));
 }
 
 // Parcela a pagar NO MÊS dado
@@ -84624,10 +84645,16 @@ function renderImpParGrupoRow(gid, lista, year, conc, colapsado){
   const ativos = lista.filter(x => x.ativo !== false);
   const pagoG = (conc.porGrupo || {})[gid] || {};
 
-  let prevAno = 0, pagoAno = 0, saldoG = 0, parcelaG = 0;
+  /* Duas referências diferentes de propósito: a coluna fixa diz o saldo de
+     HOJE (igual às linhas de contrato) e a última coluna diz o projetado pra
+     dezembro. Usar o mesmo número nas duas fazia o bloco divergir da soma
+     dos contratos logo abaixo dele. */
+  let prevAno = 0, pagoAno = 0, saldoHojeG = 0, saldoDezG = 0, parcelaG = 0;
+  const _ymHoje = impParcMesRef(year);
   for(const x of ativos){
-    saldoG   += impParcSaldoFim(x, impMesKey(year, 11)) || 0;
-    parcelaG += impParcPrevistoMes(x, impParcMesRef(year)) || 0;
+    saldoHojeG += impParcSaldoFim(x, _ymHoje) || 0;
+    saldoDezG  += impParcSaldoFim(x, impMesKey(year, 11)) || 0;
+    parcelaG   += impParcPrevistoMes(x, _ymHoje) || 0;
   }
   const cells = IMP_MESES.map((_,m) => {
     const ym = impMesKey(year, m);
@@ -84660,13 +84687,13 @@ function renderImpParGrupoRow(gid, lista, year, conc, colapsado){
         ${b ? `<button type="button" class="imp-grp-edit" onclick="renomearImpBloco('${esc(gid)}')" title="Renomear bloco">renomear</button>` : ''}
       </div>
     </td>
-    <td class="stk stk-2 gsub">${saldoG > 0.005 ? fmtShortBR(saldoG) : '—'}</td>
+    <td class="stk stk-2 gsub">${saldoHojeG > 0.005 ? fmtBR(saldoHojeG, 2) : '—'}</td>
     <td class="stk stk-3 gsub">${ativos.length} ativo${ativos.length===1?'':'s'}</td>
-    <td class="stk stk-4 gsub">${parcelaG > 0.005 ? fmtShortBR(parcelaG) : '—'}</td>
+    <td class="stk stk-4 gsub">${parcelaG > 0.005 ? fmtBR(parcelaG, 2) : '—'}</td>
     <td class="stk stk-5 gsub"></td>
     ${cells}
-    <td class="yr-tot gsub">${pagoAno > 0.005 ? fmtShortBR(pagoAno) : '—'}<span class="g-prev">${prevAno > 0.005 ? fmtShortBR(prevAno) : ''}</span></td>
-    <td class="yr-tot gsub" style="background:#4C1D95;color:#fff">${fmtShortBR(saldoG)}</td>
+    <td class="yr-tot gsub">${pagoAno > 0.005 ? fmtBR(pagoAno, 2) : '—'}<span class="g-prev">${prevAno > 0.005 ? fmtBR(prevAno, 2) : ''}</span></td>
+    <td class="yr-tot gsub" style="background:#4C1D95;color:#fff">${fmtBR(saldoDezG, 2)}</td>
     <td class="att"></td>
     <td class="del"></td>
   </tr>`;
@@ -84704,7 +84731,7 @@ function renderImpParAvulsoRow(year, conc){
     <td class="stk stk-4 gsub"><span class="imp-avulso-na">—</span></td>
     <td class="stk stk-5 gsub"></td>
     ${cells}
-    <td class="yr-tot gsub">${ano > 0.005 ? fmtShortBR(ano) : '—'}</td>
+    <td class="yr-tot gsub">${ano > 0.005 ? fmtBR(ano, 2) : '—'}</td>
     <td class="yr-tot gsub" style="background:#4C1D95;color:#fff"><span class="imp-avulso-na" style="color:#DDD6FE">—</span></td>
     <td class="att"></td>
     <td class="del"></td>
@@ -84745,15 +84772,22 @@ function renderImpParPainel(year, conc){
       </button>`;
     }).join('');
     const temGrave = pior === 'grave';
-    html += `<div class="imp-alerta ${pior}">
-      <div class="imp-al-hd">
+    const min = !!(impostos && impostos.alertaParcMin);
+    const totalGeral = alertas.reduce((s,a)=>s+a.total,0);
+    html += `<div class="imp-alerta ${pior}${min?' min':''}">
+      <button type="button" class="imp-al-hd" onclick="toggleImpAlertaMin()"
+              title="${min ? 'Abrir o detalhe' : 'Recolher — fica só a linha de resumo'}">
+        <span class="imp-al-chevron">${min ? '▸' : '▾'}</span>
         <strong>Parcela prevista que não saiu da conta</strong>
-        <span class="imp-al-tot">${fmtBRL(alertas.reduce((s,a)=>s+a.total,0))}</span>
+        ${min ? `<span class="imp-al-resumo">${alertas.length === 1 ? '1 bloco' : alertas.length + ' blocos'}</span>` : ''}
+        <span class="imp-al-tot">${fmtBRL(totalGeral)}</span>
+      </button>
+      <div class="imp-al-corpo">
+        <div class="imp-al-linhas">${linhas}</div>
+        <p class="imp-al-pe">${temGrave
+          ? 'Três parcelas em atraso rescindem o parcelamento e a dívida volta inteira pra dívida ativa. Se já pagou, confira se o lançamento está no Extrato com a categoria do parcelamento.'
+          : 'Se já pagou, confira se o lançamento está no Extrato com a categoria do parcelamento.'}</p>
       </div>
-      <div class="imp-al-linhas">${linhas}</div>
-      <p class="imp-al-pe">${temGrave
-        ? 'Três parcelas em atraso rescindem o parcelamento e a dívida volta inteira pra dívida ativa. Se já pagou, confira se o lançamento está no Extrato com a categoria do parcelamento.'
-        : 'Se já pagou, confira se o lançamento está no Extrato com a categoria do parcelamento.'}</p>
     </div>`;
   }
 
@@ -84804,6 +84838,15 @@ function renderImpParPainel(year, conc){
   }
   el.innerHTML = html;
 }
+
+/* O alerta é importante, mas não precisa ocupar a tela todo dia — quem já
+   sabe do atraso recolhe e fica só a linha de resumo. A escolha fica salva. */
+function toggleImpAlertaMin(){
+  impostos.alertaParcMin = !impostos.alertaParcMin;
+  impSave();
+  try{ renderImpParPainel(impActiveYearPar, impParcConcAll()); }catch(e){}
+}
+try{ window.toggleImpAlertaMin = toggleImpAlertaMin; }catch(_){}
 
 function toggleImpParBloco(gid){
   impostos.parcColapsados[gid] = !impostos.parcColapsados[gid];
@@ -84884,7 +84927,7 @@ function renderImpParRow(p, year, conc){
   // do Math.ceil em setImpParNumParcelas). Fallback: comprimento real do plano.
   const total = (p.numParcelasAlvo && p.numParcelasAlvo > 0)
     ? p.numParcelasAlvo
-    : plan.rows.length;
+    : impParcelasTotais(p);
   const saldoFim = impParcSaldoFim(p, impMesKey(year, 11));
   const growing = plan.growing === true;
   const quitado = (p.saldoInicial > 0) && !growing && (saldoFim <= 0 && total > 0
@@ -85014,10 +85057,14 @@ function renderImpParRow(p, year, conc){
         const ini  = +p.saldoInicial || 0;
         const pago = Math.max(0, ini - est);
         const pct  = ini > 0 ? Math.min(100, (pago / ini) * 100) : 0;
-        return `<div class="imp-saldo-cel" title="Saldo estimado hoje ${esc(fmtBRL(est))} · inicial ${esc(fmtBRL(ini))} · ${fmtBR(pct,0)}% amortizado">
+        const _pagas = Object.keys(impParcPagamentosEfetivos(p)).filter(k => +impParcPagamentosEfetivos(p)[k] > 0.005).length;
+        const _tip = pago > 0.005
+          ? `Saldo hoje ${fmtBRL(est)} · inicial ${fmtBRL(ini)} · ${fmtBR(pct,0)}% abatido por ${_pagas} guia${_pagas===1?'':'s'} identificada${_pagas===1?'':'s'} no Extrato`
+          : `Saldo hoje ${fmtBRL(est)} — nenhuma guia identificada no Extrato ainda, então nada foi abatido`;
+        return `<div class="imp-saldo-cel" title="${esc(_tip)}">
           <span class="imp-saldo-hoje${quit?' quit':''}">${quit ? 'quitado' : fmtBR(est, 2)}</span>
           <span class="imp-saldo-bar"><i style="width:${pct.toFixed(1)}%"></i></span>
-          <span class="imp-saldo-ini">${fmtBR(pct,0)}% de ${fmtShortBR(ini)}</span>
+          <span class="imp-saldo-ini">${fmtBR(pct,0)}% de ${fmtBR(ini, 2)}</span>
         </div>`;
       })()}
     </td>
@@ -85776,7 +85823,7 @@ function _impPagarDialogLegado(id, ym){
         </div>
         <div class="imp-pagar-title-wrap">
           <div class="imp-pagar-title">Pagamento de ${esc(mesLabel)}</div>
-          <div class="imp-pagar-sub">${esc(p.nome || '(sem nome)')} · parcela ${idx+1}${plan.growing?'':'/'+((p.numParcelasAlvo && p.numParcelasAlvo>0) ? p.numParcelasAlvo : plan.rows.length)}${temAtrasos ? ' <span style="color:#B45309;font-weight:700">(acumulada)</span>' : ''}</div>
+          <div class="imp-pagar-sub">${esc(p.nome || '(sem nome)')} · parcela ${idx+1}${plan.growing?'':'/'+((p.numParcelasAlvo && p.numParcelasAlvo>0) ? p.numParcelasAlvo : impParcelasTotais(p))}${temAtrasos ? ' <span style="color:#B45309;font-weight:700">(acumulada)</span>' : ''}</div>
         </div>
       </div>
       <div class="imp-pagar-info">
