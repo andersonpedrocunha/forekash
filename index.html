@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787096826"/>
+  <meta name="fk-build" content="forekash-v1787097317"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -82448,6 +82448,16 @@ function impLoad(){
     impostos.parcColapsados = {};
   }
   if(typeof impostos.alertaParcMin !== 'boolean') impostos.alertaParcMin = false;
+  /* Amortização digitada na aba deixou de existir — ela vinha do Extrato duas
+     vezes e derrubava o saldo em dobro. O dado fica guardado (não apagamos
+     nada do usuário), mas não entra mais no cálculo. */
+  try{
+    const comAmort = impostos.parcelamentos.filter(x => Array.isArray(x.amortizacoes) && x.amortizacoes.length);
+    if(comAmort.length){
+      console.info('[Forekash] ' + comAmort.length + ' parcelamento(s) tinham amortização digitada na aba. '
+        + 'Ela não entra mais no saldo — o pagamento tem que estar no Extrato. O registro antigo ficou guardado em .amortizacoes.');
+    }
+  }catch(_){}
   /* Até a v4 o campo guardava a parcela como o usuário digitava — que é a guia
      paga, com o 1% dentro. O motor agora trabalha com o valor nominal. */
   if(!impostos.migradoParcNominal){
@@ -84179,7 +84189,6 @@ function _impParcPlan(p){
   const key = 'v5|' + _impParcConcRev + '|' + _impSelicHash() + '|' + (impostos.selicAnual||0)
             + '|' + p.saldoInicial + '|' + p.parcelaMensal + '|' + p.mesInicio + '|' + pagHash
             + '|' + (p.pagasAntes || 0)
-            + '|' + JSON.stringify(p.amortizacoes || [])
             + '|' + JSON.stringify(p.quitacao || null)
             + '|' + JSON.stringify(p.cobertura || null);
   if(p._planKey === key && p._plan) return p._plan;
@@ -84195,12 +84204,12 @@ function _impParcPlan(p){
      entram como histórico: abatem o saldo e não contam como atraso. */
   const pagasAntes = Math.max(0, parseInt(p.pagasAntes, 10) || 0);
 
-  /* Amortização extra (valor além da parcela do mês) e encerramento. */
-  const amortExtra = {};
-  for(const am of (p.amortizacoes || [])){
-    const ym = String((am && am.data) || '').slice(0, 7);
-    if(ym) amortExtra[ym] = (amortExtra[ym] || 0) + (+am.valor || 0);
-  }
+  /* Amortização NÃO se digita aqui. Dinheiro que sai da conta vem do Extrato,
+     sempre — inclusive o pagamento extra. Digitar aqui criava duas fontes pro
+     mesmo fato: R$ 12.000 lançados nos dois lugares derrubavam o saldo em
+     R$ 24.000. Um pagamento maior no Extrato já amortiza mais; se o valor não
+     for identificado sozinho, o painel deixa atribuir e a guia deixa dizer
+     quantas parcelas cobriu. */
   const quitYM = (p.quitacao && p.quitacao.data) ? String(p.quitacao.data).slice(0, 7) : null;
   /* O Extrato sabe quanto saiu e quando; não sabe QUAIS parcelas a guia
      cobriu — isso só está no DARF. O app infere pelo valor e o usuário
@@ -84241,13 +84250,7 @@ function _impParcPlan(p){
     else if(futuro)      amort = amortPrev;                 // projeção
     else                 amort = 0;                         // vencida e sem guia
 
-    /* Amortização extra do mês abate nominal — o valor pago vem corrigido,
-       então deflaciona pelo fator antes de descontar do saldo. */
-    const extra = amortExtra[ym] || 0;
-    if(extra > 0) amort += extra / fator;
-
     let parcela = historico ? parcelaPrev : (hasManual ? manualVal : parcelaPrev);
-    if(extra > 0) parcela += extra;
 
     /* Quitação: zera o que restava, e a parcela do mês é o valor efetivamente
        pago no encerramento. */
@@ -84270,7 +84273,7 @@ function _impParcPlan(p){
       manual: hasManual, manualVal,
       saldoFim,
       baseMes: nominal,
-      fator, amort, futuro, historico, extra,
+      fator, amort, futuro, historico,
       /* excedente sobre as parcelas cobertas — juros de mora, multa */
       encargo: hasManual ? Math.max(0, manualVal - (nCob > 0 ? nCob : Math.round(amort / (nominal || 1))) * nominal * fator) : 0,
       coberturaManual: nCob > 0,
@@ -85188,9 +85191,6 @@ function renderImpParRow(p, year, conc){
         title = `${numPar} · não foi paga no mês, mas entrou na guia de ${lbl}`;
         return `<td class="${cls}" title="${esc(title)}">${display}<span class="imp-cob-seta" title="${esc(title)}">›</span></td>`;
       }
-      if(row.extra > 0){
-        title = `${numPar} · inclui amortização extra de ${fmtBRL(row.extra)}`;
-      }
       if(row.manual){
         // Classifica em relação ao previsto
         const delta = (real||0) - prev;
@@ -85542,12 +85542,16 @@ function impParcModal(id){
     +       '<div class="ipm-anexo-lista" id="ipm-anexo-lista"></div>'
     +     '</div>'
     +     (ed && impParcEncerrado(P) ? _ipmNotaEncerrado(P) : '')
+    +     (ed && Array.isArray(P.amortizacoes) && P.amortizacoes.length
+        ? ('<div class="ipm-encerrado" style="background:#FFFBEB;border-color:#FDE68A;color:#92400E">'
+         + '<b>' + P.amortizacoes.length + ' amortização(ões) antiga(s) neste contrato</b> — não entram mais no saldo. '
+         + 'Pagamento é sempre o do Extrato: lance lá e, se precisar, diga na planilha quantas parcelas a guia cobriu.</div>')
+        : '')
     +     '<div class="imp-parc-nota">A baixa das parcelas vem do <b>Extrato Financeiro</b>. Lance o pagamento lá com a categoria do parcelamento (ou o nome do bloco) e ele preenche o mês aqui.</div>'
     +   '</div>'
     +   '<div class="emp-novo-ft">'
     +     (ed && !impParcEncerrado(P)
-        ? ('<button type="button" class="btn btn-g ipm-acao" onclick="impParcEncerrarModal(' + P.id + ', \'amortizar\')">Amortizar</button>'
-         + '<button type="button" class="btn btn-g ipm-acao" onclick="impParcEncerrarModal(' + P.id + ', \'quitar\')">Quitar / migrar</button>')
+        ? '<button type="button" class="btn btn-g ipm-acao" onclick="impParcEncerrarModal(' + P.id + ', \'quitar\')">Encerrar contrato</button>'
         : '')
     +     '<span class="emp-novo-err" id="ipm-err"></span>'
     +     '<button type="button" class="btn btn-sec" onclick="impParcModalFechar()">Cancelar</button>'
@@ -85595,7 +85599,7 @@ function impParcEncerrarModal(id, tipo){
   if(!P) return;
   if(document.getElementById('ipm-enc-ov')) return;
   const e = x => String(x == null ? '' : x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
-  const quitar = (tipo === 'quitar');
+  const quitar = true;   // amortização não se digita aqui: vem do Extrato
   const hojeYM = impMesKey(String(new Date().getFullYear()), new Date().getMonth());
   const saldo  = impParcSaldoFim(P, hojeYM) || 0;
   const hoje   = new Date().toISOString().slice(0,10);
@@ -85615,7 +85619,7 @@ function impParcEncerrarModal(id, tipo){
     +     '<div class="emp-novo-grid" style="margin-top:0">'
     /* O bloco de motivos vive DENTRO do grid: fora dele o seletor
        `.emp-novo-grid label` não alcançava e o rótulo saía sem formatação. */
-    +       (quitar
+    +       (true
         ? ('<div class="f full"><label>O que aconteceu <i>*</i></label>'
          + '<div class="ipm-motivos">'
          + IMP_MOTIVOS.map((m, i) =>
@@ -85623,23 +85627,23 @@ function impParcEncerrarModal(id, tipo){
            + '<input type="radio" name="ipm-motivo" value="' + m.id + '"' + (i===0?' checked':'') + ' onchange="_ipmMotivoMuda()">'
            + '<span><b>' + e(m.nome) + '</b><small>' + e(m.ajuda) + '</small></span></label>').join('')
          + '</div></div>')
-        : '<div class="f full"><div class="imp-parc-hint">Pagamento além da parcela do mês. Abate o saldo devedor e encurta o parcelamento — a parcela continua a mesma.</div></div>')
+        : '')
     +       '<div class="f"><label>Data do pagamento <i>*</i></label>'
     +         '<input type="date" id="ipm-enc-data" value="' + hoje + '"></div>'
-    +       '<div class="f"><label>' + (quitar ? 'Valor pago' : 'Valor amortizado') + ' <i>*</i></label>'
+    +       '<div class="f"><label>Valor pago</label>'
     +         '<div class="pre"><span>R$</span><input type="number" step="0.01" min="0" id="ipm-enc-valor" placeholder="0,00"'
     +           (quitar ? ' value="' + (saldo > 0 ? saldo.toFixed(2) : '') + '"' : '')
     +           ' oninput="_ipmEncHint()"></div></div>'
     +       '<div class="f full"><label>Observação</label>'
-    +         '<input type="text" id="ipm-enc-obs" maxlength="120" placeholder="' + (quitar ? 'Ex.: migrado para o Relp, 60 parcelas' : 'Ex.: sobra de caixa do trimestre') + '"></div>'
+    +         '<input type="text" id="ipm-enc-obs" maxlength="120" placeholder="Ex.: migrado para o Relp, 60 parcelas"></div>'
     +       '<div class="f full"><div class="imp-parc-hint" id="ipm-enc-hint"></div></div>'
+    +       '<div class="f full"><div class="imp-parc-hint">O valor é só registro: quem move dinheiro é o <b>Extrato Financeiro</b>. Encerrar aqui zera o saldo do contrato e para a projeção.</div></div>'
     +     '</div>'
     +   '</div>'
     +   '<div class="emp-novo-ft">'
     +     '<span class="emp-novo-err" id="ipm-enc-err"></span>'
     +     '<button type="button" class="btn btn-sec" onclick="impParcEncerrarFechar()">Cancelar</button>'
-    +     '<button type="button" class="btn btn-p" onclick="impParcEncerrarSalvar(' + P.id + ', \'' + (quitar ? 'quitar' : 'amortizar') + '\')">'
-    +       (quitar ? 'Encerrar contrato' : 'Registrar amortização') + '</button>'
+    +     '<button type="button" class="btn btn-p" onclick="impParcEncerrarSalvar(' + P.id + ', \'quitar\')">Encerrar contrato</button>'
     +   '</div>'
     + '</div>';
   document.body.appendChild(ov);
@@ -85762,23 +85766,12 @@ function impParcEncerrarSalvar(id, tipo){
   const data  = (document.getElementById('ipm-enc-data') || {}).value || '';
   const valor = parseFloat((document.getElementById('ipm-enc-valor') || {}).value);
   const obs   = ((document.getElementById('ipm-enc-obs') || {}).value || '').trim();
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(data)) return falha('Informe a data do pagamento.');
-  if(!isFinite(valor) || valor <= 0)    return falha('Informe o valor pago.');
-
-  if(tipo === 'amortizar'){
-    if(!Array.isArray(P.amortizacoes)) P.amortizacoes = [];
-    P.amortizacoes.push({ data, valor, obs });
-    P._planKey = null; P._plan = null;
-    impSave(); impParcEncerrarFechar(); impParcModalFechar();
-    renderImpParSheet(); updateImpParKpis();
-    if(typeof toast === 'function') toast('Amortização de ' + fmtBRL(valor) + ' registrada · o saldo e o número de parcelas foram recalculados', 5000);
-    return;
-  }
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(data)) return falha('Informe a data do encerramento.');
 
   const motivo = (document.querySelector('input[name="ipm-motivo"]:checked') || {}).value || 'quitacao';
   const hojeYM = impMesKey(String(new Date().getFullYear()), new Date().getMonth());
   const saldoAntes = impParcSaldoFim(P, hojeYM) || 0;
-  P.quitacao = { data, valor, motivo, obs, saldoAntes };
+  P.quitacao = { data, valor: (isFinite(valor) && valor > 0 ? valor : 0), motivo, obs, saldoAntes };
   P.ativo = false;
   P._planKey = null; P._plan = null;
   impSave(); impParcEncerrarFechar(); impParcModalFechar();
