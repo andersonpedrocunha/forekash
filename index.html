@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787002197"/>
+  <meta name="fk-build" content="forekash-v1787072229"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -99318,6 +99318,44 @@ try{
   });
 }catch(_){}
 
+/* ══ IMPOSTO PERTENCE AO MÓDULO IMPOSTOS ═════════════════════════════════
+   O catmap tinha a categoria genérica "Impostos" apontando para `estrutura`,
+   ao lado das específicas (DAS, IRPJ, ISS…) que já apontavam para `impostos`.
+   Duas classificações para a mesma coisa: imposto lançado como "Impostos"
+   caía no painel de custos e aparecia lá como "sem linha", porque não existe
+   nem deve existir linha de imposto na Estrutura — ele tem módulo próprio,
+   com apuração e vencimento.
+
+   Reaponta o mapeamento. Não toca em lançamento nenhum: o que muda é para
+   onde a categoria leva. */
+const FK_CATS_IMPOSTO = [
+  'impostos','imposto','tributos','tributo','das','das (simples nacional)',
+  'simples nacional','irpj','csll','pis','cofins','iss','icms','inss',
+  'inss rb','fgts','irrf','ipi','cpp','difal'
+];
+function fkCorrigirCatmapImpostos(){
+  try{
+    if(typeof catmapData === 'undefined' || !catmapData || !Array.isArray(catmapData.categorias)) return 0;
+    let n = 0;
+    catmapData.categorias.forEach(c => {
+      if(!c || !c.nome) return;
+      const nome = String(c.nome).trim().toLowerCase();
+      if(c.moduloId === 'estrutura' && FK_CATS_IMPOSTO.indexOf(nome) >= 0){
+        c.moduloId = 'impostos';
+        c.linhaId = null;      // linhaId 'fix'/'var' é conceito da Estrutura
+        n++;
+      }
+    });
+    if(n){
+      try{ if(typeof _catmapSave === 'function') _catmapSave(); }catch(_){}
+      try{ console.warn('[FK] ' + n + ' categoria(s) de imposto reapontada(s) da Estrutura pro módulo Impostos'); }catch(_){}
+      try{ if(typeof estRenderRealizado === 'function') estRenderRealizado(); }catch(_){}
+    }
+    return n;
+  }catch(_){ return 0; }
+}
+try{ window.fkCorrigirCatmapImpostos = fkCorrigirCatmapImpostos; }catch(_){}
+
 function fkFaxinaSeed(){
   if(window.FK_MODE !== 'cloud') return 0;
   let n = 0;
@@ -124480,6 +124518,7 @@ async function fkCloudFullHydrate(){
      o seed plantou nesta conta. Limpar só o servidor não adiantava: o
      navegador ressincronizava a cópia suja em segundos. */
   try{ if(typeof fkFaxinaSeed === 'function') fkFaxinaSeed(); }catch(_){}
+  try{ if(typeof fkCorrigirCatmapImpostos === 'function') fkCorrigirCatmapImpostos(); }catch(_){}
 }
 /* ══ Garantia de que TUDO está na nuvem ═══════════════════════════════════
    Os módulos grandes (Estrutura, Pessoas, Receita…) só subiam quando o
