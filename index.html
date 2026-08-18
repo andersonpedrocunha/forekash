@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787084244"/>
+  <meta name="fk-build" content="forekash-v1787085437"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17120,6 +17120,18 @@ tr.imp-par-grupo.colapsado > td{opacity:.92}
 .imp-ni-tbl .ni-motivo{color:#94A3B8;font-size:.66rem}
 .imp-ni-tbl .ni-acao select{font-size:.66rem;border:1px solid #CBD5E1;border-radius:5px;
   padding:2px 4px;background:#fff;color:#334155}
+/* Parcelamento sem contrato cadastrado — acompanhamento simples, não erro. */
+tr.imp-par-avulso > td{border-top-style:dashed}
+tr.imp-par-avulso .imp-grp-txt{color:#475569}
+.imp-avulso-na{color:#CBD5E1;font-weight:600;font-size:.64rem}
+.imp-avulso-card{border:1px solid #DBEAFE;background:#EFF6FF;border-radius:10px;
+  padding:12px 14px;margin:0 0 10px}
+.imp-av-hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.imp-av-hd strong{font-size:.8rem;color:#1E3A8A}
+.imp-av-tot{margin-left:auto;font-size:.76rem;font-weight:700;color:#1D4ED8}
+.imp-av-sub{font-size:.72rem;color:#1E40AF;line-height:1.55;margin:6px 0 0;opacity:.92}
+.imp-av-sub2{font-size:.7rem;color:#475569;line-height:1.55;margin:6px 0 10px}
+.imp-avulso-card .rec-tipo-filter-btn{font-size:.7rem}
 /* Saldo devedor estimado: o número que muda a cada guia paga. */
 .imp-saldo-cel{display:flex;flex-direction:column;align-items:flex-end;gap:1px;padding:3px 4px}
 .imp-saldo-hoje{font-size:.78rem;font-weight:800;color:#B45309;font-variant-numeric:tabular-nums;
@@ -84141,6 +84153,10 @@ function impBloco(id){
 }
 /* Grupo de conciliação de um contrato: o bloco dele, ou o balde "sem bloco". */
 const IMP_GRUPO_SOLO = '__sem_bloco__';
+/* Parcelamento que saiu da conta sem contrato cadastrado. Nem toda empresa
+   quer controlar contrato a contrato — muitas só pagam a guia. Pra essas, o
+   módulo mostra o que saiu e não cobra cadastro nenhum. */
+const IMP_GRUPO_AVULSO = '__sem_contrato__';
 function impParcGrupoDe(p){
   const b = p && p.bloco ? impBloco(p.bloco) : null;
   return b ? b.id : IMP_GRUPO_SOLO;
@@ -84190,7 +84206,7 @@ function impParcPrevistoGrupo(gid, ym){
    → { porParc:{parcId:{ym:valor}}, porGrupo:{gid:{ym:valor}},
        naoIdent:[{lancId,ym,valor,desc,cat,motivo}], totalMes:{ym:valor} }   */
 function impParcConciliar(ano){
-  const out = { porParc:{}, porGrupo:{}, naoIdent:[], totalMes:{} };
+  const out = { porParc:{}, porGrupo:{}, naoIdent:[], avulsos:[], totalMes:{} };
   const y = (ano == null) ? null : String(ano);   // null = todos os anos
   let lans = [];
   try{ lans = (extratoData && extratoData.lancamentos) || []; }catch(_){ return out; }
@@ -84256,13 +84272,26 @@ function impParcConciliar(ano){
         soma(out.porGrupo, hit.grupo, ym, ev.valor);
         continue;
       }
-      /* 5 · não deu: fica visível em vez de virar palpite */
-      out.naoIdent.push({
-        lancId: l.id, ym, valor: ev.valor,
-        desc: l.descricao || l.historico || '(sem descrição)',
-        cat: l.categoria || '',
-        motivo: cand.length > 1 ? 'valor bate com mais de um contrato' : 'valor não bate com nenhuma parcela prevista'
-      });
+      /* 5 · sem contrato pra chamar de dono: entra no avulso, que é dinheiro
+             que saiu de verdade. Só o caso AMBÍGUO — valor que serve a mais de
+             um contrato — vira pendência, porque aí a escolha é do usuário. */
+      const desc = l.descricao || l.historico || '(sem descrição)';
+      /* Ambíguo DENTRO de um bloco só: não dá pra dizer qual contrato, mas dá
+         pra dizer qual bloco — e é no bloco que a conciliação fecha. Jogar no
+         avulso acusaria atraso num mês que foi pago. */
+      const gruposCand = new Set(cand.map(x => impParcGrupoDe(x)));
+      if(cand.length > 1 && gruposCand.size === 1){
+        soma(out.porGrupo, cand[0] && impParcGrupoDe(cand[0]), ym, ev.valor);
+      } else {
+        soma(out.porGrupo, IMP_GRUPO_AVULSO, ym, ev.valor);
+        out.avulsos.push({ lancId: l.id, ym, valor: ev.valor, desc, cat: l.categoria || '' });
+      }
+      if(cand.length > 1){
+        out.naoIdent.push({
+          lancId: l.id, ym, valor: ev.valor, desc, cat: l.categoria || '',
+          motivo: 'o valor serve a ' + cand.length + ' contratos'
+        });
+      }
     }
   }
   return out;
@@ -84285,6 +84314,7 @@ function impParcAlertas(ano, conc){
     grupos.add(impParcGrupoDe(p));
   }
   for(const gid of grupos){
+    if(gid === IMP_GRUPO_AVULSO) continue;   // sem contrato, não há previsto pra cobrar
     const meses = [];
     for(let m = 0; m < 12; m++){
       if(y > anoAtual || (y === anoAtual && m >= mesAtual)) break;   // mês em curso não cobra
@@ -84443,6 +84473,13 @@ function renderImpParSheet(){
       }
     }
   }
+  /* Parcelamento pago sem contrato cadastrado — vale pra quem só quer saber
+     quanto saiu. Aparece mesmo sem nenhum contrato na planilha. */
+  const avulsoAno = _impAvulsoDoAno(year, conc);
+  if(avulsoAno > 0.005){
+    if(rows.length === 1 && rows[0].indexOf('empty-row') >= 0) rows.length = 0;
+    rows.push(renderImpParAvulsoRow(year, conc));
+  }
   tbody.innerHTML = rows.join('');
   try{ renderImpParPainel(year, conc); }catch(e){ console.warn('imp/painel:', e); }
 
@@ -84533,6 +84570,45 @@ function renderImpParGrupoRow(gid, lista, year, conc, colapsado){
   </tr>`;
 }
 
+function _impAvulsoDoAno(year, conc){
+  const m = ((conc && conc.porGrupo) || {})[IMP_GRUPO_AVULSO] || {};
+  let t = 0;
+  for(let i=0;i<12;i++) t += (m[impMesKey(year, i)] || 0);
+  return t;
+}
+
+/* Linha do parcelamento sem contrato: só o realizado. Nada de previsto, nada
+   de saldo devedor — o app não tem como saber, e inventar seria pior. */
+function renderImpParAvulsoRow(year, conc){
+  const m = ((conc && conc.porGrupo) || {})[IMP_GRUPO_AVULSO] || {};
+  let ano = 0;
+  const cells = IMP_MESES.map((_,i) => {
+    const v = m[impMesKey(year, i)] || 0;
+    ano += v;
+    return v > 0.005
+      ? `<td class="mes gsub g-ok" title="pago ${esc(fmtBRL(v))} · sem contrato cadastrado"><span class="g-pago">${fmtShortBR(v)}</span></td>`
+      : '<td class="mes gsub">—</td>';
+  }).join('');
+  return `<tr class="imp-par-grupo imp-par-avulso" style="--gc:#475569">
+    <td class="stk stk-1">
+      <div class="imp-grp-nome">
+        <span class="imp-grp-txt">Sem contrato cadastrado</span>
+        <button type="button" class="imp-grp-edit" onclick="impParcModal(null)"
+                title="Cadastrar o contrato pra ganhar saldo devedor e alerta de atraso">cadastrar</button>
+      </div>
+    </td>
+    <td class="stk stk-2 gsub"><span class="imp-avulso-na">—</span></td>
+    <td class="stk stk-3 gsub"><span class="imp-avulso-na">só o realizado</span></td>
+    <td class="stk stk-4 gsub"><span class="imp-avulso-na">—</span></td>
+    <td class="stk stk-5 gsub"></td>
+    ${cells}
+    <td class="yr-tot gsub">${ano > 0.005 ? fmtShortBR(ano) : '—'}</td>
+    <td class="yr-tot gsub" style="background:#4C1D95;color:#fff"><span class="imp-avulso-na" style="color:#DDD6FE">—</span></td>
+    <td class="att"></td>
+    <td class="del"></td>
+  </tr>`;
+}
+
 /* Painel acima da planilha: risco de exclusão primeiro, depois o que o Extrato
    não conseguiu atribuir. Nada some em silêncio. */
 function renderImpParPainel(year, conc){
@@ -84540,7 +84616,9 @@ function renderImpParPainel(year, conc){
   if(!el) return;
   const alertas = impParcAlertas(year, conc);
   const naoIdent = (conc.naoIdent || []).filter(x => String(x.ym).slice(0,4) === String(year));
-  if(!alertas.length && !naoIdent.length){ el.innerHTML = ''; return; }
+  const avulsos  = (conc.avulsos  || []).filter(x => String(x.ym).slice(0,4) === String(year));
+  const temContrato = ((impostos && impostos.parcelamentos) || []).some(x => x.ativo !== false);
+  if(!alertas.length && !naoIdent.length && !avulsos.length){ el.innerHTML = ''; return; }
 
   let html = '';
   for(const a of alertas){
@@ -84566,6 +84644,26 @@ function renderImpParPainel(year, conc){
     </div>`;
   }
 
+  /* Quem não controla contrato a contrato — e é a maioria — não pode ser
+     recebido com um balde de erro. Aqui o texto reconhece que só acompanhar
+     o que saiu é uma escolha legítima, e oferece o detalhe sem cobrar. */
+  if(avulsos.length){
+    const soma = avulsos.reduce((s,x)=>s+x.valor,0);
+    html += `<div class="imp-avulso-card">
+      <div class="imp-av-hd">
+        <strong>${avulsos.length} pagamento${avulsos.length===1?'':'s'} de parcelamento sem contrato cadastrado</strong>
+        <span class="imp-av-tot">${fmtBRL(soma)} em ${year}</span>
+      </div>
+      <p class="imp-av-sub">${
+        temContrato
+          ? 'Saíram da conta com categoria de parcelamento, mas não batem com nenhum contrato cadastrado — provavelmente são de contratos que você optou por não detalhar. Estão somados na linha <b>Sem contrato cadastrado</b> da planilha e entram no fluxo de caixa normalmente.'
+          : 'Você tem parcelamento saindo da conta e nenhum contrato cadastrado — o que é uma escolha legítima. O valor aparece na linha <b>Sem contrato cadastrado</b> e entra no fluxo de caixa normalmente.'
+      }</p>
+      <p class="imp-av-sub2">Cadastrar o contrato acrescenta três coisas que só existem com ele: <b>saldo devedor</b> corrigido pela SELIC, <b>previsão</b> das parcelas que ainda vão vencer e <b>alerta de atraso</b> — três parcelas em atraso rescindem o parcelamento.</p>
+      <button type="button" class="rec-tipo-filter-btn primary" onclick="impParcModal(null)">Cadastrar parcelamento</button>
+    </div>`;
+  }
+
   if(naoIdent.length){
     const opts = ((impostos && impostos.parcelamentos) || [])
       .filter(x => x.ativo !== false)
@@ -84584,10 +84682,10 @@ function renderImpParPainel(year, conc){
     const soma = naoIdent.reduce((s,x)=>s+x.valor,0);
     html += `<div class="imp-naoident">
       <div class="imp-ni-hd">
-        <strong>${naoIdent.length} pagamento${naoIdent.length===1?'':'s'} de parcelamento sem contrato identificado</strong>
+        <strong>${naoIdent.length} pagamento${naoIdent.length===1?' serve':'s servem'} a mais de um contrato</strong>
         <span class="imp-ni-tot">${fmtBRL(soma)}</span>
       </div>
-      <p class="imp-ni-sub">O Extrato não sabe a que contrato pertence um DARF. Estes entram no total, mas não em nenhum contrato — atribua abaixo ou deixe no bloco.</p>
+      <p class="imp-ni-sub">Contratos com a mesma parcela: o Extrato não tem como saber qual deles foi pago. Escolha abaixo — ou deixe como está, que o valor segue somado no bloco.</p>
       <table class="imp-ni-tbl"><tbody>${linhas}</tbody></table>
     </div>`;
   }
@@ -84904,15 +85002,38 @@ function updateImpParKpis(){
   }
   const count = impostos.parcelamentos.length;
 
+  /* Parcelamento pago sem contrato cadastrado conta igual: o dinheiro saiu.
+     Sem isso, quem não cadastra contrato vê zero e conclui que não tem
+     parcelamento — que é justamente o contrário do que o extrato mostra. */
+  const conc = impParcConcAll();
+  const avulsoMes = ((conc.porGrupo || {})[IMP_GRUPO_AVULSO] || {});
+  const avulsoAno = _impAvulsoDoAno(year, conc);
+  pagoAno += avulsoAno;
+  const avulsoHoje = avulsoMes[hojeYM] || 0;
+  parcelaMensal += avulsoHoje;
+
   const elS  = document.getElementById('imp-par-kpi-saldo');   if(elS)  elS.textContent = fmtBRL(saldoHoje);
   const elA  = document.getElementById('imp-par-kpi-ano');     if(elA)  elA.textContent = fmtBRL(pagoAno);
   const elM  = document.getElementById('imp-par-kpi-mensal');  if(elM)  elM.textContent = fmtBRL(parcelaMensal);
   const elC  = document.getElementById('imp-par-kpi-count');   if(elC)  elC.textContent = count;
   const elCS = document.getElementById('imp-par-kpi-count-sub');
-  if(elCS) elCS.textContent = count === 0 ? 'nenhum cadastrado'
-                             : (ativos + ' ativo' + (ativos===1?'':'s') + ' no mês');
+  if(elCS){
+    elCS.textContent = count === 0
+      ? (avulsoAno > 0.005 ? 'nenhum cadastrado · pago pelo Extrato' : 'nenhum cadastrado')
+      : (ativos + ' ativo' + (ativos===1?'':'s') + ' no mês');
+  }
   const elMS = document.getElementById('imp-par-kpi-mensal-sub');
   if(elMS) elMS.textContent = 'total das parcelas em ' + hojeYM;
+  /* Saldo devedor só existe com contrato. Dizer R$ 0,00 pra quem tem dívida
+     seria mentira — o card avisa que a informação não está disponível. */
+  const elSS = document.querySelector('#imp-par-kpi-saldo')
+             && document.querySelector('#imp-par-kpi-saldo').parentElement
+             && document.querySelector('#imp-par-kpi-saldo').parentElement.querySelector('.pes-kpi-sub');
+  if(elSS){
+    elSS.textContent = (saldoHoje <= 0.005 && avulsoAno > 0.005)
+      ? 'sem contrato cadastrado — não dá pra calcular'
+      : 'dívida tributária em aberto';
+  }
 }
 
 /* Cadastro e edição de parcelamento por modal — a linha virou leitura.
