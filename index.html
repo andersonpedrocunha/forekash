@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787075745"/>
+  <meta name="fk-build" content="forekash-v1787076409"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17058,6 +17058,9 @@
 /* Célula cujo valor veio do Extrato: sutil, só o suficiente pra diferenciar
    de um número digitado à mão. */
 .rec-cell.do-extrato .rec-input{font-weight:700}
+/* Imposto pago identificado no Extrato: mesmo tratamento da Receita. */
+td.mes.do-extrato .imp-val-input{font-weight:700;color:#065F46}
+td.mes.do-extrato{background:#ECFDF5}
 .rec-cell-real{position:absolute;right:5px;bottom:2px;font-size:.54rem;letter-spacing:.04em;
   text-transform:uppercase;color:#059669;opacity:.75;pointer-events:none;font-weight:700}
 .rec-cell-real.parcial{text-transform:none;letter-spacing:0;font-size:.6rem;color:#B45309}
@@ -82549,6 +82552,117 @@ async function delImpYear(tab, y){
 // ═══════════════════════════════════════════════════════════════
 //  ABA 1 — IMPOSTOS CORRENTES
 // ═══════════════════════════════════════════════════════════════
+/* ══ IMPOSTO PAGO VEM DO EXTRATO ═════════════════════════════════════════
+   A planilha era 100% previsão: calculava pelo regime e ficava esperando o
+   usuário digitar o que pagou. Mas o pagamento já entra no Extrato quando o
+   DARF/DAS é quitado — digitar de novo aqui é retrabalho e cria duas
+   verdades.
+
+   Mesmo modelo da Estrutura de Custos e da Receita: o realizado manda e trava;
+   onde não há pagamento, segue a projeção, que acompanha a Receita.
+   O casamento é pela CATEGORIA do lançamento → rubrica do imposto.          */
+const IMP_CAT_ALIAS = {
+  das:    ['das','das (simples nacional)','simples nacional','simples','dasn'],
+  irpj:   ['irpj','imposto de renda pj','irpj/csll'],
+  csll:   ['csll','contribuição social'],
+  pis:    ['pis','pis/pasep'],
+  cofins: ['cofins'],
+  icms:   ['icms','icms st','difal'],
+  iss:    ['iss','issqn','iss municipal'],
+  inss:   ['inss','inss rb','cprb','cpp','inss patronal','gps']
+};
+function _impNorm(v){
+  return String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+         .toLowerCase().replace(/\s+/g,' ').trim();
+}
+/* Descobre a rubrica a partir da categoria do lançamento. Além dos apelidos,
+   casa pelo nome da própria rubrica — inclusive as que o usuário criar. */
+function impRubricaDaCategoria(cat){
+  const c = _impNorm(cat);
+  if(!c) return null;
+  for(const id of Object.keys(IMP_CAT_ALIAS)){
+    if(IMP_CAT_ALIAS[id].some(a => _impNorm(a) === c)) return id;
+  }
+  const r = ((impostos && impostos.rubricas) || []).find(x => _impNorm(x.nome) === c);
+  if(r) return r.id;
+  for(const id of Object.keys(IMP_CAT_ALIAS)){
+    if(IMP_CAT_ALIAS[id].some(a => c.indexOf(_impNorm(a)) >= 0)) return id;
+  }
+  return null;
+}
+
+/* { rubricaId: { 'YYYY-MM': valorPago } } — mês do PAGAMENTO, que é o que
+   importa em imposto: DARF pago em abril é caixa de abril. */
+function impRealizadoExtrato(ano){
+  const out = {};
+  const y = String(ano || impActiveYearCor || '');
+  let lans = [];
+  try{ lans = (extratoData && extratoData.lancamentos) || []; }catch(_){ return out; }
+  if(!lans.length) return out;
+
+  const soma = (rub, dataStr, valor) => {
+    if(!rub || !dataStr || !valor) return;
+    const ds = String(dataStr);
+    if(ds.slice(0,4) !== y) return;
+    const ym = ds.slice(0,7);
+    if(!out[rub]) out[rub] = {};
+    out[rub][ym] = (out[rub][ym] || 0) + valor;
+  };
+  for(const l of lans){
+    if(!l || l.tipo !== 'gasto') continue;
+    const rub = impRubricaDaCategoria(l.categoria);
+    if(!rub) continue;
+    const bs = (typeof extBaixas === 'function') ? extBaixas(l) : [];
+    if(bs.length){
+      bs.forEach(b => soma(rub, b.data, parseFloat(b.valor) || 0));
+    } else if(l.status === 'pago'){
+      soma(rub, l.dataPagamento || l.data, parseFloat(l.valorPago || l.valor) || 0);
+    }
+  }
+  return out;
+}
+try{
+  window.impRealizadoExtrato = impRealizadoExtrato;
+  window.impRubricaDaCategoria = impRubricaDaCategoria;
+}catch(_){}
+
+/* Cache do realizado, recalculado a cada render da planilha. Célula, total da
+   linha e rodapé leem daqui — se cada consumidor somasse por conta própria, o
+   total divergiria em silêncio do que está escrito na célula. */
+let _impRealCache = {};
+function impAtualizaRealCache(ano){
+  try{ _impRealCache = impRealizadoExtrato(ano) || {}; }
+  catch(e){ _impRealCache = {}; }
+  return _impRealCache;
+}
+/* Fonte única do valor de uma célula de imposto corrente. */
+function impValorCelula(c, key){
+  const r = ((_impRealCache && _impRealCache[c.rubricaId]) || {})[key];
+  if(r != null) return { valor: r, doExtrato: true };
+  return { valor: +((c.valores || {})[key]) || 0, doExtrato: false };
+}
+let _impNotifyUltimo = 0;
+function notifyImpDoExtrato(){
+  const agora = (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
+  if(agora && agora - _impNotifyUltimo < 400) return;
+  _impNotifyUltimo = agora;
+  if(typeof toast === 'function')
+    toast('Imposto pago e conciliado com o Extrato Financeiro. Pra corrigir, edite o lançamento no Extrato — aqui é só reflexo.', 6000);
+}
+try{
+  window.impValorCelula = impValorCelula;
+  window.notifyImpDoExtrato = notifyImpDoExtrato;
+}catch(_){}
+/* A planilha tem seleção estilo Excel que come o mousedown inline. */
+try{
+  document.addEventListener('mousedown', function(ev){
+    const t = ev.target;
+    if(!t || !t.closest) return;
+    const td = t.closest('td.mes.do-extrato');
+    if(td && t.matches('input[readonly]')) notifyImpDoExtrato();
+  }, true);
+}catch(_){}
+
 function renderImpCorSheet(){
   // Sempre que re-renderiza a planilha, atualiza a barra do regime também
   try{ renderImpRegimeBar(); }catch(e){}
@@ -82558,6 +82672,7 @@ function renderImpCorSheet(){
   const tfoot = document.getElementById('imp-cor-tfoot');
   if(!thead || !tbody || !tfoot) return;
   const year = impActiveYearCor;
+  impAtualizaRealCache(year);
 
   const yrRow1 = `<tr class="yr">
     <th class="stk stk-1 l">Imposto</th>
@@ -82717,7 +82832,7 @@ function renderImpCorSheet(){
   if(!aliqExclusiva){
     for(const c of impostos.correntes){
       for(let m=0;m<12;m++){
-        const v = +c.valores[impMesKey(year, m)] || 0;
+        const v = impValorCelula(c, impMesKey(year, m)).valor;
         monthTotals[m] += v;
         grand += v;
       }
@@ -82771,8 +82886,12 @@ function renderImpCorRow(c, year){
   const pagosMap = c.pagos || {};
   const valCells = IMP_MESES.map((_,m) => {
     const key = impMesKey(year, m);
-    const v = c.valores[key];
-    const hasReal = (v !== undefined && v !== null && v !== 0);
+    /* Pagamento identificado no Extrato manda: é fato, não estimativa. Quando
+       existe, a célula mostra ele e trava — a correção se faz no lançamento. */
+    const cel = impValorCelula(c, key);
+    const doExtrato = cel.doExtrato ? cel.valor : null;
+    const v = cel.valor;
+    const hasReal = !!v;
     const displayVal = hasReal ? fmtBR(v, 2) : '';
 
     // Previsão — só quando a célula está vazia (e NÃO estamos em modo
@@ -82787,13 +82906,15 @@ function renderImpCorRow(c, year){
       }
     }
 
-    // Paid state: só aplicável a células com valor real, fora do modo aliq exclusivo
-    const pago = hasReal && !aliqExclusiva && !!pagosMap[key];
+    // Vindo do extrato, está pago por definição — o dinheiro saiu da conta.
+    const pago = hasReal && !aliqExclusiva && (doExtrato != null || !!pagosMap[key]);
     if(pago) cellExtra += ' pago';
+    if(doExtrato != null) cellExtra += ' do-extrato';
     if(!hasReal && !cellExtra.includes('forecast')) cellExtra += ' empty';
 
     // Botão de toggle só aparece em células com valor real e fora do modo exclusivo
-    const btnPagar = (hasReal && !aliqExclusiva)
+    /* Sem botão de baixa quando vem do extrato: o pagamento é o lançamento. */
+    const btnPagar = (hasReal && !aliqExclusiva && doExtrato == null)
       ? `<button type="button" class="imp-cor-pagar-btn" tabindex="-1"
                onmousedown="event.preventDefault()"
                onclick="event.stopPropagation(); toggleImpCorPago('${esc(c.rubricaId)}','${key}')"
@@ -82801,8 +82922,12 @@ function renderImpCorRow(c, year){
       : '';
 
     const ro = pago ? ' readonly' : '';
-    const roTitle = pago ? ' title="Remova o ✓ para editar"' : '';
-    const roClick = pago ? ' onmousedown="notifyLocked()"' : '';
+    const roTitle = doExtrato != null
+      ? ' title="Valor pago, identificado no Extrato Financeiro — corrija no lançamento"'
+      : (pago ? ' title="Remova o ✓ para editar"' : '');
+    const roClick = doExtrato != null
+      ? ' onmousedown="notifyImpDoExtrato()"'
+      : (pago ? ' onmousedown="notifyLocked()"' : '');
     return `<td class="mes${cellExtra}">
       <input type="text" class="imp-val-input${cellExtra.includes('forecast')?' forecast':''}" value="${displayVal}" placeholder="${phText}"
              data-cellref="impcor:${esc(c.rubricaId)}:${key}"${ro}${roTitle}${roClick}
@@ -82815,7 +82940,7 @@ function renderImpCorRow(c, year){
 
   // Total do ano
   let tot = 0;
-  for(let m=0;m<12;m++) tot += (+c.valores[impMesKey(year, m)] || 0);
+  for(let m=0;m<12;m++) tot += impValorCelula(c, impMesKey(year, m)).valor;
 
   const delBtn = isBuiltin
     ? `<span title="Rubrica padrão — não pode ser excluída" style="color:#D1D5DB;font-size:.8rem" class="fkico fkico-lock"></span>`
