@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787096470"/>
+  <meta name="fk-build" content="forekash-v1787096826"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17146,6 +17146,9 @@ tr.imp-par-grupo.colapsado > td{opacity:.92}
 .imp-ni-tbl .ni-motivo{color:#94A3B8;font-size:.66rem}
 .imp-ni-tbl .ni-acao select{font-size:.66rem;border:1px solid #CBD5E1;border-radius:5px;
   padding:2px 4px;background:#fff;color:#334155}
+.imp-av-tbl{margin-top:4px}
+.imp-av-tbl td{border-top-color:#DBEAFE;color:#1E3A8A}
+.imp-av-tbl .ni-data{color:#60A5FA}
 /* Parcelamento sem contrato cadastrado — acompanhamento simples, não erro. */
 tr.imp-par-avulso > td{border-top-style:dashed}
 tr.imp-par-avulso .imp-grp-txt{color:#475569}
@@ -17222,6 +17225,7 @@ tr.imp-par-avulso .imp-grp-txt{color:#475569}
 .imp-multi-badge{position:absolute;right:3px;top:2px;font-size:.55rem;font-weight:800;
   background:#065F46;color:#D1FAE5;border-radius:3px;padding:0 3px;line-height:1.5}
 .imp-par-sheet tbody td.mes.multi{font-weight:800}
+.imp-par-sheet tbody td.mes.multi.conf .imp-multi-badge{background:#1E1B4B;color:#C7D2FE}
 /* Mês pago antes do controle — informado no cadastro, não veio do Extrato. */
 .imp-par-sheet tbody td.mes.historico{background:#F8FAFC;color:#94A3B8}
 .imp-par-sheet tbody td.mes.historico::after{content:'';position:absolute;left:4px;top:50%;
@@ -84176,7 +84180,8 @@ function _impParcPlan(p){
             + '|' + p.saldoInicial + '|' + p.parcelaMensal + '|' + p.mesInicio + '|' + pagHash
             + '|' + (p.pagasAntes || 0)
             + '|' + JSON.stringify(p.amortizacoes || [])
-            + '|' + JSON.stringify(p.quitacao || null);
+            + '|' + JSON.stringify(p.quitacao || null)
+            + '|' + JSON.stringify(p.cobertura || null);
   if(p._planKey === key && p._plan) return p._plan;
 
   const nominal = +p.parcelaMensal;
@@ -84197,6 +84202,10 @@ function _impParcPlan(p){
     if(ym) amortExtra[ym] = (amortExtra[ym] || 0) + (+am.valor || 0);
   }
   const quitYM = (p.quitacao && p.quitacao.data) ? String(p.quitacao.data).slice(0, 7) : null;
+  /* O Extrato sabe quanto saiu e quando; não sabe QUAIS parcelas a guia
+     cobriu — isso só está no DARF. O app infere pelo valor e o usuário
+     corrige aqui quando a inferência erra (juros e multa distorcem). */
+  const cobertura = (p.cobertura && typeof p.cobertura === 'object') ? p.cobertura : {};
   /* Mês passado sem guia identificada NÃO abate saldo: o dinheiro não saiu.
      Antes o plano descia pelo cronograma e a barra dizia "13% amortizado" na
      mesma tela em que o alerta dizia "7 meses sem pagamento". */
@@ -84224,8 +84233,10 @@ function _impParcPlan(p){
     const futuro    = ym > mesAtual;
     const historico = i < pagasAntes;      // pago antes de existir controle
 
+    const nCob = hasManual ? (parseInt(cobertura[ym], 10) || 0) : 0;
     let amort;
     if(historico)        amort = amortPrev;                 // já quitada, sem registro
+    else if(nCob > 0)    amort = nCob * nominal;            // o usuário disse quantas
     else if(hasManual)   amort = manualVal / fator;
     else if(futuro)      amort = amortPrev;                 // projeção
     else                 amort = 0;                         // vencida e sem guia
@@ -84260,6 +84271,9 @@ function _impParcPlan(p){
       saldoFim,
       baseMes: nominal,
       fator, amort, futuro, historico, extra,
+      /* excedente sobre as parcelas cobertas — juros de mora, multa */
+      encargo: hasManual ? Math.max(0, manualVal - (nCob > 0 ? nCob : Math.round(amort / (nominal || 1))) * nominal * fator) : 0,
+      coberturaManual: nCob > 0,
       encerra: (quitYM === ym),
       /* vencido, sem guia identificada e fora do histórico — não abateu nada */
       emAtraso: !hasManual && !futuro && !historico && (quitYM !== ym)
@@ -84505,13 +84519,17 @@ function impParcConciliar(ano){
              três guias de uma vez é rotina, e um pagamento desses nunca bateria
              com o valor de uma parcela só. Tolerância maior conforme k, porque
              cada guia acumulada carrega a correção do seu próprio mês. */
+      /* Janela assimétrica: guia em atraso só sobe — juros de mora e multa
+         entram por cima. Aceitar até +18% acima do múltiplo cobre isso sem
+         invadir o múltiplo seguinte (3× + 18% ainda fica longe de 4×). */
       const _multiplo = (p) => {
         const prev = impParcPrevistoMes(p, ym);
         if(prev <= 0.005) return 0;
         for(let k = 1; k <= 12; k++){
           const alvo = prev * k;
-          if(Math.abs(ev.valor - alvo) <= Math.max(alvo * 0.03, 2)) return k;
-          if(alvo > ev.valor * 1.2) break;   // já passou, não adianta seguir
+          if(ev.valor >= alvo - Math.max(alvo * 0.03, 2) &&
+             ev.valor <= alvo * 1.18) return k;
+          if(alvo > ev.valor) break;
         }
         return 0;
       };
@@ -84976,6 +84994,7 @@ function renderImpParPainel(year, conc){
           : 'Você tem parcelamento saindo da conta e nenhum contrato cadastrado — o que é uma escolha legítima. O valor aparece na linha <b>Sem contrato cadastrado</b> e entra no fluxo de caixa normalmente.'
       }</p>
       <p class="imp-av-sub2">Cadastrar o contrato acrescenta três coisas que só existem com ele: <b>saldo devedor</b> corrigido pela SELIC, <b>previsão</b> das parcelas que ainda vão vencer e <b>alerta de atraso</b> — três parcelas em atraso rescindem o parcelamento.</p>
+      ${temContrato ? _impAvulsoTabela(avulsos) : ''}
       <button type="button" class="rec-tipo-filter-btn primary" onclick="impParcModal(null)">Cadastrar parcelamento</button>
     </div>`;
   }
@@ -85016,6 +85035,29 @@ function toggleImpAlertaMin(){
   try{ renderImpParPainel(impActiveYearPar, impParcConcAll()); }catch(e){}
 }
 try{ window.toggleImpAlertaMin = toggleImpAlertaMin; }catch(_){}
+
+/* Pagamento que não bateu com nenhum contrato precisa de porta pra ser
+   atribuído — é justamente quando a dedução por valor falha (juros de mora e
+   multa distorcem) que o usuário mais precisa dizer a quem pertence. */
+function _impAvulsoTabela(avulsos){
+  const opts = ((impostos && impostos.parcelamentos) || [])
+    .filter(x => x.ativo !== false)
+    .map(x => `<option value="${x.id}">${esc(x.nome || ('Parcelamento #' + x.id))}</option>`).join('');
+  if(!opts) return '';
+  const linhas = avulsos.map(x => `<tr>
+    <td class="ni-data">${esc(String(x.ym))}</td>
+    <td class="ni-desc" title="${esc(x.desc)}">${esc(x.desc)}</td>
+    <td class="ni-val">${fmtBRL(x.valor)}</td>
+    <td class="ni-acao">
+      <select onchange="setImpParVinculo('${esc(String(x.lancId))}', this.value)">
+        <option value="">atribuir a…</option>${opts}
+      </select>
+    </td>
+  </tr>`).join('');
+  return `<table class="imp-ni-tbl imp-av-tbl"><tbody>${linhas}</tbody></table>
+    <p class="imp-av-sub2" style="margin-top:6px">Atribuiu? Depois clique na célula do mês na planilha pra dizer <b>quantas parcelas</b> aquela guia pagou.</p>`;
+}
+try{ window._impAvulsoTabela = _impAvulsoTabela; }catch(_){}
 
 function toggleImpParBloco(gid){
   impostos.parcColapsados[gid] = !impostos.parcColapsados[gid];
@@ -85070,6 +85112,9 @@ function setImpParVinculo(lancId, parcId){
   impParcConcInvalidar();
   renderImpParSheet();
   updateImpParKpis();
+  /* Já abre a pergunta que vem em seguida: quantas parcelas essa guia pagou. */
+  const ym = String(l.dataPagamento || l.data || '').slice(0, 7);
+  if(ym) setTimeout(() => { try{ impParcCoberturaModal(parseInt(parcId,10), ym); }catch(e){} }, 120);
   if(typeof toast === 'function') toast('Pagamento atribuído ao contrato');
 }
 try{
@@ -85156,9 +85201,12 @@ function renderImpParRow(p, year, conc){
           display = fmtBR(real||0, 2);
           title = `${numPar} · PAGO: ${fmtBRL(real||0)} · previsto era ${fmtBRL(prev)}`;
         } else if(row.cobriu > 1){
-          cls += ' pago-mais multi';
+          cls += ' pago-mais multi' + (row.coberturaManual ? ' conf' : '');
           display = fmtBR(real, 2);
-          title = `PAGO: ${fmtBRL(real)} · cobriu ${row.cobriu} parcelas de uma vez${concParc[ym] != null ? ' · identificado no Extrato' : ''}`;
+          title = `PAGO: ${fmtBRL(real)} · cobriu ${row.cobriu} parcela${row.cobriu===1?'':'s'}`
+                + (row.coberturaManual ? ' (você confirmou)' : ' (deduzido pelo valor)')
+                + (row.encargo > 0.5 ? ` · ${fmtBRL(row.encargo)} de juros e multa` : '')
+                + ' · clique para corrigir';
           return `<td class="${cls}" title="${esc(title)}">${display}<span class="imp-multi-badge" title="${esc(title)}">${row.cobriu}×</span></td>`;
         } else if(Math.abs(pct) < 0.005){
           cls += ' pago-igual';
@@ -85194,8 +85242,14 @@ function renderImpParRow(p, year, conc){
       }
     }
 
-    /* Não se dá baixa aqui: quem diz o que foi pago é o Extrato Financeiro. */
-    const onClick = clickable ? ` onclick="notifyImpParDoExtrato(${p.id}, '${ym}')"` : '';
+    /* Não se dá baixa aqui: quem diz o que foi pago é o Extrato Financeiro.
+       Numa guia já identificada, o clique abre a correção de cobertura —
+       quantas parcelas ela quitou, que é o que o Extrato não tem como saber. */
+    const _temGuia = clickable && row && row.manual;
+    const onClick = clickable
+      ? (_temGuia ? ` onclick="impParcCoberturaModal(${p.id}, '${ym}')"`
+                  : ` onclick="notifyImpParDoExtrato(${p.id}, '${ym}')"`)
+      : '';
     const btn = '';
     return `<td class="${cls}" title="${esc(title)}"${onClick}>${display}${acumBadge}${btn}</td>`;
   }).join('');
@@ -85593,6 +85647,95 @@ function impParcEncerrarModal(id, tipo){
   _ipmEncHint();
   setTimeout(() => { const el = document.getElementById('ipm-enc-valor'); if(el) el.focus(); }, 40);
 }
+/* "Quantas parcelas essa guia pagou?" — a única informação que o Extrato não
+   carrega. Ele diz quanto saiu e quando; quais competências foram quitadas só
+   está no DARF. O app deduz pelo valor e aqui o usuário corrige. */
+function impParcCoberturaModal(id, ym){
+  const P = (impostos.parcelamentos || []).find(x => x.id === id);
+  if(!P) return;
+  if(document.getElementById('ipm-cob-ov')) return;
+  const plan = _impParcPlan(P);
+  const idx = impParcMesIdx(P, ym);
+  const row = (idx >= 0) ? plan.rows[idx] : null;
+  if(!row || !row.manual) return;
+
+  const e = x => String(x == null ? '' : x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const pago = +row.manualVal || 0;
+  const nominal = +P.parcelaMensal || 0;
+  const atual = row.cobriu || 1;
+  const mesLbl = (IMP_MESES[parseInt(String(ym).slice(5,7),10)-1] || '').toUpperCase() + '/' + String(ym).slice(2,4);
+
+  const opcoes = [];
+  for(let k = 1; k <= 12; k++){
+    const base = nominal * k * row.fator;
+    if(k > 1 && base > pago * 1.6) break;
+    const dif = pago - base;
+    const rot = k === 1 ? '1 parcela' : k + ' parcelas';
+    const nota = Math.abs(dif) < 0.5
+      ? 'bate exato'
+      : (dif > 0 ? 'sobram ' + fmtBRL(dif) + ' de juros e multa'
+                 : 'faltariam ' + fmtBRL(-dif));
+    opcoes.push('<label class="ipm-motivo">'
+      + '<input type="radio" name="ipm-cob" value="' + k + '"' + (k === atual ? ' checked' : '') + '>'
+      + '<span><b>' + rot + ' · ' + e(fmtBRL(base)) + '</b><small>' + e(nota) + '</small></span></label>');
+  }
+
+  const ov = document.createElement('div');
+  ov.id = 'ipm-cob-ov';
+  ov.className = 'emp-novo-ov';
+  ov.style.zIndex = '9100';
+  ov.innerHTML =
+      '<div class="emp-novo-card" style="max-width:500px">'
+    +   '<div class="emp-novo-hd">'
+    +     '<div><h3>Guia de ' + e(mesLbl) + '</h3>'
+    +       '<p>' + e(P.nome || '') + ' · pago ' + e(fmtBRL(pago)) + ', identificado no Extrato</p></div>'
+    +     '<button type="button" class="emp-novo-x" onclick="impParcCoberturaFechar()">✕</button>'
+    +   '</div>'
+    +   '<div class="emp-novo-bd">'
+    +     '<div class="emp-novo-grid" style="margin-top:0">'
+    +       '<div class="f full"><label>Quantas parcelas essa guia pagou <i>*</i></label>'
+    +         '<div class="ipm-motivos">' + opcoes.join('') + '</div></div>'
+    +       '<div class="f full"><div class="imp-parc-hint">O Extrato sabe <b>quanto</b> saiu e <b>quando</b>. Quais competências a guia quitou só está no DARF — por isso o valor é deduzido, e quando juros de mora ou multa entram na conta a dedução erra. A diferença vira juros e multa, não amortização.</div></div>'
+    +     '</div>'
+    +   '</div>'
+    +   '<div class="emp-novo-ft">'
+    +     '<button type="button" class="btn btn-g ipm-acao" onclick="impParcCoberturaSalvar(' + P.id + ', \'' + ym + '\', true)">Voltar ao automático</button>'
+    +     '<button type="button" class="btn btn-sec" onclick="impParcCoberturaFechar()">Cancelar</button>'
+    +     '<button type="button" class="btn btn-p" onclick="impParcCoberturaSalvar(' + P.id + ', \'' + ym + '\')">Confirmar</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('mousedown', ev => { if(ev.target === ov) impParcCoberturaFechar(); });
+}
+function impParcCoberturaFechar(){ const o = document.getElementById('ipm-cob-ov'); if(o) o.remove(); }
+function impParcCoberturaSalvar(id, ym, limpar){
+  const P = (impostos.parcelamentos || []).find(x => x.id === id);
+  if(!P) return;
+  if(!P.cobertura || typeof P.cobertura !== 'object') P.cobertura = {};
+  if(limpar){
+    delete P.cobertura[ym];
+  } else {
+    const sel = document.querySelector('input[name="ipm-cob"]:checked');
+    const n = sel ? parseInt(sel.value, 10) : 0;
+    if(!n) return;
+    P.cobertura[ym] = n;
+  }
+  P._planKey = null; P._plan = null;
+  impSave();
+  impParcCoberturaFechar();
+  renderImpParSheet();
+  updateImpParKpis();
+  if(typeof toast === 'function'){
+    toast(limpar ? 'Voltou a deduzir pelo valor da guia'
+                 : 'Guia registrada como ' + P.cobertura[ym] + ' parcela' + (P.cobertura[ym]===1?'':'s'), 4000);
+  }
+}
+try{
+  window.impParcCoberturaModal  = impParcCoberturaModal;
+  window.impParcCoberturaFechar = impParcCoberturaFechar;
+  window.impParcCoberturaSalvar = impParcCoberturaSalvar;
+}catch(_){}
+
 function impParcEncerrarFechar(){ const o = document.getElementById('ipm-enc-ov'); if(o) o.remove(); }
 function _ipmMotivoMuda(){ _ipmEncHint(); }
 function _ipmEncHint(){
