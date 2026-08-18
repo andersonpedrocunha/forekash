@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787072229"/>
+  <meta name="fk-build" content="forekash-v1787075745"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -13859,6 +13859,8 @@
                     background:#CCFBF1;color:#0F766E;
                     display:flex;align-items:center;justify-content:center;flex-shrink:0}
     .imp-regime-pills{display:flex;gap:6px;flex-wrap:wrap;flex:1}
+    .imp-regime-ano{font-size:.66rem;font-weight:700;color:#94A3B8;margin-left:8px;
+      align-self:center;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
     .imp-regime-opt{font-size:.74rem;font-weight:600;padding:6px 12px;
                     border:1px solid var(--bdr);border-radius:999px;background:#fff;
                     color:#334155;cursor:pointer;
@@ -83047,7 +83049,10 @@ function _impPresuncaoCS(){
 // (ou ao lucro) do mês anterior M-1. No regime trimestral do Lucro Presumido, IRPJ e
 // CSLL são pagos em janeiro (Q4 do ano anterior), abril (Q1), julho (Q2) e outubro (Q3).
 function impForecastValor(rubricaId, year, mIdx){
-  const regime = impostos.regimeTributario;
+  /* Regime do ANO que está sendo calculado, não o global. Sem isto, mudar pra
+     Lucro Real em 2026 recalcularia 2025 inteiro pelo regime novo — e 2025 foi
+     apurado no Simples de verdade. */
+  const regime = (typeof impRegimeDoAno === 'function') ? impRegimeDoAno(year) : impostos.regimeTributario;
   if(!regime) return null;
 
   // MEI não depende de receita — valor fixo apenas na rubrica DAS
@@ -83181,9 +83186,57 @@ function impForecastValor(rubricaId, year, mIdx){
   return null;
 }
 
-// Handlers de UI para o seletor de regime
-function setImpRegime(regime){
-  impostos.regimeTributario = regime || '';
+/* ══ REGIME TRIBUTÁRIO TEM VIGÊNCIA ══════════════════════════════════════
+   Os botões do topo trocavam o regime num clique, e o regime valia pra todos
+   os anos ao mesmo tempo — o que fazia o módulo parecer simulador. No mundo
+   real a empresa muda de regime, mas no virar do ano e por decisão tomada com
+   contador: 2025 pode ter sido Simples e 2026 Lucro Real, e os números de
+   2025 têm que continuar sendo os do Simples.
+
+   Agora o regime é gravado POR ANO e trocar exige confirmar. */
+function impRegimeDoAno(ano){
+  const y = String(ano || (typeof impActiveYear !== 'undefined' ? impActiveYear : new Date().getFullYear()));
+  const mapa = (impostos && impostos.regimePorAno) || null;
+  if(mapa && typeof mapa[y] === 'string') return mapa[y];
+  /* Ano sem regime próprio herda o do ano anterior mais recente já definido —
+     empresa não troca de regime por não ter preenchido a planilha. */
+  if(mapa){
+    const anos = Object.keys(mapa).filter(k => k < y).sort();
+    if(anos.length) return mapa[anos[anos.length - 1]];
+  }
+  return (impostos && impostos.regimeTributario) || '';
+}
+try{ window.impRegimeDoAno = impRegimeDoAno; }catch(_){}
+
+async function setImpRegime(regime){
+  const novo = regime || '';
+  const ano = String(typeof impActiveYear !== 'undefined' ? impActiveYear : new Date().getFullYear());
+  const atual = impRegimeDoAno(ano);
+  if(novo === atual) return;
+
+  /* Confirmação só quando já existe regime definido — a primeira escolha não
+     precisa de atrito. */
+  if(atual){
+    const nomeDe = r => (IMP_REGIMES[r] && IMP_REGIMES[r].label) || 'Sem previsão';
+    const ok = await (typeof anaConfirm === 'function' ? anaConfirm({
+      eyebrow: 'Regime tributário',
+      title: 'Trocar de ' + nomeDe(atual) + ' para ' + nomeDe(novo) + ' em ' + ano + '?',
+      message: 'Muda a forma de calcular imposto em <b>' + ano + '</b> — as projeções do ano '
+             + 'serão recalculadas.<br><br>Os outros anos não são afetados: cada ano guarda o '
+             + 'próprio regime, como acontece na vida real.<br><br>'
+             + '<span style="color:#B45309">Regime é decisão que se toma com o contador, '
+             + 'normalmente no início do ano.</span>',
+      okText: 'Sim, trocar em ' + ano,
+      cancelText: 'Cancelar'
+    }) : Promise.resolve(window.confirm('Trocar o regime de ' + ano + '?')));
+    if(!ok){ try{ renderImpRegimeBar(); }catch(_){} return; }
+  }
+
+  if(!impostos.regimePorAno || typeof impostos.regimePorAno !== 'object') impostos.regimePorAno = {};
+  impostos.regimePorAno[ano] = novo;
+  if(!Array.isArray(impostos.regimeHist)) impostos.regimeHist = [];
+  impostos.regimeHist.push({ ano, de: atual, para: novo, ts: new Date().toISOString() });
+  impostos.regimeTributario = novo;   // ano corrente também alimenta o resto do app
   impSave();
   // Sincroniza com Configurações (mantém consistência bidirecional)
   try {
@@ -83373,7 +83426,7 @@ async function toggleImpAliquotaUnica(){
 // Preenche a planilha de Correntes com os valores de previsão sugeridos pelo
 // regime atual — só escreve em células que o usuário ainda não digitou.
 async function fillImpForecastValues(){
-  const regime = impostos.regimeTributario;
+  const regime = (typeof impRegimeDoAno === 'function') ? impRegimeDoAno(impActiveYear) : impostos.regimeTributario;
   if(!regime){
     await askConfirm({
       title: 'Escolha um regime tributário',
@@ -83445,13 +83498,24 @@ async function fillImpForecastValues(){
 function renderImpRegimeBar(){
   const el = document.getElementById('imp-regime-bar');
   if(!el) return;
-  const regime = impostos.regimeTributario || '';
+  const ano = String(typeof impActiveYear !== 'undefined' ? impActiveYear : new Date().getFullYear());
+  const regime = (typeof impRegimeDoAno === 'function') ? impRegimeDoAno(ano) : (impostos.regimeTributario || '');
+  /* Deixa explícito que a escolha vale PARA ESTE ANO — sem isso a barra
+     parecia um seletor global e trocar dava a impressão de reescrever o
+     passado. */
+  const proprio = !!(impostos.regimePorAno && impostos.regimePorAno[ano]);
 
   const pills = Object.keys(IMP_REGIMES).map(k => {
     const info = IMP_REGIMES[k];
     const cls = (k === regime) ? 'imp-regime-opt active' : 'imp-regime-opt';
-    return `<button class="${cls}" onclick="setImpRegime('${k}')" title="${esc(info.desc)}">${esc(info.label)}</button>`;
-  }).join('');
+    const dica = (k === regime)
+      ? esc(info.desc)
+      : 'Trocar o regime de ' + ano + ' para ' + esc(info.label) + ' — pede confirmação';
+    return `<button class="${cls}" onclick="setImpRegime('${k}')" title="${dica}">${esc(info.label)}</button>`;
+  }).join('')
+  + `<span class="imp-regime-ano" title="${proprio
+        ? 'Regime definido especificamente para ' + ano
+        : 'Herdado do ano anterior — a primeira troca fixa o regime de ' + ano}">em ${ano}${proprio ? '' : ' ·  herdado'}</span>`;
 
   // Controles contextuais de acordo com o regime
   let cfg = '';
