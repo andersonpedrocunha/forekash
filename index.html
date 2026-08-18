@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787095718"/>
+  <meta name="fk-build" content="forekash-v1787096052"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -82422,9 +82422,11 @@ function impLoad(){
   }
   for(const bp of impostos.parcelamentos){
     if(typeof bp.bloco !== 'string') bp.bloco = '';
-    /* consolidado = acompanha pelo bloco · detalhado = concilia parcela a
-       parcela. Padrão consolidado: é o que cabe numa pessoa só. */
-    if(bp.modo !== 'detalhado' && bp.modo !== 'consolidado') bp.modo = 'consolidado';
+    /* `modo` (consolidado/detalhado) existiu por um dia e nunca foi consultado
+       por cálculo nenhum: a conciliação decide por PAGAMENTO, não por contrato
+       — casa com o contrato quando o valor identifica, cai no bloco quando não.
+       Campo removido; limpamos o resíduo de quem chegou a salvar. */
+    if(bp.modo !== undefined) delete bp.modo;
   }
   if(!impostos.parcColapsados || typeof impostos.parcColapsados !== 'object'){
     impostos.parcColapsados = {};
@@ -85023,13 +85025,6 @@ function setImpParBloco(id, val){
   renderImpParSheet();
   updateImpParKpis();
 }
-function setImpParModo(id, val){
-  const pp = impostos.parcelamentos.find(x => x.id === id);
-  if(!pp) return;
-  pp.modo = (val === 'detalhado') ? 'detalhado' : 'consolidado';
-  impSave();
-  renderImpParSheet();
-}
 /* Vínculo explícito de um pagamento do Extrato a um contrato — decisão do
    usuário, nunca do sistema. */
 function setImpParVinculo(lancId, parcId){
@@ -85052,7 +85047,6 @@ try{
   window.impNovoBloco      = impNovoBloco;
   window.renomearImpBloco  = renomearImpBloco;
   window.setImpParBloco    = setImpParBloco;
-  window.setImpParModo     = setImpParModo;
   window.setImpParVinculo  = setImpParVinculo;
 }catch(_){}
 
@@ -85438,12 +85432,7 @@ function impParcModal(id){
     +           '<option value="1"' + (ed && P.ativo === false ? '' : ' selected') + '>Ativo</option>'
     +           '<option value="0"' + (ed && P.ativo === false ? ' selected' : '') + '>Inativo</option>'
     +         '</select></div>'
-    +       '<div class="f full"><label>Controle</label>'
-    +         '<select id="ipm-modo" onchange="_ipmModoHint()">'
-    +           '<option value="consolidado"' + (ed && P.modo === 'detalhado' ? '' : ' selected') + '>Consolidado</option>'
-    +           '<option value="detalhado"' + (ed && P.modo === 'detalhado' ? ' selected' : '') + '>Detalhado</option>'
-    +         '</select>'
-    +         '<small class="ipm-sub" id="ipm-modo-hint"></small></div>'
+
     +     '</div>'
     +     '<div class="ipm-anexos">'
     +       '<label class="ipm-drop" id="ipm-drop"'
@@ -85474,7 +85463,7 @@ function impParcModal(id){
      o salvar — senão um cadastro cancelado deixaria arquivo órfão. */
   _ipmAnexos = ed ? ((P.contratos || []).slice()) : [];
   ipmRenderAnexos();
-  try{ _ipmAtualizaPagasHint(); _ipmModoHint(); }catch(e){}
+  try{ _ipmAtualizaPagasHint(); }catch(e){}
   setTimeout(() => { const el = document.getElementById('ipm-nome'); if(el) el.focus(); }, 40);
 }
 const IMP_MOTIVOS = [
@@ -85738,18 +85727,6 @@ function impParcModalDeriva(origem){
 
 /* Mostra na hora o saldo que sobra depois das parcelas já pagas, pra ele
    conferir contra o extrato do e-CAC antes de salvar. */
-/* O campo "Controle" não se explica sozinho — e é a decisão que define se o
-   contrato vai dar trabalho todo mês ou não. */
-function _ipmModoHint(){
-  const el = document.getElementById('ipm-modo-hint');
-  const sel = document.getElementById('ipm-modo');
-  if(!el || !sel) return;
-  el.innerHTML = (sel.value === 'detalhado')
-    ? 'A conferência desce até <b>este contrato</b>: o Forekash casa cada guia com ele e, quando dois contratos têm a mesma parcela, pergunta qual foi. Use nos que merecem o cuidado — o maior, o que está em renegociação, o que já tem parcela em atraso.'
-    : 'A conferência acontece no <b>bloco</b>, não neste contrato: o Forekash compara o previsto do bloco com o que saiu da conta. Você olha uma linha por bloco em vez de uma por contrato — é o que faz dez ou doze parcelamentos caberem numa pessoa só.';
-}
-try{ window._ipmModoHint = _ipmModoHint; }catch(_){}
-
 function _ipmAtualizaPagasHint(){
   const el = document.getElementById('ipm-pagas-hint');
   if(!el) return;
@@ -85813,7 +85790,6 @@ function impParcModalSalvar(idEdit){
   P.mesInicio      = mes;
   P.numParcelasAlvo = total > 0 ? total : 0;
   P.bloco          = g('ipm-bloco') || '';
-  P.modo           = (g('ipm-modo') === 'detalhado') ? 'detalhado' : 'consolidado';
   P.dataAdesao     = g('ipm-adesao') || '';
   P.ativo          = g('ipm-ativo') !== '0';
   P.pagasAntes     = Math.max(0, parseInt(g('ipm-pagas'), 10) || 0);
