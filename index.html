@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787093925"/>
+  <meta name="fk-build" content="forekash-v1787094435"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17181,6 +17181,27 @@ tr.imp-par-avulso .imp-grp-txt{color:#475569}
 .imp-npar-total.growing{color:#B45309}
 .imp-parc-hint{font-size:.7rem;color:#64748B;line-height:1.5;background:#F8FAFC;
   border:1px solid #E2E8F0;border-radius:7px;padding:7px 10px}
+/* Encerramento e amortização */
+.emp-novo-ft .ipm-acao{margin-right:auto;font-size:.76rem;padding:7px 13px}
+.emp-novo-ft .ipm-acao + .ipm-acao{margin-right:0;margin-left:6px}
+.ipm-encerrado{margin-top:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  font-size:.74rem;color:#3730A3;background:#EEF2FF;border:1px solid #C7D2FE;
+  border-radius:8px;padding:10px 12px;line-height:1.5}
+.ipm-encerrado .obs{flex:1 0 100%;color:#4C1D95;opacity:.8;font-size:.7rem}
+.ipm-desfazer{margin-left:auto;border:0;background:none;color:#4338CA;font-size:.68rem;
+  text-decoration:underline;cursor:pointer;padding:2px 4px}
+.ipm-motivos{display:flex;flex-direction:column;gap:6px}
+.ipm-motivo{display:flex;gap:9px;align-items:flex-start;border:1px solid #E2E8F0;
+  border-radius:8px;padding:9px 11px;cursor:pointer;background:#fff;transition:border-color .12s}
+.ipm-motivo:hover{border-color:#CBD5E1;background:#F8FAFC}
+.ipm-motivo:has(input:checked){border-color:#BE185D;background:#FDF2F8}
+.ipm-motivo input{margin-top:3px;flex:0 0 auto;accent-color:#BE185D}
+.ipm-motivo b{display:block;font-size:.79rem;color:#0F172A;font-weight:700}
+.ipm-motivo small{display:block;font-size:.7rem;color:#64748B;line-height:1.45;margin-top:2px}
+/* Mês pago antes do controle — informado no cadastro, não veio do Extrato. */
+.imp-par-sheet tbody td.mes.historico{background:#F8FAFC;color:#94A3B8}
+.imp-par-sheet tbody td.mes.historico::after{content:'';position:absolute;left:4px;top:50%;
+  width:4px;height:1px;background:#CBD5E1;transform:translateY(-50%)}
 .ipm-anexos{margin-top:16px;display:flex;flex-direction:column;gap:8px}
 .ipm-drop{display:flex;flex-direction:column;gap:2px;align-items:center;text-align:center;
   padding:16px 14px;border:1.5px dashed #CBD5E1;border-radius:9px;background:#F8FAFC;
@@ -84125,8 +84146,11 @@ function _impParcPlan(p){
   const pagEfet = impParcPagamentosEfetivos(p);
   const pagHash = _impPagHash(pagEfet);
   /* 'v4' ↓ marca a matemática legal: amortização nominal + Selic somada. */
-  const key = 'v4|' + _impParcConcRev + '|' + _impSelicHash() + '|' + (impostos.selicAnual||0)
-            + '|' + p.saldoInicial + '|' + p.parcelaMensal + '|' + p.mesInicio + '|' + pagHash;
+  const key = 'v5|' + _impParcConcRev + '|' + _impSelicHash() + '|' + (impostos.selicAnual||0)
+            + '|' + p.saldoInicial + '|' + p.parcelaMensal + '|' + p.mesInicio + '|' + pagHash
+            + '|' + (p.pagasAntes || 0)
+            + '|' + JSON.stringify(p.amortizacoes || [])
+            + '|' + JSON.stringify(p.quitacao || null);
   if(p._planKey === key && p._plan) return p._plan;
 
   const nominal = +p.parcelaMensal;
@@ -84134,6 +84158,19 @@ function _impParcPlan(p){
   let saldo = +p.saldoInicial;
   let quitadoEm = -1;
   const LIMIT = 600;   // 50 anos de teto
+
+  /* Quem chega ao Forekash com parcelamento em andamento já pagou parcelas
+     que nunca vão aparecer no Extrato — o app não existia. Essas N primeiras
+     entram como histórico: abatem o saldo e não contam como atraso. */
+  const pagasAntes = Math.max(0, parseInt(p.pagasAntes, 10) || 0);
+
+  /* Amortização extra (valor além da parcela do mês) e encerramento. */
+  const amortExtra = {};
+  for(const am of (p.amortizacoes || [])){
+    const ym = String((am && am.data) || '').slice(0, 7);
+    if(ym) amortExtra[ym] = (amortExtra[ym] || 0) + (+am.valor || 0);
+  }
+  const quitYM = (p.quitacao && p.quitacao.data) ? String(p.quitacao.data).slice(0, 7) : null;
   /* Mês passado sem guia identificada NÃO abate saldo: o dinheiro não saiu.
      Antes o plano descia pelo cronograma e a barra dizia "13% amortizado" na
      mesma tela em que o alerta dizia "7 meses sem pagamento". */
@@ -84143,6 +84180,7 @@ function _impParcPlan(p){
   for(let i = 0; i < LIMIT; i++){
     if(saldo <= 0.005){ quitadoEm = i; break; }
     const ym = impAddMonths(p.mesInicio, i);
+    if(quitYM && ym > quitYM){ quitadoEm = i; break; }   // contrato encerrado
     const fator = impParcFatorCorrecao(p.mesInicio, ym);
 
     /* Última parcela costuma ser menor: nunca amortiza mais que o saldo. */
@@ -84157,12 +84195,34 @@ function _impParcPlan(p){
        amortizar) o nominal — basta deflacionar pelo fator do mês.
        Mês futuro é projeção: assume que vai ser pago. Mês já vencido sem
        pagamento no Extrato fica em zero — atraso não abate dívida. */
-    const futuro = ym > mesAtual;
-    let amort = hasManual ? (manualVal / fator) : (futuro ? amortPrev : 0);
+    const futuro    = ym > mesAtual;
+    const historico = i < pagasAntes;      // pago antes de existir controle
+
+    let amort;
+    if(historico)        amort = amortPrev;                 // já quitada, sem registro
+    else if(hasManual)   amort = manualVal / fator;
+    else if(futuro)      amort = amortPrev;                 // projeção
+    else                 amort = 0;                         // vencida e sem guia
+
+    /* Amortização extra do mês abate nominal — o valor pago vem corrigido,
+       então deflaciona pelo fator antes de descontar do saldo. */
+    const extra = amortExtra[ym] || 0;
+    if(extra > 0) amort += extra / fator;
+
+    let parcela = historico ? parcelaPrev : (hasManual ? manualVal : parcelaPrev);
+    if(extra > 0) parcela += extra;
+
+    /* Quitação: zera o que restava, e a parcela do mês é o valor efetivamente
+       pago no encerramento. */
+    const encerra = (quitYM === ym);
+    if(encerra){
+      const pagoQuit = +((p.quitacao && p.quitacao.valor) || 0);
+      amort = saldo;
+      if(pagoQuit > 0) parcela = pagoQuit;
+    }
+
     if(amort > saldo) amort = saldo;
     if(amort < 0) amort = 0;
-
-    const parcela  = hasManual ? manualVal : parcelaPrev;
     const saldoFim = Math.max(0, saldo - amort);
 
     rows.push({
@@ -84173,9 +84233,10 @@ function _impParcPlan(p){
       manual: hasManual, manualVal,
       saldoFim,
       baseMes: nominal,
-      fator, amort, futuro,
-      /* vencido e sem guia identificada — não abateu nada */
-      emAtraso: !hasManual && !futuro
+      fator, amort, futuro, historico, extra,
+      encerra: (quitYM === ym),
+      /* vencido, sem guia identificada e fora do histórico — não abateu nada */
+      emAtraso: !hasManual && !futuro && !historico && (quitYM !== ym)
     });
 
     /* Parcela zerada (mês pulado) não derruba o saldo — e não trava o loop,
@@ -84302,8 +84363,26 @@ function impParcPrevistoMes(p, ym){
   if(idx < 0) return 0;
   const plan = _impParcPlan(p);
   const row = plan.rows[idx];
-  return row ? (row.parcelaPrev || 0) : 0;
+  if(!row) return 0;
+  /* Parcela do histórico (paga antes do controle) não é cobrança pendente:
+     entrar aqui faria o alerta acusar atraso em mês que já estava quitado. */
+  if(row.historico) return 0;
+  return row.parcelaPrev || 0;
 }
+/* Rótulo do fim: migrar não é quitar, e rescindir muito menos. */
+function _impParcRotuloFim(p){
+  const m = p && p.quitacao && p.quitacao.motivo;
+  if(m === 'migracao') return 'migrado';
+  if(m === 'rescisao') return 'rescindido';
+  return 'quitado';
+}
+try{ window._impParcRotuloFim = _impParcRotuloFim; }catch(_){}
+
+/* Contrato encerrado — quitado, migrado pra outro programa ou rescindido. */
+function impParcEncerrado(p){
+  return !!(p && p.quitacao && p.quitacao.data);
+}
+try{ window.impParcEncerrado = impParcEncerrado; }catch(_){}
 /* Previsto do grupo inteiro no mês. */
 function impParcPrevistoGrupo(gid, ym){
   let t = 0;
@@ -84960,6 +85039,23 @@ function renderImpParRow(p, year, conc){
       const prev = row.parcelaPrev;
       const real = row.manual ? row.manualVal : null;
       if(concParc[ym] != null) cls += ' do-extrato';
+      if(row.historico){
+        cls += ' historico';
+        display = fmtBR(prev, 2);
+        title = `${numPar} · paga antes de entrar no Forekash (informada no cadastro)`;
+        return `<td class="${cls}" title="${esc(title)}">${display}</td>`;
+      }
+      if(row.encerra){
+        cls += ' pago-igual';
+        display = fmtBR(row.parcela, 2);
+        const q = p.quitacao || {};
+        const mm = IMP_MOTIVOS.find(x => x.id === q.motivo);
+        title = `${mm ? mm.nome : 'Encerrado'} · pagou ${fmtBRL(row.parcela)} e zerou o saldo`;
+        return `<td class="${cls}" title="${esc(title)}">${display}</td>`;
+      }
+      if(row.extra > 0){
+        title = `${numPar} · inclui amortização extra de ${fmtBRL(row.extra)}`;
+      }
       if(row.manual){
         // Classifica em relação ao previsto
         const delta = (real||0) - prev;
@@ -85035,7 +85131,7 @@ function renderImpParRow(p, year, conc){
       <div class="imp-par-nome">
         <span class="dot" style="background:#BE185D;width:10px;height:10px;border-radius:50%;flex:0 0 auto;box-shadow:0 0 0 2px #fff inset,0 0 0 3px #BE185D inset"></span>
         <span class="nm imp-par-ro-nome" title="${esc(p.nome || '')}${isAtivo?'':' · inativo'}">${esc(p.nome) || '<span style="color:#CBD5E1">(sem nome)</span>'}</span>
-        ${isAtivo ? '' : `<span class="imp-par-off" title="${esc(statusTip)}">inativo</span>`}
+        ${(isAtivo || impParcEncerrado(p)) ? '' : `<span class="imp-par-off" title="${esc(statusTip)}">inativo</span>`}
         <button type="button" class="imp-par-edit" onclick="impParcModal(${p.id})" title="Editar · bloco, controle e situação">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>
         </button>
@@ -85062,7 +85158,7 @@ function renderImpParRow(p, year, conc){
           ? `Saldo hoje ${fmtBRL(est)} · inicial ${fmtBRL(ini)} · ${fmtBR(pct,0)}% abatido por ${_pagas} guia${_pagas===1?'':'s'} identificada${_pagas===1?'':'s'} no Extrato`
           : `Saldo hoje ${fmtBRL(est)} — nenhuma guia identificada no Extrato ainda, então nada foi abatido`;
         return `<div class="imp-saldo-cel" title="${esc(_tip)}">
-          <span class="imp-saldo-hoje${quit?' quit':''}">${quit ? 'quitado' : fmtBR(est, 2)}</span>
+          <span class="imp-saldo-hoje${quit?' quit':''}">${quit ? _impParcRotuloFim(p) : fmtBR(est, 2)}</span>
           <span class="imp-saldo-bar"><i style="width:${pct.toFixed(1)}%"></i></span>
           <span class="imp-saldo-ini">${fmtBR(pct,0)}% de ${fmtBR(ini, 2)}</span>
         </div>`;
@@ -85073,10 +85169,14 @@ function renderImpParRow(p, year, conc){
         !p.saldoInicial
           ? '<span style="color:#D1D5DB">—</span>'
           : (() => {
-              // Parcelas pagas = pagamentos efetivos (o que o Extrato identificou,
-              // mais o que ficou de histórico manual). Mês transcorrido não conta.
+              /* Parcelas pagas = as informadas como pagas antes do controle +
+                 as guias que o Extrato identificou. Mês transcorrido não conta.
+                 Contrato encerrado conta como completo, seja por quitação,
+                 migração ou rescisão — de um jeito ou de outro acabou. */
               const pags = impParcPagamentosEfetivos(p);
-              const pagas = Object.keys(pags).filter(k => parseFloat(pags[k]) > 0.005).length;
+              const antes = Math.max(0, parseInt(p.pagasAntes, 10) || 0);
+              const doExtrato = Object.keys(pags).filter(k => parseFloat(pags[k]) > 0.005).length;
+              const pagas = impParcEncerrado(p) ? total : Math.min(total, antes + doExtrato);
               const denom = growing ? '∞' : (total > 0 ? total : '?');
               const pct = (!growing && total > 0) ? Math.min(100, (pagas/total)*100) : 0;
               const fillCls = (!growing && total > 0 && pagas >= total) ? 'prog-fill is-quitado' : 'prog-fill';
@@ -85110,7 +85210,7 @@ function renderImpParRow(p, year, conc){
     <td class="yr-tot" style="background:#F5F3FF;color:#4C1D95">${
       (!p.saldoInicial || !p.parcelaMensal || !p.mesInicio)
         ? '<span style="color:#D1D5DB">—</span>'
-        : (saldoFim ? fmtBRL(saldoFim) : '<span style="color:#10B981">✓ quitado</span>')
+        : (saldoFim ? fmtBRL(saldoFim) : `<span style="color:#10B981">✓ ${_impParcRotuloFim(p)}</span>`)
     }</td>
     <td class="att">
       ${(()=>{
@@ -85255,6 +85355,9 @@ function impParcModal(id){
     +         '<div class="pre"><span>R$</span><input type="number" step="0.01" min="0" id="ipm-parcela" placeholder="0,00" value="' + (ed ? num(_impParcPrimeira(P)) : '') + '" oninput="impParcModalDeriva(\'parcela\')"></div></div>'
     +       '<div class="f"><label>Nº de parcelas</label>'
     +         '<input type="number" step="1" min="1" id="ipm-total" placeholder="60" value="' + e(totalAtual) + '" oninput="impParcModalDeriva(\'total\')"></div>'
+    +       '<div class="f full"><label>Parcelas já pagas antes de usar o Forekash</label>'
+    +         '<input type="number" step="1" min="0" id="ipm-pagas" placeholder="0" value="' + (ed && P.pagasAntes ? P.pagasAntes : '') + '" oninput="impParcModalDeriva(\'pagas\')">'
+    +         '<div class="imp-parc-hint" id="ipm-pagas-hint" style="margin-top:6px"></div></div>'
     +       '<div class="f full"><div class="imp-parc-hint" id="ipm-hint">Informe o valor da <b>primeira guia</b>, como veio no boleto. As seguintes sobem sozinhas: Selic acumulada do período mais 1% no mês do pagamento.</div></div>'
     +       '<div class="f"><label>Bloco</label>'
     +         '<select id="ipm-bloco">'
@@ -85282,9 +85385,14 @@ function impParcModal(id){
     +       '</label>'
     +       '<div class="ipm-anexo-lista" id="ipm-anexo-lista"></div>'
     +     '</div>'
+    +     (ed && impParcEncerrado(P) ? _ipmNotaEncerrado(P) : '')
     +     '<div class="imp-parc-nota">A baixa das parcelas vem do <b>Extrato Financeiro</b>. Lance o pagamento lá com a categoria do parcelamento (ou o nome do bloco) e ele preenche o mês aqui.</div>'
     +   '</div>'
     +   '<div class="emp-novo-ft">'
+    +     (ed && !impParcEncerrado(P)
+        ? ('<button type="button" class="btn btn-g ipm-acao" onclick="impParcEncerrarModal(' + P.id + ', \'amortizar\')">Amortizar</button>'
+         + '<button type="button" class="btn btn-g ipm-acao" onclick="impParcEncerrarModal(' + P.id + ', \'quitar\')">Quitar / migrar</button>')
+        : '')
     +     '<span class="emp-novo-err" id="ipm-err"></span>'
     +     '<button type="button" class="btn btn-sec" onclick="impParcModalFechar()">Cancelar</button>'
     +     '<button type="button" class="btn btn-p" onclick="impParcModalSalvar(' + (ed ? P.id : 'null') + ')">' + (ed ? 'Salvar' : 'Criar parcelamento') + '</button>'
@@ -85296,8 +85404,180 @@ function impParcModal(id){
      o salvar — senão um cadastro cancelado deixaria arquivo órfão. */
   _ipmAnexos = ed ? ((P.contratos || []).slice()) : [];
   ipmRenderAnexos();
+  try{ _ipmAtualizaPagasHint(); }catch(e){}
   setTimeout(() => { const el = document.getElementById('ipm-nome'); if(el) el.focus(); }, 40);
 }
+const IMP_MOTIVOS = [
+  { id:'migracao', nome:'Migrei para outro parcelamento',
+    ajuda:'O contrato atual é extinto e nasce um novo — o caso mais comum: um programa do governo com prazo maior ou juros menores.' },
+  { id:'quitacao', nome:'Quitei antecipadamente',
+    ajuda:'Paguei o saldo devedor de uma vez e encerrei o parcelamento.' },
+  { id:'rescisao', nome:'Foi rescindido',
+    ajuda:'Perdi o parcelamento por atraso. O saldo volta pra dívida ativa e sai do controle daqui.' }
+];
+function _ipmNotaEncerrado(P){
+  const q = P.quitacao || {};
+  const m = IMP_MOTIVOS.find(x => x.id === q.motivo);
+  const e = x => String(x == null ? '' : x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  return '<div class="ipm-encerrado">'
+       + '<b>Contrato encerrado</b> · ' + e(m ? m.nome : 'encerrado')
+       + ' em ' + e(_ipmDataBR(q.data))
+       + (q.valor ? ' · pagou ' + e(fmtBRL(+q.valor)) : '')
+       + (q.obs ? '<span class="obs">' + e(q.obs) + '</span>' : '')
+       + '<button type="button" class="ipm-desfazer" onclick="impParcDesfazerEncerramento(' + P.id + ')">reabrir</button>'
+       + '</div>';
+}
+function _ipmDataBR(d){
+  const p2 = String(d || '').split('-');
+  return p2.length === 3 ? (p2[2] + '/' + p2[1] + '/' + p2[0]) : String(d || '');
+}
+
+/* Amortizar e encerrar num só lugar — o Anderson já decidiu, nos Empréstimos,
+   que cada intenção tem uma porta só. Aqui a porta é o modal do contrato. */
+function impParcEncerrarModal(id, tipo){
+  const P = (impostos.parcelamentos || []).find(x => x.id === id);
+  if(!P) return;
+  if(document.getElementById('ipm-enc-ov')) return;
+  const e = x => String(x == null ? '' : x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const quitar = (tipo === 'quitar');
+  const hojeYM = impMesKey(String(new Date().getFullYear()), new Date().getMonth());
+  const saldo  = impParcSaldoFim(P, hojeYM) || 0;
+  const hoje   = new Date().toISOString().slice(0,10);
+
+  const ov = document.createElement('div');
+  ov.id = 'ipm-enc-ov';
+  ov.className = 'emp-novo-ov';
+  ov.style.zIndex = '9100';
+  ov.innerHTML =
+      '<div class="emp-novo-card" style="max-width:520px">'
+    +   '<div class="emp-novo-hd">'
+    +     '<div><h3>' + (quitar ? 'Encerrar parcelamento' : 'Amortizar parcelamento') + '</h3>'
+    +       '<p>' + e(P.nome || '') + ' · saldo devedor hoje ' + e(fmtBRL(saldo)) + '</p></div>'
+    +     '<button type="button" class="emp-novo-x" onclick="impParcEncerrarFechar()">✕</button>'
+    +   '</div>'
+    +   '<div class="emp-novo-bd">'
+    +     (quitar
+        ? ('<div class="f full" style="margin-bottom:12px"><label>O que aconteceu <i>*</i></label>'
+         + '<div class="ipm-motivos">'
+         + IMP_MOTIVOS.map((m, i) =>
+             '<label class="ipm-motivo">'
+           + '<input type="radio" name="ipm-motivo" value="' + m.id + '"' + (i===0?' checked':'') + ' onchange="_ipmMotivoMuda()">'
+           + '<span><b>' + e(m.nome) + '</b><small>' + e(m.ajuda) + '</small></span></label>').join('')
+         + '</div></div>')
+        : '<div class="imp-parc-hint" style="margin-bottom:12px">Pagamento além da parcela do mês. Abate o saldo devedor e encurta o parcelamento — a parcela continua a mesma.</div>')
+    +     '<div class="emp-novo-grid" style="margin-top:0">'
+    +       '<div class="f"><label>Data do pagamento <i>*</i></label>'
+    +         '<input type="date" id="ipm-enc-data" value="' + hoje + '"></div>'
+    +       '<div class="f"><label>' + (quitar ? 'Valor pago' : 'Valor amortizado') + ' <i>*</i></label>'
+    +         '<div class="pre"><span>R$</span><input type="number" step="0.01" min="0" id="ipm-enc-valor" placeholder="0,00"'
+    +           (quitar ? ' value="' + (saldo > 0 ? saldo.toFixed(2) : '') + '"' : '')
+    +           ' oninput="_ipmEncHint()"></div></div>'
+    +       '<div class="f full"><label>Observação</label>'
+    +         '<input type="text" id="ipm-enc-obs" maxlength="120" placeholder="' + (quitar ? 'Ex.: migrado para o Relp, 60 parcelas' : 'Ex.: sobra de caixa do trimestre') + '"></div>'
+    +       '<div class="f full"><div class="imp-parc-hint" id="ipm-enc-hint"></div></div>'
+    +     '</div>'
+    +   '</div>'
+    +   '<div class="emp-novo-ft">'
+    +     '<span class="emp-novo-err" id="ipm-enc-err"></span>'
+    +     '<button type="button" class="btn btn-sec" onclick="impParcEncerrarFechar()">Cancelar</button>'
+    +     '<button type="button" class="btn btn-p" onclick="impParcEncerrarSalvar(' + P.id + ', \'' + (quitar ? 'quitar' : 'amortizar') + '\')">'
+    +       (quitar ? 'Encerrar contrato' : 'Registrar amortização') + '</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('mousedown', ev => { if(ev.target === ov) impParcEncerrarFechar(); });
+  _ipmEncHint();
+  setTimeout(() => { const el = document.getElementById('ipm-enc-valor'); if(el) el.focus(); }, 40);
+}
+function impParcEncerrarFechar(){ const o = document.getElementById('ipm-enc-ov'); if(o) o.remove(); }
+function _ipmMotivoMuda(){ _ipmEncHint(); }
+function _ipmEncHint(){
+  const el = document.getElementById('ipm-enc-hint');
+  if(!el) return;
+  const m = document.querySelector('input[name="ipm-motivo"]:checked');
+  if(m && m.value === 'migracao'){
+    el.innerHTML = 'Ao salvar, o Forekash oferece cadastrar o <b>novo parcelamento</b> já com o saldo que sobrou — é ele que passa a valer daqui pra frente.';
+  } else if(m && m.value === 'rescisao'){
+    el.innerHTML = 'O contrato sai do controle e o saldo deixa de ser projetado. Se ele voltar num novo parcelamento, cadastre o novo.';
+  } else if(m){
+    el.textContent = 'O saldo vai a zero e o contrato aparece como quitado na planilha.';
+  } else {
+    el.textContent = 'A amortização entra no mês do pagamento e reduz o número de parcelas que faltam.';
+  }
+}
+
+function impParcEncerrarSalvar(id, tipo){
+  const P = (impostos.parcelamentos || []).find(x => x.id === id);
+  if(!P) return;
+  const err = document.getElementById('ipm-enc-err');
+  const falha = m => { if(err) err.textContent = m; };
+  if(err) err.textContent = '';
+  const data  = (document.getElementById('ipm-enc-data') || {}).value || '';
+  const valor = parseFloat((document.getElementById('ipm-enc-valor') || {}).value);
+  const obs   = ((document.getElementById('ipm-enc-obs') || {}).value || '').trim();
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(data)) return falha('Informe a data do pagamento.');
+  if(!isFinite(valor) || valor <= 0)    return falha('Informe o valor pago.');
+
+  if(tipo === 'amortizar'){
+    if(!Array.isArray(P.amortizacoes)) P.amortizacoes = [];
+    P.amortizacoes.push({ data, valor, obs });
+    P._planKey = null; P._plan = null;
+    impSave(); impParcEncerrarFechar(); impParcModalFechar();
+    renderImpParSheet(); updateImpParKpis();
+    if(typeof toast === 'function') toast('Amortização de ' + fmtBRL(valor) + ' registrada · o saldo e o número de parcelas foram recalculados', 5000);
+    return;
+  }
+
+  const motivo = (document.querySelector('input[name="ipm-motivo"]:checked') || {}).value || 'quitacao';
+  const hojeYM = impMesKey(String(new Date().getFullYear()), new Date().getMonth());
+  const saldoAntes = impParcSaldoFim(P, hojeYM) || 0;
+  P.quitacao = { data, valor, motivo, obs, saldoAntes };
+  P.ativo = false;
+  P._planKey = null; P._plan = null;
+  impSave(); impParcEncerrarFechar(); impParcModalFechar();
+  renderImpParSheet(); updateImpParKpis();
+
+  if(motivo === 'migracao'){
+    setTimeout(() => {
+      impParcModal(null);
+      const nome = document.getElementById('ipm-nome');
+      const saldoEl = document.getElementById('ipm-saldo');
+      const bloco = document.getElementById('ipm-bloco');
+      if(nome)  nome.value  = 'Novo parcelamento (migrado de ' + (P.nome || '') + ')';
+      if(saldoEl && saldoAntes > 0) saldoEl.value = saldoAntes.toFixed(2);
+      if(bloco && P.bloco) bloco.value = P.bloco;
+      try{ _ipmAtualizaPagasHint(); }catch(e){}
+      if(typeof toast === 'function') toast('Contrato anterior encerrado. Ajuste saldo, parcela e prazo do novo — o saldo veio preenchido com o que restava.', 8000);
+    }, 120);
+  } else if(typeof toast === 'function'){
+    toast(motivo === 'rescisao' ? 'Parcelamento marcado como rescindido' : 'Parcelamento quitado', 4000);
+  }
+}
+
+async function impParcDesfazerEncerramento(id){
+  const P = (impostos.parcelamentos || []).find(x => x.id === id);
+  if(!P || !P.quitacao) return;
+  const ok = await showConfirm({
+    title: 'Reabrir parcelamento',
+    message: 'O encerramento será removido e o contrato volta a projetar parcelas.',
+    confirmLabel: 'Reabrir'
+  });
+  if(!ok) return;
+  delete P.quitacao;
+  P.ativo = true;
+  P._planKey = null; P._plan = null;
+  impSave(); impParcModalFechar();
+  renderImpParSheet(); updateImpParKpis();
+}
+try{
+  window.impParcEncerrarModal  = impParcEncerrarModal;
+  window.impParcEncerrarFechar = impParcEncerrarFechar;
+  window.impParcEncerrarSalvar = impParcEncerrarSalvar;
+  window.impParcDesfazerEncerramento = impParcDesfazerEncerramento;
+  window._ipmEncHint = _ipmEncHint;
+  window._ipmMotivoMuda = _ipmMotivoMuda;
+}catch(_){}
+
 function impParcModalFechar(){
   const o = document.getElementById('imp-parc-ov'); if(o) o.remove();
   _ipmAnexos = [];
@@ -85357,6 +85637,8 @@ function impParcModalDeriva(origem){
   const gv = i => { const el = document.getElementById(i); return el ? parseFloat(el.value) : NaN; };
   const saldo = gv('ipm-saldo');
   const hint  = document.getElementById('ipm-hint');
+  _ipmAtualizaPagasHint();
+  if(origem === 'pagas') return;
   if(!saldo || saldo <= 0 || !isFinite(saldo)){
     if(hint) hint.textContent = 'Informe o saldo inicial para eu calcular o outro campo.';
     return;
@@ -85381,6 +85663,35 @@ function impParcModalDeriva(origem){
     if(hint) hint.textContent = 'Quita em ' + n + ' parcelas · amortiza ' + fmtBRL(nominal) + ' por mês, e a guia sobe com a Selic acumulada.';
   }
 }
+
+/* Mostra na hora o saldo que sobra depois das parcelas já pagas, pra ele
+   conferir contra o extrato do e-CAC antes de salvar. */
+function _ipmAtualizaPagasHint(){
+  const el = document.getElementById('ipm-pagas-hint');
+  if(!el) return;
+  const num = i => { const x = document.getElementById(i); return x ? parseFloat(x.value) : NaN; };
+  const saldo = num('ipm-saldo');
+  const primeira = num('ipm-parcela');
+  const pagas = parseInt((document.getElementById('ipm-pagas') || {}).value, 10) || 0;
+  if(!saldo || saldo <= 0 || !primeira || primeira <= 0){
+    el.textContent = 'Se o parcelamento já estava em andamento, diga quantas parcelas você pagou antes. Elas não vão aparecer no Extrato, e sem isso o saldo ficaria parado no valor de origem.';
+    return;
+  }
+  const nominal = primeira / IMP_FATOR_1A;
+  const total = Math.max(1, Math.ceil(saldo / nominal - 0.0001));
+  if(pagas <= 0){
+    el.textContent = 'Nenhuma paga antes: o saldo começa em ' + fmtBRL(saldo) + ', com ' + total + ' parcelas pela frente.';
+    return;
+  }
+  if(pagas >= total){
+    el.innerHTML = '<b>' + pagas + ' parcelas</b> cobre o parcelamento inteiro (' + total + '). Se ele já acabou, use <b>Quitar</b> em vez deste campo.';
+    return;
+  }
+  const resta = saldo - pagas * nominal;
+  el.innerHTML = 'Saldo hoje: <b>' + fmtBRL(resta) + '</b> · faltam ' + (total - pagas)
+               + ' de ' + total + ' parcelas. Confira com o demonstrativo do e-CAC.';
+}
+try{ window._ipmAtualizaPagasHint = _ipmAtualizaPagasHint; }catch(_){}
 
 function impParcModalSalvar(idEdit){
   const g  = i => { const el = document.getElementById(i); return el ? el.value : ''; };
@@ -85422,7 +85733,9 @@ function impParcModalSalvar(idEdit){
   P.modo           = (g('ipm-modo') === 'detalhado') ? 'detalhado' : 'consolidado';
   P.dataAdesao     = g('ipm-adesao') || '';
   P.ativo          = g('ipm-ativo') !== '0';
+  P.pagasAntes     = Math.max(0, parseInt(g('ipm-pagas'), 10) || 0);
   P.contratos      = _ipmAnexos.slice();
+  if(!Array.isArray(P.amortizacoes)) P.amortizacoes = [];
   P._planKey = null; P._plan = null;
 
   impSave();
