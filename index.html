@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787152271"/>
+  <meta name="fk-build" content="forekash-v1787154083"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17164,6 +17164,16 @@ tr.imp-par-avulso > td{border-top-style:dashed}
 tr.imp-par-avulso .imp-grp-txt{color:#475569}
 .imp-avulso-na{color:#CBD5E1;font-weight:600;font-size:.64rem}
 /* Caixa da guia de parcelamento no modal do Extrato. */
+/* Marcador na lista de categorias: fio vertical no acento do módulo e um
+   rótulo pequeno à direita. Sem ícone — o texto já diz o que precisa. */
+.cart-cbx-item.has-tag{display:flex;align-items:center;gap:10px;
+  box-shadow:inset 2px 0 0 #E9A8C6}
+.cart-cbx-item.has-tag .cbx-nome{flex:1;min-width:0}
+.cart-cbx-item.has-tag .cbx-tag{flex:0 0 auto;font-size:.62rem;font-weight:600;
+  color:#A8557E;background:#FDF2F8;border:1px solid #F5D0E4;border-radius:4px;
+  padding:1px 6px;white-space:nowrap}
+.cart-cbx-item.has-tag:hover{box-shadow:inset 2px 0 0 #BE185D}
+
 /* Vínculo com o módulo de Impostos. Fica logo abaixo dos Itens, colada na
    categoria que a fez aparecer — e diz de saída que o destino é outro módulo,
    senão parece um campo qualquer do lançamento. */
@@ -17181,8 +17191,13 @@ tr.imp-par-avulso .imp-grp-txt{color:#475569}
 .ext-parc-grid label.f{display:flex;flex-direction:column;gap:4px;min-width:0}
 .ext-parc-grid label.f > span{font-size:.63rem;font-weight:700;text-transform:uppercase;
   letter-spacing:.05em;color:#9D174D;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ext-parc-grid select{width:100%;padding:8px 10px;border:1px solid #F0BBD6;border-radius:7px;
-  background:#fff;font-size:.83rem;font-family:inherit;color:#0F172A;font-weight:500}
+/* `background:#fff` apagava a seta — ela vem como background-image na regra
+   de select do modal, e o atalho zera todas as camadas de background. */
+.ext-parc-grid select{width:100%;padding:8px 30px 8px 10px;border:1px solid #F0BBD6;
+  border-radius:7px;background-color:#fff;font-size:.83rem;font-family:inherit;
+  color:#0F172A;font-weight:500;cursor:pointer;appearance:none;-webkit-appearance:none;
+  background-image:url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3e%3cpath fill='%23BE185D' d='M5 6 0 0h10z'/%3e%3c/svg%3e");
+  background-repeat:no-repeat;background-position:right 12px center}
 .ext-parc-grid select:focus{outline:none;border-color:#BE185D;box-shadow:0 0 0 3px rgba(190,24,93,.1)}
 .ext-parc-conta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.75rem;
   color:#5B1F3F;background:#fff;border:1px solid #F5D0E4;border-radius:8px;padding:9px 11px}
@@ -68176,7 +68191,9 @@ function _extItCbxRender(i, name){
   } else {
     for(let k=0; k<filtered.length; k++){
       const v = filtered[k];
-      html += '<div class="cart-cbx-item" onmousedown="event.preventDefault();_extItCbxPick(' + i + ',\'' + name + '\',' + k + ')">' + _extEsc(v) + '</div>';
+      html += (name === 'cat')
+        ? _extCbxItemHtml(v, 'event.preventDefault();_extItCbxPick(' + i + ',\'' + name + '\',' + k + ')')
+        : ('<div class="cart-cbx-item" onmousedown="event.preventDefault();_extItCbxPick(' + i + ',\'' + name + '\',' + k + ')">' + _extEsc(v) + '</div>');
     }
   }
   if(q && !exact){
@@ -68665,6 +68682,27 @@ try{
   window._extContaRotulo = _extContaRotulo;
   window._extContaCacheLimpa = _extContaCacheLimpa;
 }catch(_){}
+
+/* Categoria que não é só um rótulo: ela liga o lançamento a outro módulo, com
+   saldo e projeção próprios. Na lista suspensa isso precisa aparecer — senão
+   ela se confunde com "Marketing" ou "Infra web", que são só classificação. */
+function _extCatMarcador(nome){
+  try{
+    const norm = v => String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+                      .toLowerCase().replace(/\s+/g,' ').trim();
+    const c = (catmapData.categorias || []).find(x => norm(x.nome) === norm(nome));
+    if(c && c.fixa) return 'controle próprio';
+  }catch(_){}
+  return '';
+}
+function _extCbxItemHtml(v, onmousedown){
+  const marca = _extCatMarcador(v);
+  return '<div class="cart-cbx-item' + (marca ? ' has-tag' : '') + '" onmousedown="' + onmousedown + '">'
+       + '<span class="cbx-nome">' + _extEsc(v) + '</span>'
+       + (marca ? '<span class="cbx-tag">' + marca + '</span>' : '')
+       + '</div>';
+}
+try{ window._extCatMarcador = _extCatMarcador; }catch(_){}
 
 function _extOfficialCats(tipo){
   const cats = new Set();
