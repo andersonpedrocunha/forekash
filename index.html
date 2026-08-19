@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787161701"/>
+  <meta name="fk-build" content="forekash-v1787162290"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -85866,7 +85866,7 @@ function renderImpParRow(p, year, conc){
       if(row.zerado){
         cls += ' zerada';
         display = '—';
-        title = `${numPar} · zerada por você — sem parcela prevista neste mês. Clique para voltar à previsão.`;
+        title = `${numPar} · zerada por você — não conta como atraso. Se foi paga junto com outra guia, marque esta competência no lançamento dela. Clique para voltar à previsão.`;
         /* handler inline: `onClick` só é montado mais abaixo nesta função */
         return `<td class="${cls}" title="${esc(title)}" onclick="impParcZerarModal(${p.id}, '${ym}')">${display}</td>`;
       }
@@ -86428,13 +86428,24 @@ async function impParcZerarModal(id, ym){
   const mesLbl = (IMP_MESES[parseInt(String(ym).slice(5,7),10)-1] || '').toUpperCase() + '/' + String(ym).slice(2,4);
   const prev = impParcPrevistoMes(P, ym);
 
+  /* Zerar é pro caso do atraso: a parcela deste mês não foi paga aqui, foi
+     junto com outra num mês seguinte. Não é "não existia parcela". */
+  const _temGuiaDepois = (() => {
+    try{
+      const plan = _impParcPlan(P);
+      return plan.rows.some(r => r.ym > ym && r.manual);
+    }catch(_){ return false; }
+  })();
   const ok = await showConfirm({
     title: zerado ? ('Voltar a prever ' + mesLbl) : ('Zerar ' + mesLbl),
     message: zerado
-      ? `Este mês está zerado. Voltar a prever a parcela de <strong>${fmtBRL(prev || (+P.parcelaMensal * IMP_FATOR_1A))}</strong>?`
-      : `Nenhuma guia deste mês foi identificada no Extrato.\n\n`
-        + `Zerar significa que <strong>não havia parcela a pagar</strong> em ${mesLbl} — a previsão some, o mês para de contar como atraso e o saldo devedor não é abatido.\n\n`
-        + `Se a parcela existiu e foi paga, não zere: lance o pagamento no Extrato com a categoria do parcelamento.`,
+      ? `Voltar a cobrar a parcela de <strong>${fmtBRL(prev || (+P.parcelaMensal * IMP_FATOR_1A))}</strong> em ${mesLbl}?`
+      : `Nenhuma guia de ${mesLbl} foi identificada no Extrato.\n\n`
+        + `Use quando a parcela atrasou e foi paga junto com outra, num mês seguinte. `
+        + `A previsão de ${mesLbl} some e o mês para de contar como atraso — o abatimento acontece no mês em que o dinheiro saiu da conta.\n\n`
+        + (_temGuiaDepois
+           ? `Melhor ainda: se a guia maior já está lançada, abra ela e marque <strong>${mesLbl}</strong> nas competências. Aí o mês aparece quitado em vez de zerado, e o saldo devedor cai.`
+           : `Se a parcela foi paga no próprio mês, não zere: lance o pagamento no Extrato com a categoria do parcelamento.`),
     confirmLabel: zerado ? 'Voltar a prever' : 'Zerar o mês',
     cancelLabel: 'Manter como está'
   });
@@ -86447,7 +86458,7 @@ async function impParcZerarModal(id, ym){
   renderImpParSheet();
   updateImpParKpis();
   if(typeof toast === 'function'){
-    toast(zerado ? mesLbl + ' voltou a prever a parcela' : mesLbl + ' zerado — sem parcela prevista', 4000);
+    toast(zerado ? mesLbl + ' voltou a prever a parcela' : mesLbl + ' zerado — não conta mais como atraso', 4000);
   }
 }
 try{ window.impParcZerarModal = impParcZerarModal; }catch(_){}
