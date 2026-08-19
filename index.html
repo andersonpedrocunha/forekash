@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787098107"/>
+  <meta name="fk-build" content="forekash-v1787100546"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17134,6 +17134,14 @@ tr.imp-par-grupo.colapsado > td{opacity:.92}
 /* Não identificados — visível é melhor que chutado. */
 .imp-naoident{border:1px solid #E2E8F0;background:#F8FAFC;border-radius:10px;
   padding:12px 14px;margin:0 0 10px}
+.imp-confirmar{border:1px solid #FBCFE8;background:#FDF2F8;border-radius:10px;
+  padding:12px 14px;margin:0 0 10px}
+.imp-confirmar .imp-ni-hd strong{color:#831843}
+.imp-confirmar .imp-ni-tot{color:#BE185D}
+.imp-confirmar .imp-ni-sub{color:#9D174D;opacity:.9}
+.imp-confirmar .imp-ni-tbl td{border-top-color:#FBCFE8;color:#831843}
+.imp-confirmar .ni-data{color:#F472B6}
+.imp-confirmar .ni-motivo b{color:#BE185D}
 .imp-ni-hd{display:flex;align-items:baseline;gap:10px}
 .imp-ni-hd strong{font-size:.8rem;color:#334155}
 .imp-ni-tot{margin-left:auto;font-size:.76rem;font-weight:700;color:#475569}
@@ -84641,7 +84649,7 @@ function impParcPrevistoGrupo(gid, ym){
    → { porParc:{parcId:{ym:valor}}, porGrupo:{gid:{ym:valor}},
        naoIdent:[{lancId,ym,valor,desc,cat,motivo}], totalMes:{ym:valor} }   */
 function impParcConciliar(ano){
-  const out = { porParc:{}, porGrupo:{}, naoIdent:[], avulsos:[], totalMes:{}, acumuladas:{}, coberturas:{} };
+  const out = { porParc:{}, porGrupo:{}, naoIdent:[], avulsos:[], totalMes:{}, acumuladas:{}, coberturas:{}, confirmar:[] };
   const y = (ano == null) ? null : String(ano);   // null = todos os anos
   let lans = [];
   try{ lans = (extratoData && extratoData.lancamentos) || []; }catch(_){ return out; }
@@ -84724,6 +84732,21 @@ function impParcConciliar(ano){
         const k = nDito > 0 ? nDito : _multiplo(cand[0]);
         if(nDito > 0) out.coberturas[cand[0].id + '|' + ym] = nDito;
         if(k > 1) out.acumuladas[cand[0].id + '|' + ym] = k;
+        /* Deduzido, não confirmado. A importação do OFX cria o lançamento
+           direto, sem passar pelo modal — então a pergunta nunca foi feita
+           pra guia importada, e é justamente onde entra o volume. Guia
+           acumulada, ou com sobra relevante, vai pra fila de confirmação. */
+        if(!nDito){
+          const base = impParcPrevistoMes(cand[0], ym) * k;
+          const sobra = ev.valor - base;
+          if(k > 1 || sobra > Math.max(base * 0.05, 5)){
+            out.confirmar.push({
+              parcId: cand[0].id, nome: cand[0].nome || ('Parcelamento #' + cand[0].id),
+              ym, valor: ev.valor, k, sobra,
+              desc: l.descricao || l.historico || '(sem descrição)'
+            });
+          }
+        }
         continue;
       }
       /* 4 · a categoria nomeia o bloco — concilia no bloco, sem chutar contrato */
@@ -85111,7 +85134,7 @@ function renderImpParPainel(year, conc){
   const naoIdent = (conc.naoIdent || []).filter(x => String(x.ym).slice(0,4) === String(year));
   const avulsos  = (conc.avulsos  || []).filter(x => String(x.ym).slice(0,4) === String(year));
   const temContrato = ((impostos && impostos.parcelamentos) || []).some(x => x.ativo !== false);
-  if(!alertas.length && !naoIdent.length && !avulsos.length){ el.innerHTML = ''; return; }
+  if(!alertas.length && !naoIdent.length && !avulsos.length && !(conc.confirmar||[]).length){ el.innerHTML = ''; return; }
 
   let html = '';
   if(alertas.length){
@@ -85157,6 +85180,29 @@ function renderImpParPainel(year, conc){
           ? 'A conta é acumulada: pagar três guias de uma vez zera o atraso dos meses pulados. A partir de três parcelas em atraso o parcelamento é rescindido e a dívida volta inteira pra dívida ativa. Se já pagou, confira se o lançamento está no Extrato com a categoria do parcelamento.'
           : 'Se já pagou, confira se o lançamento está no Extrato com a categoria do parcelamento.'}</p>
       </div>
+    </div>`;
+  }
+
+  /* Guia deduzida pelo valor, sem ninguém ter confirmado. Importar OFX não
+     passa pelo modal, então essas chegam mudas — e uma dedução errada mexe no
+     saldo devedor sem avisar. */
+  const confirmar = (conc.confirmar || []).filter(x => String(x.ym).slice(0,4) === String(year));
+  if(confirmar.length){
+    const linhas = confirmar.map(x => `<tr>
+      <td class="ni-data">${esc(String(x.ym))}</td>
+      <td class="ni-desc" title="${esc(x.desc)}">${esc(x.nome)}</td>
+      <td class="ni-val">${fmtBRL(x.valor)}</td>
+      <td class="ni-motivo">li como <b>${x.k} parcela${x.k===1?'':'s'}</b>${x.sobra > 0.5 ? ' + ' + esc(fmtBRL(x.sobra)) + ' de encargo' : ''}</td>
+      <td class="ni-acao"><button type="button" class="rec-tipo-filter-btn"
+          onclick="impParcCoberturaModal(${x.parcId}, '${esc(x.ym)}')">conferir</button></td>
+    </tr>`).join('');
+    html += `<div class="imp-confirmar">
+      <div class="imp-ni-hd">
+        <strong>${confirmar.length} guia${confirmar.length===1?'':'s'} de parcelamento lida${confirmar.length===1?'':'s'} pelo valor</strong>
+        <span class="imp-ni-tot">${fmtBRL(confirmar.reduce((a,x)=>a+x.valor,0))}</span>
+      </div>
+      <p class="imp-ni-sub">Quais competências cada guia quitou está no DARF, não no extrato bancário — aqui o app deduziu pelo valor. Guia importada do OFX não passa pela pergunta, então vale conferir: uma leitura errada mexe no saldo devedor.</p>
+      <table class="imp-ni-tbl"><tbody>${linhas}</tbody></table>
     </div>`;
   }
 
