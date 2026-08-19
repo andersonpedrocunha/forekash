@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787182323"/>
+  <meta name="fk-build" content="forekash-v1787183614"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -102236,9 +102236,17 @@ function renderPesGroupHeader(tipo, grp, year, tipoId, allPeople){
     return `<td>${v ? fmtShortBR(v) : '—'}</td>`;
   }).join('');
   // Indicador visual: soma de rateios vindos de OUTROS grupos (não-principais neste tipo)
-  const hasRateio = contributors.some(p => !pesIsAlocacaoSimples(p) && pesTipoPrincipal(p) !== _gTipoId);
-  const rateioHint = hasRateio
-    ? ` <span title="Inclui rateio de pessoas listadas em outros grupos" style="font-size:.62rem;color:#92400E;font-weight:700">⇄ rateio</span>`
+  /* Quem entra aqui só por rateio não tem linha neste grupo — sem dizer QUEM é,
+     o total do grupo não fecha com a soma das linhas visíveis e parece erro. */
+  const deOutroGrupo = contributors.filter(p => !pesIsAlocacaoSimples(p) && pesTipoPrincipal(p) !== _gTipoId);
+  const rateioHint = deOutroGrupo.length
+    ? ` <span title="${esc(deOutroGrupo.map(p => {
+          const nm = (pesRegOf(p) || {}).nome || p.nome || 'sem nome';
+          const aloc = (p.alocacao && p.alocacao.padrao || []).find(a2 => a2.tipoId === _gTipoId);
+          const pct = aloc ? (parseFloat(aloc.pct) || 0) : 0;
+          const grp = (pesTipo(pesTipoPrincipal(p)) || {}).nome || '';
+          return nm + ' · ' + Math.round(pct) + '% deste tipo (listado em ' + grp + ')';
+        }).join('\n'))}" style="font-size:.62rem;color:#92400E;font-weight:700;cursor:help">⇄ rateio de ${deOutroGrupo.length}</span>`
     : '';
   return `<tr class="grp" style="--grpBg:${color}">
     <td class="stk stk-1 l">${esc(tipo.nome||'Grupo')}</td>
