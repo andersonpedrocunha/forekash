@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787162290"/>
+  <meta name="fk-build" content="forekash-v1787166150"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -69905,8 +69905,12 @@ function extOpenModal(tipo, editId){
   // Reset de anexos para novo lançamento (não toca em meta de item existente)
   if(t !== 'transferencia'){
     try {
-      if(typeof _dkbAnexoData !== 'undefined') _dkbAnexoData = Array.isArray(l.anexo) ? l.anexo.slice() : [];
-      if(typeof _dkbCompData !== 'undefined')  _dkbCompData  = Array.isArray(l.comprovante) ? l.comprovante.slice() : [];
+      /* Lançamento antigo guarda um objeto único em vez de lista. Ler só o
+         array zerava o estado e o salvar apagava o anexo existente. */
+      const _norm = v => (typeof _dkbNormalizeAnexos === 'function')
+        ? _dkbNormalizeAnexos(v) : (Array.isArray(v) ? v.slice() : (v ? [v] : []));
+      if(typeof _dkbAnexoData !== 'undefined') _dkbAnexoData = _norm(l.anexo);
+      if(typeof _dkbCompData !== 'undefined')  _dkbCompData  = _norm(l.comprovante);
     } catch(_){}
   }
   // Inicializa lista de itens (gasto/ganho)
@@ -70649,6 +70653,13 @@ function extSaveModal(tipo){
     const l = extratoData.lancamentos.find(x => x.id === realId);
     if(l){
       Object.assign(l, { data, valor, descricao:desc, categoria:catFinal, contraparte:counter, conta, status, notas, documento, refInterna, tipo, centroCustoId });
+      /* O anexo só era gravado ao CRIAR o lançamento. Editando um existente e
+         anexando, o arquivo ia embora no salvar — o modal dizia que estava lá
+         e o lançamento voltava vazio. `_dkbAnexoData` é o estado do painel:
+         reflete o que ficou depois de adicionar e remover, então serve tanto
+         pra gravar quanto pra limpar. */
+      if(anexoDoc) l.anexo = anexoDoc; else delete l.anexo;
+      if(anexoComp) l.comprovante = anexoComp; else delete l.comprovante;
       if(status === 'pago' && !l.dataPagamento) l.dataPagamento = data;
       if(status !== 'pago') l.dataPagamento = '';
       if(_parcId && _parcN){
