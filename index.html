@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787100546"/>
+  <meta name="fk-build" content="forekash-v1787151192"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17134,6 +17134,8 @@ tr.imp-par-grupo.colapsado > td{opacity:.92}
 /* Não identificados — visível é melhor que chutado. */
 .imp-naoident{border:1px solid #E2E8F0;background:#F8FAFC;border-radius:10px;
   padding:12px 14px;margin:0 0 10px}
+.catmap-fixa{font-size:.6rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;
+  color:#9D174D;background:#FCE7F3;border:1px solid #FBCFE8;border-radius:4px;padding:2px 6px}
 .imp-confirmar{border:1px solid #FBCFE8;background:#FDF2F8;border-radius:10px;
   padding:12px 14px;margin:0 0 10px}
 .imp-confirmar .imp-ni-hd strong{color:#831843}
@@ -68206,6 +68208,7 @@ function _extItCbxFilter(i, name){
   if(pop) pop.classList.add('open');
 }
 function _extItCbxPick(i, name, idx){
+  if(name === 'cat') setTimeout(() => { try{ extParcSyncUI(); }catch(_){} }, 0);
   const inp = document.getElementById('ext-it-' + name + '-' + i);
   if(!inp) return;
   const all = _extItCbxSource(i, name);
@@ -68676,14 +68679,33 @@ function _extOfficialCats(tipo){
    está no DARF, não no banco — e sem essa resposta o app precisa deduzir pelo
    valor, dedução que quebra quando entram juros de mora e multa. Então a
    pergunta é feita aqui, na hora de lançar o pagamento.                      */
+/* A categoria que o usuário digita vive no ITEM (`ext-it-cat-N`). O
+   `ext-fld-cat` existe mas fica oculto — ler dele fazia a caixa nunca
+   aparecer em uso real. Varre os itens e aceita se qualquer um for guia. */
+function _extCategoriasDoModal(){
+  const out = [];
+  document.querySelectorAll('[id^="ext-it-cat-"]').forEach(el => {
+    const v = (el.value || '').trim(); if(v) out.push(v);
+  });
+  const legado = document.getElementById('ext-fld-cat');
+  if(legado && (legado.value || '').trim()) out.push(legado.value.trim());
+  return out;
+}
 function _extParcContexto(){
-  const cat = (document.getElementById('ext-fld-cat') || {}).value || '';
   let hit = null;
-  try{ hit = impCategoriaEhParcelamento(cat); }catch(_){ return null; }
+  try{
+    for(const cat of _extCategoriasDoModal()){
+      hit = impCategoriaEhParcelamento(cat);
+      if(hit) break;
+    }
+  }catch(_){ return null; }
   if(!hit) return null;
   const ativos = ((typeof impostos !== 'undefined' && impostos && impostos.parcelamentos) || [])
                  .filter(x => x.ativo !== false && x.saldoInicial > 0 && x.parcelaMensal > 0);
-  if(!ativos.length) return null;
+  /* Sem contrato cadastrado a caixa não some: ela diz pra onde o pagamento
+     vai. Empresa que só paga a guia e não controla contrato é a maioria — e
+     ficar em silêncio faria parecer que o lançamento se perdeu. */
+  if(!ativos.length) return { semContrato: true };
   const dPag = (document.getElementById('ext-fld-pag') || {}).value
             || (document.getElementById('ext-fld-data') || {}).value || '';
   const ym = String(dPag).slice(0, 7);
@@ -68726,11 +68748,15 @@ let _extParcHooked = false;
 function _extParcHook(){
   if(_extParcHooked) return;
   _extParcHooked = true;
-  /* Valor e datas nascem e morrem com o modal, então o gatilho é delegado. */
+  /* Valor, data e categoria nascem e morrem com o modal, então o gatilho é
+     delegado no documento. E é instalado na carga, não na primeira chamada:
+     antes, ninguém chamava extParcSyncUI ao abrir o modal, então o listener
+     nunca era instalado e a caixa nunca aparecia. */
   document.addEventListener('input', ev => {
     const t = ev.target;
     if(!t || !t.matches) return;
-    if(t.matches('.ext-it-valor, #ext-fld-valor, #ext-fld-data, #ext-fld-pag, #ext-fld-cat')){
+    if(t.matches('.ext-it-valor, #ext-fld-valor, #ext-fld-data, #ext-fld-pag, #ext-fld-cat')
+       || (t.id && t.id.indexOf('ext-it-cat-') === 0)){
       try{ extParcSyncUI(); }catch(_){}
     }
   }, true);
@@ -68741,6 +68767,17 @@ function extParcSyncUI(){
   if(!box) return;
   const ctx = _extParcContexto();
   if(!ctx){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  if(ctx.semContrato){
+    box.style.display = '';
+    box.dataset.parc = ''; box.dataset.n = '';
+    box.dataset.manual = '';
+    box.innerHTML =
+        '<div class="ext-parc-hd"><b>Guia de parcelamento</b></div>'
+      + '<div class="ext-parc-nota" style="font-size:.72rem">Você não tem nenhum parcelamento cadastrado, o que é uma escolha legítima. '
+      + 'Este pagamento entra no módulo de Impostos na linha <b>Sem contrato cadastrado</b> — soma no total e no fluxo de caixa, sem saldo devedor nem previsão.</div>'
+      + '<div><button type="button" class="rec-tipo-filter-btn" onclick="impParcModal(null)">Cadastrar parcelamento</button></div>';
+    return;
+  }
 
   const esc2 = x => String(x == null ? '' : x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
   const escolhido = (box.dataset.parc && ctx.ativos.some(x => String(x.id) === box.dataset.parc))
@@ -68749,8 +68786,10 @@ function extParcSyncUI(){
   const P = ctx.ativos.find(x => x.id === escolhido) || ctx.ativos[0];
   const parcela = impParcPrevistoMes(P, ctx.ym) || (+P.parcelaMensal * IMP_FATOR_1A);
 
-  let nSel = parseInt(box.dataset.n, 10) || 0;
-  /* Resposta já dada antes (edição do lançamento) manda sobre a dedução. */
+  /* Só respeita o número guardado quando o usuário escolheu de propósito.
+     Antes, a primeira sincronia (com o valor ainda vazio) fixava "1 parcela" e
+     digitar o valor depois não recalculava mais. */
+  let nSel = (box.dataset.manual === '1') ? (parseInt(box.dataset.n, 10) || 0) : 0;
   if(!nSel && ctx.jaRespondido > 0) nSel = ctx.jaRespondido;
   if(!nSel && parcela > 0.005 && ctx.valor > 0){
     /* Piso, não arredondamento: guia em atraso só ACRESCENTA juros e multa,
@@ -68794,13 +68833,17 @@ function extParcSyncUI(){
 function extParcEscolhe(parcId, n){
   const box = document.getElementById('ext-parc-box');
   if(!box) return;
-  if(parcId){ box.dataset.parc = String(parcId); box.dataset.n = ''; }
-  if(n){ box.dataset.n = String(n); }
+  if(parcId){ box.dataset.parc = String(parcId); box.dataset.n = ''; box.dataset.manual = ''; }
+  if(n){ box.dataset.n = String(n); box.dataset.manual = '1'; }
   extParcSyncUI();
 }
 try{
   window.extParcSyncUI = extParcSyncUI;
   window.extParcEscolhe = extParcEscolhe;
+  _extParcHook();
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', () => { try{ _extParcHook(); }catch(_){} });
+  }
 }catch(_){}
 
 function _extCatSelectHtml(tipo, current){
@@ -69657,6 +69700,9 @@ function extOpenModal(tipo, editId){
     const f = document.querySelector('#' + focusId + ', .ext-it-desc[data-i="0"]');
     if(f){ try { f.focus(); if(f.select) f.select(); } catch(_){} }
     if(typeof _extRepUpdatePreview === 'function') _extRepUpdatePreview();
+    /* Editar um lançamento que já é guia de parcelamento tem que mostrar a
+       caixa de cara, sem esperar o usuário mexer em nada. */
+    try{ extParcSyncUI(); }catch(_){}
   }, 50);
   const escH = (e) => { if(e.key === 'Escape'){ extCloseModal(); document.removeEventListener('keydown', escH); } };
   document.addEventListener('keydown', escH);
@@ -71428,7 +71474,41 @@ function _catmapLoad(){
       }
     }
   } catch(e){ console.warn('catmap/load:', e); }
+  try{ _catmapGarantirFixas(); }catch(e){ console.warn('catmap/fixas:', e); }
 }
+
+/* Categorias que o app precisa que existam pra funcionar. "Parcelamento de
+   Impostos" é a porta de entrada do controle de parcelamento: sem ela, o
+   lançamento não é reconhecido como guia e o módulo fica cego. O usuário pode
+   renomear? Não — o casamento é pelo nome. Então ela é fixa e não some. */
+const CATMAP_FIXAS = [
+  { nome: 'Parcelamento de Impostos', moduloId: 'impostos', linhaId: null,
+    drcLineId: 'parcImpostos', cor: '#BE185D', fixa: true,
+    ajuda: 'Guia de parcelamento tributário — DARF, GPS, REFIS, PERT' }
+];
+function _catmapGarantirFixas(){
+  if(!Array.isArray(catmapData.categorias)) catmapData.categorias = [];
+  const norm = v => String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+                    .toLowerCase().replace(/\s+/g,' ').trim();
+  let mudou = false;
+  for(const f of CATMAP_FIXAS){
+    const ja = catmapData.categorias.find(c => norm(c.nome) === norm(f.nome));
+    if(ja){
+      /* Já existia (criada à mão, provavelmente em Estrutura): adota. */
+      if(!ja.fixa || ja.moduloId !== f.moduloId){
+        ja.fixa = true; ja.moduloId = f.moduloId; ja.linhaId = f.linhaId;
+        mudou = true;
+      }
+    } else {
+      catmapData.categorias.push(Object.assign({ id: catmapData.nextId++ }, f));
+      mudou = true;
+    }
+  }
+  if(mudou){
+    try{ localStorage.setItem(CATMAP_KEY, JSON.stringify({ categorias: catmapData.categorias, nextId: catmapData.nextId })); }catch(_){}
+  }
+}
+try{ window._catmapGarantirFixas = _catmapGarantirFixas; }catch(_){}
 function _catmapSave(){
   try {
     localStorage.setItem(CATMAP_KEY, JSON.stringify({ categorias: catmapData.categorias, nextId: catmapData.nextId }));
@@ -71677,6 +71757,11 @@ try {
 function _catmapIsLocked(c){
   return !!(c && c.autoDiscovered && !c.userCreated);
 }
+/* Categoria fixa: o app depende do NOME dela pra reconhecer a guia, então não
+   pode ser excluída nem renomeada. Os vínculos de DRC/DRE seguem editáveis —
+   travar tudo deixaria o usuário sem como classificar a linha. */
+function _catmapIsFixa(c){ return !!(c && c.fixa); }
+try{ window._catmapIsFixa = _catmapIsFixa; }catch(_){}
 
 function catmapRender(){
   _catmapPopulateForm();
@@ -71756,6 +71841,7 @@ function catmapRender(){
       const dreNm = catmapDRENome(c.dreLineId);
       const isAuto = !!c.autoDiscovered;
       const isLocked = _catmapIsLocked(c);
+      const isFixa = _catmapIsFixa(c);
       const origemBadge = isAuto && c.origem ? ('<span class="catmap-origem" title="' + _extEsc(c.origem) + '">' + _extEsc(c.origem) + '</span>') : '';
       const fullyMapped = !!(c.moduloId && c.drcLineId && c.dreLineId);
       html += '<div class="catmap-row' + (isAuto ? ' is-auto' : '') + (fullyMapped ? ' is-mapped' : '') + (isLocked ? ' is-locked' : '') + '">'
@@ -71766,8 +71852,10 @@ function catmapRender(){
         + '<div class="meta"><span class="lbl">DRE</span>' + (dreNm ? _extEsc(dreNm) : '<span class="none">— não definido —</span>') + '</div>'
         + '<div class="actions">'
         +   (isLocked ? '<span style="color:#94A3B8;font-size:.72rem;font-weight:600">Bloqueada</span>'
-                     : ('<button class="edit" onclick="catmapStartEdit(' + c.id + ')" title="Definir vínculos">' + (fullyMapped ? '✎ Editar' : '+ Vincular') + '</button>'
-                        + '<button class="del fkico fkico-trash" onclick="catmapDelete(' + c.id + ')" title="Excluir"></button>'))
+                     : ('<button class="edit" onclick="catmapStartEdit(' + c.id + ')" title="' + (isFixa ? 'Definir vínculos (nome é fixo)' : 'Definir vínculos') + '">' + (fullyMapped ? '✎ Editar' : '+ Vincular') + '</button>'
+                        + (isFixa
+                           ? '<span class="catmap-fixa" title="O Extrato reconhece a guia de parcelamento por esta categoria — ela não pode ser excluída">fixa</span>'
+                           : '<button class="del fkico fkico-trash" onclick="catmapDelete(' + c.id + ')" title="Excluir"></button>')))
         + '</div>'
         + '</div>';
     }
@@ -72057,7 +72145,11 @@ function catmapSaveEdit(id){
   const dup = (catmapData.categorias || []).find(c => c.id !== id && (c.nome||'').trim().toLowerCase() === nome.toLowerCase());
   if(dup){ if(typeof toast === 'function') toast('⚠ Já existe outra categoria com esse nome'); return; }
   const c = catmapById(id); if(!c) return;
-  c.nome = nome;
+  /* Nome de categoria fixa é contrato com o motor: renomear cegaria o módulo. */
+  if(!_catmapIsFixa(c)) c.nome = nome;
+  else if(nome !== c.nome && typeof toast === 'function'){
+    toast('O nome desta categoria é fixo — o módulo de Impostos reconhece a guia por ele. Os vínculos foram salvos.', 5000);
+  }
   c.cor = (corEl && corEl.value) || c.cor || '#7C3AED';
   c.moduloId = (modEl && modEl.value) || '';
   c.drcLineId = (drcEl && drcEl.value) || '';
@@ -72070,6 +72162,10 @@ function catmapSaveEdit(id){
 
 async function catmapDelete(id){
   const c = catmapById(id); if(!c) return;
+  if(_catmapIsFixa(c)){
+    if(typeof toast === 'function') toast('Essa categoria não pode ser excluída — é por ela que o Extrato reconhece uma guia de parcelamento.', 5000);
+    return;
+  }
   // Se for userCreated (criada via modal), deleta tag em estrutura.tags e entrada catmap.
   // Se for puramente manual (não é userCreated), só remove a entrada catmap.
   // Bloqueadas (autoDiscovered sem userCreated) não passam por aqui — o botão nem aparece.
