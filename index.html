@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787166150"/>
+  <meta name="fk-build" content="forekash-v1787166759"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -75330,18 +75330,69 @@ function fkResolverConta(texto){
     });
     if(porNum.length === 1) return porNum[0].rotulo;
   }
-  // 2) sem número cadastrado: nome do banco, e só se for a única conta dele
+  // 2) nome do banco
   const nomeTexto = norm(partes[0]);
-  if(nomeTexto){
-    const porBanco = contas.filter(x => {
-      const nb = norm(x.banco);
-      return nb && (nb === nomeTexto || nb.indexOf(nomeTexto) === 0 || nomeTexto.indexOf(nb) === 0);
-    });
-    if(porBanco.length === 1) return porBanco[0].rotulo;
+  const porBanco = nomeTexto ? contas.filter(x => {
+    const nb = norm(x.banco);
+    return nb && (nb === nomeTexto || nb.indexOf(nomeTexto) === 0 || nomeTexto.indexOf(nb) === 0);
+  }) : [];
+  if(porBanco.length === 1) return porBanco[0].rotulo;
+
+  /* 3) O texto traz número e o banco tem mais de uma conta, mas só UMA delas
+     ficou sem número cadastrado. É ela: as outras teriam casado no passo 1.
+     Sem isso, importação do OFX ("Banco do Brasil S/A · 122499-9") e
+     lançamento manual ("Banco do Brasil · Conta Corrente") continuavam sendo
+     duas linhas diferentes da mesma conta. */
+  if(porBanco.length > 1 && numTexto.length >= 4){
+    const semNumero = porBanco.filter(x => so((x.c.dados || {}).conta).length < 4);
+    if(semNumero.length === 1){
+      /* Aprende o apelido: da próxima vez casa no passo do alias, e o número
+         fica registrado como pertencente àquela conta. */
+      try{
+        const cc = semNumero[0].c;
+        if(!Array.isArray(cc._fkAliases)) cc._fkAliases = [];
+        if(cc._fkAliases.indexOf(t) < 0) cc._fkAliases.push(t);
+      }catch(_){}
+      return semNumero[0].rotulo;
+    }
   }
-  return t;   // não deu pra decidir: preserva o texto original
+
+  /* 4) Último recurso: o texto não tem número e o banco tem várias contas —
+     não dá pra dizer qual é, então preserva. Melhor duas linhas honestas do
+     que unificar na conta errada. */
+  return t;
 }
 try{ window.fkResolverConta = fkResolverConta; }catch(_){}
+
+/* Diagnóstico: mostra as contas que aparecem no Extrato com mais de um rótulo
+   e diz por que não unificaram. Rodar `fkContasDivergentes()` no console. */
+function fkContasDivergentes(){
+  const porResolvido = new Map();
+  try{
+    for(const l of ((extratoData && extratoData.lancamentos) || [])){
+      const bruto = String((l && l.conta) || '').trim();
+      if(!bruto) continue;
+      const r = fkResolverConta(bruto);
+      if(!porResolvido.has(r)) porResolvido.set(r, new Set());
+      porResolvido.get(r).add(bruto);
+    }
+  }catch(e){ return 'erro: ' + e.message; }
+  const linhas = [];
+  for(const [r, brutos] of porResolvido){
+    linhas.push({ mostrado: r, variantes: Array.from(brutos), unificou: brutos.size > 1 });
+  }
+  const soltos = linhas.filter(x => x.variantes.length === 1 && x.mostrado === x.variantes[0]);
+  console.table(linhas.map(x => ({ mostrado: x.mostrado, variantes: x.variantes.join('  ||  ') })));
+  console.info('[FK] contas cadastradas:',
+    ((typeof dispo !== 'undefined' && dispo.contas) || []).map(c => {
+      const b = (dispo.bancos||[]).find(x=>x.id===c.bancoId);
+      return (b?b.nome:'?') + ' · conta=' + ((c.dados||{}).conta || '(vazia)');
+    }));
+  console.info('[FK] rótulos distintos:', linhas.length, '· sem par:', soltos.length,
+    '— se dois deveriam ser a mesma conta, o número dela provavelmente não está no cadastro.');
+  return linhas;
+}
+try{ window.fkContasDivergentes = fkContasDivergentes; }catch(_){}
 
 function fkContaOptsHTML(atual, rotuloVazio){
   const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x||''));
