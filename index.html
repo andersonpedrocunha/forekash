@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787169242"/>
+  <meta name="fk-build" content="forekash-v1787169451"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -58168,6 +58168,17 @@ function closeFornecedorCard(){
           pessoas.registry = pessoas.registry.filter(r => r.id !== reg.id);
           if(typeof pessoasSave === 'function') pessoasSave();
           if(typeof renderWfFornecedores === 'function') renderWfFornecedores();
+        } else if(reg._draft && typeof wfCadDuplicado === 'function'
+                  && wfCadDuplicado((reg.kind === 'colaborador') ? 'colab' : 'forn', reg.nome, reg.cnpj, reg.id)){
+          /* Rascunho que repetiu alguém: descarta em vez de gravar. Dois
+             cadastros pro mesmo dono partem o histórico em dois. */
+          const _d = wfCadDuplicado((reg.kind === 'colaborador') ? 'colab' : 'forn', reg.nome, reg.cnpj, reg.id);
+          pessoas.registry = pessoas.registry.filter(r => r.id !== reg.id);
+          if(typeof pessoasSave === 'function') pessoasSave();
+          if(typeof renderWfFornecedores === 'function') renderWfFornecedores();
+          if(typeof toast === 'function'){
+            toast('"' + (_d.reg.nome || '') + '" já existe com esse ' + _d.por + ' — o cadastro novo foi descartado. Edite o que já existe.', 7000);
+          }
         } else if(reg._draft){
           delete reg._draft;
           if(typeof pessoasSave === 'function') pessoasSave();
@@ -58747,6 +58758,28 @@ function wfCadSaveCurrent(){
   const ed = _wfCadEditing;
   const nome = (document.getElementById('wf-cad-i-nome')?.value || '').trim();
   if(!nome){ if(typeof toast === 'function') toast('⚠ Nome é obrigatório'); return; }
+  /* Duplicado nasce fácil — importação cria "BLOOM" e alguém cadastra "Bloom"
+     depois. Dois cadastros pro mesmo dono partem o histórico em dois. */
+  const _cnpjDup = (document.getElementById('wf-cad-i-cnpj')?.value || '').trim();
+  const _regAtual = (ed.kind === 'cli') ? null : (pesRegistry().find(x => x.id === ed.id) || null);
+  const _kindDup = (ed.kind === 'cli') ? 'cli'
+                 : (((_regAtual && _regAtual.kind) === 'colaborador') ? 'colab' : 'forn');
+  const _dup = wfCadDuplicado(_kindDup, nome, _cnpjDup, ed.isNew ? null : ed.id);
+  if(_dup){
+    const oque = (ed.kind === 'cli') ? 'Já existe um cliente' : 'Já existe um cadastro';
+    if(typeof showConfirm === 'function'){
+      showConfirm({
+        title: 'Cadastro repetido',
+        message: oque + ' com esse ' + _dup.por + ': <strong>' + (_dup.reg.nome || 'sem nome') + '</strong>.\n\n'
+          + 'Dois cadastros pro mesmo dono partem o histórico em dois — metade dos lançamentos em cada. '
+          + 'Edite o que já existe em vez de criar outro.',
+        confirmLabel: 'Entendi', cancelLabel: ''
+      });
+    } else if(typeof toast === 'function'){
+      toast('Já existe "' + (_dup.reg.nome||'') + '" com esse ' + _dup.por, 6000);
+    }
+    return;
+  }
   if(ed.kind === 'cli'){
     const ativo = !!document.getElementById('wf-cad-i-ativo')?.checked;
     const razao = (document.getElementById('wf-cad-i-razao')?.value || '').trim();
@@ -58795,9 +58828,106 @@ function wfCadSaveCurrent(){
     if(typeof toast === 'function') toast(ed.isNew ? '✓ Pessoa criada' : '✓ Pessoa atualizada');
   }
 }
+/* ══ Cadastro · integridade ═══════════════════════════════════════════════
+   Duas travas que faltavam: não apagar quem tem lançamento atribuído, e não
+   deixar nascer duplicado. Cliente ou fornecedor apagado com movimento vira
+   lançamento órfão — o dinheiro fica, o dono some, e o relatório mente. */
+function _wfNorm(v){
+  return String(v || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+         .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+function _wfDig(v){ return String(v || '').replace(/\D/g, ''); }
+
+/* Onde esse cadastro é usado. Devolve [{n, onde}] pra dizer o motivo, não só
+   "não pode". */
+function wfCadUsos(kind, id, nome){
+  const det = [];
+  const nomeN = _wfNorm(nome);
+  const push = (n, onde) => { if(n > 0) det.push({ n, onde }); };
+  try{
+    if(kind === 'cli'){
+      if(typeof receita !== 'undefined' && Array.isArray(receita.rows)){
+        push(receita.rows.filter(r => r && r.clienteId === id).length, 'linha(s) na Receita');
+      }
+    } else {
+      if(typeof pessoas !== 'undefined' && Array.isArray(pessoas.people)){
+        push(pessoas.people.filter(r => r && r.pessoaId === id).length, 'linha(s) em Pessoas');
+      }
+    }
+  }catch(_){}
+  try{
+    if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
+      const porNome = extratoData.lancamentos.filter(l =>
+        l && l.tipo !== 'transferencia' && nomeN && _wfNorm(l.contraparte) === nomeN).length;
+      push(porNome, 'lançamento(s) no Extrato');
+      const porId = extratoData.lancamentos.filter(l => l && l.fornecedorId === id).length;
+      push(porId, 'lançamento(s) vinculado(s) por cadastro');
+    }
+  }catch(_){}
+  try{
+    if(typeof cartoes !== 'undefined' && Array.isArray(cartoes.lancamentos)){
+      push(cartoes.lancamentos.filter(l => l && (_wfNorm(l.estabelecimento) === nomeN || l.fornecedorId === id)).length,
+           'lançamento(s) em Cartões');
+    }
+  }catch(_){}
+  const total = det.reduce((a, x) => a + x.n, 0);
+  return { total, det, texto: det.map(x => x.n + ' ' + x.onde).join(' · ') };
+}
+try{ window.wfCadUsos = wfCadUsos; }catch(_){}
+
+/* Aviso único de bloqueio — mesma linguagem nos três cadastros. */
+function _wfBloqueiaExclusao(kind, id, nome){
+  const u = wfCadUsos(kind, id, nome);
+  if(!u.total) return false;
+  const oque = kind === 'cli' ? 'Este cliente' : 'Este cadastro';
+  if(typeof showConfirm === 'function'){
+    showConfirm({
+      title: 'Não dá pra excluir',
+      message: oque + ' tem <strong>' + u.texto + '</strong>.\n\n'
+        + 'Apagar deixaria esses registros órfãos — o valor continua no caixa e o dono some. '
+        + 'Se ele não é mais usado, marque como <strong>inativo</strong>: some das listas e o histórico fica de pé.',
+      confirmLabel: 'Entendi',
+      cancelLabel: ''
+    });
+  } else if(typeof toast === 'function'){
+    toast('Não dá pra excluir: ' + u.texto + '. Marque como inativo.', 6000);
+  }
+  return true;
+}
+
+/* Nome repetido no mesmo cadastro — e CNPJ repetido, que é mais forte ainda. */
+function wfCadDuplicado(kind, nome, cnpj, idIgnorar){
+  const nomeN = _wfNorm(nome);
+  const cnpjD = _wfDig(cnpj);
+  let lista = [];
+  try{
+    lista = (kind === 'cli')
+      ? ((typeof recClientes === 'function') ? recClientes() : [])
+      : ((typeof pesRegistry === 'function') ? pesRegistry() : []);
+  }catch(_){ return null; }
+  for(const x of (lista || [])){
+    if(!x || x.id === idIgnorar) continue;
+    if(kind !== 'cli'){
+      /* Fornecedor e colaborador dividem o mesmo registro: só colide com o
+         do próprio tipo. */
+      const k = x.kind || 'fornecedor';
+      const alvo = (kind === 'colab') ? 'colaborador' : 'fornecedor';
+      if(k !== alvo) continue;
+    }
+    if(cnpjD && cnpjD.length >= 11 && _wfDig(x.cnpj) === cnpjD) return { reg: x, por: 'CNPJ/CPF' };
+    if(nomeN && _wfNorm(x.nome) === nomeN) return { reg: x, por: 'nome' };
+  }
+  return null;
+}
+try{ window.wfCadDuplicado = wfCadDuplicado; }catch(_){}
+
 function wfCadDeleteCurrent(){
   if(!_wfCadEditing || _wfCadEditing.isNew) return;
   const ed = _wfCadEditing;
+  const _nome = (ed.kind === 'cli')
+    ? ((recClientes().find(x => x.id === ed.id) || {}).nome || '')
+    : ((pesRegistry().find(x => x.id === ed.id) || {}).nome || '');
+  if(_wfBloqueiaExclusao(ed.kind, ed.id, _nome)) return;
   const doDel = () => {
     if(ed.kind === 'cli'){
       const idx = recClientes().findIndex(x => x.id === ed.id);
@@ -58833,16 +58963,8 @@ function wfCadDeleteCurrent(){
 function wfCadDeleteCliente(cid){
   const c = (typeof recClientes === 'function') ? recClientes().find(x => x.id === cid) : null;
   if(!c) return;
-  // Conta linhas de receita vinculadas
-  let nLinhas = 0;
-  try {
-    if(typeof receita !== 'undefined' && Array.isArray(receita.rows)){
-      nLinhas = receita.rows.filter(r => r.clienteId === cid).length;
-    }
-  } catch(e){}
-  const msg = nLinhas > 0
-    ? 'O cliente "' + (c.nome||'sem nome') + '" será removido permanentemente. ' + nLinhas + ' linha(s) de receita ficarão SEM cliente vinculado (órfãs).'
-    : 'O cliente "' + (c.nome||'sem nome') + '" será removido permanentemente.';
+  if(_wfBloqueiaExclusao('cli', cid, c.nome)) return;
+  const msg = 'O cliente "' + (c.nome||'sem nome') + '" será removido permanentemente. Ele não tem nenhum lançamento nem linha de receita vinculada.';
   const doDel = () => {
     if(typeof receita !== 'undefined' && Array.isArray(receita.clientes)){
       receita.clientes = receita.clientes.filter(x => x.id !== cid);
@@ -58865,16 +58987,8 @@ function wfCadDeleteCliente(cid){
 function wfCadDeleteFornecedor(pid){
   const p = (typeof pesRegistry === 'function') ? pesRegistry().find(x => x.id === pid) : null;
   if(!p) return;
-  // Conta linhas em pessoas.people vinculadas
-  let nLinhas = 0;
-  try {
-    if(typeof pessoas !== 'undefined' && Array.isArray(pessoas.people)){
-      nLinhas = pessoas.people.filter(r => r.pessoaId === pid).length;
-    }
-  } catch(e){}
-  const msg = nLinhas > 0
-    ? 'A pessoa "' + (p.nome||'sem nome') + '" será removida do registro global. ' + nLinhas + ' linha(s) em Pessoas ficarão SEM vínculo (órfãs).'
-    : 'A pessoa "' + (p.nome||'sem nome') + '" será removida do registro global.';
+  if(_wfBloqueiaExclusao('forn', pid, p.nome)) return;
+  const msg = '"' + (p.nome||'sem nome') + '" será removido do registro global. Não há nenhum lançamento nem linha vinculada a ele.';
   const doDel = () => {
     if(typeof pessoas !== 'undefined' && pessoas){
       if(Array.isArray(pessoas.registry)) pessoas.registry = pessoas.registry.filter(r => r.id !== pid);
