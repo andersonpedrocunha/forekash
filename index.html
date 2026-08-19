@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787169025"/>
+  <meta name="fk-build" content="forekash-v1787169242"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -65988,6 +65988,11 @@ try{
 function _extSave(){
   /* Mudou o extrato, a conciliação do parcelamento não vale mais. */
   try{ if(typeof impParcConcInvalidar === 'function') impParcConcInvalidar(); }catch(_){}
+  /* Nome da conta é canonizado ANTES de gravar, sempre. É o único ponto por
+     onde toda escrita passa — modal, importação de OFX, captura por IA,
+     conciliação, qualquer caminho novo. Normalizar só na hora de desenhar
+     deixava o dado torto embaixo e o problema voltava pela porta seguinte. */
+  try{ _extNormalizarContas(); }catch(_){}
   let salvou = false;
   try {
     localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData));
@@ -75563,6 +75568,42 @@ try{
    Resolver na hora de desenhar deixa o dado torto embaixo — e qualquer tela
    nova que leia `l.conta` cru volta a mostrar dois nomes. Aqui o dado fica
    igual à tela. Só mexe no que resolve com confiança. */
+/* Canoniza o nome da conta em todo lançamento. Silencioso e idempotente:
+   só troca quando o texto resolve com confiança para uma conta cadastrada. */
+function _extNormalizarContas(){
+  /* Sem cadastro carregado, não há como resolver — e normalizar às cegas
+     apagaria o texto do OFX, que é a única pista que sobra. */
+  try{
+    if(typeof dispo === 'undefined' || !dispo || !Array.isArray(dispo.contas) || !dispo.contas.length) return 0;
+  }catch(_){ return 0; }
+  let n = 0;
+  const canon = txt => {
+    const t = String(txt || '').trim();
+    if(!t) return null;
+    let r = t;
+    try{ r = fkResolverConta(t); }catch(_){ return null; }
+    return (r && r !== t) ? r : null;
+  };
+  try{
+    for(const l of ((extratoData && extratoData.lancamentos) || [])){
+      if(!l) continue;
+      const c1 = canon(l.conta);
+      if(c1){ l.conta = c1; n++; }
+      const c2 = canon(l.contaPagamento);
+      if(c2){ l.contaPagamento = c2; n++; }
+      /* Em transferência a contraparte é uma conta; em gasto/ganho é
+         fornecedor ou cliente, e nome de gente não vira conta. */
+      if(l.tipo === 'transferencia'){
+        const c3 = canon(l.contraparte);
+        if(c3){ l.contraparte = c3; n++; }
+      }
+    }
+  }catch(_){}
+  if(n){ try{ _extContaCacheLimpa(); }catch(_){} }
+  return n;
+}
+try{ window._extNormalizarContas = _extNormalizarContas; }catch(_){}
+
 function fkPadronizarContasPreview(){
   const mudancas = new Map();   // 'de → para' -> quantidade
   let total = 0;
@@ -76565,7 +76606,11 @@ try { window.concSelectConta = concSelectConta; } catch(e){}
 function _concRenderWorkbench(){
   const bd = document.getElementById('conc-bd');
   if(!bd) return;
-  const conta = CONC_STATE.contaAtiva;
+  /* Canoniza já na origem: o nome que vem do arquivo ("Banco do Brasil S/A ·
+     122499-9") não pode entrar cru no lançamento. */
+  const conta = (typeof fkResolverConta === 'function')
+    ? (fkResolverConta(CONC_STATE.contaAtiva) || CONC_STATE.contaAtiva)
+    : CONC_STATE.contaAtiva;
   const acc = (conciliacaoData.porConta && conciliacaoData.porConta[conta]) || {};
   const hist = (acc.historico || []).filter(h => !h.revertido);
   const lastHist = hist.length > 0 ? hist[hist.length-1] : null;
@@ -77206,7 +77251,11 @@ try { window.concSetBucket = concSetBucket; window.concResolveOne = concResolveO
 
 // Calcula decisões pra apply bar
 function _concComputeDecisoes(){
-  const conta = CONC_STATE.contaAtiva;
+  /* Canoniza já na origem: o nome que vem do arquivo ("Banco do Brasil S/A ·
+     122499-9") não pode entrar cru no lançamento. */
+  const conta = (typeof fkResolverConta === 'function')
+    ? (fkResolverConta(CONC_STATE.contaAtiva) || CONC_STATE.contaAtiva)
+    : CONC_STATE.contaAtiva;
   const saldoSistemaBase = _concSaldoSistema(conta);
   let match = 0, fuzzyAprov = 0, novosAprov = 0, totalNovos = 0;
   for(const m of CONC_STATE.matches){
@@ -77252,7 +77301,11 @@ function concBulkCampo(campo){
 try{ window.concSetCampo = concSetCampo; window.concBulkCampo = concBulkCampo; }catch(_){}
 
 function concApply(){
-  const conta = CONC_STATE.contaAtiva;
+  /* Canoniza já na origem: o nome que vem do arquivo ("Banco do Brasil S/A ·
+     122499-9") não pode entrar cru no lançamento. */
+  const conta = (typeof fkResolverConta === 'function')
+    ? (fkResolverConta(CONC_STATE.contaAtiva) || CONC_STATE.contaAtiva)
+    : CONC_STATE.contaAtiva;
   if(!conta){ if(typeof toast === 'function') toast('⚠ Conta não selecionada'); return; }
   if(!extratoData || !Array.isArray(extratoData.lancamentos)){ if(typeof _extLoad === 'function') _extLoad(); }
   const acc = conciliacaoData.porConta[conta] || { historico:[] };
@@ -77381,7 +77434,11 @@ try { window.concViewHistory = concViewHistory; } catch(e){}
 function _concRenderHistory(){
   const bd = document.getElementById('conc-bd');
   if(!bd) return;
-  const conta = CONC_STATE.contaAtiva;
+  /* Canoniza já na origem: o nome que vem do arquivo ("Banco do Brasil S/A ·
+     122499-9") não pode entrar cru no lançamento. */
+  const conta = (typeof fkResolverConta === 'function')
+    ? (fkResolverConta(CONC_STATE.contaAtiva) || CONC_STATE.contaAtiva)
+    : CONC_STATE.contaAtiva;
   const acc = (conciliacaoData.porConta && conciliacaoData.porConta[conta]) || { historico:[] };
   const hist = (acc.historico || []).slice().reverse();
   let html = '<h2 class="conc-dash-hd">Histórico · ' + _concEsc(conta) + '</h2>'
@@ -77427,7 +77484,11 @@ function concRevert(histId){
     title: 'Desfazer a conciliação #' + histId + '?',
     message: 'Isso vai:<br>· <b>Apagar</b> os lançamentos criados pelo OFX<br>· <b>Tirar a marca de conciliado</b> dos que foram pareados<br>· Permitir que você reconcilie de novo com novas regras<br><br>Os dados originais ficam preservados.'
   }, () => {
-    const conta = CONC_STATE.contaAtiva;
+    /* Canoniza já na origem: o nome que vem do arquivo ("Banco do Brasil S/A ·
+     122499-9") não pode entrar cru no lançamento. */
+  const conta = (typeof fkResolverConta === 'function')
+    ? (fkResolverConta(CONC_STATE.contaAtiva) || CONC_STATE.contaAtiva)
+    : CONC_STATE.contaAtiva;
     const acc = conciliacaoData.porConta[conta];
     if(!acc) return;
     const h = acc.historico.find(x => x.id === histId);
