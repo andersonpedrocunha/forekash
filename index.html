@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787172590"/>
+  <meta name="fk-build" content="forekash-v1787175695"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -13472,6 +13472,12 @@
     .pcard-reaj-var.flat{background:#F3F4F6;color:var(--txm)}
 
     /* Chips CLT/PJ/Estrangeiro no card de pessoa */
+    /* Rodapé da ficha: sem botão de salvar, o estado precisa aparecer */
+    .pcard-foot{display:flex;align-items:center;gap:12px;padding:12px 18px;
+                border-top:1px solid #E2E8F0;background:#F8FAFC}
+    .pcard-saved{flex:1;font-size:.72rem;color:#94A3B8;transition:color .2s}
+    .pcard-saved.on{color:#047857;font-weight:700}
+    .pcard-saved.on::before{content:'✓ ';}
     /* Vínculo — CLT ou PJ, ao lado do Tipo */
     .pcard-vinc{display:inline-flex;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden}
     .pcard-vinc-chip{border:none;background:#fff;color:#64748B;font:inherit;font-size:.78rem;
@@ -19511,6 +19517,10 @@ td.mes.do-extrato{background:#ECFDF5}
           </div>
           <div class="mod-body" id="pcard-body">
             <!-- preenchido dinamicamente -->
+          </div>
+          <div class="pcard-foot">
+            <span class="pcard-saved" id="pcard-saved">Alterações salvas automaticamente</span>
+            <button type="button" class="btn btn-p" onclick="closePesCard()">Concluir</button>
           </div>
         </div>
       </div>
@@ -52781,8 +52791,23 @@ function pesSetNomeCompleto(rid, val){
   const r = pesRegistry().find(x => x.id === rid);
   if(!r) return;
   r.nomeCompleto = (val || '').trim();
+  /* Cadastro novo nasce sem `nome` — é a descrição da planilha, que antes era
+     perguntada num modal separado. Sem isto a ficha ficava com "Pessoa sem
+     nome" no topo mesmo com o nome completo preenchido. Só preenche quando
+     está vazio: quem já tem descrição própria não é sobrescrito. */
+  if(r.nomeCompleto && !(r.nome || '').trim()){
+    const conflito = pesRegistry().find(x => x.id !== rid
+      && (x.nome||'').trim().toLowerCase() === r.nomeCompleto.toLowerCase());
+    if(!conflito){
+      r.nome = r.nomeCompleto;
+      try{
+        (pessoas.people || []).forEach(p2 => { if(p2.pessoaId === rid) p2.nome = r.nome; });
+      }catch(_){}
+    }
+  }
   pessoasSave();
   if(_pesCardOpenId != null) renderPesCardBody();
+  try{ if(typeof renderPessoas === 'function') renderPessoas(); }catch(_){}
 }
 
 // Edição manual de "Legal name" (Estrangeiro): independente do nomeCompleto
@@ -53488,6 +53513,7 @@ async function cloudPessoasFetch(){
 window.cloudPessoasFetch = cloudPessoasFetch;
 
 function pessoasSave(){
+  try{ if(_pesCardOpenId != null && typeof pesPulsoSalvo === 'function') pesPulsoSalvo(); }catch(_){}
   pessoas.activeYear = pesActiveYear;
   try{ localStorage.setItem(PES_KEY, JSON.stringify(pessoas)); }catch(e){}
   if (window.FK_MODE === 'cloud') cloudBlobSync('pessoas', () => pessoas);
@@ -100213,6 +100239,22 @@ try{
   window.setPesVinculo = setPesVinculo;
   window._pesVinculo = _pesVinculo;
 }catch(_){}
+
+/* Ficha salva a cada campo, sem botão. Sem retorno visual, a pergunta "cadê o
+   salvar?" é inevitável — então o rodapé pisca quando grava. */
+let _pesSavedTimer = null;
+function pesPulsoSalvo(){
+  const el = document.getElementById('pcard-saved');
+  if(!el) return;
+  el.textContent = 'Salvo';
+  el.classList.add('on');
+  if(_pesSavedTimer) clearTimeout(_pesSavedTimer);
+  _pesSavedTimer = setTimeout(() => {
+    el.classList.remove('on');
+    el.textContent = 'Alterações salvas automaticamente';
+  }, 1800);
+}
+try{ window.pesPulsoSalvo = pesPulsoSalvo; }catch(_){}
 
 function pesCurMonthKey(){
   const d = new Date();
