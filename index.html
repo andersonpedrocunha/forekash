@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787170240"/>
+  <meta name="fk-build" content="forekash-v1787170912"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -24364,10 +24364,12 @@ function __recomputeAllFormulas(){
 }
 const fmtBRL = v => (parseFloat(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const fmtShort=v => v>=1e6?'R$'+(v/1e6).toFixed(1).replace('.',',')+' M':v>=1e3?'R$'+(v/1e3).toFixed(0)+'k':'R$'+v.toFixed(0);
-const esc    = s => (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+/* `(s||'')` deixa número passar direto, e número não tem .replace — um id
+   chegando aqui derrubava a renderização inteira do módulo, não só a célula. */
+const esc    = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
 // Escapa um valor pra ser injetado dentro de uma string JS entre aspas simples,
 // que por sua vez está dentro de um atributo HTML entre aspas duplas (ex: onclick="fn('${jsStr(x)}')")
-const jsStr  = s => (s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'")
+const jsStr  = s => String(s == null ? '' : s).replace(/\\/g,'\\\\').replace(/'/g,"\\'")
                           .replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
 const fmtTs  = iso => { const d=new Date(iso); return d.toLocaleDateString('pt-BR')+' às '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); };
 const fmtTsF = iso => { const d=new Date(iso); return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'numeric'})+' · '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); };
@@ -99736,7 +99738,7 @@ function openPessoaPicker(rowId, btn, event){
           askText({
             title: 'Renomear pessoa',
             label: 'Nome',
-            placeholder: 'Ex: Anderson Lemke',
+            placeholder: 'Nome completo',
             initialValue: r.nome,
             confirmText: 'Renomear',
             validate: (v)=>{
@@ -99817,12 +99819,25 @@ function openPessoaPicker(rowId, btn, event){
         createAndLinkPessoa(rowId, nome);
         return;
       }
-      // Sem busca digitada — abre modal customizado
+      // Sem busca digitada — abre a ficha completa do colaborador
       closePessoaPicker();
+      if(typeof openPesCard === 'function'){
+        /* Cadastro novo entra pela ficha inteira: nome, foto, tipo, salário,
+           anexos. Perguntar só o nome num modalzinho obrigava a abrir a ficha
+           logo em seguida pra preencher o resto. */
+        const reg = pesCreateReg({ nome: '', kind: 'colaborador' });
+        reg._draft = true;
+        const row = pessoas.people.find(x => x.id === rowId);
+        if(row){ row.pessoaId = reg.id; row.nome = ''; }
+        pessoasSave();
+        renderPessoas();
+        setTimeout(() => { try{ openPesCard(rowId); }catch(e){ console.error(e); } }, 40);
+        return;
+      }
       askText({
         title: 'Nova pessoa',
         label: 'Nome',
-        placeholder: 'Ex: Anderson Lemke',
+        placeholder: 'Nome completo',
         confirmText: 'Cadastrar',
         hint: 'O nome será salvo no registro global e não pode repetir.',
         validate: (v)=>{
@@ -100225,10 +100240,20 @@ function closePesCard(){
           }
           if(typeof pessoasSave === 'function') pessoasSave();
           if(typeof renderWfColaboradores === 'function') renderWfColaboradores();
-        } else if(p._draft){
+          if(typeof renderPessoas === 'function') renderPessoas();
+        } else if(reg && reg._draft && nomeVazio){
+          /* Cadastro novo aberto pelo seletor de uma linha que já existia:
+             descarta o registro em branco, mas preserva a linha — ela pode ser
+             de alguém que o usuário só estava trocando. */
+          pessoas.registry = pessoas.registry.filter(r => r.id !== reg.id);
+          p.pessoaId = 0; p.nome = '';
+          if(typeof pessoasSave === 'function') pessoasSave();
+          if(typeof renderPessoas === 'function') renderPessoas();
+        } else if(p._draft || (reg && reg._draft)){
           delete p._draft;
           if(reg) delete reg._draft;
           if(typeof pessoasSave === 'function') pessoasSave();
+          if(typeof renderPessoas === 'function') renderPessoas();
         }
       }
     }
