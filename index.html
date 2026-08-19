@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787160948"/>
+  <meta name="fk-build" content="forekash-v1787161701"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17188,11 +17188,23 @@ tr.imp-par-avulso .imp-grp-txt{color:#475569}
 .ext-parc-ttl b{font-size:.79rem;color:#831843;font-weight:700;letter-spacing:-.01em}
 .ext-parc-ttl small{font-size:.67rem;color:#A8557E;line-height:1.4}
 .ext-parc-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:10px}
-.ext-parc-grid.tres{grid-template-columns:1.6fr 1fr 1fr}
-.ext-parc-grid input[type=month]{width:100%;padding:8px 10px;border:1px solid #F0BBD6;
-  border-radius:7px;background-color:#fff;font-size:.83rem;font-family:inherit;color:#0F172A;font-weight:500}
-.ext-parc-grid input[type=month]:focus{outline:none;border-color:#BE185D;box-shadow:0 0 0 3px rgba(190,24,93,.1)}
-@media (max-width:760px){ .ext-parc-grid.tres{grid-template-columns:1fr 1fr} }
+.ext-parc-grid{grid-template-columns:1fr 2fr}
+.ext-parc-grid .f > .lbl{font-size:.63rem;font-weight:700;text-transform:uppercase;
+  letter-spacing:.05em;color:#9D174D;display:block;margin-bottom:4px}
+/* Chips de competência: escolhidas uma a uma, porque guia paga junto nem
+   sempre cobre meses seguidos. E em português — o input nativo de mês abre o
+   calendário no idioma do navegador. */
+.ext-parc-chips{display:flex;flex-wrap:wrap;gap:5px;max-height:74px;overflow-y:auto;
+  padding:1px}
+.ext-parc-chip{font:inherit;font-size:.7rem;font-weight:700;letter-spacing:.02em;
+  padding:5px 9px;border-radius:6px;cursor:pointer;white-space:nowrap;
+  border:1px solid #F0BBD6;background:#fff;color:#9D174D;transition:.1s}
+.ext-parc-chip:hover{border-color:#BE185D;background:#FDF2F8}
+.ext-parc-chip.on{background:#BE185D;border-color:#BE185D;color:#fff}
+.ext-parc-chip.futura{border-style:dashed;color:#C98BAC}
+.ext-parc-chip.futura.on{color:#fff;border-style:solid}
+.ext-parc-chip:focus-visible{outline:2px solid #831843;outline-offset:1px}
+@media (max-width:760px){ .ext-parc-grid{grid-template-columns:1fr} }
 .ext-parc-grid label.f{display:flex;flex-direction:column;gap:4px;min-width:0}
 .ext-parc-grid label.f > span{font-size:.63rem;font-weight:700;text-transform:uppercase;
   letter-spacing:.05em;color:#9D174D;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -68831,8 +68843,16 @@ function _extParcContexto(){
       if(lan && lan.impCompetencia) jaComp = String(lan.impCompetencia).slice(0,7);
     }
   }catch(_){}
+  let jaComps = null;
+  try{
+    if(typeof _extEditingId === 'string' && /^m:\d+$/.test(_extEditingId)){
+      const rid = parseInt(_extEditingId.replace(/^m:/, ''), 10);
+      const lan = (extratoData.lancamentos || []).find(x => x.id === rid);
+      if(lan && Array.isArray(lan.impCompetencias) && lan.impCompetencias.length) jaComps = lan.impCompetencias.slice();
+    }
+  }catch(_){}
   return { ativos, ym, valor, sugerido: jaContrato || hit.parcId || null, jaRespondido,
-           compSugerida: jaComp || compSugerida };
+           compSugerida: jaComp || compSugerida, jaComps };
 }
 /* Soma dos itens do modal — o valor que de fato saiu da conta.
    Os campos de valor são os `.ext-it-valor` (um por item) e vêm formatados em
@@ -68879,7 +68899,7 @@ function extParcSyncUI(){
   if(ctx.semContrato){
     box.style.display = '';
     box.dataset.parc = ''; box.dataset.n = '';
-    box.dataset.manual = ''; box.dataset.compManual = '';
+    box.dataset.manual = ''; box.dataset.compsManual = '';
     box.innerHTML =
         '<div class="ext-parc-hd">'
       +   '<span class="ext-parc-ico" aria-hidden="true"></span>'
@@ -68912,17 +68932,26 @@ function extParcSyncUI(){
   }
   if(!nSel) nSel = 1;
 
-  const base = parcela * nSel;
+  /* As competências são escolhidas uma a uma — e a quantidade sai de quantas
+     foram marcadas, em vez de ser perguntada separado. O `input type=month`
+     saiu junto: ele abre o calendário no idioma do navegador, e "July 2026"
+     num app em português é constrangedor. */
+  const disp = _extParcCompsDisponiveis(P, ctx.ym);
+  let sel = [];
+  if(box.dataset.compsManual === '1' && box.dataset.comps){
+    sel = box.dataset.comps.split(',').filter(Boolean);
+  } else if(ctx.jaComps && ctx.jaComps.length){
+    sel = ctx.jaComps.slice();
+  } else {
+    const sug = disp.find(d => d.ym === ctx.compSugerida) || disp.find(d => d.aberta) || disp[0];
+    sel = sug ? [sug.ym] : [];
+  }
+  sel = sel.filter(x => disp.some(d => d.ym === x));
+  if(!sel.length && disp.length) sel = [disp[0].ym];
+  sel.sort();
+  const nSelC = sel.length;
+  const base = parcela * nSelC;
   const dif  = ctx.valor - base;
-  /* Sem valor nas opções: o valor da guia já está no lançamento, e repeti-lo
-     aqui só competia com o campo que manda. */
-  const opts = [];
-  for(let k = 1; k <= 12; k++) opts.push('<option value="' + k + '"' + (k === nSel ? ' selected' : '') + '>'
-    + (k === 1 ? '1 parcela' : k + ' parcelas') + '</option>');
-  /* Mesma armadilha do número de parcelas: só respeita o guardado se o
-     usuário mexeu, senão a primeira renderização congela a competência. */
-  const comp = (box.dataset.compManual === '1' && box.dataset.comp)
-    ? box.dataset.comp : ctx.compSugerida;
 
   box.style.display = '';
   box.innerHTML =
@@ -68931,33 +68960,41 @@ function extParcSyncUI(){
     +   '<div class="ext-parc-ttl"><b>Vincular ao controle de parcelamento</b>'
     +     '<small>Módulo Impostos › aba Parcelamento — o saldo devedor e a projeção do contrato saem daqui.</small></div>'
     + '</div>'
-    + '<div class="ext-parc-grid tres">'
+    + '<div class="ext-parc-grid">'
     +   '<label class="f"><span>Contrato</span>'
     +     '<select id="ext-parc-id" onchange="extParcEscolhe(this.value, null)">'
     +       ctx.ativos.map(x => '<option value="' + x.id + '"' + (x.id === P.id ? ' selected' : '') + '>'
             + esc2(x.nome || ('Parcelamento #' + x.id)) + '</option>').join('')
     +     '</select></label>'
-    +   '<label class="f"><span>Parcelas nesta guia</span>'
-    +     '<select id="ext-parc-n" onchange="extParcEscolhe(null, this.value)">' + opts.join('') + '</select></label>'
-    +   '<label class="f"><span>Competência</span>'
-    +     '<input type="month" id="ext-parc-comp" value="' + esc2(comp) + '" onchange="extParcComp(this.value)">'
-    +     '</label>'
+    +   '<div class="f"><span class="lbl">Competências pagas nesta guia</span>'
+    +     '<div class="ext-parc-chips">'
+    +       disp.map(d => '<button type="button" class="ext-parc-chip'
+            + (sel.indexOf(d.ym) >= 0 ? ' on' : '') + (d.aberta ? '' : ' futura')
+            + '" onclick="extParcComp(\'' + d.ym + '\')" title="'
+            + (d.aberta ? 'Competência em aberto' : 'Ainda não venceu') + '">'
+            + esc2(_extCompLbl(d.ym)) + '</button>').join('')
+    +     '</div></div>'
     + '</div>'
-    + '<div class="ext-parc-quais">Dá baixa em <b>' + esc2(_extParcCompLista(comp, nSel)) + '</b> no controle.</div>'
+    + '<div class="ext-parc-quais">'
+    +   (nSelC
+        ? ('Dá baixa em <b>' + esc2(sel.map(_extCompLbl).join(', ')) + '</b> — '
+           + nSelC + ' parcela' + (nSelC === 1 ? '' : 's') + ' no controle.')
+        : 'Escolha ao menos uma competência.')
+    + '</div>'
     + (ctx.valor > 0.005
         ? ('<div class="ext-parc-conta">'
-           + '<span class="calc">' + nSel + ' × ' + esc2(fmtBRL(parcela)) + ' = <b>' + esc2(fmtBRL(base)) + '</b> abatem a dívida</span>'
+           + '<span class="calc">' + nSelC + ' × ' + esc2(fmtBRL(parcela)) + ' = <b>' + esc2(fmtBRL(base)) + '</b> abatem a dívida</span>'
            + (Math.abs(dif) < 0.5
               ? '<span class="tag ok">fecha exato</span>'
               : (dif > 0
                  ? '<span class="tag warn">' + esc2(fmtBRL(dif)) + ' de juros e multa · não abatem</span>'
-                 : '<span class="tag err">' + esc2(fmtBRL(-dif)) + ' abaixo de ' + nSel + ' parcela' + (nSel===1?'':'s') + '</span>'))
+                 : '<span class="tag err">' + esc2(fmtBRL(-dif)) + ' abaixo de ' + nSelC + ' parcela' + (nSelC===1?'':'s') + '</span>'))
            + '</div>')
         : '')
     + '<div class="ext-parc-nota">Pode ser alterado depois — neste lançamento ou na célula do mês, na aba Parcelamento.</div>';
   box.dataset.parc = String(P.id);
-  box.dataset.n = String(nSel);
-  box.dataset.comp = String(comp || '');
+  box.dataset.n = String(nSelC);
+  box.dataset.comps = sel.join(',');
 }
 /* Quais competências a guia vai quitar: as mais antigas em aberto, na ordem.
    O usuário informa a QUANTIDADE; quais são é regra, não escolha. */
@@ -68984,6 +69021,34 @@ function _extParcQuaisMeses(P, ymPag, n){
 try{ window._extParcQuaisMeses = _extParcQuaisMeses; }catch(_){}
 
 /* Lista as competências que a guia vai baixar, a partir da informada. */
+/* Competências que fazem sentido oferecer: as em aberto até o mês do
+   pagamento, mais alguns meses à frente. Guia paga junto nem sempre cobre
+   meses seguidos — pode ser janeiro e março —, então cada uma é escolhida
+   uma a uma, e não por "N a partir de". */
+function _extParcCompsDisponiveis(P, ymPag){
+  const out = [];
+  try{
+    const plan = _impParcPlan(P);
+    const idxPag = impParcMesIdx(P, ymPag);
+    for(const r of plan.rows){
+      if(r.idx > idxPag + 2) break;
+      if(r.historico) continue;
+      if(r.quitadaPorComp || r.cobertaPor) continue;   // já quitada por outra guia
+      out.push({ ym: r.ym, aberta: r.idx <= idxPag });
+    }
+  }catch(_){}
+  if(!out.length) out.push({ ym: ymPag, aberta: true });
+  return out.slice(-18);
+}
+function _extCompLbl(ym){
+  const pt = String(ym).split('-');
+  return (IMP_MESES[parseInt(pt[1],10)-1] || '').toUpperCase() + '/' + pt[0].slice(2);
+}
+try{
+  window._extParcCompsDisponiveis = _extParcCompsDisponiveis;
+  window._extCompLbl = _extCompLbl;
+}catch(_){}
+
 function _extParcCompLista(comp, n){
   if(!/^\d{4}-\d{2}$/.test(String(comp||''))) return n + ' competência' + (n===1?'':'s');
   const lbl = ym => {
@@ -68995,11 +69060,18 @@ function _extParcCompLista(comp, n){
   for(let t = 0; t < n; t++){ out.push(lbl(m)); m = impAddMonths(m, 1); }
   return out.join(', ');
 }
-function extParcComp(v){
+/* Liga/desliga uma competência. Nunca deixa zerar tudo: a guia pagou alguma
+   coisa, e uma lista vazia não diria nada ao controle. */
+function extParcComp(ym){
   const box = document.getElementById('ext-parc-box');
   if(!box) return;
-  box.dataset.comp = String(v || '').slice(0,7);
-  box.dataset.compManual = '1';
+  const atual = (box.dataset.comps || '').split(',').filter(Boolean);
+  const i = atual.indexOf(ym);
+  if(i >= 0){ if(atual.length > 1) atual.splice(i, 1); }
+  else atual.push(ym);
+  atual.sort();
+  box.dataset.comps = atual.join(',');
+  box.dataset.compsManual = '1';
   extParcSyncUI();
 }
 try{
@@ -69011,7 +69083,7 @@ function extParcEscolhe(parcId, n){
   const box = document.getElementById('ext-parc-box');
   if(!box) return;
   if(parcId){ box.dataset.parc = String(parcId); box.dataset.n = ''; box.dataset.manual = '';
-              box.dataset.comp = ''; box.dataset.compManual = ''; }
+              box.dataset.comps = ''; box.dataset.compsManual = ''; }
   if(n){ box.dataset.n = String(n); box.dataset.manual = '1'; }
   extParcSyncUI();
 }
@@ -70361,14 +70433,14 @@ function extSaveModal(tipo){
   const notas   = (document.getElementById('ext-fld-notas')?.value || '').trim();
   /* Guia de parcelamento: quantas parcelas essa saída quitou. É atributo do
      pagamento — o Extrato é o único lugar onde essa resposta cabe. */
-  let _parcId = 0, _parcN = 0, _parcComp = '';
+  let _parcId = 0, _parcN = 0, _parcComp = '', _parcComps = [];
   try{
     const _bx = document.getElementById('ext-parc-box');
     if(_bx && _bx.style.display !== 'none'){
       _parcId = parseInt(_bx.dataset.parc, 10) || 0;
       _parcN  = parseInt(_bx.dataset.n, 10) || 0;
-      const c = String(_bx.dataset.comp || '').slice(0,7);
-      if(/^\d{4}-\d{2}$/.test(c)) _parcComp = c;
+      _parcComps = String(_bx.dataset.comps || '').split(',').filter(x => /^\d{4}-\d{2}$/.test(x));
+      if(_parcComps.length){ _parcComp = _parcComps[0]; _parcN = _parcComps.length; }
     }
   }catch(_){}
   const documento = (document.getElementById('ext-fld-doc')?.value || '').trim();
@@ -70582,7 +70654,8 @@ function extSaveModal(tipo){
       if(_parcId && _parcN){
         l.impParcId = _parcId; l.impParcelas = _parcN;
         if(_parcComp) l.impCompetencia = _parcComp; else delete l.impCompetencia;
-      } else { delete l.impParcId; delete l.impParcelas; delete l.impCompetencia; }
+        if(_parcComps.length) l.impCompetencias = _parcComps.slice(); else delete l.impCompetencias;
+      } else { delete l.impParcId; delete l.impParcelas; delete l.impCompetencia; delete l.impCompetencias; }
     }
   } else {
     const id = extratoData.nextId++;
@@ -70598,6 +70671,7 @@ function extSaveModal(tipo){
     if(_parcId && _parcN){
       _newLanc.impParcId = _parcId; _newLanc.impParcelas = _parcN;
       if(_parcComp) _newLanc.impCompetencia = _parcComp;
+      if(_parcComps.length) _newLanc.impCompetencias = _parcComps.slice();
     }
     extratoData.lancamentos.push(_newLanc);
   }
@@ -83334,6 +83408,31 @@ try{
   window.impRubricaDaCategoria = impRubricaDaCategoria;
 }catch(_){}
 
+/* Mês zerado que depois recebeu pagamento no Extrato: o registro do zerado
+   vira lixo e some. Deixar guardado faria o mês voltar a zerar se o lançamento
+   fosse removido — decisão velha valendo sobre fato novo. */
+function impParcLimpaZeradosComFato(){
+  let mudou = false;
+  try{
+    for(const p of ((impostos && impostos.parcelamentos) || [])){
+      if(!p.zerados || !Object.keys(p.zerados).length) continue;
+      const plan = _impParcPlan(p);
+      for(const ym of Object.keys(p.zerados)){
+        const idx = impParcMesIdx(p, ym);
+        const row = (idx >= 0) ? plan.rows[idx] : null;
+        if(row && (row.manual || row.quitadaPorComp)){
+          delete p.zerados[ym];
+          p._planKey = null; p._plan = null;
+          mudou = true;
+        }
+      }
+    }
+  }catch(_){}
+  if(mudou){ try{ impSave(); }catch(_){} }
+  return mudou;
+}
+try{ window.impParcLimpaZeradosComFato = impParcLimpaZeradosComFato; }catch(_){}
+
 /* Cache do realizado, recalculado a cada render da planilha. Célula, total da
    linha e rodapé leem daqui — se cada consumidor somasse por conta própria, o
    total divergiria em silêncio do que está escrito na célula. */
@@ -84695,6 +84794,12 @@ function _impParcPlan(p){
   const _guiasDoMes = {}, _compQuit = {};
   for(const g of _guias){
     (_guiasDoMes[g.guiaYm] = _guiasDoMes[g.guiaYm] || []).push(g);
+    /* Lista explícita ganha: competências pagas juntas não são
+       necessariamente seguidas — pode ser janeiro e março. */
+    if(Array.isArray(g.comps) && g.comps.length){
+      for(const c of g.comps) _compQuit[c] = g.guiaYm;
+      continue;
+    }
     if(!g.comp) continue;
     let m = g.comp;
     for(let t = 0; t < (g.n || 1); t++){ _compQuit[m] = g.guiaYm; m = impAddMonths(m, 1); }
@@ -84703,7 +84808,7 @@ function _impParcPlan(p){
      senão uma sem competência ficaria sem abater nada. */
   const _compExpl = {};
   for(const ym of Object.keys(_guiasDoMes)){
-    _compExpl[ym] = _guiasDoMes[ym].every(g => !!g.comp);
+    _compExpl[ym] = _guiasDoMes[ym].every(g => !!g.comp || (Array.isArray(g.comps) && g.comps.length));
   }
   /* Mês que o usuário zerou na planilha: não há parcela a pagar ali. */
   const _zerados = (p.zerados && typeof p.zerados === 'object') ? p.zerados : {};
@@ -84737,7 +84842,11 @@ function _impParcPlan(p){
     const nCob = hasManual ? (parseInt(cobertura[ym], 10) || 0) : 0;
     const compExplicita = !!_compExpl[ym];          // as guias do mês declararam a competência
     const quitadaPorComp = !!_compQuit[ym];         // esta competência foi quitada
-    const zerado = !!_zerados[ym];                  // usuário zerou o mês
+    /* Zerar é uma afirmação sobre um mês SEM fato no Extrato. Se depois o
+       pagamento aparece, o Extrato manda: era o zerado que ganhava, e o
+       dinheiro saía da conta sem abater a dívida. */
+    const temFatoNoExtrato = hasManual || quitadaPorComp;
+    const zerado = !temFatoNoExtrato && !!_zerados[ym];
 
     let amort;
     if(zerado)                       amort = 0;     // mês sem parcela, por decisão
@@ -85034,7 +85143,8 @@ function impParcConciliar(ano){
            em que o dinheiro saiu diz só quando saiu. São coisas diferentes:
            guia paga em abril pode ser a competência de janeiro. */
         out.guias.push({ parcId: vinc.id, guiaYm: ym, n: nDito || 1,
-                         comp: (l.impCompetencia && /^\d{4}-\d{2}$/.test(l.impCompetencia)) ? l.impCompetencia : null });
+                         comp: (l.impCompetencia && /^\d{4}-\d{2}$/.test(l.impCompetencia)) ? l.impCompetencia : null,
+                         comps: Array.isArray(l.impCompetencias) ? l.impCompetencias.slice() : null });
         continue;
       }
       /* 2 · a própria categoria nomeia o contrato */
@@ -85074,7 +85184,8 @@ function impParcConciliar(ano){
         if(nDito > 0) out.coberturas[cand[0].id + '|' + ym] = nDito;
         if(k > 1) out.acumuladas[cand[0].id + '|' + ym] = k;
         out.guias.push({ parcId: cand[0].id, guiaYm: ym, n: k,
-                         comp: (l.impCompetencia && /^\d{4}-\d{2}$/.test(l.impCompetencia)) ? l.impCompetencia : null });
+                         comp: (l.impCompetencia && /^\d{4}-\d{2}$/.test(l.impCompetencia)) ? l.impCompetencia : null,
+                         comps: Array.isArray(l.impCompetencias) ? l.impCompetencias.slice() : null });
         /* Deduzido, não confirmado. A importação do OFX cria o lançamento
            direto, sem passar pelo modal — então a pergunta nunca foi feita
            pra guia importada, e é justamente onde entra o volume. Guia
@@ -85288,6 +85399,7 @@ function renderImpParSheet(){
 
   /* Conciliação do ano — calculada uma vez e lida por linha, bloco e rodapé. */
   try{ impAtualizaSelicBC(); }catch(e){}   // fire-and-forget, no máx 1x/dia
+  try{ impParcLimpaZeradosComFato(); }catch(e){}
   const conc = impParcConcAll();
   _impParcConc = conc;
 
@@ -86300,6 +86412,18 @@ function impParcCoberturaModal(id, ym){
 async function impParcZerarModal(id, ym){
   const P = (impostos.parcelamentos || []).find(x => x.id === id);
   if(!P) return;
+  /* O que o Extrato baixou, só o Extrato desfaz. */
+  try{
+    const plan = _impParcPlan(P);
+    const idx = impParcMesIdx(P, ym);
+    const row = (idx >= 0) ? plan.rows[idx] : null;
+    if(row && (row.manual || row.quitadaPorComp || row.cobertaPor)){
+      if(typeof toast === 'function'){
+        toast('Este mês foi baixado pelo Extrato Financeiro — só lá dá pra mexer. Zerar vale só para mês sem pagamento identificado.', 6000);
+      }
+      return;
+    }
+  }catch(_){}
   const zerado = !!(P.zerados && P.zerados[ym]);
   const mesLbl = (IMP_MESES[parseInt(String(ym).slice(5,7),10)-1] || '').toUpperCase() + '/' + String(ym).slice(2,4);
   const prev = impParcPrevistoMes(P, ym);
