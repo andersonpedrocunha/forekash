@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787170912"/>
+  <meta name="fk-build" content="forekash-v1787172590"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -13472,6 +13472,15 @@
     .pcard-reaj-var.flat{background:#F3F4F6;color:var(--txm)}
 
     /* Chips CLT/PJ/Estrangeiro no card de pessoa */
+    /* Vínculo — CLT ou PJ, ao lado do Tipo */
+    .pcard-vinc{display:inline-flex;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden}
+    .pcard-vinc-chip{border:none;background:#fff;color:#64748B;font:inherit;font-size:.78rem;
+                     font-weight:600;padding:8px 16px;cursor:pointer;transition:.12s}
+    .pcard-vinc-chip + .pcard-vinc-chip{border-left:1px solid #E2E8F0}
+    .pcard-vinc-chip:hover{background:#EFF6FF;color:#2563EB}
+    .pcard-vinc-chip.on{background:#2563EB;color:#fff}
+    .pcard-vinc-chip.on:hover{background:#1D4ED8}
+    .pcard-vinc-hint{font-size:.68rem;color:#94A3B8;margin-top:5px;line-height:1.4}
     .pcard-tipo-chips{display:inline-flex;gap:0;border:1px solid #E2E8F0;border-radius:7px;
                       overflow:hidden;background:#F8FAFC}
     .pcard-tipo-chip{border:none;background:transparent;color:#64748B;font-size:.7rem;
@@ -100168,6 +100177,43 @@ function askPesSaidaCancel(){
   resolve(null);
 }
 
+/* Vínculo: como a pessoa é contratada. É diferente de "tipo de pessoa" (PF /
+   Empresa / Estrangeiro), que é sobre o documento — o prestador PJ tem CPF e
+   CNPJ, e os dois campos são verdadeiros ao mesmo tempo. */
+const PES_VINCULOS = { clt: 'PF · CLT', pj: 'PJ' };
+function _pesVinculo(regId){
+  try{
+    const r = pesRegistry().find(x => x.id === regId);
+    return (r && PES_VINCULOS[r.vinculo]) ? r.vinculo : '';
+  }catch(_){ return ''; }
+}
+/* A tag em Workflows › Cadastro segue o vínculo sozinha — dois lugares
+   dizendo a mesma coisa é convite pra divergirem. */
+function _pesSincronizaTagVinculo(reg){
+  if(!reg) return;
+  if(!Array.isArray(reg.tags)) reg.tags = [];
+  const rotulos = Object.values(PES_VINCULOS).map(x => x.toLowerCase());
+  reg.tags = reg.tags.filter(t => rotulos.indexOf(String(t||'').toLowerCase()) < 0);
+  if(reg.vinculo && PES_VINCULOS[reg.vinculo]) reg.tags.push(PES_VINCULOS[reg.vinculo]);
+}
+function setPesVinculo(regId, v){
+  const reg = pesRegistry().find(x => x.id === regId);
+  if(!reg) return;
+  reg.vinculo = (reg.vinculo === v) ? '' : v;   // clicar de novo desmarca
+  _pesSincronizaTagVinculo(reg);
+  try{ pessoasSave(); }catch(_){}
+  try{ if(typeof renderPesCardBody === 'function') renderPesCardBody(); }catch(_){}
+  try{ if(typeof renderWfColaboradores === 'function') renderWfColaboradores(); }catch(_){}
+  try{ if(typeof renderWfFornecedores === 'function') renderWfFornecedores(); }catch(_){}
+  if(typeof toast === 'function'){
+    toast(reg.vinculo ? ('Vínculo: ' + PES_VINCULOS[reg.vinculo] + ' — tag atualizada no Cadastro') : 'Vínculo removido', 4000);
+  }
+}
+try{
+  window.setPesVinculo = setPesVinculo;
+  window._pesVinculo = _pesVinculo;
+}catch(_){}
+
 function pesCurMonthKey(){
   const d = new Date();
   return String(d.getFullYear()) + '-' + String(d.getMonth()+1).padStart(2,'0');
@@ -100578,10 +100624,10 @@ function renderPesCardBody(){
   const ciclosListHtml = regId > 0
     ? `<div class="pcard-ciclos-list">
          ${ciclosOrd.map(({c,i}) => renderCiclo(c, i, false)).join('')}
-         ${vigInicio ? renderCiclo(null, -1, true) : ''}
+         ${renderCiclo(null, -1, true)}
        </div>
        ${(!vigInicio && ciclosOrd.length === 0)
-          ? `<div class="pcard-empty">Sem ciclos. Preencha a data de entrada ou clique em "Adicionar ciclo anterior".</div>`
+          ? `<div class="pcard-empty">Preencha a <b>data de entrada</b> acima. Se a pessoa já esteve na empresa antes, use "Adicionar ciclo anterior".</div>`
           : ''}`
     : '';
 
@@ -100680,6 +100726,17 @@ function renderPesCardBody(){
       ${ciclosHtml}
 
       <div class="pcard-grid">
+        <div class="pcard-field">
+          <label class="pcard-lbl">Vínculo</label>
+          <div class="pcard-vinc">
+            ${['clt','pj'].map(v => `
+              <button type="button" class="pcard-vinc-chip ${(_pesVinculo(regId)===v)?'on':''}"
+                      onclick="setPesVinculo(${regId}, '${v}')">${v === 'clt' ? 'PF · CLT' : 'PJ'}</button>`).join('')}
+          </div>
+          <div class="pcard-vinc-hint">${_pesVinculo(regId) === 'pj'
+            ? 'Prestador PJ. Os dados de PF acima continuam valendo — é a mesma pessoa.'
+            : (_pesVinculo(regId) === 'clt' ? 'Contratado pela CLT.' : 'Diga como esta pessoa é contratada — a tag aparece em Workflows › Cadastro.')}</div>
+        </div>
         <div class="pcard-field">
           <label class="pcard-lbl" for="pcard-tipo">Tipo</label>
           <select id="pcard-tipo" class="pcard-input" onchange="setPesTipo(${p.id}, this.value); if(_pesCardOpenId===${p.id}) renderPesCardBody()">
