@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787169451"/>
+  <meta name="fk-build" content="forekash-v1787170240"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -53232,11 +53232,27 @@ async function removePesFoto(rid){
   if(_pesCardOpenId != null) renderPesCardBody();
   renderPessoas();
 }
-function pesFindRegByNome(nome){
+/* `papel` opcional: 'colaborador' | 'fornecedor'. Sem ele procura em todo o
+   registro, que é o comportamento antigo. Com ele, só quem tem aquele papel —
+   senão digitar "BLOOM" no headcount vinculava a linha ao cliente. */
+function pesFindRegByNome(nome, papel){
   const n = (nome||'').trim().toLowerCase();
   if(!n) return null;
-  return pesRegistry().find(r => (r.nome||'').trim().toLowerCase() === n) || null;
+  const temPapel = r => !papel || ((typeof fkPapeisDe === 'function')
+    ? fkPapeisDe(r).includes(papel) : (r.kind === papel));
+  return pesRegistry().find(r => (r.nome||'').trim().toLowerCase() === n && temPapel(r)) || null;
 }
+/* Mesma pessoa em dois papéis é normal — o sócio que também presta serviço.
+   Em vez de criar um segundo cadastro, acrescenta o papel no que já existe. */
+function pesAdicionarPapel(reg, papel){
+  if(!reg || !papel) return false;
+  const atuais = (typeof fkPapeisDe === 'function') ? fkPapeisDe(reg) : (reg.kind ? [reg.kind] : []);
+  if(atuais.includes(papel)) return false;
+  reg.kinds = atuais.concat([papel]);
+  try{ pessoasSave(); }catch(_){}
+  return true;
+}
+try{ window.pesAdicionarPapel = pesAdicionarPapel; }catch(_){}
 function pesCreateReg({nome, kind}){
   if(!pessoas.nextRegId) pessoas.nextRegId = 1;
   if(!Array.isArray(pessoas.registry)) pessoas.registry = [];
@@ -53330,6 +53346,21 @@ function pessoasLoad(){
     pessoas.tipos = JSON.parse(JSON.stringify(PES_TIPOS_DEFAULT));
   }
   if(!Array.isArray(pessoas.people)) pessoas.people = [];
+  /* Registro sem `kind` é anterior ao campo existir, e fkPapeisDe assume
+     fornecedor por padrão — o que sumiria com colaborador antigo da lista de
+     headcount. Quem tem linha em Pessoas é colaborador por evidência, não por
+     suposição. */
+  try{
+    if(Array.isArray(pessoas.registry)){
+      const comLinha = new Set((pessoas.people || []).map(p => p && p.pessoaId).filter(Boolean));
+      let n = 0;
+      for(const r of pessoas.registry){
+        if(!r || r.kind || (Array.isArray(r.kinds) && r.kinds.length)) continue;
+        if(comLinha.has(r.id)){ r.kind = 'colaborador'; n++; }
+      }
+      if(n) console.info('[Forekash] ' + n + ' cadastro(s) sem papel marcados como colaborador — têm linha no headcount');
+    }
+  }catch(_){}
   if(!pessoas.reajustes || typeof pessoas.reajustes !== 'object') pessoas.reajustes = {};
   // Incluir "Simular Contratação" nos totais/KPIs? (default: não)
   if(typeof pessoas.includeSimInTotals !== 'boolean') pessoas.includeSimInTotals = false;
@@ -99659,7 +99690,14 @@ function openPessoaPicker(rowId, btn, event){
   function renderList(query){
     listEl.innerHTML = '';
     const q = (query||'').trim().toLowerCase();
-    const regs = pesRegistry().slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt'));
+    /* Pessoas é headcount: só colaborador entra. O registro é compartilhado
+       com Fornecedores, e sem esse filtro banco e cliente apareciam na lista
+       de quem recebe salário. */
+    const regs = pesRegistry()
+      .filter(r => (typeof fkPapeisDe === 'function')
+        ? fkPapeisDe(r).includes('colaborador')
+        : (r.kind === 'colaborador'))
+      .slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','pt'));
     const filtered = q
       ? regs.filter(r => (r.nome||'').toLowerCase().includes(q))
       : regs;
@@ -99668,8 +99706,8 @@ function openPessoaPicker(rowId, btn, event){
       const empty = document.createElement('div');
       empty.className = 'rec-cli-empty';
       empty.textContent = regs.length === 0
-        ? 'Nenhuma pessoa cadastrada ainda.'
-        : 'Nenhuma pessoa corresponde à busca.';
+        ? 'Nenhum colaborador cadastrado ainda — crie abaixo.'
+        : 'Nenhum colaborador corresponde à busca.';
       listEl.appendChild(empty);
     } else {
       // IDs já utilizados por outras linhas — uma pessoa não pode aparecer em 2 rows
@@ -99763,8 +99801,19 @@ function openPessoaPicker(rowId, btn, event){
     newBtn.onclick = ()=>{
       let nome = (qRaw && !hasExact) ? qRaw : null;
       if(nome){
-        const existe = pesFindRegByNome(nome);
-        if(existe){ linkRowToPessoa(rowId, existe.id); return; }
+        const jaColab = pesFindRegByNome(nome, 'colaborador');
+        if(jaColab){ linkRowToPessoa(rowId, jaColab.id); return; }
+        /* Nome que já existe como fornecedor: vira também colaborador, em vez
+           de nascer um segundo cadastro com o mesmo dono. */
+        const outroPapel = pesFindRegByNome(nome);
+        if(outroPapel){
+          pesAdicionarPapel(outroPapel, 'colaborador');
+          linkRowToPessoa(rowId, outroPapel.id);
+          if(typeof toast === 'function'){
+            toast('"' + (outroPapel.nome||'') + '" já existia como fornecedor — virou também colaborador, sem cadastro duplicado.', 6500);
+          }
+          return;
+        }
         createAndLinkPessoa(rowId, nome);
         return;
       }
@@ -99778,8 +99827,8 @@ function openPessoaPicker(rowId, btn, event){
         hint: 'O nome será salvo no registro global e não pode repetir.',
         validate: (v)=>{
           if(!v) return 'O nome não pode ficar em branco.';
-          const ex = pesFindRegByNome(v);
-          if(ex) return 'Já existe uma pessoa com esse nome — escolha-a na lista.';
+          const ex = pesFindRegByNome(v, 'colaborador');
+          if(ex) return 'Já existe um colaborador com esse nome — escolha-o na lista.';
           return null;
         }
       }).then(val=>{
