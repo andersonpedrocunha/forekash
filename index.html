@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787154083"/>
+  <meta name="fk-build" content="forekash-v1787154231"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17208,6 +17208,10 @@ tr.imp-par-avulso .imp-grp-txt{color:#475569}
 .ext-parc-conta .tag.ok{background:#D1FAE5;color:#065F46}
 .ext-parc-conta .tag.warn{background:#FEF3C7;color:#92400E}
 .ext-parc-conta .tag.err{background:#FEE2E2;color:#991B1B}
+.ext-parc-conta .calc.vazio{color:#A8557E;font-style:italic}
+.ext-parc-quais{font-size:.7rem;color:#5B1F3F;line-height:1.45;background:#FCE7F3;
+  border-radius:6px;padding:7px 10px}
+.ext-parc-quais b{color:#831843}
 .ext-parc-nota{font-size:.66rem;color:#A8557E;line-height:1.45}
 @media (max-width:600px){ .ext-parc-grid{grid-template-columns:1fr} }
 .imp-avulso-card{border:1px solid #DBEAFE;background:#EFF6FF;border-radius:10px;
@@ -68906,17 +68910,48 @@ function extParcSyncUI(){
     +     '<select id="ext-parc-n" onchange="extParcEscolhe(null, this.value)">' + opts.join('') + '</select></label>'
     + '</div>'
     + '<div class="ext-parc-conta">'
-    +   '<span class="calc">' + nSel + ' × ' + esc2(fmtBRL(parcela)) + ' = <b>' + esc2(fmtBRL(base)) + '</b> abatem a dívida</span>'
-    +   (Math.abs(dif) < 0.5
-        ? '<span class="tag ok">fecha exato</span>'
-        : (dif > 0
-           ? '<span class="tag warn">' + esc2(fmtBRL(dif)) + ' de juros e multa · não abatem</span>'
-           : '<span class="tag err">faltam ' + esc2(fmtBRL(-dif)) + ' para ' + nSel + ' parcela' + (nSel===1?'':'s') + '</span>'))
+    +   (ctx.valor <= 0.005
+        /* Sem valor digitado não há conta a fazer — dizer "faltam R$ 528,27"
+           num lançamento zerado é ruído, não informação. */
+        ? '<span class="calc vazio">Informe o valor da guia para eu conferir a conta.</span>'
+        : ('<span class="calc">' + nSel + ' × ' + esc2(fmtBRL(parcela)) + ' = <b>' + esc2(fmtBRL(base)) + '</b> abatem a dívida</span>'
+           + (Math.abs(dif) < 0.5
+              ? '<span class="tag ok">fecha exato</span>'
+              : (dif > 0
+                 ? '<span class="tag warn">' + esc2(fmtBRL(dif)) + ' de juros e multa · não abatem</span>'
+                 : '<span class="tag err">faltam ' + esc2(fmtBRL(-dif)) + ' para ' + nSel + ' parcela' + (nSel===1?'':'s') + '</span>'))))
     + '</div>'
+    + (ctx.valor > 0.005 && nSel > 1
+        ? '<div class="ext-parc-quais">Quita <b>' + esc2(_extParcQuaisMeses(P, ctx.ym, nSel)) + '</b> — parcelamento abate sempre as competências mais antigas em aberto.</div>'
+        : '')
     + '<div class="ext-parc-nota">Pode ser alterado depois — neste lançamento ou na célula do mês, na aba Parcelamento.</div>';
   box.dataset.parc = String(P.id);
   box.dataset.n = String(nSel);
 }
+/* Quais competências a guia vai quitar: as mais antigas em aberto, na ordem.
+   O usuário informa a QUANTIDADE; quais são é regra, não escolha. */
+function _extParcQuaisMeses(P, ymPag, n){
+  const nomes = [];
+  try{
+    const plan = _impParcPlan(P);
+    const idxPag = impParcMesIdx(P, ymPag);
+    const lbl = ym => {
+      const pt = String(ym).split('-');
+      return (IMP_MESES[parseInt(pt[1],10)-1] || '').toUpperCase() + '/' + pt[0].slice(2);
+    };
+    for(const r of plan.rows){
+      if(nomes.length >= n) break;
+      if(r.idx > idxPag) break;
+      if(r.historico) continue;
+      if(r.manual && r.ym !== ymPag) continue;   // mês já tem guia própria
+      nomes.push(lbl(r.ym));
+    }
+    if(!nomes.length) nomes.push(lbl(ymPag));
+  }catch(_){ return n + ' parcelas'; }
+  return nomes.join(', ');
+}
+try{ window._extParcQuaisMeses = _extParcQuaisMeses; }catch(_){}
+
 function extParcEscolhe(parcId, n){
   const box = document.getElementById('ext-parc-box');
   if(!box) return;
@@ -84667,12 +84702,22 @@ function _impParcPlan(p){
     if(!r.manual || nominal <= 0.005) continue;
     const cobre = Math.round(r.amort / nominal);
     if(cobre < 2) continue;
-    let restam = cobre - 1;                     // uma delas é a do próprio mês
-    for(let k = i - 1; k >= 0 && restam > 0; k--){
-      if(!rows[k].emAtraso) continue;
+    /* Quais competências a guia quita: as MAIS ANTIGAS em aberto, na ordem.
+       Parcelamento não deixa escolher — não dá pra pagar a parcela 20 com a 15
+       em aberto. E o mês do pagamento não é automaticamente uma delas: quem
+       está três meses atrasado e paga duas guias quita as duas mais velhas, e
+       a competência do próprio mês continua devendo. */
+    const abertos = [];
+    for(let k = 0; k <= i; k++){
+      if(rows[k].historico) continue;
+      if(rows[k].manual && k !== i) continue;   // mês que já tem guia própria
+      abertos.push(k);
+    }
+    for(let t = 0; t < cobre && t < abertos.length; t++){
+      const k = abertos[t];
+      if(k === i) continue;                     // o próprio mês já mostra a guia
       rows[k].emAtraso  = false;
       rows[k].cobertaPor = r.ym;
-      restam--;
     }
     r.cobriu = cobre;
   }
