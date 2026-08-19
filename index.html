@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787168738"/>
+  <meta name="fk-build" content="forekash-v1787169025"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17177,6 +17177,15 @@ tr.imp-par-avulso .imp-grp-txt{color:#475569}
 .eca-btn{align-self:flex-start;font:inherit;font-size:.72rem;font-weight:700;padding:6px 12px;
   border-radius:7px;border:1px solid #B45309;background:#fff;color:#B45309;cursor:pointer}
 .eca-btn:hover{background:#B45309;color:#fff}
+.eca-acoes{display:flex;gap:8px;flex-wrap:wrap}
+.eca-btn.alt{border-color:#CBD5E1;color:#475569}
+.eca-btn.alt:hover{background:#475569;color:#fff}
+.ext-contas-aviso.ok{border-color:#BFDBFE;background:#EFF6FF}
+.ext-contas-aviso.ok .eca-hd strong{color:#1E3A8A}
+.ext-contas-aviso.ok .eca-hd span{color:#1D4ED8}
+.ext-contas-aviso.ok .eca-lista code{border-color:#BFDBFE;color:#1E40AF}
+.ext-contas-aviso.ok .eca-btn{border-color:#1D4ED8;color:#1D4ED8}
+.ext-contas-aviso.ok .eca-btn:hover{background:#1D4ED8;color:#fff}
 .fk-vinc-lista{display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto}
 .fk-vinc-linha{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center}
 .fk-vinc-linha code{font-size:.72rem;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;
@@ -75444,8 +75453,22 @@ try{ window.fkContasNaoResolvidas = fkContasNaoResolvidas; }catch(_){}
 function renderExtContasAviso(){
   const el = document.getElementById('ext-contas-aviso');
   if(!el) return;
-  let pend = [];
+  let pend = [], pv = { total:0, linhas:[] };
   try{ pend = fkContasNaoResolvidas(); }catch(_){ }
+  try{ pv = fkPadronizarContasPreview(); }catch(_){ }
+  const esc0 = (typeof _extEsc === 'function') ? _extEsc : (x => String(x||''));
+  /* Nome que já resolve, mas está gravado torto: um clique arruma o dado. */
+  if(!pend.length && pv.total){
+    el.innerHTML =
+        '<div class="ext-contas-aviso ok">'
+      +   '<div class="eca-hd"><strong>' + pv.total + ' lançamento' + (pv.total===1?'':'s')
+      +     ' com o nome antigo da conta</strong>'
+      +     '<span>já aparecem certo na tela; padronizar acerta também o dado gravado</span></div>'
+      +   '<div class="eca-lista">' + pv.linhas.slice(0,4).map(x => '<code>' + esc0(x.k) + '</code>').join('') + '</div>'
+      +   '<button type="button" class="eca-btn" onclick="fkPadronizarContas()">Padronizar</button>'
+      + '</div>';
+    return;
+  }
   if(!pend.length){ el.innerHTML = ''; return; }
   const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x||''));
   el.innerHTML =
@@ -75457,7 +75480,10 @@ function renderExtContasAviso(){
     +     pend.slice(0,6).map(t => '<code>' + esc(t) + '</code>').join('')
     +     (pend.length > 6 ? '<span class="eca-mais">+' + (pend.length-6) + '</span>' : '')
     +   '</div>'
-    +   '<button type="button" class="eca-btn" onclick="fkContasVincularModal()">Dizer qual conta é cada um</button>'
+    +   '<div class="eca-acoes">'
+    +     '<button type="button" class="eca-btn" onclick="fkContasVincularModal()">Dizer qual conta é cada um</button>'
+    +     (pv.total ? '<button type="button" class="eca-btn alt" onclick="fkPadronizarContas()">Padronizar os que já resolvem (' + pv.total + ')</button>' : '')
+    +   '</div>'
     + '</div>';
 }
 try{ window.renderExtContasAviso = renderExtContasAviso; }catch(_){}
@@ -75531,6 +75557,75 @@ try{
   window.fkContasVincularModal = fkContasVincularModal;
   window.fkContasVincularFechar = fkContasVincularFechar;
   window.fkContasVincularSalvar = fkContasVincularSalvar;
+}catch(_){}
+
+/* Reescreve o texto da conta nos lançamentos para o rótulo do cadastro.
+   Resolver na hora de desenhar deixa o dado torto embaixo — e qualquer tela
+   nova que leia `l.conta` cru volta a mostrar dois nomes. Aqui o dado fica
+   igual à tela. Só mexe no que resolve com confiança. */
+function fkPadronizarContasPreview(){
+  const mudancas = new Map();   // 'de → para' -> quantidade
+  let total = 0;
+  try{
+    for(const l of ((extratoData && extratoData.lancamentos) || [])){
+      const de = String((l && l.conta) || '').trim();
+      if(!de) continue;
+      let para = de;
+      try{ para = fkResolverConta(de); }catch(_){}
+      if(!para || para === de) continue;
+      const k = de + ' → ' + para;
+      mudancas.set(k, (mudancas.get(k) || 0) + 1);
+      total++;
+    }
+  }catch(_){}
+  return { total, linhas: Array.from(mudancas, ([k, n]) => ({ k, n })) };
+}
+async function fkPadronizarContas(){
+  const pv = fkPadronizarContasPreview();
+  if(!pv.total){
+    if(typeof toast === 'function') toast('Nada a padronizar — todas as contas já estão com o nome do cadastro', 4500);
+    return 0;
+  }
+  const lista = pv.linhas.map(x => '· ' + x.k + '  (' + x.n + ')').join('\n');
+  const ok = await showConfirm({
+    title: 'Padronizar o nome das contas',
+    message: pv.total + ' lançamento(s) vão passar a usar o nome do cadastro:\n\n' + lista
+      + '\n\nSó muda o texto da conta. Valor, data e categoria ficam como estão.',
+    confirmLabel: 'Padronizar',
+    cancelLabel: 'Cancelar'
+  });
+  if(!ok) return 0;
+
+  let n = 0;
+  for(const l of ((extratoData && extratoData.lancamentos) || [])){
+    const de = String((l && l.conta) || '').trim();
+    if(!de) continue;
+    let para = de;
+    try{ para = fkResolverConta(de); }catch(_){}
+    if(!para || para === de) continue;
+    l.conta = para;
+    n++;
+  }
+  /* Conta de pagamento e destino de transferência carregam o mesmo texto. */
+  for(const l of ((extratoData && extratoData.lancamentos) || [])){
+    for(const campo of ['contaPagamento', 'contraparte']){
+      const de = String((l && l[campo]) || '').trim();
+      if(!de) continue;
+      let para = de;
+      try{ para = fkResolverConta(de); }catch(_){}
+      if(para && para !== de && l.tipo === 'transferencia') l[campo] = para;
+      else if(para && para !== de && campo === 'contaPagamento') l[campo] = para;
+    }
+  }
+  try{ _extSave(); }catch(_){}
+  try{ _extContaCacheLimpa(); }catch(_){}
+  try{ renderExtrato(); }catch(_){}
+  if(typeof toast === 'function') toast(n + ' lançamento(s) padronizado(s)', 5000);
+  return n;
+}
+try{
+  window.fkPadronizarContas = fkPadronizarContas;
+  window.fkPadronizarContasPreview = fkPadronizarContasPreview;
 }catch(_){}
 
 function fkContasDivergentes(){
