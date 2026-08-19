@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787166759"/>
+  <meta name="fk-build" content="forekash-v1787167287"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17164,6 +17164,27 @@ tr.imp-par-avulso > td{border-top-style:dashed}
 tr.imp-par-avulso .imp-grp-txt{color:#475569}
 .imp-avulso-na{color:#CBD5E1;font-weight:600;font-size:.64rem}
 /* Caixa da guia de parcelamento no modal do Extrato. */
+/* Conta dos lançamentos que não bate com o cadastro. */
+.ext-contas-aviso{border:1px solid #FDE68A;background:#FFFBEB;border-radius:10px;
+  padding:11px 14px;display:flex;flex-direction:column;gap:8px}
+.eca-hd{display:flex;flex-direction:column;gap:1px}
+.eca-hd strong{font-size:.8rem;color:#92400E}
+.eca-hd span{font-size:.7rem;color:#B45309;opacity:.9}
+.eca-lista{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.eca-lista code{font-size:.68rem;background:#fff;border:1px solid #FDE68A;border-radius:5px;
+  padding:2px 7px;color:#78350F;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.eca-mais{font-size:.68rem;color:#B45309;font-weight:700}
+.eca-btn{align-self:flex-start;font:inherit;font-size:.72rem;font-weight:700;padding:6px 12px;
+  border-radius:7px;border:1px solid #B45309;background:#fff;color:#B45309;cursor:pointer}
+.eca-btn:hover{background:#B45309;color:#fff}
+.fk-vinc-lista{display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto}
+.fk-vinc-linha{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center}
+.fk-vinc-linha code{font-size:.72rem;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;
+  padding:6px 9px;color:#334155;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.fk-vinc-linha select{width:100%;padding:7px 9px;border:1px solid #CBD5E1;border-radius:7px;
+  background:#fff;font-size:.8rem;font-family:inherit;color:#0F172A}
+@media (max-width:600px){ .fk-vinc-linha{grid-template-columns:1fr} }
 /* Marcador na lista de categorias: fio vertical no acento do módulo e um
    rótulo pequeno à direita. Sem ícone — o texto já diz o que precisa. */
 .cart-cbx-item.has-tag{display:flex;align-items:center;gap:10px;
@@ -19102,6 +19123,7 @@ td.mes.do-extrato{background:#ECFDF5}
            ══════════════════════════════════════════════ -->
       <div class="mod" id="mod-extrato">
           <div class="ext-wrap">
+            <div id="ext-contas-aviso"></div>
             <!-- Cabeçalho da página -->
             <div class="ext-hd">
               <div class="ext-hd-tit">
@@ -67738,6 +67760,7 @@ function renderExtrato(){
     }
   } catch(_){}
   _extPopulateContas();
+  try{ renderExtContasAviso(); }catch(_){}
   _extPopulateCCs();
   _extPopulateMulti('doc');
   _extPopulateMulti('cli');
@@ -75259,6 +75282,9 @@ function fkContasAgrupadas(){
           if(x.temApelido) alias.push(x.base + ' · ' + marca2);
         }
         alias.push(x.semApelido + ' · conta #' + x.c.id);
+        /* Apelidos que o usuário confirmou ("esse texto é esta conta") ficam
+           gravados na conta e sobrevivem ao recarregar. */
+        if(Array.isArray(x.c.aliases)) alias.push.apply(alias, x.c.aliases);
         x.c._fkAliases = alias.filter(a2 => a2 && a2 !== nome);
         (x.reserva ? reserva : caixa).push(nome);
       });
@@ -75348,11 +75374,7 @@ function fkResolverConta(texto){
     if(semNumero.length === 1){
       /* Aprende o apelido: da próxima vez casa no passo do alias, e o número
          fica registrado como pertencente àquela conta. */
-      try{
-        const cc = semNumero[0].c;
-        if(!Array.isArray(cc._fkAliases)) cc._fkAliases = [];
-        if(cc._fkAliases.indexOf(t) < 0) cc._fkAliases.push(t);
-      }catch(_){}
+      try{ fkContaAprenderAlias(semNumero[0].c, t); }catch(_){}
       return semNumero[0].rotulo;
     }
   }
@@ -75366,6 +75388,139 @@ try{ window.fkResolverConta = fkResolverConta; }catch(_){}
 
 /* Diagnóstico: mostra as contas que aparecem no Extrato com mais de um rótulo
    e diz por que não unificaram. Rodar `fkContasDivergentes()` no console. */
+/* Grava "este texto é esta conta". É o que fecha o caso quando o número não
+   está no cadastro: o app pergunta uma vez e não pergunta de novo. */
+function fkContaAprenderAlias(conta, texto){
+  if(!conta || !texto) return false;
+  if(!Array.isArray(conta.aliases)) conta.aliases = [];
+  if(conta.aliases.indexOf(texto) >= 0) return false;
+  conta.aliases.push(texto);
+  try{ dispoSave(); }catch(_){}
+  try{ _extContaCacheLimpa(); }catch(_){}
+  return true;
+}
+try{ window.fkContaAprenderAlias = fkContaAprenderAlias; }catch(_){}
+
+/* Rótulos do Extrato que não casaram com nenhuma conta cadastrada. */
+function fkContasNaoResolvidas(){
+  const brutos = new Set();
+  try{
+    for(const l of ((extratoData && extratoData.lancamentos) || [])){
+      const t = String((l && l.conta) || '').trim();
+      if(t) brutos.add(t);
+    }
+  }catch(_){ return []; }
+  const rotulos = new Set();
+  try{
+    for(const g of fkContasAgrupadas()) for(const nm of g.itens) rotulos.add(nm);
+  }catch(_){}
+  const out = [];
+  for(const t of brutos){
+    if(rotulos.has(t)) continue;                 // já é um rótulo oficial
+    let r = t;
+    try{ r = fkResolverConta(t); }catch(_){}
+    if(r !== t) continue;                        // resolveu pra outro
+    out.push(t);
+  }
+  return out.sort();
+}
+try{ window.fkContasNaoResolvidas = fkContasNaoResolvidas; }catch(_){}
+
+/* Aviso no topo do Extrato: contas que aparecem nos lançamentos e não batem
+   com nenhuma cadastrada. Sem número no cadastro o app não tem como decidir —
+   então pergunta uma vez, e guarda. */
+function renderExtContasAviso(){
+  const el = document.getElementById('ext-contas-aviso');
+  if(!el) return;
+  let pend = [];
+  try{ pend = fkContasNaoResolvidas(); }catch(_){ }
+  if(!pend.length){ el.innerHTML = ''; return; }
+  const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x||''));
+  el.innerHTML =
+      '<div class="ext-contas-aviso">'
+    +   '<div class="eca-hd"><strong>' + pend.length + ' nome' + (pend.length===1?'':'s')
+    +     ' de conta nos lançamentos não bate' + (pend.length===1?'':'m') + ' com o cadastro</strong>'
+    +     '<span>a mesma conta aparece com rótulos diferentes na coluna Conta</span></div>'
+    +   '<div class="eca-lista">'
+    +     pend.slice(0,6).map(t => '<code>' + esc(t) + '</code>').join('')
+    +     (pend.length > 6 ? '<span class="eca-mais">+' + (pend.length-6) + '</span>' : '')
+    +   '</div>'
+    +   '<button type="button" class="eca-btn" onclick="fkContasVincularModal()">Dizer qual conta é cada um</button>'
+    + '</div>';
+}
+try{ window.renderExtContasAviso = renderExtContasAviso; }catch(_){}
+
+/* Uma linha por rótulo pendente, um seletor com as contas cadastradas. */
+function fkContasVincularModal(){
+  if(document.getElementById('fk-vinc-ov')) return;
+  const pend = fkContasNaoResolvidas();
+  if(!pend.length){ if(typeof toast === 'function') toast('Nada pendente'); return; }
+  const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x||''));
+  let opts = '<option value="">— escolha a conta —</option>';
+  try{
+    const banco = id => (dispo.bancos || []).find(b => b.id === id) || null;
+    const tipo  = id => (dispo.tipos  || []).find(t => t.id === id) || null;
+    fkContasAgrupadas();   // garante _fkRotulo
+    for(const c of (dispo.contas || [])){
+      if(!c || c.ativo === false) continue;
+      const b = banco(c.bancoId); if(!b) continue;
+      const t = tipo(c.tipoId);
+      const rot = c._fkRotulo || (t ? (b.nome + ' · ' + t.nome) : b.nome);
+      opts += '<option value="' + c.id + '">' + esc(rot) + '</option>';
+    }
+  }catch(_){}
+
+  const ov = document.createElement('div');
+  ov.id = 'fk-vinc-ov';
+  ov.className = 'emp-novo-ov';
+  ov.innerHTML =
+      '<div class="emp-novo-card" style="max-width:620px">'
+    +   '<div class="emp-novo-hd">'
+    +     '<div><h3>Qual conta é cada uma?</h3>'
+    +       '<p>Estes nomes vieram da importação ou de lançamentos antigos. Diga a que conta cadastrada pertencem — o Forekash guarda e não pergunta de novo.</p></div>'
+    +     '<button type="button" class="emp-novo-x" onclick="fkContasVincularFechar()">✕</button>'
+    +   '</div>'
+    +   '<div class="emp-novo-bd">'
+    +     '<div class="fk-vinc-lista">'
+    +       pend.map((t, i) => '<div class="fk-vinc-linha">'
+          + '<code title="' + esc(t) + '">' + esc(t) + '</code>'
+          + '<select data-vinc="' + i + '" data-texto="' + esc(t) + '">' + opts + '</select>'
+          + '</div>').join('')
+    +     '</div>'
+    +     '<div class="imp-parc-hint" style="margin-top:12px">Deixar em branco mantém o nome como está. '
+    +       'Isso some de vez quando o <b>número da conta</b> estiver preenchido no cadastro de Disponibilidades.</div>'
+    +   '</div>'
+    +   '<div class="emp-novo-ft">'
+    +     '<button type="button" class="btn btn-sec" onclick="fkContasVincularFechar()">Cancelar</button>'
+    +     '<button type="button" class="btn btn-p" onclick="fkContasVincularSalvar()">Salvar vínculos</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('mousedown', ev => { if(ev.target === ov) fkContasVincularFechar(); });
+}
+function fkContasVincularFechar(){ const o = document.getElementById('fk-vinc-ov'); if(o) o.remove(); }
+function fkContasVincularSalvar(){
+  let n = 0;
+  document.querySelectorAll('#fk-vinc-ov select[data-vinc]').forEach(sel => {
+    const id = parseInt(sel.value, 10);
+    const txt = sel.getAttribute('data-texto');
+    if(!id || !txt) return;
+    const c = (dispo.contas || []).find(x => x.id === id);
+    if(c && fkContaAprenderAlias(c, txt)) n++;
+  });
+  fkContasVincularFechar();
+  try{ _extContaCacheLimpa(); }catch(_){}
+  try{ renderExtrato(); }catch(_){}
+  if(typeof toast === 'function'){
+    toast(n ? (n + ' nome' + (n===1?'':'s') + ' vinculado' + (n===1?'':'s') + ' — a coluna Conta já mostra o rótulo do cadastro') : 'Nenhum vínculo escolhido', 5000);
+  }
+}
+try{
+  window.fkContasVincularModal = fkContasVincularModal;
+  window.fkContasVincularFechar = fkContasVincularFechar;
+  window.fkContasVincularSalvar = fkContasVincularSalvar;
+}catch(_){}
+
 function fkContasDivergentes(){
   const porResolvido = new Map();
   try{
