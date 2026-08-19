@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787154231"/>
+  <meta name="fk-build" content="forekash-v1787160733"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17188,6 +17188,11 @@ tr.imp-par-avulso .imp-grp-txt{color:#475569}
 .ext-parc-ttl b{font-size:.79rem;color:#831843;font-weight:700;letter-spacing:-.01em}
 .ext-parc-ttl small{font-size:.67rem;color:#A8557E;line-height:1.4}
 .ext-parc-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:10px}
+.ext-parc-grid.tres{grid-template-columns:1.6fr 1fr 1fr}
+.ext-parc-grid input[type=month]{width:100%;padding:8px 10px;border:1px solid #F0BBD6;
+  border-radius:7px;background-color:#fff;font-size:.83rem;font-family:inherit;color:#0F172A;font-weight:500}
+.ext-parc-grid input[type=month]:focus{outline:none;border-color:#BE185D;box-shadow:0 0 0 3px rgba(190,24,93,.1)}
+@media (max-width:760px){ .ext-parc-grid.tres{grid-template-columns:1fr 1fr} }
 .ext-parc-grid label.f{display:flex;flex-direction:column;gap:4px;min-width:0}
 .ext-parc-grid label.f > span{font-size:.63rem;font-weight:700;text-transform:uppercase;
   letter-spacing:.05em;color:#9D174D;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -17277,6 +17282,10 @@ tr.imp-par-avulso .imp-grp-txt{color:#475569}
   text-transform:none;letter-spacing:0}
 .ipm-motivo small{display:block;font-size:.7rem;color:#64748B;line-height:1.45;margin-top:2px;
   text-transform:none;letter-spacing:0}
+/* Mês zerado pelo usuário: não havia parcela ali. */
+.imp-par-sheet tbody td.mes.zerada{background:#F8FAFC;color:#CBD5E1;font-weight:600}
+.imp-par-sheet tbody td.mes.zerada::after{content:'';position:absolute;left:6px;right:6px;top:50%;
+  height:1px;background:#E2E8F0}
 /* Mês que não foi pago no próprio mês, mas entrou numa guia posterior. */
 .imp-par-sheet tbody td.mes.coberta{background:#F0FDF4;color:#94A3B8;
   text-decoration:line-through;text-decoration-color:#86EFAC}
@@ -68807,7 +68816,24 @@ function _extParcContexto(){
       }
     }
   }catch(_){}
-  return { ativos, ym, valor, sugerido: jaContrato || hit.parcId || null, jaRespondido };
+  /* Pré-preenche com a competência do próprio lançamento — que é o normal
+     quando o usuário lança com repetição, uma parcela por mês. */
+  let compSugerida = '';
+  try{
+    const cEl = document.getElementById('ext-fld-comp');
+    const cv = cEl && cEl.value ? String(cEl.value).slice(0,7) : '';
+    compSugerida = /^\d{4}-\d{2}$/.test(cv) ? cv : ym;
+  }catch(_){ compSugerida = ym; }
+  let jaComp = '';
+  try{
+    if(typeof _extEditingId === 'string' && /^m:\d+$/.test(_extEditingId)){
+      const rid = parseInt(_extEditingId.replace(/^m:/, ''), 10);
+      const lan = (extratoData.lancamentos || []).find(x => x.id === rid);
+      if(lan && lan.impCompetencia) jaComp = String(lan.impCompetencia).slice(0,7);
+    }
+  }catch(_){}
+  return { ativos, ym, valor, sugerido: jaContrato || hit.parcId || null, jaRespondido,
+           compSugerida: jaComp || compSugerida };
 }
 /* Soma dos itens do modal — o valor que de fato saiu da conta.
    Os campos de valor são os `.ext-it-valor` (um por item) e vêm formatados em
@@ -68839,7 +68865,7 @@ function _extParcHook(){
   document.addEventListener('input', ev => {
     const t = ev.target;
     if(!t || !t.matches) return;
-    if(t.matches('.ext-it-valor, #ext-fld-valor, #ext-fld-data, #ext-fld-pag, #ext-fld-cat')
+    if(t.matches('.ext-it-valor, #ext-fld-valor, #ext-fld-data, #ext-fld-pag, #ext-fld-cat, #ext-fld-comp')
        || (t.id && t.id.indexOf('ext-it-cat-') === 0)){
       try{ extParcSyncUI(); }catch(_){}
     }
@@ -68854,7 +68880,7 @@ function extParcSyncUI(){
   if(ctx.semContrato){
     box.style.display = '';
     box.dataset.parc = ''; box.dataset.n = '';
-    box.dataset.manual = '';
+    box.dataset.manual = ''; box.dataset.compManual = '';
     box.innerHTML =
         '<div class="ext-parc-hd">'
       +   '<span class="ext-parc-ico" aria-hidden="true"></span>'
@@ -68889,9 +68915,15 @@ function extParcSyncUI(){
 
   const base = parcela * nSel;
   const dif  = ctx.valor - base;
+  /* Sem valor nas opções: o valor da guia já está no lançamento, e repeti-lo
+     aqui só competia com o campo que manda. */
   const opts = [];
   for(let k = 1; k <= 12; k++) opts.push('<option value="' + k + '"' + (k === nSel ? ' selected' : '') + '>'
-    + (k === 1 ? '1 parcela' : k + ' parcelas') + ' · ' + fmtBRL(parcela * k) + '</option>');
+    + (k === 1 ? '1 parcela' : k + ' parcelas') + '</option>');
+  /* Mesma armadilha do número de parcelas: só respeita o guardado se o
+     usuário mexeu, senão a primeira renderização congela a competência. */
+  const comp = (box.dataset.compManual === '1' && box.dataset.comp)
+    ? box.dataset.comp : ctx.compSugerida;
 
   box.style.display = '';
   box.innerHTML =
@@ -68900,7 +68932,7 @@ function extParcSyncUI(){
     +   '<div class="ext-parc-ttl"><b>Vincular ao controle de parcelamento</b>'
     +     '<small>Módulo Impostos › aba Parcelamento — o saldo devedor e a projeção do contrato saem daqui.</small></div>'
     + '</div>'
-    + '<div class="ext-parc-grid">'
+    + '<div class="ext-parc-grid tres">'
     +   '<label class="f"><span>Contrato</span>'
     +     '<select id="ext-parc-id" onchange="extParcEscolhe(this.value, null)">'
     +       ctx.ativos.map(x => '<option value="' + x.id + '"' + (x.id === P.id ? ' selected' : '') + '>'
@@ -68908,25 +68940,25 @@ function extParcSyncUI(){
     +     '</select></label>'
     +   '<label class="f"><span>Parcelas nesta guia</span>'
     +     '<select id="ext-parc-n" onchange="extParcEscolhe(null, this.value)">' + opts.join('') + '</select></label>'
+    +   '<label class="f"><span>Competência</span>'
+    +     '<input type="month" id="ext-parc-comp" value="' + esc2(comp) + '" onchange="extParcComp(this.value)">'
+    +     '</label>'
     + '</div>'
-    + '<div class="ext-parc-conta">'
-    +   (ctx.valor <= 0.005
-        /* Sem valor digitado não há conta a fazer — dizer "faltam R$ 528,27"
-           num lançamento zerado é ruído, não informação. */
-        ? '<span class="calc vazio">Informe o valor da guia para eu conferir a conta.</span>'
-        : ('<span class="calc">' + nSel + ' × ' + esc2(fmtBRL(parcela)) + ' = <b>' + esc2(fmtBRL(base)) + '</b> abatem a dívida</span>'
+    + '<div class="ext-parc-quais">Dá baixa em <b>' + esc2(_extParcCompLista(comp, nSel)) + '</b> no controle.</div>'
+    + (ctx.valor > 0.005
+        ? ('<div class="ext-parc-conta">'
+           + '<span class="calc">' + nSel + ' × ' + esc2(fmtBRL(parcela)) + ' = <b>' + esc2(fmtBRL(base)) + '</b> abatem a dívida</span>'
            + (Math.abs(dif) < 0.5
               ? '<span class="tag ok">fecha exato</span>'
               : (dif > 0
                  ? '<span class="tag warn">' + esc2(fmtBRL(dif)) + ' de juros e multa · não abatem</span>'
-                 : '<span class="tag err">faltam ' + esc2(fmtBRL(-dif)) + ' para ' + nSel + ' parcela' + (nSel===1?'':'s') + '</span>'))))
-    + '</div>'
-    + (ctx.valor > 0.005 && nSel > 1
-        ? '<div class="ext-parc-quais">Quita <b>' + esc2(_extParcQuaisMeses(P, ctx.ym, nSel)) + '</b> — parcelamento abate sempre as competências mais antigas em aberto.</div>'
+                 : '<span class="tag err">' + esc2(fmtBRL(-dif)) + ' abaixo de ' + nSel + ' parcela' + (nSel===1?'':'s') + '</span>'))
+           + '</div>')
         : '')
     + '<div class="ext-parc-nota">Pode ser alterado depois — neste lançamento ou na célula do mês, na aba Parcelamento.</div>';
   box.dataset.parc = String(P.id);
   box.dataset.n = String(nSel);
+  box.dataset.comp = String(comp || '');
 }
 /* Quais competências a guia vai quitar: as mais antigas em aberto, na ordem.
    O usuário informa a QUANTIDADE; quais são é regra, não escolha. */
@@ -68952,10 +68984,35 @@ function _extParcQuaisMeses(P, ymPag, n){
 }
 try{ window._extParcQuaisMeses = _extParcQuaisMeses; }catch(_){}
 
+/* Lista as competências que a guia vai baixar, a partir da informada. */
+function _extParcCompLista(comp, n){
+  if(!/^\d{4}-\d{2}$/.test(String(comp||''))) return n + ' competência' + (n===1?'':'s');
+  const lbl = ym => {
+    const pt = String(ym).split('-');
+    return (IMP_MESES[parseInt(pt[1],10)-1] || '').toUpperCase() + '/' + pt[0].slice(2);
+  };
+  const out = [];
+  let m = comp;
+  for(let t = 0; t < n; t++){ out.push(lbl(m)); m = impAddMonths(m, 1); }
+  return out.join(', ');
+}
+function extParcComp(v){
+  const box = document.getElementById('ext-parc-box');
+  if(!box) return;
+  box.dataset.comp = String(v || '').slice(0,7);
+  box.dataset.compManual = '1';
+  extParcSyncUI();
+}
+try{
+  window._extParcCompLista = _extParcCompLista;
+  window.extParcComp = extParcComp;
+}catch(_){}
+
 function extParcEscolhe(parcId, n){
   const box = document.getElementById('ext-parc-box');
   if(!box) return;
-  if(parcId){ box.dataset.parc = String(parcId); box.dataset.n = ''; box.dataset.manual = ''; }
+  if(parcId){ box.dataset.parc = String(parcId); box.dataset.n = ''; box.dataset.manual = '';
+              box.dataset.comp = ''; box.dataset.compManual = ''; }
   if(n){ box.dataset.n = String(n); box.dataset.manual = '1'; }
   extParcSyncUI();
 }
@@ -70305,12 +70362,14 @@ function extSaveModal(tipo){
   const notas   = (document.getElementById('ext-fld-notas')?.value || '').trim();
   /* Guia de parcelamento: quantas parcelas essa saída quitou. É atributo do
      pagamento — o Extrato é o único lugar onde essa resposta cabe. */
-  let _parcId = 0, _parcN = 0;
+  let _parcId = 0, _parcN = 0, _parcComp = '';
   try{
     const _bx = document.getElementById('ext-parc-box');
     if(_bx && _bx.style.display !== 'none'){
       _parcId = parseInt(_bx.dataset.parc, 10) || 0;
       _parcN  = parseInt(_bx.dataset.n, 10) || 0;
+      const c = String(_bx.dataset.comp || '').slice(0,7);
+      if(/^\d{4}-\d{2}$/.test(c)) _parcComp = c;
     }
   }catch(_){}
   const documento = (document.getElementById('ext-fld-doc')?.value || '').trim();
@@ -70521,8 +70580,10 @@ function extSaveModal(tipo){
       Object.assign(l, { data, valor, descricao:desc, categoria:catFinal, contraparte:counter, conta, status, notas, documento, refInterna, tipo, centroCustoId });
       if(status === 'pago' && !l.dataPagamento) l.dataPagamento = data;
       if(status !== 'pago') l.dataPagamento = '';
-      if(_parcId && _parcN){ l.impParcId = _parcId; l.impParcelas = _parcN; }
-      else { delete l.impParcId; delete l.impParcelas; }
+      if(_parcId && _parcN){
+        l.impParcId = _parcId; l.impParcelas = _parcN;
+        if(_parcComp) l.impCompetencia = _parcComp; else delete l.impCompetencia;
+      } else { delete l.impParcId; delete l.impParcelas; delete l.impCompetencia; }
     }
   } else {
     const id = extratoData.nextId++;
@@ -70535,7 +70596,10 @@ function extSaveModal(tipo){
     if(anexoDoc) _newLanc.anexo = anexoDoc;
     if(anexoComp) _newLanc.comprovante = anexoComp;
     /* Guia de parcelamento: o que o usuário respondeu na hora do pagamento. */
-    if(_parcId && _parcN){ _newLanc.impParcId = _parcId; _newLanc.impParcelas = _parcN; }
+    if(_parcId && _parcN){
+      _newLanc.impParcId = _parcId; _newLanc.impParcelas = _parcN;
+      if(_parcComp) _newLanc.impCompetencia = _parcComp;
+    }
     extratoData.lancamentos.push(_newLanc);
   }
   try{ impParcConcInvalidar(); }catch(_){}
@@ -84592,7 +84656,8 @@ function _impParcPlan(p){
   const key = 'v5|' + _impParcConcRev + '|' + _impSelicHash() + '|' + (impostos.selicAnual||0)
             + '|' + p.saldoInicial + '|' + p.parcelaMensal + '|' + p.mesInicio + '|' + pagHash
             + '|' + (p.pagasAntes || 0)
-            + '|' + JSON.stringify(p.quitacao || null);
+            + '|' + JSON.stringify(p.quitacao || null)
+            + '|' + JSON.stringify(p.zerados || null);
   if(p._planKey === key && p._plan) return p._plan;
 
   const nominal = +p.parcelaMensal;
@@ -84622,6 +84687,27 @@ function _impParcPlan(p){
     const [pid, ym] = k.split('|');
     if(String(pid) === String(p.id)) cobertura[ym] = _cob[k];
   }
+  /* Competência ≠ mês do pagamento. A guia declara qual competência está
+     quitando; o mês do lançamento diz só quando o dinheiro saiu. */
+  const _guias = ((impParcConcAll().guias) || []).filter(g => g.parcId === p.id);
+  /* Vários lançamentos no MESMO mês são a regra, não a exceção: a empresa
+     paga três parcelas no mesmo dia em três guias separadas. O dinheiro soma
+     na célula do mês e cada guia baixa a sua competência. */
+  const _guiasDoMes = {}, _compQuit = {};
+  for(const g of _guias){
+    (_guiasDoMes[g.guiaYm] = _guiasDoMes[g.guiaYm] || []).push(g);
+    if(!g.comp) continue;
+    let m = g.comp;
+    for(let t = 0; t < (g.n || 1); t++){ _compQuit[m] = g.guiaYm; m = impAddMonths(m, 1); }
+  }
+  /* Só é "competência explícita" se TODAS as guias do mês declararam a sua —
+     senão uma sem competência ficaria sem abater nada. */
+  const _compExpl = {};
+  for(const ym of Object.keys(_guiasDoMes)){
+    _compExpl[ym] = _guiasDoMes[ym].every(g => !!g.comp);
+  }
+  /* Mês que o usuário zerou na planilha: não há parcela a pagar ali. */
+  const _zerados = (p.zerados && typeof p.zerados === 'object') ? p.zerados : {};
   /* Mês passado sem guia identificada NÃO abate saldo: o dinheiro não saiu.
      Antes o plano descia pelo cronograma e a barra dizia "13% amortizado" na
      mesma tela em que o alerta dizia "7 meses sem pagamento". */
@@ -84635,7 +84721,7 @@ function _impParcPlan(p){
     const fator = impParcFatorCorrecao(p.mesInicio, ym);
 
     /* Última parcela costuma ser menor: nunca amortiza mais que o saldo. */
-    const amortPrev  = Math.min(nominal, saldo);
+    const amortPrev  = _zerados[ym] ? 0 : Math.min(nominal, saldo);
     const parcelaPrev = amortPrev * fator;
 
     const hasManual = Object.prototype.hasOwnProperty.call(pagEfet, ym);
@@ -84650,12 +84736,19 @@ function _impParcPlan(p){
     const historico = i < pagasAntes;      // pago antes de existir controle
 
     const nCob = hasManual ? (parseInt(cobertura[ym], 10) || 0) : 0;
+    const compExplicita = !!_compExpl[ym];          // as guias do mês declararam a competência
+    const quitadaPorComp = !!_compQuit[ym];         // esta competência foi quitada
+    const zerado = !!_zerados[ym];                  // usuário zerou o mês
+
     let amort;
-    if(historico)        amort = amortPrev;                 // já quitada, sem registro
-    else if(nCob > 0)    amort = nCob * nominal;            // o usuário disse quantas
-    else if(hasManual)   amort = manualVal / fator;
-    else if(futuro)      amort = amortPrev;                 // projeção
-    else                 amort = 0;                         // vencida e sem guia
+    if(zerado)                       amort = 0;     // mês sem parcela, por decisão
+    else if(historico)               amort = amortPrev;
+    else if(quitadaPorComp)          amort = amortPrev;   // a guia disse que é esta
+    else if(compExplicita)           amort = 0;     // o dinheiro daqui quitou outro mês
+    else if(nCob > 0)                amort = nCob * nominal;
+    else if(hasManual)               amort = manualVal / fator;
+    else if(futuro)                  amort = amortPrev;
+    else                             amort = 0;
 
     let parcela = historico ? parcelaPrev : (hasManual ? manualVal : parcelaPrev);
 
@@ -84681,12 +84774,18 @@ function _impParcPlan(p){
       saldoFim,
       baseMes: nominal,
       fator, amort, futuro, historico,
+      zerado: !!_zerados[ym],
+      quitadaPorComp: !!_compQuit[ym],
+      guiaDaComp: _compQuit[ym] || null,
+      compExplicita: !!_compExpl[ym],
+      guiasNoMes: (_guiasDoMes[ym] || []).length,
       /* excedente sobre as parcelas cobertas — juros de mora, multa */
       encargo: hasManual ? Math.max(0, manualVal - (nCob > 0 ? nCob : Math.round(amort / (nominal || 1))) * nominal * fator) : 0,
       coberturaManual: nCob > 0,
       encerra: (quitYM === ym),
       /* vencido, sem guia identificada e fora do histórico — não abateu nada */
       emAtraso: !hasManual && !futuro && !historico && (quitYM !== ym)
+                && !_zerados[ym] && !_compQuit[ym]
     });
 
     /* Parcela zerada (mês pulado) não derruba o saldo — e não trava o loop,
@@ -84700,6 +84799,7 @@ function _impParcPlan(p){
   for(let i = 0; i < rows.length; i++){
     const r = rows[i];
     if(!r.manual || nominal <= 0.005) continue;
+    if(r.compExplicita) continue;      // a guia já disse quais competências
     const cobre = Math.round(r.amort / nominal);
     if(cobre < 2) continue;
     /* Quais competências a guia quita: as MAIS ANTIGAS em aberto, na ordem.
@@ -84885,7 +84985,8 @@ function impParcPrevistoGrupo(gid, ym){
    → { porParc:{parcId:{ym:valor}}, porGrupo:{gid:{ym:valor}},
        naoIdent:[{lancId,ym,valor,desc,cat,motivo}], totalMes:{ym:valor} }   */
 function impParcConciliar(ano){
-  const out = { porParc:{}, porGrupo:{}, naoIdent:[], avulsos:[], totalMes:{}, acumuladas:{}, coberturas:{}, confirmar:[] };
+  const out = { porParc:{}, porGrupo:{}, naoIdent:[], avulsos:[], totalMes:{}, acumuladas:{},
+                coberturas:{}, confirmar:[], competencias:{}, guias:[] };
   const y = (ano == null) ? null : String(ano);   // null = todos os anos
   let lans = [];
   try{ lans = (extratoData && extratoData.lancamentos) || []; }catch(_){ return out; }
@@ -84930,6 +85031,11 @@ function impParcConciliar(ano){
           out.coberturas[vinc.id + '|' + ym] = nDito;
           if(nDito > 1) out.acumuladas[vinc.id + '|' + ym] = nDito;
         }
+        /* A competência é o que diz QUAL mês do controle recebe a baixa — o mês
+           em que o dinheiro saiu diz só quando saiu. São coisas diferentes:
+           guia paga em abril pode ser a competência de janeiro. */
+        out.guias.push({ parcId: vinc.id, guiaYm: ym, n: nDito || 1,
+                         comp: (l.impCompetencia && /^\d{4}-\d{2}$/.test(l.impCompetencia)) ? l.impCompetencia : null });
         continue;
       }
       /* 2 · a própria categoria nomeia o contrato */
@@ -84968,6 +85074,8 @@ function impParcConciliar(ano){
         const k = nDito > 0 ? nDito : _multiplo(cand[0]);
         if(nDito > 0) out.coberturas[cand[0].id + '|' + ym] = nDito;
         if(k > 1) out.acumuladas[cand[0].id + '|' + ym] = k;
+        out.guias.push({ parcId: cand[0].id, guiaYm: ym, n: k,
+                         comp: (l.impCompetencia && /^\d{4}-\d{2}$/.test(l.impCompetencia)) ? l.impCompetencia : null });
         /* Deduzido, não confirmado. A importação do OFX cria o lançamento
            direto, sem passar pelo modal — então a pergunta nunca foi feita
            pra guia importada, e é justamente onde entra o volume. Guia
@@ -85644,6 +85752,21 @@ function renderImpParRow(p, year, conc){
         title = `${mm ? mm.nome : 'Encerrado'} · pagou ${fmtBRL(row.parcela)} e zerou o saldo`;
         return `<td class="${cls}" title="${esc(title)}">${display}</td>`;
       }
+      if(row.zerado){
+        cls += ' zerada';
+        display = '—';
+        title = `${numPar} · zerada por você — sem parcela prevista neste mês. Clique para voltar à previsão.`;
+        /* handler inline: `onClick` só é montado mais abaixo nesta função */
+        return `<td class="${cls}" title="${esc(title)}" onclick="impParcZerarModal(${p.id}, '${ym}')">${display}</td>`;
+      }
+      if(row.quitadaPorComp && !row.manual){
+        cls += ' coberta';
+        display = fmtBR(prev, 2);
+        const [qy, qm] = String(row.guiaDaComp || '').split('-');
+        const qlbl = qm ? ((IMP_MESES[parseInt(qm,10)-1] || '').toUpperCase() + '/' + String(qy).slice(2)) : '';
+        title = `${numPar} · competência quitada pela guia de ${qlbl}`;
+        return `<td class="${cls}" title="${esc(title)}">${display}<span class="imp-cob-seta" title="${esc(title)}">›</span></td>`;
+      }
       if(row.cobertaPor){
         cls += ' coberta';
         display = fmtBR(prev, 2);
@@ -85709,7 +85832,7 @@ function renderImpParRow(p, year, conc){
     const _temGuia = clickable && row && row.manual;
     const onClick = clickable
       ? (_temGuia ? ` onclick="impParcCoberturaModal(${p.id}, '${ym}')"`
-                  : ` onclick="notifyImpParDoExtrato(${p.id}, '${ym}')"`)
+                  : ` onclick="impParcZerarModal(${p.id}, '${ym}')"`)
       : '';
     const btn = '';
     return `<td class="${cls}" title="${esc(title)}"${onClick}>${display}${acumBadge}${btn}</td>`;
@@ -86172,6 +86295,40 @@ function impParcCoberturaModal(id, ym){
   document.body.appendChild(ov);
   ov.addEventListener('mousedown', ev => { if(ev.target === ov) impParcCoberturaFechar(); });
 }
+/* Mês sem guia no Extrato: o usuário pode dizer que ali não há parcela. Duas
+   saídas só — zerar ou manter a previsão. Nada de digitar valor: dinheiro
+   continua vindo do Extrato. */
+async function impParcZerarModal(id, ym){
+  const P = (impostos.parcelamentos || []).find(x => x.id === id);
+  if(!P) return;
+  const zerado = !!(P.zerados && P.zerados[ym]);
+  const mesLbl = (IMP_MESES[parseInt(String(ym).slice(5,7),10)-1] || '').toUpperCase() + '/' + String(ym).slice(2,4);
+  const prev = impParcPrevistoMes(P, ym);
+
+  const ok = await showConfirm({
+    title: zerado ? ('Voltar a prever ' + mesLbl) : ('Zerar ' + mesLbl),
+    message: zerado
+      ? `Este mês está zerado. Voltar a prever a parcela de <strong>${fmtBRL(prev || (+P.parcelaMensal * IMP_FATOR_1A))}</strong>?`
+      : `Nenhuma guia deste mês foi identificada no Extrato.\n\n`
+        + `Zerar significa que <strong>não havia parcela a pagar</strong> em ${mesLbl} — a previsão some, o mês para de contar como atraso e o saldo devedor não é abatido.\n\n`
+        + `Se a parcela existiu e foi paga, não zere: lance o pagamento no Extrato com a categoria do parcelamento.`,
+    confirmLabel: zerado ? 'Voltar a prever' : 'Zerar o mês',
+    cancelLabel: 'Manter como está'
+  });
+  if(!ok) return;
+
+  if(!P.zerados || typeof P.zerados !== 'object') P.zerados = {};
+  if(zerado) delete P.zerados[ym]; else P.zerados[ym] = true;
+  P._planKey = null; P._plan = null;
+  impSave();
+  renderImpParSheet();
+  updateImpParKpis();
+  if(typeof toast === 'function'){
+    toast(zerado ? mesLbl + ' voltou a prever a parcela' : mesLbl + ' zerado — sem parcela prevista', 4000);
+  }
+}
+try{ window.impParcZerarModal = impParcZerarModal; }catch(_){}
+
 function impParcCoberturaFechar(){ const o = document.getElementById('ipm-cob-ov'); if(o) o.remove(); }
 function impParcCoberturaSalvar(id, ym, limpar){
   const P = (impostos.parcelamentos || []).find(x => x.id === id);
