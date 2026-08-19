@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787151192"/>
+  <meta name="fk-build" content="forekash-v1787151821"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -68629,6 +68629,9 @@ try {
 // Lista oficial de categorias: tags de Estrutura + categorias fixas do sistema
 function _extOfficialCats(tipo){
   const cats = new Set();
+  /* Rede de segurança: idempotente e barato. Se algum caminho de carga tiver
+     zerado a lista, a categoria de parcelamento reaparece aqui. */
+  try{ if(typeof _catmapGarantirFixas === 'function') _catmapGarantirFixas(); }catch(_){}
   // Garante catmap populado (caso user nunca tenha aberto Customizações)
   try {
     if(typeof catmapData !== 'undefined' && Array.isArray(catmapData.categorias)
@@ -71506,7 +71509,13 @@ function _catmapGarantirFixas(){
   }
   if(mudou){
     try{ localStorage.setItem(CATMAP_KEY, JSON.stringify({ categorias: catmapData.categorias, nextId: catmapData.nextId })); }catch(_){}
+    /* Sem isso a categoria some no próximo boot em conta cloud: o fetch do
+       Supabase substitui a lista inteira pelo que está lá. */
+    try{
+      if(window.FK_MODE === 'cloud' && typeof cloudCatmapSync === 'function') cloudCatmapSync();
+    }catch(_){}
   }
+  return mudou;
 }
 try{ window._catmapGarantirFixas = _catmapGarantirFixas; }catch(_){}
 function _catmapSave(){
@@ -71601,6 +71610,8 @@ async function cloudCatmapFetch(){
 
     catmapData.categorias = data.map(_catmapFromRow);
     catmapData.nextId = Math.max(0, ...catmapData.categorias.map(c => c.id || 0)) + 1;
+    /* A lista veio inteira do servidor — as fixas precisam sobreviver a isso. */
+    try{ _catmapGarantirFixas(); }catch(_){}
     try {
       localStorage.setItem(CATMAP_KEY, JSON.stringify({
         categorias: catmapData.categorias, nextId: catmapData.nextId
@@ -103453,6 +103464,7 @@ function _seedOutrasOpFull(Y){
     if(typeof catmapData !== 'undefined'){
       catmapData.categorias = cm.categorias;
       catmapData.nextId     = cm.nextId;
+      try{ _catmapGarantirFixas(); }catch(_){}
     }
     if(typeof renderOutrasOp === 'function' && document.getElementById('mod-outras-op')) renderOutrasOp();
   }catch(_){}
