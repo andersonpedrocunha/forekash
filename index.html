@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787193916"/>
+  <meta name="fk-build" content="forekash-v1787194081"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -53421,6 +53421,37 @@ function pessoasLoad(){
     pessoas.tipos = JSON.parse(JSON.stringify(PES_TIPOS_DEFAULT));
   }
   if(!Array.isArray(pessoas.people)) pessoas.people = [];
+  /* Vagas simuladas com nome repetido, criadas antes de o bloqueio existir:
+     dois "dev 1" são indistinguíveis na tela e nos totais. A segunda ganha o
+     próximo da série. Mexe só em linha de simulação — pessoa real nunca. */
+  try{
+    if(Array.isArray(pessoas.people)){
+      const norm = v => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+                        .toLowerCase().replace(/\s+/g,' ').trim();
+      const vistos = new Set();
+      let n = 0;
+      for(const p2 of pessoas.people){
+        if(!p2 || !p2.sim || !p2.nome) continue;
+        const k = norm(p2.nome);
+        if(!vistos.has(k)){ vistos.add(k); continue; }
+        /* Próximo livre da série, considerando o que já foi visto. */
+        const m = /^(.*?)(\d+)\s*$/.exec(String(p2.nome).trim());
+        let novo = '';
+        if(m){
+          let i = parseInt(m[2], 10) || 1;
+          for(let t = 0; t < 200; t++){ i++; const c = m[1] + i; if(!vistos.has(norm(c))){ novo = c; break; } }
+        } else {
+          for(let i = 2; i < 200; i++){ const c = p2.nome + ' ' + i; if(!vistos.has(norm(c))){ novo = c; break; } }
+        }
+        if(novo){ p2.nome = novo; vistos.add(norm(novo)); n++; }
+      }
+      if(n){
+        console.info('[Forekash] ' + n + ' vaga(s) simulada(s) com nome repetido foram renomeadas');
+        try{ localStorage.setItem(PES_KEY, JSON.stringify(pessoas)); }catch(_){}
+      }
+    }
+  }catch(_){}
+
   /* Registro sem `kind` é anterior ao campo existir, e fkPapeisDe assume
      fornecedor por padrão — o que sumiria com colaborador antigo da lista de
      headcount. Quem tem linha em Pessoas é colaborador por evidência, não por
