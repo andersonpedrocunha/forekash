@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787194081"/>
+  <meta name="fk-build" content="forekash-v1787194593"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7537,9 +7537,9 @@
     .rec-sheet thead th.stk-1{left:0;min-width:170px;padding-left:14px;text-align:left}
     .rec-sheet thead th.stk-2{left:170px;min-width:52px;text-align:center}
     .rec-sheet thead th.stk-ativo{left:222px;min-width:64px;text-align:center}
-    .rec-sheet thead th.stk-3{left:286px;min-width:128px;text-align:left}
-    .rec-sheet thead th.stk-4{left:414px;min-width:150px;text-align:left}
-    .rec-sheet thead th.stk-5{left:564px;min-width:130px;border-right:2px solid #334155}
+    .rec-sheet thead th.stk-3{left:286px;min-width:164px;text-align:left}
+    .rec-sheet thead th.stk-4{left:450px;min-width:150px;text-align:left}
+    .rec-sheet thead th.stk-5{left:600px;min-width:130px;border-right:2px solid #334155}
     .rec-sheet thead th.stk-5 .sub{display:block;font-size:.56rem;color:#64748B;
                                    margin-top:2px;font-weight:600}
     .rec-sheet thead th.mes{min-width:92px}
@@ -7555,8 +7555,8 @@
     .rec-sheet tbody td.stk-2{left:170px;text-align:center;padding:0 4px}
     .rec-sheet tbody td.stk-ativo{left:222px;text-align:center;padding:0 4px}
     .rec-sheet tbody td.stk-3{left:286px}
-    .rec-sheet tbody td.stk-4{left:414px}
-    .rec-sheet tbody td.stk-5{left:564px;border-right:2px solid var(--bdr);
+    .rec-sheet tbody td.stk-4{left:450px}
+    .rec-sheet tbody td.stk-5{left:600px;border-right:2px solid var(--bdr);
                               background:#F9FAFB;font-weight:700;text-align:right;
                               padding:0 12px;font-family:'Menlo','Consolas',monospace;
                               color:var(--blue-d);font-size:.77rem}
@@ -7694,8 +7694,11 @@
     .rec-sheet-wrap.with-filter{border-radius:0 0 var(--r) var(--r)}
 
     /* Select de TIPO dentro da célula */
+    /* `text-overflow` em select só vale com o texto cabendo — a largura da
+       coluna é que precisa dar conta do maior nome de tipo. */
     .rec-tipo-select{width:100%;border:1.5px solid transparent;background:transparent;
-                     padding:8px 26px 8px 10px;font-size:.76rem;font-family:inherit;
+                     padding:8px 24px 8px 10px;font-size:.76rem;font-family:inherit;
+                     text-overflow:ellipsis;
                      color:var(--tx);outline:none;cursor:pointer;appearance:none;
                      -webkit-appearance:none;-moz-appearance:none;
                      background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239CA3AF' stroke-width='3'><polyline points='6 9 12 15 18 9'/></svg>");
@@ -31999,12 +32002,56 @@ function applyTipoSelectStyle(sel, nome){
   }
 }
 
+/* Meses desta linha que têm dinheiro conciliado com o Extrato, em qualquer ano.
+   Excluir a linha não apagaria o lançamento — só tiraria o dono dele, e o valor
+   ficaria no caixa sem origem. */
+function _recMesesDoExtrato(row){
+  const out = [];
+  try{
+    const nome = (clienteView(row) || {}).nome || '';
+    if(!nome) return out;
+    const chave = (typeof recNomeChave === 'function') ? recNomeChave(nome) : nome;
+    for(const ano of Object.keys(receita.years || {})){
+      let real = {};
+      try{ real = recRealizadoExtrato(ano) || {}; }catch(_){ continue; }
+      const porMes = real[chave];
+      if(!porMes) continue;
+      for(const m of Object.keys(porMes)){
+        if((+porMes[m] || 0) > 0.005) out.push({ ano, mes: m, valor: +porMes[m] });
+      }
+    }
+  }catch(_){}
+  return out;
+}
+try{ window._recMesesDoExtrato = _recMesesDoExtrato; }catch(_){}
+
 async function delRecRow(type, id){
   const d = receita.years[recActiveYear];
   const list = type==='lead' ? d.leads : d.clients;
   const row = list.find(r=>r.id===id);
   if(!row) return;
   const view = clienteView(row);
+
+  /* Recebimento conciliado é fato do Extrato. Apagar aqui deixaria o dinheiro
+     no caixa sem dono e o relatório mentiria sem avisar. */
+  const doExtrato = _recMesesDoExtrato(row);
+  if(doExtrato.length){
+    const total = doExtrato.reduce((s,x)=>s+x.valor,0);
+    const meses = doExtrato.slice(0,6).map(x=>x.mes).join(', ')
+                + (doExtrato.length > 6 ? ' e mais ' + (doExtrato.length-6) : '');
+    await showConfirm({
+      title: 'Não dá pra excluir',
+      message: `<strong>${esc(view.nome || 'Esta linha')}</strong> tem `
+        + `<strong>${doExtrato.length} recebimento(s)</strong> vindos do Extrato Financeiro, `
+        + `somando <strong>${fmtBRL(total)}</strong> — ${esc(meses)}.\n\n`
+        + `Esses valores são fato: o dinheiro entrou na conta. Apagar a linha aqui não apagaria o lançamento, `
+        + `só tiraria o dono dele.\n\n`
+        + `Se foi engano, exclua primeiro no <strong>Extrato Financeiro</strong>. `
+        + `Se o cliente só não é mais ativo, desligue o botão de ativo — o histórico fica de pé.`,
+      confirmLabel: 'Entendi', cancelLabel: ''
+    });
+    return;
+  }
   // Se o cliente tem vários projetos, mostra descrição do projeto para desambiguar
   const projDesc = (row.projeto||'').trim();
   const nClienteRows = row.clienteId ? countRowsForCliente(row.clienteId) : 0;
@@ -53421,6 +53468,34 @@ function pessoasLoad(){
     pessoas.tipos = JSON.parse(JSON.stringify(PES_TIPOS_DEFAULT));
   }
   if(!Array.isArray(pessoas.people)) pessoas.people = [];
+  /* Vaga simulada nunca aponta pro registro de pessoas. As criadas antes disso
+     usavam o mesmo seletor das linhas reais, então "dev 1" virou colaborador de
+     verdade e aparecia no Cadastro. Aqui a linha é desligada do registro, e o
+     cadastro que ficou órfão POR CAUSA DISSO é removido — só ele, e só se
+     estiver vazio (sem CNPJ, tag, anexo ou outra linha usando). */
+  try{
+    if(Array.isArray(pessoas.people) && Array.isArray(pessoas.registry)){
+      const suspeitos = new Set();
+      for(const p2 of pessoas.people){
+        if(p2 && p2.sim && p2.pessoaId){ suspeitos.add(p2.pessoaId); p2.pessoaId = 0; }
+      }
+      if(suspeitos.size){
+        const usados = new Set(pessoas.people.filter(x => x && x.pessoaId).map(x => x.pessoaId));
+        const vazio = r => !r.cnpj && !r.nomeCompleto && !r.vinculo
+                        && !(Array.isArray(r.tags) && r.tags.length)
+                        && !(Array.isArray(r.anexos) && r.anexos.length)
+                        && !(Array.isArray(r.ciclos) && r.ciclos.length);
+        const antes = pessoas.registry.length;
+        pessoas.registry = pessoas.registry.filter(r =>
+          !(r && suspeitos.has(r.id) && !usados.has(r.id) && vazio(r)));
+        const removidos = antes - pessoas.registry.length;
+        console.info('[Forekash] ' + suspeitos.size + ' vaga(s) simulada(s) desvinculada(s) do cadastro'
+          + (removidos ? ' · ' + removidos + ' cadastro(s) vazio(s) removido(s)' : ''));
+        try{ localStorage.setItem(PES_KEY, JSON.stringify(pessoas)); }catch(_){}
+      }
+    }
+  }catch(_){}
+
   /* Vagas simuladas com nome repetido, criadas antes de o bloqueio existir:
      dois "dev 1" são indistinguíveis na tela e nos totais. A segunda ganha o
      próximo da série. Mexe só em linha de simulação — pessoa real nunca. */
@@ -53548,6 +53623,10 @@ function pessoasLoad(){
   }
   for(const p of pessoas.people){
     if(p.pessoaId) continue; // já migrado
+    /* Vaga simulada não tem cadastro — este laço é a migração das linhas
+       antigas, que criava um registro pra cada nome solto. Sem esta guarda ele
+       recriava "dev 1" logo depois da limpeza, e o cadastro voltava. */
+    if(p.sim){ p.pessoaId = 0; continue; }
     const nome = (p.nome||'').trim();
     if(!nome){ p.pessoaId = 0; continue; }
     const key = nome.toLowerCase();
@@ -59116,6 +59195,25 @@ function wfCadDeleteCliente(cid){
   const c = (typeof recClientes === 'function') ? recClientes().find(x => x.id === cid) : null;
   if(!c) return;
   if(_wfBloqueiaExclusao('cli', cid, c.nome)) return;
+  /* Recebimento conciliado pelo Extrato vale para o cliente inteiro, não só
+     para a linha da Receita. */
+  try{
+    const conc = _recMesesDoExtrato({ clienteId: cid, nome: c.nome });
+    if(conc && conc.length){
+      const total = conc.reduce((s,x)=>s+x.valor,0);
+      showConfirm({
+        title: 'Não dá pra excluir',
+        message: `<strong>${esc(c.nome || 'Este cliente')}</strong> tem `
+          + `<strong>${conc.length} recebimento(s)</strong> vindos do Extrato Financeiro, somando `
+          + `<strong>${fmtBRL(total)}</strong>.\n\n`
+          + `O dinheiro entrou na conta — apagar o cliente aqui deixaria esses lançamentos sem dono.\n\n`
+          + `Se foi engano, exclua primeiro no <strong>Extrato Financeiro</strong>. `
+          + `Se ele só não é mais cliente, marque como <strong>inativo</strong>.`,
+        confirmLabel: 'Entendi', cancelLabel: ''
+      });
+      return;
+    }
+  }catch(_){}
   const msg = 'O cliente "' + (c.nome||'sem nome') + '" será removido permanentemente. Ele não tem nenhum lançamento nem linha de receita vinculada.';
   const doDel = () => {
     if(typeof receita !== 'undefined' && Array.isArray(receita.clientes)){
