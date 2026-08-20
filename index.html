@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787248595"/>
+  <meta name="fk-build" content="forekash-v1787249710"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -35169,9 +35169,28 @@ function dkbFornNewSave(){
   if(typeof renderWfFornecedores === 'function'){ try { renderWfFornecedores(); } catch(_){} }
   if(typeof renderPessoas === 'function'){ try { renderPessoas(); } catch(_){} }
   dkbFornSet(reg.id);
+  /* Quando o cadastro foi aberto de dentro de um lançamento, o nome novo tem
+     que voltar pro campo que disparou. Sem isto o campo ficava com o texto
+     parcial digitado ("Anderson") e o lançamento nascia com contraparte que
+     não existe no cadastro — some da conciliação e da contagem de uso. */
+  try{ _extAplicaFornNovo(reg.nome, reg.id); }catch(_){}
   dkbFornNewClose();
   const lbl = tipo === 'pj' ? 'PJ' : tipo === 'pf' ? 'PF' : 'estrangeiro';
   if(typeof toast === 'function') toast('✓ Fornecedor (' + lbl + ') cadastrado em Cadastro');
+}
+
+/* Origem do "Novo fornecedor" quando ele é aberto de dentro de um lançamento.
+   Guardada aqui e consumida uma vez só, pra não vazar pro próximo cadastro. */
+let _extFornNewOrigem = null;
+function _extAplicaFornNovo(nome, regId){
+  const o = _extFornNewOrigem;
+  _extFornNewOrigem = null;
+  if(!o || !nome) return;
+  const inp = document.getElementById(o.inputId);
+  if(!inp) return;
+  inp.value = nome;
+  inp.dispatchEvent(new Event('input', { bubbles:true }));
+  if(o.aplicar) try{ o.aplicar(nome, regId); }catch(_){}
 }
 try {
   window._dkbFmtCNPJ      = _dkbFmtCNPJ;
@@ -68809,6 +68828,8 @@ function _extItCbxCreate(i, name){
     } else {
       // Fornecedor: abre modal de cadastro (dkbFornNewOpen)
       if(typeof dkbFornNewOpen === 'function'){
+        _extFornNewOrigem = { inputId: 'ext-it-' + name + '-' + i,
+          aplicar: (nm)=>{ _extItemUpdate(i, 'contraparte', nm); } };
         dkbFornNewOpen(v);
         _extItCbxClose(i, name);
         return;
@@ -69120,6 +69141,8 @@ function _itemsCbxCreate(prefix, i, name){
     } else {
       // Abre modal de cadastro de fornecedor (Workflows) com nome pré-preenchido
       if(typeof dkbFornNewOpen === 'function'){
+        _extFornNewOrigem = { inputId: prefix + '-it-' + name + '-' + i,
+          aplicar: (nm)=>{ _itemsUpdate(prefix, i, 'contraparte', nm); } };
         dkbFornNewOpen(v);
         _itemsCbxClose(prefix, i, name);
         return;
