@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787196648"/>
+  <meta name="fk-build" content="forekash-v1787234354"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8260,6 +8260,14 @@
     .pes-kpi.grupos{border-left-color:#F59E0B}
     .pes-kpi-lbl{font-size:.62rem;font-weight:700;text-transform:uppercase;
                  letter-spacing:.07em;color:var(--txl);margin-bottom:5px}
+    /* Selo de KPI contaminado por Simular Contratação. Vazio = sem simulação
+       naquele número, e o :empty tira do fluxo pra não abrir buraco no card. */
+    .pes-kpi-sim{display:inline-block;margin-left:6px;padding:1px 5px;border-radius:4px;
+                 background:#F5F3FF;border:1px solid #DDD6FE;color:#6D28D9;
+                 font-size:.54rem;font-weight:800;letter-spacing:.04em;
+                 text-transform:uppercase;vertical-align:middle;cursor:help;
+                 white-space:nowrap}
+    .pes-kpi-sim:empty{display:none}
     .pes-kpi-val{font-size:1.35rem;font-weight:800;letter-spacing:-0.02em;color:var(--tx)}
     .pes-kpi-val.blu{color:var(--blue-d)}
     .pes-kpi-val.grn{color:#059669}
@@ -19432,13 +19440,16 @@ td.mes.do-extrato{background:#ECFDF5}
 
         <!-- KPIs -->
         <div class="pes-kpi-grid">
+          <!-- Os <span class="pes-kpi-sim"> ficam vazios por padrão (CSS :empty
+               esconde). updatePesTotals preenche só os cards em que a Simular
+               Contratação realmente entrou na conta. -->
           <div class="pes-kpi folha">
-            <div class="pes-kpi-lbl">Folha do Mês</div>
+            <div class="pes-kpi-lbl">Folha do Mês<span class="pes-kpi-sim" id="pes-sim-mes"></span></div>
             <div class="pes-kpi-val blu" id="pes-kpi-folha-mes">R$ 0,00</div>
             <div class="pes-kpi-sub" id="pes-kpi-folha-mes-sub">mês atual</div>
           </div>
           <div class="pes-kpi folha">
-            <div class="pes-kpi-lbl">Folha do Ano</div>
+            <div class="pes-kpi-lbl">Folha do Ano<span class="pes-kpi-sim" id="pes-sim-ano"></span></div>
             <div class="pes-kpi-val-row">
               <div class="pes-kpi-val blu" id="pes-kpi-folha">R$ 0,00</div>
               <span class="pes-kpi-var-chip" id="pes-kpi-folha-var"></span>
@@ -19446,13 +19457,16 @@ td.mes.do-extrato{background:#ECFDF5}
             <div class="pes-kpi-sub" id="pes-kpi-folha-sub">soma dos salários ativos</div>
           </div>
           <div class="pes-kpi media">
-            <div class="pes-kpi-lbl">Folha Mensal Média</div>
+            <div class="pes-kpi-lbl">Folha Mensal Média<span class="pes-kpi-sim" id="pes-sim-media"></span></div>
             <div class="pes-kpi-val teal" id="pes-kpi-media">R$ 0,00</div>
             <div class="pes-kpi-sub">média mensal do ano</div>
           </div>
           <!-- Card split: Total Pago × Total Projetado (baseado no ✓ por célula) -->
           <div class="pes-kpi pes-kpi-split">
-            <div class="pes-kpi-lbl">Status de Pagamento</div>
+            <!-- O selo fica no rótulo do card, não dentro das metades: a célula
+                 tem ~100px e "com simulação" estourava a borda. A dica diz qual
+                 lado foi afetado. -->
+            <div class="pes-kpi-lbl">Status de Pagamento<span class="pes-kpi-sim" id="pes-sim-status"></span></div>
             <div class="pes-kpi-split-row">
               <div class="pes-kpi-split-cell pago">
                 <span class="pes-kpi-split-lbl">Pago</span>
@@ -19466,7 +19480,7 @@ td.mes.do-extrato{background:#ECFDF5}
             </div>
           </div>
           <div class="pes-kpi head">
-            <div class="pes-kpi-lbl">Headcount Ativo</div>
+            <div class="pes-kpi-lbl">Headcount Ativo<span class="pes-kpi-sim" id="pes-sim-head"></span></div>
             <div class="pes-kpi-val grn" id="pes-kpi-head">0</div>
             <div class="pes-kpi-sub" id="pes-kpi-head-sub">pessoas ativas no ano</div>
           </div>
@@ -102762,14 +102776,19 @@ function updatePesTotals(){
   let folha = 0;
   let headSet = new Set();
   const perMonthActive = new Array(12).fill(0);
+  /* Quanto de cada número veio da Simular Contratação. Guardado à parte pra
+     marcar só os cards que a simulação realmente mexeu — vaga sem valor no mês
+     não contamina a Folha do Mês, e o Pago só é marcado se alguém deu ✓ numa
+     célula simulada. */
+  const sim = { folha:0, mes:0, head:0, pago:0, proj:0 };
   for(const p of real){
     if(!p.ativo) continue;
     let hadAny = false;
     for(let i=0;i<12;i++){
       const v = pesEffVal(p, pesMesKey(year,i));
-      if(v > 0){ folha += v; perMonthActive[i]++; hadAny = true; }
+      if(v > 0){ folha += v; perMonthActive[i]++; hadAny = true; if(p.sim) sim.folha += v; }
     }
-    if(hadAny) headSet.add(p.id);
+    if(hadAny){ headSet.add(p.id); if(p.sim) sim.head++; }
   }
   const mediaMensal = folha/12;
   const head = headSet.size;
@@ -102796,6 +102815,7 @@ function updatePesTotals(){
     if(v > 0){
       folhaMes += v;
       headMes++;
+      if(p.sim) sim.mes += v;
       if(faturTipoIds.has(p.tipoId)) folhaMesFatur += v;
     }
   }
@@ -102876,12 +102896,35 @@ function updatePesTotals(){
       const raw = p.salarios[key];
       const v = +raw || 0;
       if(!v) continue;
-      if(pagos[key]) totalPago += v;
-      else           totalProjetado += v;
+      if(pagos[key]){ totalPago += v;       if(p.sim) sim.pago += v; }
+      else          { totalProjetado += v;  if(p.sim) sim.proj += v; }
     }
   }
   if(q('pes-kpi-pago'))       q('pes-kpi-pago').textContent       = fmtBRL(totalPago);
   if(q('pes-kpi-projetado'))  q('pes-kpi-projetado').textContent  = fmtBRL(totalProjetado);
+
+  /* Marca os KPIs contaminados pela simulação. Sem isso o número do card é
+     indistinguível do realizado — e é justamente o card que a pessoa olha de
+     relance, sem abrir a tabela pra conferir de onde veio. */
+  const vagas = sim.head === 1 ? '1 vaga simulada' : sim.head + ' vagas simuladas';
+  const comoTirar = ' Desligue a chave da linha roxa em Simular Contratação '
+                  + 'para ver só o realizado.';
+  const marcaSim = (id, valor, oQue) => {
+    const el = q(id);
+    if(!el) return;
+    if(!valor){ el.textContent = ''; el.removeAttribute('title'); return; }
+    el.textContent = 'com simulação';
+    el.title = oQue + comoTirar;
+  };
+  marcaSim('pes-sim-mes',   sim.mes,   `Inclui ${fmtBRL(sim.mes)} de ${vagas}.`);
+  marcaSim('pes-sim-ano',   sim.folha, `Inclui ${fmtBRL(sim.folha)} de ${vagas}.`);
+  marcaSim('pes-sim-media', sim.folha, `Inclui ${fmtBRL(sim.folha / 12)}/mês de ${vagas}.`);
+  marcaSim('pes-sim-head',  sim.head,  `${vagas} ${sim.head === 1 ? 'está contando' : 'estão contando'} aqui.`);
+  const ladosSim = [];
+  if(sim.proj) ladosSim.push(`Projetado inclui ${fmtBRL(sim.proj)}`);
+  if(sim.pago) ladosSim.push(`Pago inclui ${fmtBRL(sim.pago)}`);
+  marcaSim('pes-sim-status', ladosSim.length,
+           `${ladosSim.join(' · ')} de ${vagas}.`);
 }
 
 // ─── Gerenciador de Tipos de Pessoas ───
