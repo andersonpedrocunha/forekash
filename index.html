@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787193269"/>
+  <meta name="fk-build" content="forekash-v1787193671"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -100073,6 +100073,17 @@ function reorderPessoa(srcId, dstId, placeAbove){
 }
 ROW_REORDERERS.pes = reorderPessoa;
 
+/* Ligar/desligar vaga simulada é só incluir ou tirar do cenário — não tem
+   data de saída nem ciclo de contrato pra registrar. */
+function setPesSimAtiva(id, val){
+  const p = pessoas.people.find(x => x.id === id);
+  if(!p || !p.sim) return;
+  p.ativo = !!val;
+  pessoasSave();
+  renderPessoas();
+}
+try{ window.setPesSimAtiva = setPesSimAtiva; }catch(_){}
+
 function setPesAtivo(id, val){
   const p = pessoas.people.find(x=>x.id===id);
   if(!p) return;
@@ -100437,6 +100448,13 @@ function pesKeyToLabel(k){
 function openPesCard(id){
   const p = pessoas.people.find(x=>x.id===id);
   if(!p) return;
+  /* Vaga simulada não tem ficha: não há CPF, ciclo de contrato, tempo de casa
+     nem histórico de reajuste pra mostrar. O que ela precisa — nome, tipo,
+     salário e se conta no cenário — está tudo na linha. */
+  if(p.sim){
+    if(typeof toast === 'function') toast('Vaga simulada — edite direto na linha', 3500);
+    return;
+  }
   _pesCardOpenId = id;
   _pcardTab = 'detalhes';
   renderPesCardBody();
@@ -102488,9 +102506,11 @@ function renderPesPersonRow(p, year, isSim, forTipoId){
         ${isSim ? '' : rowHandleHtml()}
         <span class="pes-row-indicator" style="--rc:${indicatorColor}"></span>
         <button type="button" class="pes-info-btn"
-                ondblclick="openPesCard(${p.id})"
+                ${isSim ? '' : `ondblclick="openPesCard(${p.id})"`}
                 onclick="event.stopPropagation()"
-                title="Duplo clique para ver detalhes">
+                title="${isSim
+                  ? 'Vaga simulada — tudo que ela precisa está na própria linha'
+                  : 'Duplo clique para ver detalhes'}">
           ${pesAvatarHtml(p, {tipoColor: indicatorColor, tipoTxt: PES_TIPO_TXT})}
         </button>
         ${isSim
@@ -102511,8 +102531,12 @@ function renderPesPersonRow(p, year, isSim, forTipoId){
     </td>
     <td class="stk stk-2">
       <input type="checkbox" class="pes-sw" ${p.ativo?'checked':''}
-             onchange="setPesAtivo(${p.id}, this.checked)"
-             title="${p.ativo?'Pessoa ativa':'Pessoa inativa'}">
+             onchange="${isSim ? `setPesSimAtiva(${p.id}, this.checked)` : `setPesAtivo(${p.id}, this.checked)`}"
+             title="${isSim
+               ? (p.ativo
+                   ? 'Vaga contando no cenário — desligue para simular sem ela'
+                   : 'Vaga fora do cenário — ligue para somar na folha simulada')
+               : (p.ativo ? 'Pessoa ativa' : 'Pessoa inativa')}">
     </td>
     <td class="stk stk-3">
       ${(()=>{
