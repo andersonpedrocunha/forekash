@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787192621"/>
+  <meta name="fk-build" content="forekash-v1787192910"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -13472,6 +13472,12 @@
     .pcard-reaj-var.flat{background:#F3F4F6;color:var(--txm)}
 
     /* Chips CLT/PJ/Estrangeiro no card de pessoa */
+    /* Tags na ficha da pessoa — mesmas do Cadastro */
+    .pcard-tags{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 4px}
+    .pcard-tag-chip{border:none;font:inherit;font-size:.72rem;font-weight:600;padding:4px 10px;
+                    border-radius:12px;cursor:pointer;transition:filter .12s}
+    .pcard-tag-chip:hover{filter:brightness(.94)}
+    .pcard-tags-vazio{font-size:.72rem;color:#94A3B8}
     /* Data digitável + calendário ao lado */
     .pcard-data-wrap{position:relative;display:inline-flex;align-items:center;width:100%}
     .pcard-data-txt{width:100%;padding:6px 30px 6px 9px;border:1px solid #E2E8F0;border-radius:6px;
@@ -57628,7 +57634,7 @@ function wfTpOpen(ctx){
   if(!ov) return;
   if(ov.parentElement !== document.body) document.body.appendChild(ov);
   document.getElementById('wf-tp-title').textContent = ctx.mode === 'edit' ? 'Editar tag' : 'Adicionar tag';
-  document.getElementById('wf-tp-sub').textContent = 'Para: ' + (p.nome || 'fornecedor');
+  document.getElementById('wf-tp-sub').textContent = 'Para: ' + (p.nome || 'este cadastro');
   const inp = document.getElementById('wf-tp-input');
   inp.value = ctx.mode === 'edit' ? (ctx.atual || '') : '';
   ov.style.display = 'flex';
@@ -57720,7 +57726,11 @@ function wfTpConfirm(){
   }
   if(typeof pessoasSave === 'function') pessoasSave();
   wfTpClose();
+  /* A tag é do registro, e o registro aparece em três telas — se só uma
+     redesenha, as outras mostram o estado antigo até o F5. */
   renderWfFornecedores();
+  try{ if(typeof renderWfColaboradores === 'function') renderWfColaboradores(); }catch(_){}
+  try{ if(_pesCardOpenId != null && typeof renderPesCardBody === 'function') renderPesCardBody(); }catch(_){}
 }
 function wfTpKey(ev){
   if(ev.key === 'Escape'){ ev.preventDefault(); wfTpClose(); }
@@ -100866,17 +100876,35 @@ function renderPesCardBody(){
 
       ${ciclosHtml}
 
+      ${regId > 0 ? `
+        <div class="pcard-section-title">
+          <span>Tags</span>
+          <button type="button" class="pcard-ciclo-add" onclick="wfTpOpen({pid:${regId}, mode:'add'})"
+                  title="Adicionar tag — aparece também em Workflows › Cadastro">
+            <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Adicionar tag
+          </button>
+        </div>
+        <div class="pcard-tags">
+          ${((pesRegistry().find(x => x.id === regId) || {}).tags || []).map((t, i) => {
+            const c = (typeof _wfFornTagColor === 'function') ? _wfFornTagColor(t) : {bg:'#EEF2FF',fg:'#3730A3'};
+            return `<button type="button" class="pcard-tag-chip" style="background:${c.bg};color:${c.fg}"
+                      onclick="wfTpOpen({pid:${regId}, mode:'edit', idx:${i}, atual:${JSON.stringify(t)}})"
+                      title="Clique para editar ou remover">${esc(t)}</button>`;
+          }).join('') || '<span class="pcard-tags-vazio">Sem tags. Elas também aparecem no Cadastro.</span>'}
+        </div>` : ''}
+
       <div class="pcard-grid">
         <div class="pcard-field">
-          <label class="pcard-lbl">Vínculo</label>
+          <label class="pcard-lbl">Contratação</label>
           <div class="pcard-vinc">
             ${['clt','pj'].map(v => `
               <button type="button" class="pcard-vinc-chip ${(_pesVinculo(regId)===v)?'on':''}"
                       onclick="setPesVinculo(${regId}, '${v}')">${v === 'clt' ? 'PF · CLT' : 'PJ'}</button>`).join('')}
           </div>
           <div class="pcard-vinc-hint">${_pesVinculo(regId) === 'pj'
-            ? 'Prestador PJ. Os dados de PF acima continuam valendo — é a mesma pessoa.'
-            : (_pesVinculo(regId) === 'clt' ? 'Contratado pela CLT.' : 'Diga como esta pessoa é contratada — a tag aparece em Workflows › Cadastro.')}</div>
+            ? 'Prestador de serviço PJ — sem vínculo empregatício. Os dados de PF acima continuam valendo: é a mesma pessoa.'
+            : (_pesVinculo(regId) === 'clt' ? 'Empregado com vínculo pela CLT.' : 'Como esta pessoa é contratada — a tag aparece em Workflows › Cadastro.')}</div>
         </div>
         <div class="pcard-field">
           <label class="pcard-lbl" for="pcard-tipo">Tipo</label>
