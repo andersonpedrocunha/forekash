@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787194593"/>
+  <meta name="fk-build" content="forekash-v1787194935"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -53479,18 +53479,29 @@ function pessoasLoad(){
       for(const p2 of pessoas.people){
         if(p2 && p2.sim && p2.pessoaId){ suspeitos.add(p2.pessoaId); p2.pessoaId = 0; }
       }
-      if(suspeitos.size){
-        const usados = new Set(pessoas.people.filter(x => x && x.pessoaId).map(x => x.pessoaId));
-        const vazio = r => !r.cnpj && !r.nomeCompleto && !r.vinculo
-                        && !(Array.isArray(r.tags) && r.tags.length)
-                        && !(Array.isArray(r.anexos) && r.anexos.length)
-                        && !(Array.isArray(r.ciclos) && r.ciclos.length);
-        const antes = pessoas.registry.length;
-        pessoas.registry = pessoas.registry.filter(r =>
-          !(r && suspeitos.has(r.id) && !usados.has(r.id) && vazio(r)));
-        const removidos = antes - pessoas.registry.length;
-        console.info('[Forekash] ' + suspeitos.size + ' vaga(s) simulada(s) desvinculada(s) do cadastro'
-          + (removidos ? ' · ' + removidos + ' cadastro(s) vazio(s) removido(s)' : ''));
+      /* A limpeza roda sempre, não só quando há o que desvincular. */
+      /* Cadastro que sobrou de uma vaga simulada: sem linha nenhuma usando, sem
+         dado próprio, e com o nome de uma vaga que existe na simulação. A
+         primeira versão dessa limpeza só olhava os que ela mesma acabara de
+         desvincular — os que já tinham sido soltos numa carga anterior ficavam
+         pra sempre no Cadastro, com "0 linha(s)". */
+      const norm0 = v => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+                         .toLowerCase().replace(/\s+/g,' ').trim();
+      const nomesDeVaga = new Set(pessoas.people.filter(x => x && x.sim && x.nome).map(x => norm0(x.nome)));
+      const usados = new Set(pessoas.people.filter(x => x && x.pessoaId).map(x => x.pessoaId));
+      const vazio = r => !r.cnpj && !r.nomeCompleto && !r.vinculo
+                      && !(Array.isArray(r.tags) && r.tags.length)
+                      && !(Array.isArray(r.anexos) && r.anexos.length)
+                      && !(Array.isArray(r.ciclos) && r.ciclos.length);
+      const antes = pessoas.registry.length;
+      pessoas.registry = pessoas.registry.filter(r => {
+        if(!r || usados.has(r.id) || !vazio(r)) return true;
+        return !(suspeitos.has(r.id) || nomesDeVaga.has(norm0(r.nome)));
+      });
+      const removidos = antes - pessoas.registry.length;
+      if(suspeitos.size || removidos){
+        console.info('[Forekash] ' + suspeitos.size + ' vaga(s) simulada(s) desvinculada(s)'
+          + (removidos ? ' · ' + removidos + ' cadastro(s) de vaga removido(s) do Cadastro' : ''));
         try{ localStorage.setItem(PES_KEY, JSON.stringify(pessoas)); }catch(_){}
       }
     }
