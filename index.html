@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787263089"/>
+  <meta name="fk-build" content="forekash-v1787264096"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -72716,7 +72716,8 @@ function catmapRender(){
                      : ('<button class="edit" onclick="catmapStartEdit(' + c.id + ')" title="' + (isFixa ? 'Definir vínculos (nome é fixo)' : 'Definir vínculos') + '">' + (fullyMapped ? '✎ Editar' : '+ Vincular') + '</button>'
                         + (isFixa
                            ? '<span class="catmap-fixa" title="O Extrato reconhece a guia de parcelamento por esta categoria — ela não pode ser excluída">fixa</span>'
-                           : '<button class="del fkico fkico-trash" onclick="catmapDelete(' + c.id + ')" title="Excluir"></button>')))
+                           : ('<button class="edit" onclick="catmapMesclar(' + c.id + ')" title="Juntar com outra categoria, levando os lançamentos junto">⇄ Mesclar</button>'
+                              + '<button class="del fkico fkico-trash" onclick="catmapDelete(' + c.id + ')" title="Excluir"></button>'))))
         + '</div>'
         + '</div>';
     }
@@ -73020,6 +73021,158 @@ function catmapSaveEdit(id){
   catmapRender();
   if(typeof toast === 'function') toast('✓ Categoria atualizada');
 }
+
+/* ══ MESCLAR CATEGORIA ═══════════════════════════════════════════════════
+   Excluir categoria deixa os lançamentos ÓRFÃOS: eles guardam o nome da
+   categoria como texto, então apagar a entrada não os toca — ficam apontando
+   pra um nome que não existe mais e somem dos relatórios por módulo.
+
+   Duplicata de categoria é rotina ("Tarifas Bancárias" criada no lançamento,
+   com "Bancária" já existindo na Estrutura). O que a pessoa quer nesse caso
+   não é apagar: é dizer que as duas são a mesma coisa. Isso é mesclar —
+   reescrever toda referência da origem pro destino e só então remover a
+   origem, sem nenhum lançamento perder categoria no caminho. */
+function _catmapRefs(nome){
+  const alvo = String(nome || '').trim().toLowerCase();
+  const igual = v => String(v || '').trim().toLowerCase() === alvo;
+  const out = { extrato: [], cartoes: [], estruturaItens: [], ofxMem: [], tagId: null };
+  if(!alvo) return out;
+  try{
+    (extratoData.lancamentos || []).forEach(l => { if(l && igual(l.categoria)) out.extrato.push(l); });
+  }catch(_){}
+  try{
+    if(typeof cartoes !== 'undefined' && cartoes && Array.isArray(cartoes.lancamentos)){
+      cartoes.lancamentos.forEach(l => { if(l && igual(l.categoria)) out.cartoes.push(l); });
+    }
+  }catch(_){}
+  try{
+    if(typeof estrutura !== 'undefined' && estrutura && Array.isArray(estrutura.tags)){
+      const tag = estrutura.tags.find(t => t && igual(t.nome));
+      if(tag){
+        out.tagId = tag.id;
+        (estrutura.itens || []).forEach(it => { if(it && it.tagId === tag.id) out.estruturaItens.push(it); });
+      }
+    }
+  }catch(_){}
+  try{
+    // memória do OFX: descrição → categoria aprendida. Sem reescrever aqui, a
+    // próxima importação recria a categoria que acabou de ser mesclada.
+    if(typeof _ofxMemoria === 'object' && _ofxMemoria){
+      Object.keys(_ofxMemoria).forEach(k => { if(igual((_ofxMemoria[k] || {}).categoria)) out.ofxMem.push(k); });
+    }
+  }catch(_){}
+  return out;
+}
+
+/* Escolha do destino. Mostra ANTES o que vai mudar e de onde — mesclar
+   reescreve dado do usuário, então a tela tem que dizer quantos lançamentos
+   mudam de categoria, não só perguntar "tem certeza?". */
+function _catmapEscolherDestino(origem, outras, refs, total){
+  return new Promise(resolve => {
+    const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x||''));
+    const ov = document.createElement('div');
+    ov.className = 'dkb-forn-new-modal-ov';
+    ov.id = 'catmap-merge-ov';
+    const fechar = (v) => { try{ ov.remove(); }catch(_){} resolve(v); };
+    ov.onclick = (e) => { if(e.target === ov) fechar(null); };
+    const linhas = [];
+    if(refs.extrato.length)        linhas.push(refs.extrato.length + ' lançamento(s) no Extrato');
+    if(refs.cartoes.length)        linhas.push(refs.cartoes.length + ' em Cartões');
+    if(refs.estruturaItens.length) linhas.push(refs.estruturaItens.length + ' linha(s) na Estrutura');
+    if(refs.ofxMem.length)         linhas.push(refs.ofxMem.length + ' regra(s) aprendida(s) do OFX');
+    const resumo = linhas.length
+      ? '<div class="dkb-confirm-meta">Vão passar para a categoria escolhida:<br>· ' + linhas.join('<br>· ') + '</div>'
+      : '<div class="dkb-confirm-meta">Nenhum lançamento usa esta categoria — ela só será removida.</div>';
+    ov.innerHTML = '<div class="dkb-forn-new-modal">'
+      + '<div class="dkb-forn-new-hd"><h4>Mesclar categoria</h4>'
+      +   '<button type="button" class="dkb-modal-x" id="catmap-merge-x">✕</button></div>'
+      + '<div class="dkb-forn-new-bd">'
+      +   '<div style="font-size:.86rem;color:#334155;line-height:1.5">'
+      +     '<b>' + esc(origem.nome) + '</b> deixa de existir e tudo que aponta pra ela passa a apontar para a categoria que você escolher.'
+      +   '</div>'
+      +   resumo
+      +   '<div><label>Passar tudo para</label>'
+      +     '<select id="catmap-merge-dest">'
+      +       outras.map(o => '<option value="' + esc(o.nome) + '">' + esc(o.nome) + '</option>').join('')
+      +     '</select></div>'
+      + '</div>'
+      + '<div class="dkb-forn-new-ft">'
+      +   '<button type="button" class="btn-cancel" id="catmap-merge-cancel">Cancelar</button>'
+      +   '<button type="button" class="btn-save" id="catmap-merge-ok">Mesclar</button>'
+      + '</div>'
+      + '</div>';
+    document.body.appendChild(ov);
+    const sel = ov.querySelector('#catmap-merge-dest');
+    /* O select do modal tem `background` shorthand na folha, que apaga a seta.
+       Só a cor de fundo, então, senão não parece lista suspensa. */
+    try{ sel.style.backgroundColor = '#fff'; }catch(_){}
+    ov.querySelector('#catmap-merge-x').onclick      = () => fechar(null);
+    ov.querySelector('#catmap-merge-cancel').onclick = () => fechar(null);
+    ov.querySelector('#catmap-merge-ok').onclick     = () => fechar(sel.value || null);
+    setTimeout(() => { try{ sel.focus(); }catch(_){} }, 30);
+  });
+}
+
+async function catmapMesclar(id){
+  const c = catmapById(id);
+  if(!c) return;
+  if(typeof _catmapIsFixa === 'function' && _catmapIsFixa(c)){
+    if(typeof toast === 'function') toast('Categoria fixa não pode ser mesclada.', 4000);
+    return;
+  }
+  const outras = (catmapData.categorias || [])
+    .filter(x => x && x.id !== c.id && x.nome)
+    .sort((a,b) => (a.nome||'').localeCompare(b.nome||'','pt'));
+  if(!outras.length){
+    if(typeof toast === 'function') toast('Não há outra categoria pra receber os lançamentos.');
+    return;
+  }
+  const refs = _catmapRefs(c.nome);
+  const total = refs.extrato.length + refs.cartoes.length + refs.estruturaItens.length;
+
+  const destinoNome = await _catmapEscolherDestino(c, outras, refs, total);
+  if(!destinoNome) return;
+
+  // ── reescrita ──
+  refs.extrato.forEach(l => { l.categoria = destinoNome; });
+  refs.cartoes.forEach(l => { l.categoria = destinoNome; });
+  let tagDestinoId = null;
+  try{
+    if(typeof estrutura !== 'undefined' && estrutura && Array.isArray(estrutura.tags)){
+      const td = estrutura.tags.find(t => t && String(t.nome||'').trim().toLowerCase() === destinoNome.trim().toLowerCase());
+      if(td) tagDestinoId = td.id;
+    }
+  }catch(_){}
+  if(tagDestinoId != null){
+    refs.estruturaItens.forEach(it => { it.tagId = tagDestinoId; });
+  }
+  refs.ofxMem.forEach(k => { try{ _ofxMemoria[k].categoria = destinoNome; }catch(_){} });
+  try{ if(typeof ofxMemSave === 'function') ofxMemSave(); }catch(_){}
+
+  // remove a tag da origem só depois que ninguém mais aponta pra ela
+  try{
+    if(refs.tagId != null && typeof estrutura !== 'undefined' && estrutura){
+      const aindaUsam = (estrutura.itens || []).filter(it => it && it.tagId === refs.tagId).length;
+      if(!aindaUsam) estrutura.tags = (estrutura.tags || []).filter(t => t.id !== refs.tagId);
+      if(typeof estSave === 'function') estSave();
+    }
+  }catch(_){}
+
+  // e por fim a entrada do catmap
+  catmapData.categorias = (catmapData.categorias || []).filter(x => x.id !== c.id);
+  try{ if(typeof catmapSave === 'function') catmapSave(); }catch(_){}
+  try{ if(typeof _extSave === 'function') _extSave(); }catch(_){}
+  try{ if(typeof cartoesSave === 'function') cartoesSave(); }catch(_){}
+  try{ if(typeof renderCatmap === 'function') renderCatmap(); }catch(_){}
+  try{ if(typeof renderExtrato === 'function') renderExtrato(); }catch(_){}
+
+  if(typeof toast === 'function'){
+    toast(total
+      ? ('✓ "' + c.nome + '" mesclada em "' + destinoNome + '" · ' + total + ' referência(s) reatribuída(s)')
+      : ('✓ "' + c.nome + '" mesclada em "' + destinoNome + '"'), 5000);
+  }
+}
+try{ window.catmapMesclar = catmapMesclar; }catch(_){}
 
 async function catmapDelete(id){
   const c = catmapById(id); if(!c) return;
