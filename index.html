@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787193671"/>
+  <meta name="fk-build" content="forekash-v1787193916"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -99712,11 +99712,38 @@ function addPesSim(){
 function setPesSimNome(id, val){
   const p = pessoas.people.find(x => x.id === id);
   if(!p || !p.sim) return;
-  p.nome = String(val || '').trim();
+  const novo = String(val || '').trim();
+  const norm = v => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+                    .toLowerCase().replace(/\s+/g,' ').trim();
+  /* Duas vagas com o mesmo nome viram dois "dev 1" indistinguíveis na tela e
+     nos totais — não dá pra saber qual delas você está mexendo. */
+  if(novo && (pessoas.people || []).some(x => x.sim && x.id !== id && norm(x.nome) === norm(novo))){
+    if(typeof toast === 'function'){
+      toast('Já existe a vaga "' + novo + '" na simulação. Use outro nome — ' + _pesSimProximoNome(novo) + ', por exemplo.', 6000);
+    }
+    renderPessoas();
+    return;
+  }
+  p.nome = novo;
   p.pessoaId = 0;                 // simulação nunca vira cadastro
   pessoasSave();
   renderPessoas();
 }
+/* Sugere o próximo da série: "dev 1" → "dev 2"; sem número, acrescenta " 2". */
+function _pesSimProximoNome(base){
+  const m = /^(.*?)(\d+)\s*$/.exec(String(base || '').trim());
+  const norm = v => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+                    .toLowerCase().replace(/\s+/g,' ').trim();
+  const existe = nm => (pessoas.people || []).some(x => x.sim && norm(x.nome) === norm(nm));
+  if(m){
+    let n = parseInt(m[2], 10) || 1;
+    for(let i = 0; i < 50; i++){ n++; const cand = m[1] + n; if(!existe(cand)) return cand; }
+    return m[1] + (n + 1);
+  }
+  for(let n = 2; n < 50; n++){ const cand = base + ' ' + n; if(!existe(cand)) return cand; }
+  return base + ' 2';
+}
+try{ window._pesSimProximoNome = _pesSimProximoNome; }catch(_){}
 try{ window.setPesSimNome = setPesSimNome; }catch(_){}
 
 function duplicatePesPessoa(id){
