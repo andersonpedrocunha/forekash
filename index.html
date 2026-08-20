@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787195237"/>
+  <meta name="fk-build" content="forekash-v1787196648"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -13797,17 +13797,6 @@
     .pes-flag-sim{display:inline-block;margin-left:8px;font-size:.6rem;font-weight:800;
       text-transform:uppercase;letter-spacing:.05em;background:#8B5CF6;color:#fff;
       border-radius:4px;padding:2px 7px;cursor:help;vertical-align:middle}
-    .pes-sim-inc-toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer;
-                        padding:3px 10px 3px 6px;border:1px solid var(--bdr);border-radius:8px;
-                        background:#fff;font-size:.68rem;font-weight:700;color:var(--txm);
-                        text-transform:none;letter-spacing:0;user-select:none;
-                        transition:all .12s}
-    .pes-sim-inc-toggle:hover{background:#F9FAFB;border-color:#CBD5E1}
-    .pes-sim-inc-toggle input[type="checkbox"]{display:none}
-    .pes-sim-inc-toggle input:checked + .pes-sim-toggle-track{background:#7C3AED}
-    .pes-sim-inc-toggle input:checked + .pes-sim-toggle-track .pes-sim-toggle-thumb{transform:translateX(14px)}
-    .pes-sim-inc-toggle.active,
-    .pes-sim-inc-toggle:has(input:checked){background:#F5F3FF;border-color:#7C3AED;color:#5B21B6}
 
     @media(max-width:900px){
       .pes-sheet thead th.stk-1{min-width:150px}
@@ -53558,8 +53547,9 @@ function pessoasLoad(){
     }
   }catch(_){}
   if(!pessoas.reajustes || typeof pessoas.reajustes !== 'object') pessoas.reajustes = {};
-  // Incluir "Simular Contratação" nos totais/KPIs? (default: não)
-  if(typeof pessoas.includeSimInTotals !== 'boolean') pessoas.includeSimInTotals = false;
+  // (removido) includeSimInTotals — quem decide se a simulação soma é o `ativo`
+  // da própria linha. Dois interruptores para a mesma coisa só confundiam.
+  if('includeSimInTotals' in pessoas) delete pessoas.includeSimInTotals;
   // Simulação de reajuste por ano e por tipo
   //   { enabled, rulesByYear: { 'YYYY': { tipoId: { key:'YYYY-MM', pct } } } }
   if(!pessoas.reajSim || typeof pessoas.reajSim !== 'object'){
@@ -102047,12 +102037,6 @@ function togglePesReajSim(on){
   updatePesReajSimButton();
 }
 
-// Incluir/excluir pessoas "simuladas" (Simular Contratação) nos totais e KPIs
-function togglePesIncludeSim(on){
-  pessoas.includeSimInTotals = !!on;
-  pessoasSave();
-  renderPessoas();
-}
 function updatePesReajSimButton(){
   const btn = document.getElementById('btn-pes-reaj-sim');
   const chk = document.getElementById('pes-sim-toggle-chk');
@@ -102078,12 +102062,11 @@ function updatePesReajSimButton(){
 
 // Calcula o aumento absoluto mensal (em R$) que uma regra específica
 // produz no mês em que entra em vigor. Usa as pessoas ativas do tipo e
-// considera fatores de reajustes anteriores (cumulativo), respeitando o
-// toggle "incluir simulados nos totais".
+// considera fatores de reajustes anteriores (cumulativo). Vaga simulada ativa
+// conta aqui também — reajuste incide sobre ela como sobre qualquer outra.
 function pesReajSimIncreaseForRule(rule){
   if(!rule || !rule.key || !rule.pct) return 0;
-  const includeSim = !!pessoas.includeSimInTotals;
-  const people = (pessoas.people || []).filter(p => includeSim ? true : !p.sim);
+  const people = (pessoas.people || []);
   let inc = 0;
   const mult = 1 + (rule.pct / 100);
   for(const p of people){
@@ -102297,13 +102280,12 @@ function renderPesSheet(){
   // ─── BODY ───
   // Ordena pessoas: primeiro por tipo (na ordem de pessoas.tipos), depois pelas sim no final
   const tipoOrder = new Map(pessoas.tipos.map((t,i)=>[t.id, i]));
-  const includeSimInTotals = !!pessoas.includeSimInTotals;
   const realPeople = pessoas.people.filter(p => !p.sim && pesStatusMatch(p));
   const simPeople  = pessoas.people.filter(p =>  p.sim);
-  // Pessoas consideradas nos totais do rodapé (Folha/Headcount/Δ)
-  const totalsPeople = includeSimInTotals
-    ? pessoas.people.filter(p => pesStatusMatch(p) || p.sim)
-    : realPeople;
+  // Pessoas consideradas nos totais do rodapé (Folha/Headcount/Δ).
+  // A simulação entra aqui sempre; quem decide é o `ativo` da linha, testado
+  // logo abaixo junto com o das pessoas reais. Mesma regra pra todo mundo.
+  const totalsPeople = pessoas.people.filter(p => p.sim || pesStatusMatch(p));
   realPeople.sort((a,b)=>{
     const ta = tipoOrder.has(a.tipoId) ? tipoOrder.get(a.tipoId) : 999;
     const tb = tipoOrder.has(b.tipoId) ? tipoOrder.get(b.tipoId) : 999;
@@ -102358,19 +102340,14 @@ function renderPesSheet(){
 
   // Simulações
   if(simPeople.length){
-    const incChecked = includeSimInTotals ? 'checked' : '';
+    /* Um interruptor só: o da própria linha. Simulação ligada soma na Folha e
+       conta no Headcount; desligada, não. O antigo "Incluir nos totais" era um
+       segundo gate por cima disso — ligar a linha não fazia nada enquanto ele
+       estivesse desligado, e ninguém adivinha isso. Removido. */
     rowsHtml.push(`<tr class="pes-sep-row"><td colspan="${4+12+2}" style="background:#F3F4F6">
       <div class="pes-sim-sep-wrap">
         <span class="pes-sim-sep-title">Simular Contratação</span>
-        <span class="pes-sim-sep-hint">cenários hipotéticos (roxo)</span>
-        <!-- O toggle ficava depois de um espaçador flexível, ou seja, no fim de
-             uma tabela de 12 meses — fora da tela e, na prática, inexistente.
-             Ele decide se a simulação soma na folha: tem que estar aqui. -->
-        <label class="pes-sim-inc-toggle" title="Somar os salários simulados à Folha e ao Headcount">
-          <input type="checkbox" ${incChecked} onchange="togglePesIncludeSim(this.checked)">
-          <span class="pes-sim-toggle-track"><span class="pes-sim-toggle-thumb"></span></span>
-          <span class="pes-sim-inc-lbl">Incluir nos totais</span>
-        </label>
+        <span class="pes-sim-sep-hint">ligada, soma na folha e no headcount · desligada, não</span>
       </div>
     </td></tr>`);
     for(const p of simPeople) rowsHtml.push(renderPesPersonRow(p, year, true));
@@ -102395,9 +102372,10 @@ function renderPesSheet(){
   /* Simulação somando nos totais precisa gritar: a folha deixa de ser o que a
      empresa paga e passa a ser um cenário. Sem marca, o número engana. */
   const simAtivasComValor = (pessoas.people || []).filter(p =>
-    p && p.sim && p.ativo && Object.keys(p.salarios || {}).some(k => (+p.salarios[k] || 0) > 0)).length;
-  const flagSimHtml = (includeSimInTotals && simAtivasComValor)
-    ? ` <span class="pes-flag-sim" title="${simAtivasComValor} vaga(s) simulada(s) estão somando aqui. Desligue \"Incluir nos totais\" no bloco roxo para ver só o realizado.">inclui ${simAtivasComValor} simulação${simAtivasComValor>1?'ões':''}</span>`
+    p && p.sim && p.ativo &&
+    PES_MESES.some((_,i) => pesEffVal(p, pesMesKey(year, i)) > 0)).length;
+  const flagSimHtml = simAtivasComValor
+    ? ` <span class="pes-flag-sim" title="${simAtivasComValor} vaga(s) simulada(s) estão somando aqui. Desligue a chave da linha roxa para ver só o realizado.">inclui ${simAtivasComValor} simulação${simAtivasComValor>1?'ões':''}</span>`
     : '';
   const headcountCells = perMonth.map(x => `<td>${x.count||''}</td>`).join('');
   const folhaCells     = perMonth.map(x => `<td>${x.tot ? fmtShortBR(x.tot) : '—'}</td>`).join('');
@@ -102778,8 +102756,9 @@ function renderPesPersonRow(p, year, isSim, forTipoId){
 function updatePesTotals(){
   if(!pessoas) return;
   const year = pesActiveYear;
-  const includeSim = !!pessoas.includeSimInTotals;
-  const real = pessoas.people.filter(p => includeSim ? true : !p.sim);
+  // Simulação ativa entra nos KPIs igual entra na tabela — o `ativo` da linha
+  // é o único interruptor. Card e rodapé não podem contar coisas diferentes.
+  const real = pessoas.people;
   let folha = 0;
   let headSet = new Set();
   const perMonthActive = new Array(12).fill(0);
