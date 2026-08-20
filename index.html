@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787255433"/>
+  <meta name="fk-build" content="forekash-v1787262576"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -13656,12 +13656,20 @@
     .pes-status-filter .sf-btn.active .sf-count{background:#DBEAFE;color:var(--blue-d)}
     /* Coluna do pago: vem do Extrato, é leitura. Fundo levemente distinto
        separa o realizado do combinado sem virar outra tabela. */
-    .pes-sheet td.pes-col-pago{background:#F8FAFC;color:#0F766E;font-weight:700;
+    .pes-sheet tbody td.pes-col-pago{background:#F8FAFC;color:#0F766E;font-weight:700;
                                text-align:right;font-variant-numeric:tabular-nums}
+    /* No rodapé a faixa é escura, e o escuro está no PRÓPRIO td (#1E293B, e
+       #334155 na linha do headcount). Por isso 'transparent' não servia: em vez
+       de herdar, deixava o branco da tabela aparecer — bloco branco piscando
+       entre os meses. Repete o tom da faixa e distingue só pela cor do número. */
+    .pes-sheet tfoot td.pes-col-pago{background:#1E293B;color:#5EEAD4;font-weight:700;
+                               text-align:right;font-variant-numeric:tabular-nums}
+    .pes-sheet tfoot tr.head td.pes-col-pago{background:#334155}
     /* Cada par mês+pago vira um bloco: a borda entra no início do par, senão
        "AGO | pago | SET | pago" lido de relance não diz de quem é o pago. */
     .pes-sheet th.mes-pago + th.mes,
-    .pes-sheet td.pes-col-pago + td{border-left:2px solid #E2E8F0}
+    .pes-sheet tbody td.pes-col-pago + td{border-left:2px solid #E2E8F0}
+    .pes-sheet tfoot td.pes-col-pago + td{border-left:2px solid rgba(255,255,255,.14)}
     .pes-sheet th.mes-pago{background:#F8FAFC;color:#0F766E;
                            font-size:.58rem;letter-spacing:.05em}
     .pes-sheet tr.pes-nao-ident td{background:#FFFBEB;color:#92400E;font-weight:700}
@@ -102133,9 +102141,14 @@ try{ window.pesPagoPorPessoa = pesPagoPorPessoa; }catch(_){}
    'previsto' e 'pago' mostram uma coluna só (dia a dia, sem 24 colunas). */
 let _pesPagoCtx = { porReg:{}, naoIdent:{}, total:0, semCompetencia:0 };
 let _pesModoCol = 'previsto';
+/* Enquanto a pessoa não escolher, o modo é 'auto': tendo pagamento no ano,
+   abre LADO A LADO. Nascer em 'previsto' escondia a coluna de pago de quem
+   nunca soube que ela existe — mesmo erro do toggle da simulação, que ficava
+   fora da tela e por isso não existia na prática. Escolha explícita manda e
+   fica gravada. */
 function pesColView(){
   const m = pessoas && pessoas.colView;
-  return (m === 'previsto' || m === 'pago' || m === 'ambos') ? m : 'previsto';
+  return (m === 'previsto' || m === 'pago' || m === 'ambos') ? m : 'auto';
 }
 function setPesColView(m){
   pessoas.colView = (m === 'previsto' || m === 'pago' || m === 'ambos') ? m : 'previsto';
@@ -102552,7 +102565,7 @@ function renderPesStatusFilter(){
   if(alvo){
     const temPago = (_pesPagoCtx && _pesPagoCtx.total > 0);
     if(!temPago){ alvo.innerHTML = ''; return; }
-    const cur = pesColView();
+    const cur = _pesModoCol;   // efetivo, não o 'auto' interno
     const bt = (key, label, tip) => `
       <button class="sf-btn${cur===key?' active':''}" onclick="setPesColView('${key}')" title="${tip}">${label}</button>`;
     alvo.innerHTML =
@@ -102613,7 +102626,9 @@ function renderPesSheet(){
   _pesPagoCtx = pesPagoPorPessoa(year);
   const _modoPedido = pesColView();
   const _temPago = _pesPagoCtx.total > 0;
-  _pesModoCol = (!_temPago && _modoPedido !== 'previsto') ? 'previsto' : _modoPedido;
+  _pesModoCol = (_modoPedido === 'auto')
+    ? (_temPago ? 'ambos' : 'previsto')
+    : ((!_temPago && _modoPedido !== 'previsto') ? 'previsto' : _modoPedido);
   const modoCol = _pesModoCol;
   const nCols = (modoCol === 'ambos') ? 2 : 1;
   const mostraPrev = modoCol !== 'pago';
@@ -102896,13 +102911,19 @@ function renderPesSheet(){
   `;
 }
 
+/* Zero era exibido como '—', igualzinho a "não há base de comparação". Numa
+   folha estável — que é o caso normal — a linha inteira virava traço e parecia
+   quebrada. Agora zero é zero, e '—' fica só para quando não há mês anterior
+   com o que comparar. */
 function fmtDeltaAbs(n){
-  if(!n) return '—';
+  if(n == null || !isFinite(n)) return '—';
+  if(n === 0) return '0';
   const s = Math.round(Math.abs(n)).toLocaleString('pt-BR');
   return (n > 0 ? '+' : '−') + s;
 }
 function fmtDeltaPct(pct){
-  if(!pct || !isFinite(pct)) return '—';
+  if(pct == null || !isFinite(pct)) return '—';
+  if(pct === 0) return '0,0%';
   const s = Math.abs(pct).toFixed(1).replace('.',',');
   return (pct > 0 ? '+' : '−') + s + '%';
 }
