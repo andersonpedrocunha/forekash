@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787235480"/>
+  <meta name="fk-build" content="forekash-v1787236175"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5909,6 +5909,12 @@
                    border-bottom:1px solid #F1F5F9;display:flex;align-items:center;gap:8px}
     .cart-cbx-item:last-child{border-bottom:none}
     .cart-cbx-item:hover, .cart-cbx-item.active{background:#EDE9FE;color:#5B21B6}
+    /* O item é flex com gap: margin-left:auto joga a marca pra direita, longe
+       do nome, sem competir com ele na leitura. */
+    .ext-cbx-papel{margin-left:auto;flex:none;font-size:.62rem;font-weight:700;
+                   letter-spacing:.04em;text-transform:uppercase;color:#0F766E;
+                   background:#F0FDFA;border:1px solid #99F6E4;
+                   border-radius:4px;padding:1px 6px}
     .cart-cbx-item.empty{color:#94A3B8;cursor:default;font-style:italic;font-size:.78rem}
     .cart-cbx-item.empty:hover{background:transparent;color:#94A3B8}
     .cart-cbx-add{padding:9px 12px;font-size:.84rem;cursor:pointer;
@@ -68659,7 +68665,8 @@ function _extItCbxRender(i, name){
       const v = filtered[k];
       html += (name === 'cat')
         ? _extCbxItemHtml(v, 'event.preventDefault();_extItCbxPick(' + i + ',\'' + name + '\',' + k + ')')
-        : ('<div class="cart-cbx-item" onmousedown="event.preventDefault();_extItCbxPick(' + i + ',\'' + name + '\',' + k + ')">' + _extEsc(v) + '</div>');
+        : ('<div class="cart-cbx-item" onmousedown="event.preventDefault();_extItCbxPick(' + i + ',\'' + name + '\',' + k + ')">'
+           + _extEsc(v) + _extCounterMarca(v) + '</div>');
     }
   }
   if(q && !exact){
@@ -68790,8 +68797,15 @@ function _extItCbxCreate(i, name){
       try {
         if(typeof pessoas !== 'undefined' && pessoas){
           if(!Array.isArray(pessoas.registry)) pessoas.registry = [];
-          const exists = pessoas.registry.find(r => r && r.kind !== 'colaborador' && (r.nome||'').trim().toLowerCase() === v.toLowerCase());
-          if(!exists){
+          /* Procurar ignorando o papel: quem já está no cadastro como
+             colaborador não pode virar um segundo cadastro com o mesmo nome —
+             ganha o papel de fornecedor no registro que já existe. */
+          const exists = pessoas.registry.find(r => r && (r.nome||'').trim().toLowerCase() === v.toLowerCase());
+          if(exists){
+            if(typeof pesAdicionarPapel === 'function' && pesAdicionarPapel(exists, 'fornecedor')){
+              if(typeof toast === 'function') toast('✓ "' + v + '" agora também é fornecedor');
+            }
+          } else {
             if(!pessoas.nextRegId) pessoas.nextRegId = 1;
             pessoas.registry.push({ id: pessoas.nextRegId++, nome: v, foto:'', anexos:[], tags:[], kind:'fornecedor', tipoPessoa:'pj', ativo:true });
             if(typeof pessoasSave === 'function') pessoasSave();
@@ -68971,7 +68985,8 @@ function _itemsCbxRender(prefix, i, name){
   } else {
     for(let k=0; k<filtered.length; k++){
       const v = filtered[k];
-      html += '<div class="cart-cbx-item" onmousedown="event.preventDefault();_itemsCbxPick(\'' + prefix + '\',' + i + ',\'' + name + '\',' + k + ')">' + _dkbEsc(v) + '</div>';
+      html += '<div class="cart-cbx-item" onmousedown="event.preventDefault();_itemsCbxPick(\'' + prefix + '\',' + i + ',\'' + name + '\',' + k + ')">'
+            + _dkbEsc(v) + (name === 'counter' ? _extCounterMarca(v) : '') + '</div>';
     }
   }
   if(q && !exact){
@@ -69093,8 +69108,15 @@ function _itemsCbxCreate(prefix, i, name){
       try {
         if(typeof pessoas !== 'undefined' && pessoas){
           if(!Array.isArray(pessoas.registry)) pessoas.registry = [];
-          const exists = pessoas.registry.find(r => r && r.kind !== 'colaborador' && (r.nome||'').trim().toLowerCase() === v.toLowerCase());
-          if(!exists){
+          /* Procurar ignorando o papel: quem já está no cadastro como
+             colaborador não pode virar um segundo cadastro com o mesmo nome —
+             ganha o papel de fornecedor no registro que já existe. */
+          const exists = pessoas.registry.find(r => r && (r.nome||'').trim().toLowerCase() === v.toLowerCase());
+          if(exists){
+            if(typeof pesAdicionarPapel === 'function' && pesAdicionarPapel(exists, 'fornecedor')){
+              if(typeof toast === 'function') toast('✓ "' + v + '" agora também é fornecedor');
+            }
+          } else {
             if(!pessoas.nextRegId) pessoas.nextRegId = 1;
             pessoas.registry.push({ id: pessoas.nextRegId++, nome: v, foto:'', anexos:[], tags:[], kind:'fornecedor', tipoPessoa:'pj', ativo:true });
             if(typeof pessoasSave === 'function') pessoasSave();
@@ -69549,6 +69571,21 @@ function _extCatSelectHtml(tipo, current){
 }
 
 // Lista oficial de contrapartes: clientes (Receita) ou fornecedores (Cadastro)
+/* Colaborador e fornecedor dividem a mesma lista, então a lista precisa dizer
+   qual é qual — "Lemke" no meio de bancos não se explica sozinho. Devolve o
+   sufixo já pronto (vazio para fornecedor, que é o caso comum). */
+function _extCounterMarca(nome){
+  try{
+    if(typeof pessoas === 'undefined' || !pessoas || !Array.isArray(pessoas.registry)) return '';
+    const alvo = String(nome || '').trim().toLowerCase();
+    if(!alvo) return '';
+    const reg = pessoas.registry.find(r => r && String(r.nome || '').trim().toLowerCase() === alvo);
+    if(!reg) return '';
+    const papeis = (typeof fkPapeisDe === 'function') ? fkPapeisDe(reg) : [reg.kind];
+    if(!papeis.includes('colaborador')) return '';
+    return '<span class="ext-cbx-papel">colaborador</span>';
+  }catch(_){ return ''; }
+}
 function _extOfficialCounters(tipo){
   const list = [];
   if(tipo === 'ganho'){
@@ -69563,8 +69600,12 @@ function _extOfficialCounters(tipo){
   } else {
     try {
       if(typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.registry)){
+        /* Colaborador também recebe dinheiro da empresa — salário, adiantamento,
+           reembolso, rescisão. Excluí-lo daqui obrigava a digitar o nome na mão
+           e criava um segundo cadastro com o mesmo nome. O registro é o mesmo;
+           o que muda é o papel. */
         for(const r of pessoas.registry){
-          if(!r || r.kind === 'colaborador' || r.ativo === false) continue;
+          if(!r || r.ativo === false) continue;
           const nm = (r.nome||'').trim();
           if(nm) list.push(nm);
         }
@@ -69763,7 +69804,8 @@ function _extCbxRender(name){
   } else {
     for(let i=0; i<filtered.length; i++){
       const v = filtered[i];
-      html += '<div class="cart-cbx-item" data-idx="' + i + '" onmousedown="event.preventDefault();_extCbxPick(\'' + name + '\',' + i + ')">' + _extEsc(v) + '</div>';
+      html += '<div class="cart-cbx-item" data-idx="' + i + '" onmousedown="event.preventDefault();_extCbxPick(\'' + name + '\',' + i + ')">'
+            + _extEsc(v) + (name === 'counter' ? _extCounterMarca(v) : '') + '</div>';
     }
   }
   if(q && !exact){
@@ -69875,8 +69917,15 @@ function _extCbxCreate(name){
       try {
         if(typeof pessoas !== 'undefined' && pessoas){
           if(!Array.isArray(pessoas.registry)) pessoas.registry = [];
-          const exists = pessoas.registry.find(r => r && r.kind !== 'colaborador' && (r.nome||'').trim().toLowerCase() === v.toLowerCase());
-          if(!exists){
+          /* Procurar ignorando o papel: quem já está no cadastro como
+             colaborador não pode virar um segundo cadastro com o mesmo nome —
+             ganha o papel de fornecedor no registro que já existe. */
+          const exists = pessoas.registry.find(r => r && (r.nome||'').trim().toLowerCase() === v.toLowerCase());
+          if(exists){
+            if(typeof pesAdicionarPapel === 'function' && pesAdicionarPapel(exists, 'fornecedor')){
+              if(typeof toast === 'function') toast('✓ "' + v + '" agora também é fornecedor');
+            }
+          } else {
             if(!pessoas.nextRegId) pessoas.nextRegId = 1;
             pessoas.registry.push({
               id: pessoas.nextRegId++, nome: v, foto:'', anexos:[], tags:[],
@@ -70768,7 +70817,9 @@ function _extAutoPropagate(payload){
             // Resolve fornecedorId pelo nome
             try {
               if(typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.registry)){
-                const forn = pessoas.registry.find(r => r && r.kind !== 'colaborador' && (r.nome||'').trim().toLowerCase() === payload.contraparte.trim().toLowerCase());
+                /* Sem colaborador aqui, escolher "Lemke" na lista gravava só o
+                   nome solto e o lançamento ficava sem vínculo com o cadastro. */
+                const forn = pessoas.registry.find(r => r && (r.nome||'').trim().toLowerCase() === payload.contraparte.trim().toLowerCase());
                 if(forn) meta.fornecedorId = forn.id;
               }
             } catch(_){}
@@ -73369,7 +73420,7 @@ function extBaixaOpen(id){
   // Fallback: se não tem fornecedorId, tenta resolver pelo NOME (contraparte) no registry
   if(!fornIdAtual && it.contraparte && typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.registry)){
     const nm = it.contraparte.trim().toLowerCase();
-    const fr = pessoas.registry.find(r => r.kind !== 'colaborador' && (r.nome||'').trim().toLowerCase() === nm);
+    const fr = pessoas.registry.find(r => (r.nome||'').trim().toLowerCase() === nm);
     if(fr){ fornIdAtual = fr.id; chipFornNome = fr.nome || ''; }
   }
   // Fallback final: chipNome usa contraparte se não tiver fornecedor cadastrado
