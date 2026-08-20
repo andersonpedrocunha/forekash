@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787236175"/>
+  <meta name="fk-build" content="forekash-v1787248595"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -13646,6 +13646,25 @@
                                          background:#E5E7EB;padding:1px 6px;border-radius:8px;
                                          font-weight:700;min-width:14px;text-align:center}
     .pes-status-filter .sf-btn.active .sf-count{background:#DBEAFE;color:var(--blue-d)}
+    /* Coluna do pago: vem do Extrato, é leitura. Fundo levemente distinto
+       separa o realizado do combinado sem virar outra tabela. */
+    .pes-sheet td.pes-col-pago{background:#F8FAFC;color:#0F766E;font-weight:700;
+                               text-align:right;font-variant-numeric:tabular-nums}
+    /* Cada par mês+pago vira um bloco: a borda entra no início do par, senão
+       "AGO | pago | SET | pago" lido de relance não diz de quem é o pago. */
+    .pes-sheet th.mes-pago + th.mes,
+    .pes-sheet td.pes-col-pago + td{border-left:2px solid #E2E8F0}
+    .pes-sheet th.mes-pago{background:#F8FAFC;color:#0F766E;
+                           font-size:.58rem;letter-spacing:.05em}
+    .pes-sheet tr.pes-nao-ident td{background:#FFFBEB;color:#92400E;font-weight:700}
+    .pes-sheet tr.pes-nao-ident td.stk-1{cursor:help}
+    .pes-sheet thead th.mes-fechado{color:#CBD5E1}
+    .pes-sheet tbody td.pes-cell.mes-fechado .pes-sal-input{color:#B6C0CE}
+    .pes-sheet tbody td.pes-cell.mes-fechado{background:#FCFDFE}
+    .pes-sheet tbody td.pes-cell.mes-fechado .pes-sal-input:focus{color:#0F172A}
+    .pes-col-aviso{margin-left:8px;align-self:center;font-size:.62rem;font-weight:700;
+                   color:#92400E;background:#FEF3C7;border:1px solid #FDE68A;
+                   border-radius:4px;padding:2px 7px;cursor:help;white-space:nowrap}
 
     /* Empty state */
     .pes-empty-row td{text-align:center;padding:40px 20px;color:var(--txl);
@@ -19495,6 +19514,7 @@ td.mes.do-extrato{background:#ECFDF5}
         <!-- Legenda -->
         <div class="pes-legend">
           <div class="pes-status-filter" id="pes-status-filter"></div>
+          <div class="pes-status-filter" id="pes-col-filter" style="margin-left:8px"></div>
           <div class="pes-leg-item" style="margin-left:auto">
             <button class="rec-tipo-filter-btn solid" onclick="addPesPessoa()">
               <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
@@ -101906,6 +101926,172 @@ async function setPesSalario(id, key, val){
   updatePesTotals();
 }
 
+/* ── PAGO DE FOLHA, LIDO DO EXTRATO ─────────────────────────────────────────
+   Controle PARALELO, de propósito. A planilha continua sendo o combinado:
+   salário de contrato, mês a mês. O que sai da conta quase nunca é esse número
+   — tem desconto, vale, adiantamento, rescisão, PJ que varia. Jogar o pago
+   dentro da célula misturaria as duas coisas e quebraria a lógica da tabela.
+   Então o pago mora numa linha só dele, embaixo, e nunca escreve em `salarios`.
+
+   O que conta como folha: gasto cuja categoria o catmap aponta pro módulo
+   'pessoas', OU gasto cuja contraparte é alguém cadastrado como colaborador —
+   que é como o adiantamento e o vale aparecem, sem categoria de folha. */
+function _pesNormTxt(v){
+  return String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+         .toLowerCase().replace(/[^a-z0-9]/g,'');
+}
+function _pesCatsDeFolha(){
+  const set = new Set();
+  try{
+    const cats = (typeof catmapData !== 'undefined' && Array.isArray(catmapData.categorias))
+      ? catmapData.categorias : [];
+    cats.forEach(c => { if(c && c.moduloId === 'pessoas' && c.nome) set.add(_pesNormTxt(c.nome)); });
+  }catch(_){}
+  return set;
+}
+function _pesNomesColaboradores(){
+  const set = new Set();
+  const ids = new Set();
+  try{
+    for(const r of (pessoas.registry || [])){
+      if(!r) continue;
+      const papeis = (typeof fkPapeisDe === 'function') ? fkPapeisDe(r) : [r.kind];
+      if(!papeis.includes('colaborador')) continue;
+      if(r.nome) set.add(_pesNormTxt(r.nome));
+      ids.add(r.id);
+    }
+  }catch(_){}
+  return { nomes: set, ids };
+}
+
+/* { 'YYYY-MM': valor } — pelo mês do PAGAMENTO, não o da competência. */
+function pesPagoExtrato(ano){
+  const out = {};
+  const y = String(ano || pesActiveYear || '');
+  let lans = [];
+  try{ lans = (extratoData && extratoData.lancamentos) || []; }catch(_){ return out; }
+  if(!lans.length) return out;
+  const cats = _pesCatsDeFolha();
+  const { nomes, ids } = _pesNomesColaboradores();
+  if(!cats.size && !nomes.size) return out;
+
+  const soma = (dataStr, valor) => {
+    if(!dataStr || !valor) return;
+    const ds = String(dataStr);
+    if(ds.slice(0,4) !== y) return;
+    const ym = ds.slice(0,7);
+    out[ym] = (out[ym] || 0) + valor;
+  };
+
+  for(const l of lans){
+    if(!l || l.tipo !== 'gasto') continue;
+    const porCat  = cats.size  && cats.has(_pesNormTxt(l.categoria));
+    const porNome = nomes.size && (nomes.has(_pesNormTxt(l.contraparte)) || ids.has(l.fornecedorId));
+    if(!porCat && !porNome) continue;
+    const bs = (typeof extBaixas === 'function') ? extBaixas(l) : [];
+    if(bs.length){
+      bs.forEach(b => soma(b.data, parseFloat(b.valor) || 0));
+    } else if(l.status === 'pago'){
+      soma(l.dataPagamento || l.data, parseFloat(l.valorPago || l.valor) || 0);
+    }
+  }
+  return out;
+}
+try{ window.pesPagoExtrato = pesPagoExtrato; }catch(_){}
+
+/* Pago POR PESSOA. O Extrato sabe de quem foi quando o pagamento é individual
+   — contraparte cadastrada como colaborador (por id ou por nome). Quando a
+   folha sai num débito só ("FOLHA AGOSTO" pro banco), não há nome dentro do
+   valor: esse dinheiro vai pra linha "pago não identificado", visível, em vez
+   de ser rateado no chute. Mesmo caminho já aceito no Parcelamento. */
+function pesPagoPorPessoa(ano){
+  const y = String(ano || pesActiveYear || '');
+  const res = { porReg: {}, naoIdent: {}, total: 0, semCompetencia: 0 };
+  let lans = [];
+  try{ lans = (extratoData && extratoData.lancamentos) || []; }catch(_){ return res; }
+  if(!lans.length) return res;
+  const cats = _pesCatsDeFolha();
+  const { nomes, ids } = _pesNomesColaboradores();
+  if(!cats.size && !nomes.size) return res;
+
+  // nome normalizado -> id do cadastro, pra atribuir pagamento sem fornecedorId
+  const idPorNome = {};
+  try{
+    for(const r of (pessoas.registry || [])){
+      if(!r || !r.nome) continue;
+      const papeis = (typeof fkPapeisDe === 'function') ? fkPapeisDe(r) : [r.kind];
+      if(papeis.includes('colaborador')) idPorNome[_pesNormTxt(r.nome)] = r.id;
+    }
+  }catch(_){}
+
+  /* O pago entra pela COMPETÊNCIA, não pela data em que o dinheiro saiu.
+     Em regime de caixa, agosto pode ter dois pagamentos da mesma pessoa — o
+     salário de julho pago dia 05 e o de agosto adiantado dia 30 — enquanto o
+     planejamento tem uma linha por mês. Ancorar na data do caixa empilharia
+     os dois em agosto e deixaria julho zerado, com as duas colunas brigando
+     lado a lado. A competência põe cada um no mês a que se refere.
+     Sem competência preenchida, sobra a data do pagamento — e esses ficam
+     contados à parte, pra a tela poder avisar. */
+  const soma = (regId, dataStr, valor, estimado) => {
+    if(!dataStr || !valor) return;
+    const ds = String(dataStr);
+    if(ds.slice(0,4) !== y) return;
+    const ym = ds.slice(0,7);
+    const alvo = regId ? (res.porReg[regId] = res.porReg[regId] || {}) : res.naoIdent;
+    alvo[ym] = (alvo[ym] || 0) + valor;
+    res.total += valor;
+    if(estimado) res.semCompetencia += valor;
+  };
+
+  for(const l of lans){
+    if(!l || l.tipo !== 'gasto') continue;
+    const porCat = cats.size && cats.has(_pesNormTxt(l.categoria));
+    let regId = 0;
+    if(l.fornecedorId && ids.has(l.fornecedorId)) regId = l.fornecedorId;
+    else {
+      const byName = idPorNome[_pesNormTxt(l.contraparte)];
+      if(byName) regId = byName;
+    }
+    if(!porCat && !regId) continue;   // nem folha por categoria, nem pago a pessoa
+    const comp = l.dataEmissao || l.dataVencimento || '';
+    const semComp = !comp;
+    const bs = (typeof extBaixas === 'function') ? extBaixas(l) : [];
+    if(bs.length){
+      // Baixa parcial não muda a competência: um salário só, pago em duas vezes.
+      bs.forEach(b => soma(regId, comp || b.data, parseFloat(b.valor) || 0, semComp));
+    } else if(l.status === 'pago'){
+      soma(regId, comp || l.dataPagamento || l.data, parseFloat(l.valorPago || l.valor) || 0, semComp);
+    }
+  }
+  return res;
+}
+try{ window.pesPagoPorPessoa = pesPagoPorPessoa; }catch(_){}
+
+/* Modo de coluna: 'ambos' mostra previsto e pago lado a lado (conferência),
+   'previsto' e 'pago' mostram uma coluna só (dia a dia, sem 24 colunas). */
+let _pesPagoCtx = { porReg:{}, naoIdent:{}, total:0, semCompetencia:0 };
+let _pesModoCol = 'previsto';
+function pesColView(){
+  const m = pessoas && pessoas.colView;
+  return (m === 'previsto' || m === 'pago' || m === 'ambos') ? m : 'previsto';
+}
+function setPesColView(m){
+  pessoas.colView = (m === 'previsto' || m === 'pago' || m === 'ambos') ? m : 'previsto';
+  pessoasSave();
+  renderPessoas();
+}
+try{ window.setPesColView = setPesColView; }catch(_){}
+
+/* Mês anterior ao corrente fica apagado — mesmo tratamento da Estrutura de
+   Custos, onde o passado é leitura e o futuro é onde se mexe. */
+function pesMesFechado(year, mIdx){
+  if(typeof estMesFechado === 'function') return estMesFechado(year, mIdx);
+  const h = new Date(), y = parseInt(year, 10);
+  if(y < h.getFullYear()) return true;
+  if(y > h.getFullYear()) return false;
+  return mIdx < h.getMonth();
+}
+
 function togglePesPago(id, key){
   const p = pessoas.people.find(x => x.id === id);
   if(!p) return;
@@ -102296,6 +102482,30 @@ function renderPesStatusFilter(){
     item('all',      'Todos',    nTodos) +
     item('ativos',   'Ativos',   nAtivos) +
     item('inativos', 'Inativos', nInativos);
+
+  /* Colunas: previsto (o combinado) × pago (o que o Extrato identificou).
+     Só aparece quando há pagamento no ano — sem isso o filtro só ofereceria
+     colunas vazias. */
+  const alvo = document.getElementById('pes-col-filter');
+  if(alvo){
+    const temPago = (_pesPagoCtx && _pesPagoCtx.total > 0);
+    if(!temPago){ alvo.innerHTML = ''; return; }
+    const cur = pesColView();
+    const bt = (key, label, tip) => `
+      <button class="sf-btn${cur===key?' active':''}" onclick="setPesColView('${key}')" title="${tip}">${label}</button>`;
+    alvo.innerHTML =
+      `<span class="sf-lbl">Colunas</span>` +
+      bt('previsto', 'Previsto', 'Só o combinado — salário de contrato, mês a mês') +
+      bt('pago',     'Pago',     'Só o que saiu da conta, identificado no Extrato') +
+      bt('ambos',    'Lado a lado', 'Previsto e pago no mesmo mês, para conferência');
+    /* Sem competência, o pagamento cai no mês em que o dinheiro saiu — e em
+       regime de caixa isso desloca o salário de um mês pro outro. Avisar é
+       melhor que exibir um número deslocado em silêncio. */
+    if(_pesPagoCtx.semCompetencia > 0){
+      const v = (typeof fmtBRL === 'function') ? fmtBRL(_pesPagoCtx.semCompetencia) : _pesPagoCtx.semCompetencia;
+      alvo.innerHTML += `<span class="pes-col-aviso" title="${v} em pagamentos sem competência preenchida no Extrato. Esses caem no mês em que o dinheiro saiu da conta, que pode não ser o mês a que o salário se refere. Preencha a Competência no lançamento para alinhar.">sem competência: ${v}</span>`;
+    }
+  }
 }
 
 function setPesStatusFilter(key){
@@ -102335,6 +102545,18 @@ function renderPesSheet(){
 
   const year = pesActiveYear;
 
+  /* Contexto de colunas do ano, montado UMA vez e lido por cabeçalho, grupo,
+     linha e rodapé. Se não há pagamento identificado no ano, a coluna de pago
+     não entra — coluna vazia só rouba largura. */
+  _pesPagoCtx = pesPagoPorPessoa(year);
+  const _modoPedido = pesColView();
+  const _temPago = _pesPagoCtx.total > 0;
+  _pesModoCol = (!_temPago && _modoPedido !== 'previsto') ? 'previsto' : _modoPedido;
+  const modoCol = _pesModoCol;
+  const nCols = (modoCol === 'ambos') ? 2 : 1;
+  const mostraPrev = modoCol !== 'pago';
+  const mostraPago = modoCol !== 'previsto';
+
   // ─── HEAD (2 linhas: ano / mês) ───
   // Linha 1 (ano)
   const yrRow1 = `<tr class="yr">
@@ -102342,13 +102564,19 @@ function renderPesSheet(){
     <th class="stk stk-2">Ativo</th>
     <th class="stk stk-3 l">Tipo</th>
     <th class="stk stk-4 l">Último reajuste</th>
-    <th colspan="12" style="text-align:center">${year}</th>
+    <th colspan="${12 * nCols}" style="text-align:center">${year}</th>
     <th class="yr-tot">Total</th>
     <th class="del"></th>
   </tr>`;
   // Linha 2 (meses)
   const mesCols = PES_MESES.map((m,i)=>{
-    return `<th class="mes">${m.toUpperCase()}</th>`;
+    // Passado apagado, como na Estrutura de Custos: o que ficou pra trás é
+    // leitura; o que vale editar é daqui pra frente.
+    const fch = pesMesFechado(year, i) ? ' mes-fechado' : '';
+    let th = '';
+    if(mostraPrev) th += `<th class="mes${fch}">${m.toUpperCase()}</th>`;
+    if(mostraPago) th += `<th class="mes mes-pago${fch}">${mostraPrev ? 'pago' : m.toUpperCase()}</th>`;
+    return th;
   }).join('');
   const yrRow2 = `<tr class="mo">
     <th class="stk stk-1"></th>
@@ -102396,7 +102624,7 @@ function renderPesSheet(){
     } else {
       msg = `Nenhuma pessoa cadastrada. Clique em <b>+ Nova pessoa</b> para começar.`;
     }
-    rowsHtml.push(`<tr class="pes-empty-row"><td colspan="${4+12+2}">${msg}</td></tr>`);
+    rowsHtml.push(`<tr class="pes-empty-row"><td colspan="${4 + 12*nCols + 2}">${msg}</td></tr>`);
   }
   // Itera por tipos na ordem definida. Cada pessoa aparece em APENAS UM grupo:
   // o do tipo principal (maior % OU preferido definido pelo usuário em caso de empate).
@@ -102428,13 +102656,40 @@ function renderPesSheet(){
        conta no Headcount; desligada, não. O antigo "Incluir nos totais" era um
        segundo gate por cima disso — ligar a linha não fazia nada enquanto ele
        estivesse desligado, e ninguém adivinha isso. Removido. */
-    rowsHtml.push(`<tr class="pes-sep-row"><td colspan="${4+12+2}" style="background:#F3F4F6">
+    rowsHtml.push(`<tr class="pes-sep-row"><td colspan="${4 + 12*nCols + 2}" style="background:#F3F4F6">
       <div class="pes-sim-sep-wrap">
         <span class="pes-sim-sep-title">Simular Contratação</span>
         <span class="pes-sim-sep-hint">ligada, soma na folha e no headcount · desligada, não</span>
       </div>
     </td></tr>`);
     for(const p of simPeople) rowsHtml.push(renderPesPersonRow(p, year, true));
+  }
+
+  /* Dinheiro de folha que o Extrato não soube de quem era — folha paga num
+     débito só, sem nome dentro. Fica visível numa linha própria em vez de ser
+     rateado no chute: rateio errado com cara de certo é pior que o buraco. */
+  if(mostraPago){
+    const ni = _pesPagoCtx.naoIdent || {};
+    const totNI = PES_MESES.reduce((t,_,i) => t + (+ni[pesMesKey(year,i)] || 0), 0);
+    if(totNI > 0){
+      const cels = PES_MESES.map((_,i)=>{
+        const v = +ni[pesMesKey(year,i)] || 0;
+        const fch = pesMesFechado(year, i) ? ' mes-fechado' : '';
+        let o = '';
+        if(mostraPrev) o += `<td class="${fch.trim()}">—</td>`;
+        o += `<td class="pes-col-pago${fch}">${v ? fmtShortBR(v) : '—'}</td>`;
+        return o;
+      }).join('');
+      rowsHtml.push(`<tr class="pes-nao-ident">
+        <td class="stk stk-1 l" title="Pagamento de folha que o Extrato não conseguiu atribuir a uma pessoa — normalmente a folha paga num débito único. Para cair na linha da pessoa, o lançamento precisa ter a contraparte cadastrada como colaborador.">Pago não identificado</td>
+        <td class="stk stk-2"></td>
+        <td class="stk stk-3"></td>
+        <td class="stk stk-4"></td>
+        ${cels}
+        <td class="yr-tot">${fmtBRL(totNI)}</td>
+        <td></td>
+      </tr>`);
+    }
   }
 
   tbody.innerHTML = rowsHtml.join('');
@@ -102461,8 +102716,30 @@ function renderPesSheet(){
   const flagSimHtml = simAtivasComValor
     ? ` <span class="pes-flag-sim" title="${simAtivasComValor} vaga(s) simulada(s) estão somando aqui. Desligue a chave da linha roxa para ver só o realizado.">inclui ${simAtivasComValor} simulação${simAtivasComValor>1?'ões':''}</span>`
     : '';
-  const headcountCells = perMonth.map(x => `<td>${x.count||''}</td>`).join('');
-  const folhaCells     = perMonth.map(x => `<td>${x.tot ? fmtShortBR(x.tot) : '—'}</td>`).join('');
+  /* Rodapé acompanha as colunas: sob "pago" vai o pago do mês; headcount e as
+     variações não têm equivalente pago, então a coluna fica vazia — inventar
+     número ali seria pior que o traço. */
+  const pagoMes = PES_MESES.map((_,i)=>{
+    const key = pesMesKey(year, i);
+    let t = 0;
+    for(const id of Object.keys(_pesPagoCtx.porReg)) t += +(_pesPagoCtx.porReg[id][key] || 0);
+    t += +(_pesPagoCtx.naoIdent[key] || 0);
+    return t;
+  });
+  const totalPagoAno = pagoMes.reduce((a2,b2)=>a2+b2, 0);
+  const _fch = i => pesMesFechado(year, i) ? ' mes-fechado' : '';
+  const celPar = (i, prevHtml, pagoHtml) => {
+    let o = '';
+    if(mostraPrev) o += prevHtml;
+    if(mostraPago) o += pagoHtml;
+    return o;
+  };
+  const headcountCells = perMonth.map((x,i) => celPar(i,
+      `<td class="${_fch(i).trim()}">${x.count||''}</td>`,
+      `<td class="pes-col-pago${_fch(i)}"></td>`)).join('');
+  const folhaCells = perMonth.map((x,i) => celPar(i,
+      `<td class="${_fch(i).trim()}">${x.tot ? fmtShortBR(x.tot) : '—'}</td>`,
+      `<td class="pes-col-pago${_fch(i)}">${pagoMes[i] ? fmtShortBR(pagoMes[i]) : '—'}</td>`)).join('');
   const totalFolha = perMonth.reduce((s,x)=>s+x.tot,0);
   const totalHeadAvg = perMonth.reduce((s,x)=>s+x.count,0) / 12;
 
@@ -102484,21 +102761,23 @@ function renderPesSheet(){
     const cur = perMonth[i].tot;
     const prev = (i === 0) ? decPrev : perMonth[i-1].tot;
     if(!cur && !prev){
-      varAbsCells.push(`<td class="zr">—</td>`);
-      varPctCells.push(`<td class="zr">—</td>`);
+      varAbsCells.push((mostraPrev ? `<td class="zr">—</td>` : '') + (mostraPago ? `<td class="pes-col-pago${_fch(i)}"></td>` : ''));
+      varPctCells.push((mostraPrev ? `<td class="zr">—</td>` : '') + (mostraPago ? `<td class="pes-col-pago${_fch(i)}"></td>` : ''));
       continue;
     }
     if(!prev){
       // Sem base de comparação (primeiro mês com valor)
-      varAbsCells.push(`<td class="zr">—</td>`);
-      varPctCells.push(`<td class="zr">—</td>`);
+      varAbsCells.push((mostraPrev ? `<td class="zr">—</td>` : '') + (mostraPago ? `<td class="pes-col-pago${_fch(i)}"></td>` : ''));
+      varPctCells.push((mostraPrev ? `<td class="zr">—</td>` : '') + (mostraPago ? `<td class="pes-col-pago${_fch(i)}"></td>` : ''));
       continue;
     }
     const delta = cur - prev;
     const cls = delta > 0 ? 'up' : (delta < 0 ? 'dn' : 'zr');
-    varAbsCells.push(`<td class="${cls}">${fmtDeltaAbs(delta)}</td>`);
+    const vazioPago = mostraPago ? `<td class="pes-col-pago${_fch(i)}"></td>` : '';
+    const soPrev = htm => mostraPrev ? htm : '';
+    varAbsCells.push(soPrev(`<td class="${cls}">${fmtDeltaAbs(delta)}</td>`) + vazioPago);
     const pct = (delta / prev) * 100;
-    varPctCells.push(`<td class="${cls}">${fmtDeltaPct(pct)}</td>`);
+    varPctCells.push(soPrev(`<td class="${cls}">${fmtDeltaPct(pct)}</td>`) + vazioPago);
     sumAbs += delta;
     sumPct += pct;
     validCount++;
@@ -102593,14 +102872,29 @@ function renderPesGroupHeader(tipo, grp, year, tipoId, allPeople){
     }
     return s + x;
   }, 0);
+  const _modo = _pesModoCol, _nc = (_modo === 'ambos') ? 2 : 1;
+  const _prev = _modo !== 'pago', _pgo = _modo !== 'previsto';
   const grpCells = PES_MESES.map((_,i)=>{
     const key = pesMesKey(year, i);
+    const fch = pesMesFechado(year, i) ? ' mes-fechado' : '';
     const v = contributors.reduce((s,p)=>{
       const pct = pesIsAlocacaoSimples(p) ? (pesTipoPrincipal(p) === _gTipoId ? 100 : 0)
                                           : pesPctMesTipo(p, key, _gTipoId);
       return s + pesEffVal(p, key) * (pct/100);
     }, 0);
-    return `<td>${v ? fmtShortBR(v) : '—'}</td>`;
+    let out = '';
+    if(_prev) out += `<td class="${fch.trim()}">${v ? fmtShortBR(v) : '—'}</td>`;
+    if(_pgo){
+      /* Rateio divide o previsto entre tipos; o pago vem de um pagamento
+         inteiro e não se divide assim. Só entra no grupo de quem é a linha. */
+      const pg = contributors.reduce((s,p)=>{
+        if(!pesIsAlocacaoSimples(p) && pesTipoPrincipal(p) !== _gTipoId) return s;
+        const m = _pesPagoCtx.porReg[p.pessoaId];
+        return s + (m ? (+m[key] || 0) : 0);
+      }, 0);
+      out += `<td class="pes-col-pago${fch}">${pg ? fmtShortBR(pg) : '—'}</td>`;
+    }
+    return out;
   }).join('');
   // Indicador visual: soma de rateios vindos de OUTROS grupos (não-principais neste tipo)
   /* Quem entra aqui só por rateio não tem linha neste grupo — sem dizer QUEM é,
@@ -102668,7 +102962,10 @@ function renderPesPersonRow(p, year, isSim, forTipoId){
     ? new Set(pesReajSimAllRules().filter(r => r.tipoId === p.tipoId).map(r => r.key))
     : null;
   const pagosMap = p.pagos || {};
-  const salCells = PES_MESES.map((_,i)=>{
+  const _mR = _pesModoCol;
+  const _prevR = _mR !== 'pago', _pgoR = _mR !== 'previsto';
+  const _pagoDaPessoa = (!isSim && p.pessoaId) ? (_pesPagoCtx.porReg[p.pessoaId] || null) : null;
+  const _salPrev = PES_MESES.map((_,i)=>{
     const key = pesMesKey(year, i);
     const base = p.salarios[key];
     const eff  = pesEffVal(p, key);
@@ -102677,9 +102974,12 @@ function renderPesPersonRow(p, year, isSim, forTipoId){
     const factor = simActive ? pesReajSimFactor(p, key) : 1;
     const isSimStart = !!(simActive && show && simStartKeys && simStartKeys.has(key));
     const displayVal = show ? fmtBR(eff, 2) : '';
-    // Pago só aplicável a células com valor real, fora do modo simulação
-    const pago = show && !simActive && !!pagosMap[key];
+    /* A baixa saiu daqui: quem paga é o Extrato. A célula volta a ser só o
+       combinado, sempre editável — sem ✓ e sem trava. O que foi pago de
+       verdade aparece na linha "Pago (Extrato)" no rodapé. */
+    const pago = false;
     const empty = !show;
+    const fechado = pesMesFechado(year, i);
     // Linhas simples sempre editáveis. (Split visual removido: pessoa aparece só
     // no tipo principal com salário cheio — o split fica documentado nas pills.)
     const isSplit = false;
@@ -102687,7 +102987,7 @@ function renderPesPersonRow(p, year, isSim, forTipoId){
     const tdCls = 'pes-cell'
                 + (isReaj?' reaj':'')
                 + (isSimStart?' sim':'')
-                + (pago?' pago':'')
+                + (fechado?' mes-fechado':'')
                 + (empty?' empty':'');
     if(simActive){
       const pctTot = (factor - 1) * 100;
@@ -102702,18 +103002,12 @@ function renderPesPersonRow(p, year, isSim, forTipoId){
                readonly tabindex="-1">
       </td>`;
     }
-    const btnPagar = show && p.ativo && !isSplit
-      ? `<button type="button" class="pes-pagar-btn" tabindex="-1"
-              onmousedown="event.preventDefault()"
-              onclick="event.stopPropagation(); togglePesPago(${p.id},'${key}')"
-              title="${pago ? 'Marcar como não pago' : 'Marcar como pago'}">✓</button>`
-      : '';
+    const btnPagar = '';   // baixa vem do Extrato — ver pesPagoExtrato()
     // Linhas split (pct < 100) ficam readonly — salário base é editado na linha onde tipo=100%
     // ou via editor de alocação. Evita ambiguidade de qual valor atualizar.
-    const ro = (pago || isSplit) ? ' readonly' : '';
-    const roTitle = isSplit ? ' title="Split: ' + pctMes.toFixed(0) + '% do salário base · edite na aba principal ou pelo editor de alocação"'
-                  : (pago ? ' title="Remova o ✓ para editar"' : '');
-    const roClick = pago ? ' onmousedown="notifyLocked()"' : '';
+    const ro = isSplit ? ' readonly' : '';
+    const roTitle = isSplit ? ' title="Split: ' + pctMes.toFixed(0) + '% do salário base · edite na aba principal ou pelo editor de alocação"' : '';
+    const roClick = '';
     const splitCls = isSplit ? ' pes-split' : '';
     return `<td class="${tdCls}${splitCls}">
       <input type="text" class="pes-sal-input${isSplit?' is-split':''}"
@@ -102726,6 +103020,30 @@ function renderPesPersonRow(p, year, isSim, forTipoId){
              onkeydown="if(event.key==='Enter') this.blur()">
       ${btnPagar}
     </td>`;
+  });
+
+  /* A coluna de pago é leitura pura: vem do Extrato e não tem input. Vaga
+     simulada nunca tem pago — ninguém paga uma vaga que não existe. */
+  const salCells = PES_MESES.map((_,i)=>{
+    let out = '';
+    if(_prevR) out += _salPrev[i];
+    if(_pgoR){
+      const key = pesMesKey(year, i);
+      const v = _pagoDaPessoa ? (+_pagoDaPessoa[key] || 0) : 0;
+      const prevV = pesEffVal(p, key);
+      const fch = pesMesFechado(year, i) ? ' mes-fechado' : '';
+      let tip = '';
+      if(v && prevV){
+        const d = v - prevV;
+        tip = Math.abs(d) < 1
+          ? 'Pago igual ao previsto'
+          : (d < 0 ? 'R$ ' + fmtBR(Math.abs(d),2) + ' a menos que o previsto (desconto, vale, adiantamento)'
+                   : 'R$ ' + fmtBR(d,2) + ' a mais que o previsto');
+      } else if(v){ tip = 'Pago sem valor previsto neste mês'; }
+      out += `<td class="pes-col-pago${fch}"${tip ? ' title="' + esc(tip) + '"' : ''}>`
+           + (v ? fmtShortBR(v) : '—') + '</td>';
+    }
+    return out;
   }).join('');
 
   // Total do ano — salário cheio (pessoa aparece só uma vez no grupo principal)
@@ -102958,16 +103276,19 @@ function updatePesTotals(){
   // Usa p.salarios (valor base) como referência — ignora simulação/reajuste no card de pagamento
   let totalPago = 0;
   let totalProjetado = 0;
+  /* Pago vem do Extrato, não do ✓ da célula — o ✓ saiu. Projetado é o que
+     falta sair: folha do ano menos o que já saiu. Pode dar negativo quando o
+     ano tem 13º ou rescisão, e negativo aqui é informação, não erro. */
+  const ctxPago = (typeof pesPagoPorPessoa === 'function') ? pesPagoPorPessoa(year) : { porReg:{}, naoIdent:{}, total:0 };
+  totalPago = ctxPago.total;
+  totalProjetado = Math.max(0, folha - totalPago);
+  sim.pago = 0;
+  sim.proj = 0;
   for(const p of real){
-    if(!p.ativo) continue;
-    const pagos = p.pagos || {};
+    if(!p || !p.sim || !p.ativo) continue;
     for(let i = 0; i < 12; i++){
-      const key = pesMesKey(year, i);
-      const raw = p.salarios[key];
-      const v = +raw || 0;
-      if(!v) continue;
-      if(pagos[key]){ totalPago += v;       if(p.sim) sim.pago += v; }
-      else          { totalProjetado += v;  if(p.sim) sim.proj += v; }
+      const v = +p.salarios[pesMesKey(year, i)] || 0;
+      if(v) sim.proj += v;   // vaga simulada nunca é paga: é toda projeção
     }
   }
   if(q('pes-kpi-pago'))       q('pes-kpi-pago').textContent       = fmtBRL(totalPago);
