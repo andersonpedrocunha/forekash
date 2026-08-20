@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787254149"/>
+  <meta name="fk-build" content="forekash-v1787255433"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -71104,7 +71104,28 @@ function extSaveModal(tipo){
       for(const it of itensList){
         const itemCatNome = it.categoria || catFinal;
         const cmEntry = (typeof catmapFindByNome === 'function') ? catmapFindByNome(itemCatNome) : null;
-        const isExtratoOnly = !!(cmEntry && cmEntry.moduloId === 'extrato');
+        /* LANÇAMENTO FEITO NO EXTRATO NASCE NO EXTRATO — SEMPRE.
+
+           Antes, só categoria com moduloId='extrato' virava lançamento aqui.
+           Qualquer outra caía na auto-propagação, e a propagação de gasto
+           escreve SEMPRE na Estrutura de Custos, seja qual for o módulo da
+           categoria. Escolher "Folha (Pessoas)" e clicar Salvar não criava
+           lançamento nenhum: o valor virava uma linha de PREVISÃO na Estrutura,
+           com um toast dizendo "Lançado em Estrutura de Custos" que passa
+           despercebido. Da tela do Extrato, o lançamento simplesmente não
+           existia — sem erro, sem recusa, sem rastro.
+
+           Isso é resto do modelo consolidado antigo. Hoje o Extrato é
+           independente ("só entra o que passou pela conta") e os módulos LEEM
+           o realizado dele (estRealizadoExtrato, recRealizadoExtrato,
+           pesPagoExtrato). Propagar pro módulo além de errado é pior: o
+           dinheiro nunca entra no Extrato, então o módulo também não vê como
+           realizado — vira projeção fantasma.
+
+           Válvula de escape, sem precisar de deploy:
+             localStorage.setItem('fk_extrato_propaga','1')  → volta a propagar */
+        const _propagaLegado = (()=>{ try{ return localStorage.getItem('fk_extrato_propaga') === '1'; }catch(_){ return false; } })();
+        const isExtratoOnly = !_propagaLegado || !!(cmEntry && cmEntry.moduloId === 'extrato');
         if(isExtratoOnly){
           // Cria manual em extratoData.lancamentos
           const id = extratoData.nextId++;
