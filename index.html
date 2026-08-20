@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787234354"/>
+  <meta name="fk-build" content="forekash-v1787235480"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -53500,16 +53500,35 @@ function pessoasLoad(){
                       && !(Array.isArray(r.tags) && r.tags.length)
                       && !(Array.isArray(r.anexos) && r.anexos.length)
                       && !(Array.isArray(r.ciclos) && r.ciclos.length);
+      /* Quando o nome bate com uma vaga que existe na simulação AGORA, exigir
+         registro impecável era demais: essas vagas passaram pelo cadastro
+         completo antes do bloqueio e saíram de lá com contratação e tag. O que
+         nenhuma vaga tem é CNPJ, anexo ou ciclo de trabalho — só isso segura. */
+      const soDeVaga = r => !r.cnpj
+                      && !(Array.isArray(r.anexos) && r.anexos.length)
+                      && !(Array.isArray(r.ciclos) && r.ciclos.length);
       const antes = pessoas.registry.length;
+      const removidosNomes = [];
       pessoas.registry = pessoas.registry.filter(r => {
-        if(!r || usados.has(r.id) || !vazio(r)) return true;
-        return !(suspeitos.has(r.id) || nomesDeVaga.has(norm0(r.nome)));
+        if(!r || usados.has(r.id)) return true;
+        const ehVagaViva = nomesDeVaga.has(norm0(r.nome));
+        const remove = (suspeitos.has(r.id) && vazio(r)) || (ehVagaViva && soDeVaga(r));
+        if(remove) removidosNomes.push(r.nome || '(sem nome)');
+        return !remove;
       });
       const removidos = antes - pessoas.registry.length;
       if(suspeitos.size || removidos){
         console.info('[Forekash] ' + suspeitos.size + ' vaga(s) simulada(s) desvinculada(s)'
-          + (removidos ? ' · ' + removidos + ' cadastro(s) de vaga removido(s) do Cadastro' : ''));
+          + (removidos ? ' · ' + removidos + ' cadastro(s) de vaga removido(s) do Cadastro: '
+             + removidosNomes.join(', ') : ''));
         try{ localStorage.setItem(PES_KEY, JSON.stringify(pessoas)); }catch(_){}
+        /* Sem devolver pra nuvem, o blob continua com a vaga e ela reaparece
+           no próximo aparelho — a limpeza local não resolve nada sozinha. */
+        if(removidos && window.FK_MODE === 'cloud'){
+          try{
+            if(typeof cloudBlobSync === 'function') cloudBlobSync('pessoas', () => pessoas);
+          }catch(_){}
+        }
       }
     }
   }catch(_){}
