@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787193142"/>
+  <meta name="fk-build" content="forekash-v1787193269"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -13476,6 +13476,14 @@
     .pcard-reaj-var.flat{background:#F3F4F6;color:var(--txm)}
 
     /* Chips CLT/PJ/Estrangeiro no card de pessoa */
+    /* Nome da vaga simulada — texto livre, sem cadastro por trás */
+    .pes-sim-nome{flex:1;min-width:0;border:1px solid transparent;background:transparent;
+                  font:inherit;font-size:.8rem;font-weight:600;color:#6D28D9;padding:4px 8px;
+                  border-radius:6px}
+    .pes-sim-nome::placeholder{color:#A78BFA;font-weight:500;font-style:italic}
+    .pes-sim-nome:hover{background:#FAF5FF;border-color:#DDD6FE}
+    .pes-sim-nome:focus{outline:none;background:#fff;border-color:#8B5CF6;
+                        box-shadow:0 0 0 3px rgba(139,92,246,.12)}
     /* Tags na ficha da pessoa — mesmas do Cadastro */
     .pcard-tags{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 4px}
     .pcard-tag-chip{border:none;font:inherit;font-size:.72rem;font-weight:600;padding:4px 10px;
@@ -99692,11 +99700,24 @@ function addPesSim(){
   });
   pessoasSave();
   renderPessoas();
+  /* Vaga simulada não passa pelo cadastro — o foco vai direto pro campo de
+     texto da própria linha. */
   setTimeout(()=>{
-    const btn = document.querySelector(`button[data-pes-picker="${id}"]`);
-    if(btn) openPessoaPicker(id, btn);
+    const inp = document.querySelector(`input.pes-sim-nome[data-sim-id="${id}"]`);
+    if(inp){ inp.focus(); inp.select(); }
   },40);
 }
+
+/* Nome da vaga simulada: mora na linha, nunca no registro de pessoas. */
+function setPesSimNome(id, val){
+  const p = pessoas.people.find(x => x.id === id);
+  if(!p || !p.sim) return;
+  p.nome = String(val || '').trim();
+  p.pessoaId = 0;                 // simulação nunca vira cadastro
+  pessoasSave();
+  renderPessoas();
+}
+try{ window.setPesSimNome = setPesSimNome; }catch(_){}
 
 function duplicatePesPessoa(id){
   const src = pessoas.people.find(p=>p.id===id);
@@ -102472,12 +102493,20 @@ function renderPesPersonRow(p, year, isSim, forTipoId){
                 title="Duplo clique para ver detalhes">
           ${pesAvatarHtml(p, {tipoColor: indicatorColor, tipoTxt: PES_TIPO_TXT})}
         </button>
-        <button type="button" class="rec-cli-btn${btnCls}"
+        ${isSim
+          /* Simulação é vaga, não pessoa: "dev 1", "design", "vendedor 2".
+             Passar pelo cadastro criaria gente que não existe no Cadastro e no
+             headcount. Aqui o nome é texto livre, guardado só na linha. */
+          ? `<input type="text" class="pes-sim-nome" data-sim-id="${p.id}" value="${esc(p.nome || '')}"
+                    placeholder="Ex.: dev 1, design, vendedor 2"
+                    onblur="setPesSimNome(${p.id}, this.value)"
+                    onkeydown="if(event.key==='Enter')this.blur()">`
+          : `<button type="button" class="rec-cli-btn${btnCls}"
                 data-pes-picker="${p.id}"
                 onclick="openPessoaPicker(${p.id}, this, event)">
           <span class="rec-cli-txt">${btnLabel}</span>
           <span class="rec-cli-caret">▾</span>
-        </button>
+        </button>`}
       </div>
     </td>
     <td class="stk stk-2">
