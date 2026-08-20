@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787183614"/>
+  <meta name="fk-build" content="forekash-v1787192112"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -100061,14 +100061,66 @@ function setPesAtivo(id, val){
     return;
   }
   if(goingActive){
-    // Reativando: limpa data de saída
-    p.dataSaida = '';
+    /* Voltar não é desfazer a saída: é um ciclo NOVO. Só limpar a data de saída
+       apagava o período anterior — a pessoa aparecia com um contrato só, aberto
+       desde a primeira entrada, e o tempo de casa ficava inflado. */
+    reativarPesPessoa(p);
+    return;
   }
   p.ativo = !!val;
   pessoasSave();
   renderPessoas(); // re-render para refletir no total
   if(_pesCardOpenId === id) renderPesCardBody();
 }
+
+/* Reativação: arquiva o ciclo encerrado e abre o próximo, com confirmação —
+   é uma mudança de histórico, não um toggle. */
+async function reativarPesPessoa(p){
+  const reg = (typeof pesRegOf === 'function') ? pesRegOf(p) : null;
+  const nome = (reg && reg.nome) || p.nome || 'esta pessoa';
+  const temCicloFechado = !!(p.dataEntrada && p.dataSaida);
+  const hoje = new Date().toISOString().slice(0,10);
+  const dBR = d => { const t = String(d||'').split('-'); return t.length===3 ? (t[2]+'/'+t[1]+'/'+t[0]) : (d||''); };
+  const dur = temCicloFechado
+    ? fmtTempoEmpresa(computeTempoEmpresa(p.dataEntrada, p.dataSaida))
+    : '';
+
+  const msg = temCicloFechado
+    ? `<strong>${esc(nome)}</strong> está voltando para a empresa?\n\n`
+      + `O período de <strong>${dBR(p.dataEntrada)} a ${dBR(p.dataSaida)}</strong> (${esc(dur)}) vai para o histórico, `
+      + `e um ciclo novo começa hoje — você ajusta a data de retorno na ficha.\n\n`
+      + `O tempo total de casa passa a somar os dois períodos.`
+    : `Reativar <strong>${esc(nome)}</strong>? Ela volta a contar no headcount e na folha.`;
+
+  const ok = (typeof showConfirm === 'function')
+    ? await showConfirm({ title: temCicloFechado ? 'Voltar para a empresa' : 'Reativar pessoa',
+                          message: msg, confirmLabel: temCicloFechado ? 'Registrar o retorno' : 'Reativar',
+                          cancelLabel: 'Cancelar' })
+    : true;
+  if(!ok){
+    renderPessoas();
+    if(_pesCardOpenId === p.id) renderPesCardBody();
+    return;
+  }
+
+  if(temCicloFechado && reg){
+    if(!Array.isArray(reg.ciclos)) reg.ciclos = [];
+    const jaTem = reg.ciclos.some(c => c && c.inicio === p.dataEntrada && c.fim === p.dataSaida);
+    if(!jaTem) reg.ciclos.push({ inicio: p.dataEntrada, fim: p.dataSaida });
+    p.dataEntrada = hoje;
+  }
+  p.dataSaida = '';
+  p.ativo = true;
+  pessoasSave();
+  renderPessoas();
+  if(_pesCardOpenId === p.id) renderPesCardBody();
+  if(typeof toast === 'function'){
+    toast(temCicloFechado
+      ? 'Ciclo anterior guardado no histórico. O retorno entrou como hoje — ajuste a data se for outra.'
+      : 'Pessoa reativada', 6000);
+  }
+}
+try{ window.reativarPesPessoa = reativarPesPessoa; }catch(_){}
 
 // ─── Card de detalhes da pessoa ──────────────────────
 const PES_MESES_LONG = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
