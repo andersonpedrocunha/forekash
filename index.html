@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787194935"/>
+  <meta name="fk-build" content="forekash-v1787195237"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -13793,6 +13793,10 @@
     .pes-sim-sep-hint{font-weight:600;font-size:.65rem;color:var(--txl);
                       text-transform:none;letter-spacing:0}
     .pes-sim-sep-sp{flex:1}
+    /* Bandeira de simulação nos totais */
+    .pes-flag-sim{display:inline-block;margin-left:8px;font-size:.6rem;font-weight:800;
+      text-transform:uppercase;letter-spacing:.05em;background:#8B5CF6;color:#fff;
+      border-radius:4px;padding:2px 7px;cursor:help;vertical-align:middle}
     .pes-sim-inc-toggle{display:inline-flex;align-items:center;gap:7px;cursor:pointer;
                         padding:3px 10px 3px 6px;border:1px solid var(--bdr);border-radius:8px;
                         background:#fff;font-size:.68rem;font-weight:700;color:var(--txm);
@@ -102359,7 +102363,9 @@ function renderPesSheet(){
       <div class="pes-sim-sep-wrap">
         <span class="pes-sim-sep-title">Simular Contratação</span>
         <span class="pes-sim-sep-hint">cenários hipotéticos (roxo)</span>
-        <span class="pes-sim-sep-sp"></span>
+        <!-- O toggle ficava depois de um espaçador flexível, ou seja, no fim de
+             uma tabela de 12 meses — fora da tela e, na prática, inexistente.
+             Ele decide se a simulação soma na folha: tem que estar aqui. -->
         <label class="pes-sim-inc-toggle" title="Somar os salários simulados à Folha e ao Headcount">
           <input type="checkbox" ${incChecked} onchange="togglePesIncludeSim(this.checked)">
           <span class="pes-sim-toggle-track"><span class="pes-sim-toggle-thumb"></span></span>
@@ -102386,6 +102392,13 @@ function renderPesSheet(){
     }
     return { count, tot };
   });
+  /* Simulação somando nos totais precisa gritar: a folha deixa de ser o que a
+     empresa paga e passa a ser um cenário. Sem marca, o número engana. */
+  const simAtivasComValor = (pessoas.people || []).filter(p =>
+    p && p.sim && p.ativo && Object.keys(p.salarios || {}).some(k => (+p.salarios[k] || 0) > 0)).length;
+  const flagSimHtml = (includeSimInTotals && simAtivasComValor)
+    ? ` <span class="pes-flag-sim" title="${simAtivasComValor} vaga(s) simulada(s) estão somando aqui. Desligue \"Incluir nos totais\" no bloco roxo para ver só o realizado.">inclui ${simAtivasComValor} simulação${simAtivasComValor>1?'ões':''}</span>`
+    : '';
   const headcountCells = perMonth.map(x => `<td>${x.count||''}</td>`).join('');
   const folhaCells     = perMonth.map(x => `<td>${x.tot ? fmtShortBR(x.tot) : '—'}</td>`).join('');
   const totalFolha = perMonth.reduce((s,x)=>s+x.tot,0);
@@ -102442,7 +102455,7 @@ function renderPesSheet(){
 
   tfoot.innerHTML = `
     <tr class="head">
-      <td class="stk stk-1 l">Headcount</td>
+      <td class="stk stk-1 l">Headcount${flagSimHtml}</td>
       <td class="stk stk-2"></td>
       <td class="stk stk-3"></td>
       <td class="stk stk-4"></td>
@@ -102451,7 +102464,7 @@ function renderPesSheet(){
       <td></td>
     </tr>
     <tr>
-      <td class="stk stk-1 l">Folha</td>
+      <td class="stk stk-1 l">Folha${flagSimHtml}</td>
       <td class="stk stk-2"></td>
       <td class="stk stk-3"></td>
       <td class="stk stk-4"></td>
