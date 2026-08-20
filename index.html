@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787249710"/>
+  <meta name="fk-build" content="forekash-v1787250280"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -70949,6 +70949,16 @@ function _extAutoPropagate(payload){
 }
 try { window._extAutoPropagate = _extAutoPropagate; } catch(e){}
 
+/* Toda recusa de salvamento passa por aqui. Antes eram `toast(...); return;`
+   soltos: o toast some em segundos e, se a pessoa piscar, o lançamento
+   "simplesmente não foi criado" — sem erro, sem rastro, sem como investigar
+   depois. Agora fica no console com prefixo próprio e o motivo por extenso. */
+function _extRecusaSalvar(motivo, detalhe){
+  try{ console.warn('[FK][extrato] lançamento NÃO criado · ' + motivo, detalhe || ''); }catch(_){}
+  if(typeof toast === 'function') toast('⚠ ' + motivo);
+  return false;
+}
+
 function extSaveModal(tipo){
   const data    = (document.getElementById('ext-fld-data')?.value || '').trim();
   // Competência: quando o fato aconteceu. Vazia = mesma coisa que o vencimento.
@@ -71010,8 +71020,8 @@ function extSaveModal(tipo){
       contraparte: (it.contraparte || '').trim()
     }));
     if(itensList.length === 0){
-      if(typeof toast === 'function') toast('⚠ Preencha pelo menos um item com valor > 0');
-      return;
+      return _extRecusaSalvar('nenhum item com valor maior que zero',
+        { itens: (_extItems || []).map(it => ({ desc: it.descricao, valor: it.valor, cat: it.categoria, contraparte: it.contraparte })) });
     }
     // Para compat com fluxos legacy/save manual: usa o 1º item como "principal"
     valor   = itensList[0].valor;
@@ -71020,12 +71030,12 @@ function extSaveModal(tipo){
     counter = itensList[0].contraparte;
   }
 
-  if(!data){ if(typeof toast === 'function') toast('Defina uma data'); return; }
-  if(valor <= 0){ if(typeof toast === 'function') toast('Valor deve ser maior que zero'); return; }
+  if(!data){ return _extRecusaSalvar('vencimento em branco'); }
+  if(valor <= 0){ return _extRecusaSalvar('valor zerado', { valor }); }
   if(tipo === 'transferencia'){
-    if(!conta){ if(typeof toast === 'function') toast('⚠ Escolha a conta de ORIGEM'); return; }
-    if(!counter){ if(typeof toast === 'function') toast('⚠ Escolha a conta de DESTINO'); return; }
-    if(conta === counter){ if(typeof toast === 'function') toast('⚠ Conta origem e destino devem ser diferentes'); return; }
+    if(!conta){ return _extRecusaSalvar('conta de origem não escolhida'); }
+    if(!counter){ return _extRecusaSalvar('conta de destino não escolhida'); }
+    if(conta === counter){ return _extRecusaSalvar('origem e destino são a mesma conta', { conta }); }
   }
   // Categoria sempre fixa em "Transferência" pra esse tipo
   const catFinal = (tipo === 'transferencia') ? 'Transferência' : cat;
