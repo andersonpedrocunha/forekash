@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787327315"/>
+  <meta name="fk-build" content="forekash-v1787327903"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -89381,6 +89381,10 @@ function dispoLoad(){
 function dispoSave(){
   /* Mexeu no cadastro de contas → o rótulo canônico pode ter mudado. */
   try{ if(typeof _extContaCacheLimpa === 'function') _extContaCacheLimpa(); }catch(_){}
+  /* Carimbo em toda gravação. É ele que permite ao fetch saber se a nuvem está
+     ATRASADA em relação a este navegador — sem isso não há como distinguir
+     "a nuvem tem a versão boa" de "a nuvem tem a versão velha". */
+  try{ if(dispo) dispo._ts = Date.now(); }catch(_){}
   try{ localStorage.setItem(DISPO_KEY, JSON.stringify({ activeYear:dispoActiveYear, state:dispo })); }catch(e){}
   if (window.FK_MODE === 'cloud') cloudBlobSync('dispo', () => ({ activeYear: dispoActiveYear, state: dispo }));
 }
@@ -89797,6 +89801,27 @@ async function cloudDispoFetch(){
       console.log('[FK] dispo: cloud vazio, importando do localStorage...');
       await cloudBlobSync('dispo', () => ({ activeYear: dispoActiveYear, state: dispo }));
     }
+    return;
+  }
+  /* NÃO sobrescrever às cegas. O sync é fire-and-forget e é PULADO inteiro
+     enquanto a nuvem não desceu (fkPodeSincronizar). Então dá pra digitar
+     saldo, o envio falhar calado, e o boot seguinte trazer o blob antigo e
+     apagar por cima — sem erro, sem aviso. Mesma classe de bug que já comeu
+     anexo e lançamento no Extrato.
+
+     Com carimbo dos dois lados, quem é mais novo vence. Empate ou ausência de
+     carimbo: a nuvem ganha, que é o comportamento de antes. */
+  const doCloud = (d && d.state) ? d.state : d;
+  const tsLocal  = (dispo && +dispo._ts) || 0;
+  const tsRemoto = (doCloud && +doCloud._ts) || 0;
+  if (tsLocal && tsLocal > tsRemoto) {
+    console.warn('[FK] dispo: este navegador tem alteração mais nova que a nuvem ('
+      + new Date(tsLocal).toLocaleString('pt-BR') + ' vs '
+      + (tsRemoto ? new Date(tsRemoto).toLocaleString('pt-BR') : 'sem carimbo')
+      + ') — mantendo o local e reenviando.');
+    try{ await cloudBlobSync('dispo', () => ({ activeYear: dispoActiveYear, state: dispo })); }catch(_){}
+    try { localStorage.setItem(DISPO_KEY, JSON.stringify({ activeYear:dispoActiveYear, state:dispo })); } catch(_){}
+    try { if (typeof renderDispo === 'function') renderDispo(); } catch(_){}
     return;
   }
   if (d && d.state) {
