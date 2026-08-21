@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787340609"/>
+  <meta name="fk-build" content="forekash-v1787342515"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -12293,6 +12293,31 @@
     .dispo-sheet tfoot td.stk-3{width:60px;min-width:60px;max-width:60px;left:432px;
                                  text-align:center}
     .dispo-sheet .stk-4{display:none}
+    /* Cabeçalho grudento: a tabela rola COM A PÁGINA (o wrap não tem rolagem
+       vertical própria), então ao mexer numa linha de baixo o mês sumia do
+       topo. 56px = altura do header do app, que também é sticky. A Receita já
+       fazia isso; aqui faltava.
+       z-index acima das colunas congeladas do corpo (2) pra o cabeçalho passar
+       por cima das linhas, e abaixo do header do app (100). */
+    /* Pra o sticky funcionar o cabeçalho precisa de um container que role.
+       O .pes-sheet-wrap tem overflow:auto (por causa dos 12 meses na
+       horizontal), e isso ja o torna o "scrollport" do sticky — só que ele nao
+       rolava na vertical, entao top: nunca era acionado e o cabeçalho subia
+       junto com a pagina. Dando altura maxima ao wrap, a tabela passa a rolar
+       dentro dela e o cabeçalho fica.
+       Escopo em #mod-disponibilidades: .pes-sheet-wrap e compartilhado com
+       Pessoas, e mexer la nao foi pedido. */
+    #mod-disponibilidades .pes-sheet-wrap{max-height:calc(100vh - 220px);overflow:auto}
+    .dispo-sheet thead th{position:sticky;top:0;z-index:5}
+    .dispo-sheet thead th.stk-0,
+    .dispo-sheet thead th.stk-1,
+    .dispo-sheet thead th.stk-2,
+    .dispo-sheet thead th.stk-3{z-index:6}
+    /* Coluna sendo editada: o cabeçalho dela acende. Com 12 colunas de 110px,
+       saber "qual mês é este" no meio da planilha é a pergunta que mais
+       aparece — e a resposta certa é no próprio cabeçalho, não num balão. */
+    .dispo-sheet thead th.mes.col-ativa{background:#4338CA;color:#fff}
+    .dispo-sheet tbody td.mes.col-ativa{background:#EEF2FF}
     .dispo-sheet thead th.mes{width:110px;min-width:110px;text-align:right;padding:10px 12px}
     .dispo-sheet thead th.del{width:78px;min-width:78px}
     .dispo-sheet tbody td.del{width:78px;min-width:78px;padding:4px 6px}
@@ -99523,6 +99548,42 @@ ROW_REORDERERS.dispo = reorderDispoConta;
    diálogos na cara — a partir do segundo, o aviso vira obstáculo e a pessoa
    clica em "ok" sem ler, que é o oposto de estar ciente. */
 const _dispoAvisadasEncerrada = new Set();
+
+/* Acende o cabeçalho da coluna em que o cursor está. Delegação num listener
+   só, no documento: a planilha é redesenhada a cada digitação e listener por
+   célula morreria junto com a célula. */
+(function _dispoColunaAtiva(){
+  const limpa = () => {
+    document.querySelectorAll('.dispo-sheet .col-ativa').forEach(el => el.classList.remove('col-ativa'));
+  };
+  const acende = (inp) => {
+    limpa();
+    const td = inp.closest('td');
+    const tr = inp.closest('tr');
+    if(!td || !tr) return;
+    const idx = [...tr.children].indexOf(td);
+    if(idx < 0) return;
+    const tbl = inp.closest('table');
+    if(!tbl) return;
+    const thRow = tbl.querySelector('thead tr:last-child');
+    const th = thRow && thRow.children[idx];
+    if(th) th.classList.add('col-ativa');
+    /* A coluna inteira também acende de leve: o olho encontra a linha certa
+       descendo pela faixa, sem precisar contar colunas. */
+    tbl.querySelectorAll('tbody tr').forEach(l => {
+      const c = l.children[idx];
+      if(c && c.classList.contains('mes')) c.classList.add('col-ativa');
+    });
+  };
+  document.addEventListener('focusin', e => {
+    const inp = e.target && e.target.closest && e.target.closest('.dispo-sheet input.dispo-val-input');
+    if(inp) acende(inp); else if(e.target.closest && !e.target.closest('.dispo-sheet')) limpa();
+  });
+  document.addEventListener('focusout', e => {
+    const inp = e.target && e.target.closest && e.target.closest('.dispo-sheet input.dispo-val-input');
+    if(inp) setTimeout(() => { if(!document.querySelector('.dispo-sheet input.dispo-val-input:focus')) limpa(); }, 0);
+  });
+})();
 
 function setDispoSaldo(id, key, val){
   const c = dispo.contas.find(x=>x.id===id); if(!c) return;
