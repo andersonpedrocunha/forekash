@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787327018"/>
+  <meta name="fk-build" content="forekash-v1787327315"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -149,6 +149,16 @@
          transition:opacity .15s,background .15s;white-space:nowrap;font-family:inherit}
     .btn-p{background:var(--blue-d);color:#fff}
     .btn-p:hover{background:#1D4ED8}
+    /* "+ Nova conta" é a ação principal da tela e estava com a mesma cara dos
+       quatro botões de gerenciar. Regra própria porque a barra de
+       Disponibilidades sobrescreve .btn-p e deixava tudo branco. */
+    .dispo-btn-nova, .btn.btn-p.dispo-btn-nova{
+      display:inline-flex;align-items:center;gap:6px;
+      background:var(--blue-d);color:#fff;border:1px solid var(--blue-d);
+      font-weight:700;box-shadow:0 1px 3px rgba(37,99,235,.28)}
+    .dispo-btn-nova:hover, .btn.btn-p.dispo-btn-nova:hover{
+      background:#1D4ED8;border-color:#1D4ED8;color:#fff}
+    .dispo-btn-nova svg{stroke:currentColor}
     .btn-g{background:#F3F4F6;color:var(--txm);border:1px solid var(--bdr)}
     .btn-g:hover{background:#E5E7EB;color:var(--tx)}
     .btn-tog{background:#F3F4F6;color:var(--txm);border:1px solid var(--bdr);
@@ -6295,6 +6305,10 @@
     .outras-btn-add{padding:9px 16px;background:#7C3AED;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700;font-family:inherit;font-size:.84rem;white-space:nowrap;box-shadow:0 1px 3px rgba(124,58,237,.25)}
     .outras-btn-add:hover{background:#6D28D9}
     .outras-toolbar-hint{font-size:.78rem;color:#64748B}
+    .outras-btn-zerar{padding:6px 12px;font-size:.72rem;font-weight:700;font-family:inherit;
+                      background:#fff;color:#B45309;border:1px solid #FDE68A;border-radius:8px;
+                      cursor:pointer;transition:all .12s}
+    .outras-btn-zerar:hover{background:#FFFBEB;border-color:#FBBF24}
     /* Sugestões: some sozinho conforme as categorias vão sendo criadas, então
        não vira enfeite permanente na tela de quem já se organizou. */
     /* Célula que veio do Extrato: verde do realizado no resto do app, e sem
@@ -20721,14 +20735,13 @@ td.mes.do-extrato{background:#ECFDF5}
            MÓDULO: DISPONIBILIDADES
            ══════════════════════════════════════════════ -->
       <div class="mod" id="mod-disponibilidades">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap">
-          <div>
-            <h1 class="pg-title">Disponibilidades</h1>
-            <p class="pg-sub">Snapshot mensal dos saldos em contas, investimentos e reservas — consolidado por liquidez.</p>
-          </div>
-          <button onclick="fkOfAtivoOpen()" style="padding:10px 16px;background:linear-gradient(135deg,#8B5CF6,#6D28D9);color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700;font-size:.84rem;font-family:inherit;display:inline-flex;align-items:center;gap:8px;box-shadow:0 3px 10px rgba(139,92,246,.3)" title="Pagar boletos via PIX, aplicar sobra, conciliar 100%">
-            Open Finance Ativo
-          </button>
+        <!-- (removido) botão "Open Finance Ativo": roxo em gradiente com sombra,
+             era o elemento mais berrante da tela e disputava atenção com a ação
+             que realmente se usa aqui, que é cadastrar conta. Continua acessível
+             pela paleta de comandos (⌘K → "Open Finance Ativo"). -->
+        <div>
+          <h1 class="pg-title">Disponibilidades</h1>
+          <p class="pg-sub">Snapshot mensal dos saldos em contas, investimentos e reservas — consolidado por liquidez.</p>
         </div>
 
         <!-- Abas internas: Saldos × Crédito Disponível -->
@@ -20852,7 +20865,11 @@ td.mes.do-extrato{background:#ECFDF5}
             </svg>
             Gerenciar tipos
           </button>
-          <button class="btn btn-p" onclick="addDispoConta()">+ Nova conta</button>
+          <button class="btn btn-p dispo-btn-nova" onclick="addDispoConta()">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                 stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            Nova conta
+          </button>
         </div>
 
         <!-- Sheet -->
@@ -23524,6 +23541,7 @@ td.mes.do-extrato{background:#ECFDF5}
           <div id="outras-tab-receitas" class="outras-pane active">
             <div class="outras-toolbar">
               <button type="button" class="outras-btn-add" onclick="catmapOpenModal('outrasRec')">+ Nova categoria de Receita</button>
+              <button type="button" class="outras-btn-zerar" onclick="outrasOpZerarAno()" title="Apagar os valores digitados deste ano — as categorias ficam">Zerar valores do ano</button>
               <span class="outras-toolbar-hint">Categorias mostradas aqui são as que estão em Customizações com tipo <strong>Outras Receitas</strong>.</span>
             </div>
             <div class="outras-sugestoes" id="outras-sug-receitas"></div>
@@ -23539,6 +23557,7 @@ td.mes.do-extrato{background:#ECFDF5}
           <div id="outras-tab-despesas" class="outras-pane">
             <div class="outras-toolbar">
               <button type="button" class="outras-btn-add" onclick="catmapOpenModal('outrasDesp')">+ Nova categoria de Despesa</button>
+              <button type="button" class="outras-btn-zerar" onclick="outrasOpZerarAno()" title="Apagar os valores digitados deste ano — as categorias ficam">Zerar valores do ano</button>
               <span class="outras-toolbar-hint">Categorias mostradas aqui são as que estão em Customizações com tipo <strong>Outras Despesas</strong>.</span>
             </div>
             <div class="outras-sugestoes" id="outras-sug-despesas"></div>
@@ -50276,6 +50295,38 @@ const OUTRAS_SUGESTOES = {
   ]
 };
 
+/* Os exemplos passam a NASCER criados (decisão dele: "esses já para vir
+   criados"). Roda uma vez só por conta — a marca fica no próprio catmap — e
+   cria SÓ a categoria: nenhum valor mensal é inventado. Quem apagar uma delas
+   não a vê voltar, porque a marca é global, não por categoria. */
+function _outrasOpSemearExemplos(){
+  try{
+    if(!catmapData || !Array.isArray(catmapData.categorias)) return false;
+    if(catmapData.exemplosOutrasSemeados) return false;
+    const norm = v => String(v||'').trim().toLowerCase();
+    const jaTem = new Set(catmapData.categorias.map(c => norm(c && c.nome)));
+    let criadas = 0;
+    const criar = (nome, cor, moduloId) => {
+      if(jaTem.has(norm(nome))) return;
+      const ids = catmapData.categorias.map(c => parseInt(c.id) || 0);
+      const id = Math.max(catmapData.nextId || 1, ids.length ? Math.max(...ids) + 1 : 1);
+      catmapData.categorias.push({ id, nome, moduloId, linhaId: null, cor,
+        autoDiscovered: false, userCreated: true,
+        origem: (moduloId === 'outrasRec' ? 'Outras Receitas' : 'Outras Despesas') + ' · exemplo' });
+      catmapData.nextId = id + 1;
+      jaTem.add(norm(nome));
+      criadas++;
+    };
+    (OUTRAS_SUGESTOES.receitas || []).forEach(([n, c]) => criar(n, c, 'outrasRec'));
+    (OUTRAS_SUGESTOES.despesas || []).forEach(([n, c]) => criar(n, c, 'outrasDesp'));
+    catmapData.exemplosOutrasSemeados = true;
+    try{ if(typeof _catmapSave === 'function') _catmapSave(); }catch(_){}
+    if(criadas) console.info('[Forekash] ' + criadas + ' categoria(s) de exemplo criadas em Outras Operações');
+    return criadas > 0;
+  }catch(_){ return false; }
+}
+try{ window._outrasOpSemearExemplos = _outrasOpSemearExemplos; }catch(_){}
+
 function _outrasOpRenderSugestoes(tipo){
   const box = document.getElementById('outras-sug-' + tipo);
   if(!box) return;
@@ -50291,6 +50342,41 @@ function _outrasOpRenderSugestoes(tipo){
         + ' onclick="outrasOpCriarSugestao(\'' + moduloId + '\', \'' + esc(nome).replace(/'/g, "\\'") + '\', \'' + cor + '\')">'
         + '<span class="dot" style="background:' + cor + '"></span>' + esc(nome) + '</button>').join('');
 }
+
+/* Zerar os valores do ano. Existe porque o outrasOpPopularExemplo() antigo
+   planta valores mensais FICTÍCIOS junto com as categorias — e num app usado
+   com dado real esses números viram mentira no DRE. Apaga só valor: categoria
+   e vínculo de DRC/DRE ficam. */
+async function outrasOpZerarAno(){
+  const ano = _outrasOpYear;
+  let quantos = 0, soma = 0;
+  const alvo = [];
+  for(const cid of Object.keys(outrasOp.valores || {})){
+    for(const ym of Object.keys(outrasOp.valores[cid] || {})){
+      if(String(ym).slice(0,4) !== String(ano)) continue;
+      const v = +outrasOp.valores[cid][ym] || 0;
+      if(!v) continue;
+      alvo.push([cid, ym]); quantos++; soma += v;
+    }
+  }
+  if(!quantos){
+    if(typeof toast === 'function') toast('Não há valor digitado em ' + ano + ' pra zerar.');
+    return;
+  }
+  const fmt = (typeof fmtBRL === 'function') ? fmtBRL(soma) : soma;
+  const msg = 'Vai apagar ' + quantos + ' valor(es) de ' + ano + ', somando ' + fmt + '.\n\n'
+            + 'As categorias continuam. O que veio do Extrato Financeiro não é afetado — '
+            + 'aquilo é leitura, e só muda no lançamento.';
+  const ok = (typeof fkConfirm === 'function')
+    ? await fkConfirm({ title: 'Zerar valores de ' + ano + '?', message: msg })
+    : confirm(msg);
+  if(!ok) return;
+  alvo.forEach(([cid, ym]) => { delete outrasOp.valores[cid][ym]; });
+  try{ if(typeof outrasOpSave === 'function') outrasOpSave(); }catch(_){}
+  renderOutrasOp();
+  if(typeof toast === 'function') toast('✓ ' + quantos + ' valor(es) zerado(s) em ' + ano);
+}
+try{ window.outrasOpZerarAno = outrasOpZerarAno; }catch(_){}
 
 function outrasOpCriarSugestao(moduloId, nome, cor){
   if(!Array.isArray(catmapData.categorias)) catmapData.categorias = [];
@@ -50390,6 +50476,7 @@ function _outrasOpRenderTab(tipo){
 }
 
 function renderOutrasOp(){
+  _outrasOpSemearExemplos();
   // Update year label
   const ylbl = document.getElementById('outras-year-lbl');
   if(ylbl) ylbl.textContent = String(_outrasOpYear);
@@ -72841,8 +72928,12 @@ try {
   if(raw !== null){
     _catmapCollapsedGroups = new Set(JSON.parse(raw));
   } else {
-    // Primeiro acesso: tudo colapsado
+    /* Primeiro acesso: tudo colapsado, MENOS Outras Receitas e Outras
+       Despesas. Elas nascem com os exemplos já criados, e grupo fechado
+       esconde justamente o que a pessoa precisa ver pra saber que existe. */
     _catmapCollapsedGroups = new Set(CATMAP_MODULOS.map(m => m.id));
+    _catmapCollapsedGroups.delete('outrasRec');
+    _catmapCollapsedGroups.delete('outrasDesp');
     _catmapCollapsedGroups.add('__none__');
   }
 } catch(_){}
