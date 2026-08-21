@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787324926"/>
+  <meta name="fk-build" content="forekash-v1787325582"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -6292,6 +6292,20 @@
     .outras-btn-add{padding:9px 16px;background:#7C3AED;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:700;font-family:inherit;font-size:.84rem;white-space:nowrap;box-shadow:0 1px 3px rgba(124,58,237,.25)}
     .outras-btn-add:hover{background:#6D28D9}
     .outras-toolbar-hint{font-size:.78rem;color:#64748B}
+    /* Sugestões: some sozinho conforme as categorias vão sendo criadas, então
+       não vira enfeite permanente na tela de quem já se organizou. */
+    .outras-sugestoes{display:flex;flex-wrap:wrap;align-items:center;gap:6px;
+                      margin:0 0 12px}
+    .outras-sugestoes:empty{display:none}
+    .outras-sug-lbl{font-size:.66rem;font-weight:700;text-transform:uppercase;
+                    letter-spacing:.06em;color:#94A3B8;margin-right:2px}
+    .outras-sug-chip{display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+                     border:1px dashed var(--bdr);background:#fff;border-radius:999px;
+                     padding:4px 11px;font-size:.74rem;font-weight:600;color:#475569;
+                     transition:all .12s}
+    .outras-sug-chip:hover{border-style:solid;border-color:#7C3AED;color:#5B21B6;
+                           background:#F5F3FF}
+    .outras-sug-chip .dot{width:7px;height:7px;border-radius:50%;flex:none}
     .outras-sheet-wrap{overflow-x:auto;border:1px solid #E2E8F0;border-radius:8px;background:#fff}
     .outras-sheet{width:100%;border-collapse:separate;border-spacing:0;font-size:.82rem;font-variant-numeric:tabular-nums}
     .outras-sheet thead th{background:#F8FAFC;color:#475569;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-size:.66rem;padding:10px 8px;text-align:right;border-bottom:1px solid #E2E8F0;white-space:nowrap;position:sticky;top:0;z-index:1}
@@ -23463,6 +23477,7 @@ td.mes.do-extrato{background:#ECFDF5}
               <button type="button" class="outras-btn-add" onclick="catmapOpenModal('outrasRec')">+ Nova categoria de Receita</button>
               <span class="outras-toolbar-hint">Categorias mostradas aqui são as que estão em Customizações com tipo <strong>Outras Receitas</strong>.</span>
             </div>
+            <div class="outras-sugestoes" id="outras-sug-receitas"></div>
             <div class="outras-sheet-wrap">
               <table class="outras-sheet">
                 <thead id="outras-receitas-thead"></thead>
@@ -23477,6 +23492,7 @@ td.mes.do-extrato{background:#ECFDF5}
               <button type="button" class="outras-btn-add" onclick="catmapOpenModal('outrasDesp')">+ Nova categoria de Despesa</button>
               <span class="outras-toolbar-hint">Categorias mostradas aqui são as que estão em Customizações com tipo <strong>Outras Despesas</strong>.</span>
             </div>
+            <div class="outras-sugestoes" id="outras-sug-despesas"></div>
             <div class="outras-sheet-wrap">
               <table class="outras-sheet">
                 <thead id="outras-despesas-thead"></thead>
@@ -50135,7 +50151,73 @@ function _outrasOpCategoriasPara(tipo){
     .sort((a,b) => (a.nome||'').localeCompare(b.nome||'','pt'));
 }
 
+/* Exemplos fixos do que é não operacional. Ficam como SUGESTÃO clicável, não
+   como categoria criada de bocado: cada uma vira linha na planilha e no DRE, e
+   plantar catorze delas na conta de quem só queria duas polui o relatório.
+
+   "Reembolso" e "Estorno" NÃO estão aqui de propósito. Nenhum dos dois é
+   receita ou despesa própria: estorno cancela a despesa original e reembolso
+   recupera o custo original — ambos entram na categoria do gasto a que se
+   referem, com sinal contrário. Como categoria, escondem o gasto de verdade:
+   R$ 3.000 de viagem viram R$ 3.000 de "Reembolso" e o custo de viagem some. */
+const OUTRAS_SUGESTOES = {
+  receitas: [
+    ['Rendimento de aplicações',  '#10B981'],
+    ['Aluguel recebido',          '#22D3EE'],
+    ['Venda de imobilizado',      '#A78BFA'],
+    ['Indenizações recebidas',    '#F59E0B'],
+    ['Cashback e rebates',        '#EC4899'],
+    ['Variação cambial ativa',    '#FBBF24']
+  ],
+  despesas: [
+    ['Multas e penalidades',      '#DC2626'],
+    ['Juros de empréstimo',       '#EF4444'],
+    ['Doações e patrocínios',     '#8B5CF6'],
+    ['Baixa de imobilizado',      '#94A3B8'],
+    ['Perdas com inadimplência',  '#F43F5E'],
+    ['Variação cambial passiva',  '#7C3AED']
+  ]
+};
+
+function _outrasOpRenderSugestoes(tipo){
+  const box = document.getElementById('outras-sug-' + tipo);
+  if(!box) return;
+  const moduloId = (tipo === 'receitas') ? 'outrasRec' : 'outrasDesp';
+  const norm = v => String(v||'').trim().toLowerCase();
+  const jaTem = new Set((catmapData.categorias || []).map(c => norm(c && c.nome)));
+  const faltam = (OUTRAS_SUGESTOES[tipo] || []).filter(x => !jaTem.has(norm(x[0])));
+  if(!faltam.length){ box.innerHTML = ''; return; }
+  const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x||''));
+  box.innerHTML = '<span class="outras-sug-lbl">Exemplos</span>'
+    + faltam.map(([nome, cor]) =>
+        '<button type="button" class="outras-sug-chip" title="Criar a categoria &quot;' + esc(nome) + '&quot;"'
+        + ' onclick="outrasOpCriarSugestao(\'' + moduloId + '\', \'' + esc(nome).replace(/'/g, "\\'") + '\', \'' + cor + '\')">'
+        + '<span class="dot" style="background:' + cor + '"></span>' + esc(nome) + '</button>').join('');
+}
+
+function outrasOpCriarSugestao(moduloId, nome, cor){
+  if(!Array.isArray(catmapData.categorias)) catmapData.categorias = [];
+  const norm = v => String(v||'').trim().toLowerCase();
+  if((catmapData.categorias).some(c => c && norm(c.nome) === norm(nome))){
+    if(typeof toast === 'function') toast('Essa categoria já existe.');
+    _outrasOpRenderSugestoes(moduloId === 'outrasRec' ? 'receitas' : 'despesas');
+    return;
+  }
+  const ids = catmapData.categorias.map(c => parseInt(c.id) || 0);
+  const id = Math.max(catmapData.nextId || 1, ids.length ? Math.max(...ids) + 1 : 1);
+  catmapData.categorias.push({ id, nome, moduloId, linhaId: null, cor,
+    autoDiscovered: false, userCreated: true,
+    origem: (moduloId === 'outrasRec' ? 'Outras Receitas' : 'Outras Despesas') + ' · exemplo' });
+  catmapData.nextId = id + 1;
+  try{ if(typeof _catmapSave === 'function') _catmapSave(); }catch(_){}
+  try{ if(typeof catmapRender === 'function') catmapRender(); }catch(_){}
+  renderOutrasOp();
+  if(typeof toast === 'function') toast('✓ "' + nome + '" criada');
+}
+try{ window.outrasOpCriarSugestao = outrasOpCriarSugestao; }catch(_){}
+
 function _outrasOpRenderTab(tipo){
+  _outrasOpRenderSugestoes(tipo);
   const cats = _outrasOpCategoriasPara(tipo);
   const theadId = 'outras-' + tipo + '-thead';
   const tbodyId = 'outras-' + tipo + '-tbody';
