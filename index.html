@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787264096"/>
+  <meta name="fk-build" content="forekash-v1787323417"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17155,27 +17155,46 @@
 .rec-cell.do-extrato .rec-input{font-weight:700}
 /* ── Parcelamento · bloco, painel de alerta e não identificados ───────────
    O bloco é a linha que fecha a conciliação: pago em cima, previsto embaixo. */
-tr.imp-par-grupo{background:#F8FAFC}
-tr.imp-par-grupo > td{border-top:2px solid var(--gc,#BE185D);font-weight:700;font-size:.72rem}
-tr.imp-par-grupo td.gsub{color:#334155;text-align:right;padding:5px 7px}
+/* Bloco é TOTAL, não mais um contrato. Com fundo quase branco ele lia como
+   linha de contrato e o olho somava duas vezes. Faixa escura resolve pela
+   forma, sem precisar de rótulo explicando. */
+tr.imp-par-grupo{background:#1E293B;color:#E2E8F0}
+tr.imp-par-grupo > td{border-top:2px solid var(--gc,#BE185D);font-weight:700;font-size:.72rem;
+                      background:#1E293B}
+/* A coluna congelada do bloco fica no MESMO tom do resto da faixa. Se ela
+   escurecer pro tom do Total Parcelamentos, subtotal e total viram a mesma
+   coisa justo na coluna do nome. Escada: contrato branco → bloco #1E293B →
+   total geral #0F172A. */
+tr.imp-par-grupo td.stk{background:#1E293B}
+tr.imp-par-grupo td.gsub{color:#E2E8F0;text-align:right;padding:5px 7px;
+                         font-variant-numeric:tabular-nums}
 .imp-grp-nome{display:flex;align-items:center;gap:7px;padding:4px 2px}
 .imp-grp-chev{border:0;background:none;cursor:pointer;color:var(--gc,#BE185D);
   font-size:.8rem;line-height:1;padding:2px 3px;border-radius:4px}
-.imp-grp-chev:hover{background:rgba(0,0,0,.06)}
-.imp-grp-txt{font-weight:800;color:var(--gc,#BE185D);letter-spacing:-.01em;font-size:.76rem}
+.imp-grp-chev:hover{background:rgba(255,255,255,.12)}
+/* A cor do bloco (--gc) foi escolhida pra fundo claro e some no escuro. No nome
+   ela vira um marcador à esquerda, e o texto fica branco pra continuar legível. */
+.imp-grp-txt{font-weight:800;color:#F1F5F9;letter-spacing:-.01em;font-size:.76rem;
+  border-left:3px solid var(--gc,#BE185D);padding-left:7px}
+.imp-grp-chev{color:#94A3B8}
 .imp-grp-qtd{font-weight:500;color:#94A3B8;font-size:.66rem}
+/* Ainda usado pelo "cadastrar" da linha sem contrato — segue sobre faixa
+   escura, então o cinza claro de antes sumiria. */
 .imp-grp-edit{margin-left:auto;border:0;background:none;color:#94A3B8;font-size:.62rem;
   cursor:pointer;text-decoration:underline;padding:2px 3px}
-.imp-grp-edit:hover{color:#334155}
-tr.imp-par-grupo td .g-pago{display:block;font-weight:800;font-size:.72rem;color:#0F172A}
-tr.imp-par-grupo td .g-prev{display:block;font-weight:500;font-size:.6rem;color:#94A3B8;margin-top:1px}
+.imp-grp-edit:hover{color:#E2E8F0}
+tr.imp-par-grupo td .g-pago{display:block;font-weight:800;font-size:.72rem;color:#F8FAFC}
+tr.imp-par-grupo td .g-prev{display:block;font-weight:500;font-size:.6rem;color:#7C8DA4;margin-top:1px}
 tr.imp-par-grupo td .g-prev:empty{display:none}
-tr.imp-par-grupo td.g-ok    .g-pago{color:#047857}
-tr.imp-par-grupo td.g-falta .g-pago{color:#B45309}
-tr.imp-par-grupo td.g-falta{background:#FFFBEB}
-tr.imp-par-grupo td.g-nada{background:#FEF2F2}
-tr.imp-par-grupo td.g-nada  .g-pago{color:#B91C1C}
-tr.imp-par-grupo td.g-sobra .g-pago{color:#1D4ED8}
+/* Mesmos significados de antes — verde pago, âmbar faltando, vermelho nada,
+   azul sobra — nos tons que funcionam sobre a faixa escura. O estado também
+   tinge o fundo, mas de leve: sobre escuro, cor forte vira mancha. */
+tr.imp-par-grupo td.g-ok    .g-pago{color:#34D399}
+tr.imp-par-grupo td.g-falta .g-pago{color:#FBBF24}
+tr.imp-par-grupo td.g-falta{background:rgba(251,191,36,.14)}
+tr.imp-par-grupo td.g-nada{background:rgba(248,113,113,.16)}
+tr.imp-par-grupo td.g-nada  .g-pago{color:#FCA5A5}
+tr.imp-par-grupo td.g-sobra .g-pago{color:#93C5FD}
 tr.imp-par-grupo.colapsado > td{opacity:.92}
 /* Parcela conciliada pelo Extrato — mesmo verde do resto do app. */
 .imp-par-row td.mes.do-extrato{box-shadow:inset 2px 0 0 #059669}
@@ -86613,7 +86632,9 @@ function renderImpParGrupoRow(gid, lista, year, conc, colapsado){
                 title="${colapsado?'Expandir':'Recolher'} bloco">${chev}</button>
         <span class="imp-grp-txt">${esc(nome)}</span>
         <span class="imp-grp-qtd">${qtd}</span>
-        ${b ? `<button type="button" class="imp-grp-edit" onclick="renomearImpBloco('${esc(gid)}')" title="Renomear bloco">renomear</button>` : ''}
+        <!-- (removido) renomear: Federais / Estaduais / Previdenciário são a
+             divisão legal do parcelamento, não rótulo de gosto pessoal. O link
+             ficava no meio do total do bloco competindo com o número. -->
       </div>
     </td>
     <td class="stk stk-2 gsub">${saldoHojeG > 0.005 ? fmtBR(saldoHojeG, 2) : '—'}</td>
