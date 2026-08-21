@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787325582"/>
+  <meta name="fk-build" content="forekash-v1787326542"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5923,6 +5923,14 @@
                    letter-spacing:.04em;text-transform:uppercase;color:#0F766E;
                    background:#F0FDFA;border:1px solid #99F6E4;
                    border-radius:4px;padding:1px 6px}
+    /* Cabeçalho de grupo: sticky pra continuar visível enquanto a lista rola —
+       sem isso a pessoa rola até o meio e perde a referência de qual bloco
+       está lendo. */
+    .cart-cbx-grp{position:sticky;top:0;z-index:1;padding:6px 12px 4px;
+                  font-size:.62rem;font-weight:800;text-transform:uppercase;
+                  letter-spacing:.06em;color:#64748B;background:#F8FAFC;
+                  border-bottom:1px solid #E2E8F0}
+    .cart-cbx-grp.nao-op{color:#B45309;background:#FFFBEB;border-bottom-color:#FDE68A}
     .cart-cbx-item.empty{color:#94A3B8;cursor:default;font-style:italic;font-size:.78rem}
     .cart-cbx-item.empty:hover{background:transparent;color:#94A3B8}
     .cart-cbx-add{padding:9px 12px;font-size:.84rem;cursor:pointer;
@@ -6294,6 +6302,15 @@
     .outras-toolbar-hint{font-size:.78rem;color:#64748B}
     /* Sugestões: some sozinho conforme as categorias vão sendo criadas, então
        não vira enfeite permanente na tela de quem já se organizou. */
+    /* Célula que veio do Extrato: verde do realizado no resto do app, e sem
+       cara de campo editável — porque não é. */
+    .outras-sheet td.do-extrato{background:#F0FDF4}
+    .outras-sheet input.outras-cell.ro{color:#047857;font-weight:700;cursor:default;
+                                       background:transparent;border-color:transparent}
+    /* Linha sem nenhum valor no ano fica discreta: ela existe como lembrete do
+       que dá pra usar, não compete com o que tem movimento. */
+    .outras-sheet tr.sem-valor td.col-cat{color:#94A3B8}
+    .outras-sheet tr.sem-valor input.outras-cell{color:#CBD5E1}
     .outras-sugestoes{display:flex;flex-wrap:wrap;align-items:center;gap:6px;
                       margin:0 0 12px}
     .outras-sugestoes:empty{display:none}
@@ -50144,6 +50161,54 @@ function outrasOpSetVal(catId, ym, raw){
   try { if(typeof renderFlxSheet === 'function' && document.getElementById('mod-fluxo')?.classList.contains('active')) renderFlxSheet(); } catch(_){}
 }
 
+/* Realizado vem do Extrato, como em todo o resto do app. A planilha aqui é
+   projeção; o que passou pela conta é do Extrato e é só leitura.
+   { nomeNormalizado: { 'YYYY-MM': valor } } — pelo mês do pagamento. */
+function _outrasNorm(v){
+  return String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+         .toLowerCase().replace(/[^a-z0-9]/g,'');
+}
+function outrasRealizadoExtrato(ano, tipo){
+  const out = {};
+  const y = String(ano || _outrasOpYear || '');
+  const querGanho = (tipo === 'receitas');
+  let lans = [];
+  try{ lans = (extratoData && extratoData.lancamentos) || []; }catch(_){ return out; }
+  if(!lans.length) return out;
+  const moduloId = querGanho ? 'outrasRec' : 'outrasDesp';
+  const doModulo = new Set();
+  try{
+    (catmapData.categorias || []).forEach(c => {
+      if(c && c.moduloId === moduloId && c.nome) doModulo.add(_outrasNorm(c.nome));
+    });
+  }catch(_){}
+  if(!doModulo.size) return out;
+
+  const soma = (cat, dataStr, valor) => {
+    if(!cat || !dataStr || !valor) return;
+    const ds = String(dataStr);
+    if(ds.slice(0,4) !== y) return;
+    const ym = ds.slice(0,7);
+    if(!out[cat]) out[cat] = {};
+    out[cat][ym] = (out[cat][ym] || 0) + valor;
+  };
+
+  for(const l of lans){
+    if(!l) continue;
+    if(l.tipo !== (querGanho ? 'ganho' : 'gasto')) continue;
+    const cat = _outrasNorm(l.categoria);
+    if(!cat || !doModulo.has(cat)) continue;
+    const bs = (typeof extBaixas === 'function') ? extBaixas(l) : [];
+    if(bs.length){
+      bs.forEach(b => soma(cat, b.data, parseFloat(b.valor) || 0));
+    } else if(l.status === 'pago' || l.status === 'recebido'){
+      soma(cat, l.dataPagamento || l.data, parseFloat(l.valorPago || l.valor) || 0);
+    }
+  }
+  return out;
+}
+try{ window.outrasRealizadoExtrato = outrasRealizadoExtrato; }catch(_){}
+
 function _outrasOpCategoriasPara(tipo){
   const moduloId = (tipo === 'receitas') ? 'outrasRec' : 'outrasDesp';
   return (catmapData && Array.isArray(catmapData.categorias) ? catmapData.categorias : [])
@@ -50218,7 +50283,7 @@ try{ window.outrasOpCriarSugestao = outrasOpCriarSugestao; }catch(_){}
 
 function _outrasOpRenderTab(tipo){
   _outrasOpRenderSugestoes(tipo);
-  const cats = _outrasOpCategoriasPara(tipo);
+  let cats = _outrasOpCategoriasPara(tipo);
   const theadId = 'outras-' + tipo + '-thead';
   const tbodyId = 'outras-' + tipo + '-tbody';
   const tfootId = 'outras-' + tipo + '-tfoot';
@@ -50237,22 +50302,48 @@ function _outrasOpRenderTab(tipo){
   }
   // Totais por mês (pra tfoot)
   const totMes = new Array(12).fill(0);
+  /* Realizado do Extrato manda na célula: onde ele existe, o valor é dele e o
+     campo trava. A planilha continua servindo pro que ainda não passou pela
+     conta. Mesma regra de Receita, Estrutura, Impostos e Folha. */
+  const real = outrasRealizadoExtrato(_outrasOpYear, tipo);
+  const valorDe = (c, ym) => {
+    const r = (real[_outrasNorm(c.nome)] || {})[ym];
+    if(r != null) return { v: r, doExtrato: true };
+    return { v: (outrasOp.valores[c.id] && outrasOp.valores[c.id][ym]) || 0, doExtrato: false };
+  };
+  /* Categoria com movimento sobe. Com a lista inteira sempre visível (é o
+     ponto: servir de lembrete do que existe), quem tem valor precisa estar em
+     cima — senão o que importa fica soterrado pelas linhas zeradas. */
+  const comValor = c => {
+    for(let m=0;m<12;m++){ if(valorDe(c, _outrasOpYM(_outrasOpYear, m)).v) return true; }
+    return false;
+  };
+  cats = cats.slice().sort((a, b) => {
+    const ca = comValor(a) ? 0 : 1, cb = comValor(b) ? 0 : 1;
+    if(ca !== cb) return ca - cb;
+    return (a.nome||'').localeCompare(b.nome||'','pt');
+  });
   let bodyHtml = '';
   for(const c of cats){
     let totLinha = 0;
     let cells = '';
+    const vazia = !comValor(c);
     for(let m=0;m<12;m++){
       const ym = _outrasOpYM(_outrasOpYear, m);
-      const v = (outrasOp.valores[c.id] && outrasOp.valores[c.id][ym]) || 0;
+      const { v, doExtrato } = valorDe(c, ym);
       totLinha += v;
       totMes[m] += v;
       const cellRef = 'outras:' + c.id + ':' + ym;
-      cells += '<td><input type="text" class="outras-cell" value="' + _outrasOpFmt(v) + '" '
+      cells += '<td' + (doExtrato ? ' class="do-extrato" title="Valor do Extrato Financeiro — edite o lançamento lá"' : '') + '>'
+            +  '<input type="text" class="outras-cell' + (doExtrato ? ' ro' : '') + '" value="' + _outrasOpFmt(v) + '" '
             +  'data-cellref="' + cellRef + '" '
-            +  'onblur="outrasOpSetVal(' + c.id + ',\'' + ym + '\',this.value)" '
-            +  'onkeydown="if(event.key===\'Enter\'){event.preventDefault();this.blur();}"></td>';
+            +  (doExtrato
+                 ? 'readonly onmousedown="if(typeof notifyLocked===\'function\')notifyLocked()"'
+                 : 'onblur="outrasOpSetVal(' + c.id + ',\'' + ym + '\',this.value)" '
+                   + 'onkeydown="if(event.key===\'Enter\'){event.preventDefault();this.blur();}"')
+            +  '></td>';
     }
-    bodyHtml += '<tr>'
+    bodyHtml += '<tr' + (vazia ? ' class="sem-valor"' : '') + '>'
       + '<td class="col-cat"><span class="dot" style="background:' + (c.cor || '#7C3AED') + '"></span>' + _extEsc(c.nome) + '</td>'
       + cells
       + '<td class="col-tot">' + _outrasOpFmt(totLinha) + '</td>'
@@ -68824,6 +68915,7 @@ function _extItCbxRender(i, name){
   } else {
     for(let k=0; k<filtered.length; k++){
       const v = filtered[k];
+      if(name === 'cat') html += _extCatCabecalho(filtered, k, _extItemsTipo);
       html += (name === 'cat')
         ? _extCbxItemHtml(v, 'event.preventDefault();_extItCbxPick(' + i + ',\'' + name + '\',' + k + ')')
         : ('<div class="cart-cbx-item" onmousedown="event.preventDefault();_extItCbxPick(' + i + ',\'' + name + '\',' + k + ')">'
@@ -69148,6 +69240,7 @@ function _itemsCbxRender(prefix, i, name){
   } else {
     for(let k=0; k<filtered.length; k++){
       const v = filtered[k];
+      if(name === 'cat') html += _extCatCabecalho(filtered, k, _itemsTipo(prefix));
       html += '<div class="cart-cbx-item" onmousedown="event.preventDefault();_itemsCbxPick(\'' + prefix + '\',' + i + ',\'' + name + '\',' + k + ')">'
             + _dkbEsc(v) + (name === 'counter' ? _extCounterMarca(v) : '') + '</div>';
     }
@@ -69404,7 +69497,40 @@ function _extOfficialCats(tipo){
       cats.add('Outros');
     }
   }
-  return Array.from(cats).sort((a,b) => a.localeCompare(b, 'pt', { sensitivity:'base' }));
+  /* Operacional primeiro, não operacional no fim. Misturados, "Multas e
+     penalidades" aparecia entre INSS e Marketing como se fosse custo do
+     negócio — e é justamente o contrário: o que está aqui embaixo NÃO é o
+     core. A ordem é a primeira coisa que ensina isso, antes de qualquer
+     rótulo. */
+  return Array.from(cats).sort((a, b) => {
+    const na = _extCatEhNaoOperacional(a) ? 1 : 0;
+    const nb = _extCatEhNaoOperacional(b) ? 1 : 0;
+    if(na !== nb) return na - nb;
+    return a.localeCompare(b, 'pt', { sensitivity:'base' });
+  });
+}
+
+/* Não operacional = o catmap aponta a categoria pra Outras Receitas/Despesas. */
+function _extCatEhNaoOperacional(nome){
+  try{
+    if(typeof catmapData === 'undefined' || !Array.isArray(catmapData.categorias)) return false;
+    const alvo = String(nome||'').trim().toLowerCase();
+    const c = catmapData.categorias.find(x => x && String(x.nome||'').trim().toLowerCase() === alvo);
+    return !!(c && (c.moduloId === 'outrasRec' || c.moduloId === 'outrasDesp'));
+  }catch(_){ return false; }
+}
+try{ window._extCatEhNaoOperacional = _extCatEhNaoOperacional; }catch(_){}
+
+/* Cabeçalho de grupo na lista suspensa — emitido no primeiro item de cada
+   bloco, calculado sobre a lista JÁ filtrada pela busca (senão o cabeçalho
+   aparece sem nada embaixo quando o filtro corta o grupo inteiro). */
+function _extCatCabecalho(filtrados, k, tipo){
+  const ehNao = _extCatEhNaoOperacional(filtrados[k]);
+  const anterior = k > 0 ? _extCatEhNaoOperacional(filtrados[k-1]) : null;
+  if(k > 0 && ehNao === anterior) return '';
+  const palavra = (tipo === 'ganho') ? 'Receita' : 'Despesa';
+  const txt = ehNao ? (palavra + ' não operacional') : (palavra + ' operacional');
+  return '<div class="cart-cbx-grp' + (ehNao ? ' nao-op' : '') + '">' + txt + '</div>';
 }
 
 /* ══ Guia de parcelamento · a pergunta no lugar certo ══════════════════════
@@ -69969,6 +70095,7 @@ function _extCbxRender(name){
   } else {
     for(let i=0; i<filtered.length; i++){
       const v = filtered[i];
+      if(name === 'cat') html += _extCatCabecalho(filtered, i, _extCbxTipoAtual());
       html += '<div class="cart-cbx-item" data-idx="' + i + '" onmousedown="event.preventDefault();_extCbxPick(\'' + name + '\',' + i + ')">'
             + _extEsc(v) + (name === 'counter' ? _extCounterMarca(v) : '') + '</div>';
     }
