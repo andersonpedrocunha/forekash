@@ -2,7 +2,7 @@
 // Servido como arquivo fixo (não mais blob:) pra que o navegador consiga
 // comparar bytes e atualizar sozinho a cada deploy. A linha CACHE abaixo é
 // reescrita pelo script de deploy — é ela que dispara a atualização.
-const CACHE = 'forekash-v1787349438';
+const CACHE = 'forekash-v1787349787';
 const ASSETS = ['/', '/index.html'];
 
 self.addEventListener('install', e => {

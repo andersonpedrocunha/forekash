@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787349438"/>
+  <meta name="fk-build" content="forekash-v1787349787"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -89315,7 +89315,13 @@ function dispoUtilAnterior(d){ const x=new Date(d); let g=0; while(!dispoEhDiaUt
 
 function dispoRefConfig(){
   const r = (dispo && dispo.refSaldo) || {};
-  const modo = ['primeiroUtil','ultimoUtilAnterior','diaFixo'].includes(r.modo) ? r.modo : 'primeiroUtil';
+  /* 'ultimoUtilAnterior' foi trocado por 'ultimoUtil' (fim do PRÓPRIO mês).
+     A opção antiga era a MESMA foto do primeiro dia útil escrita de outro
+     jeito — nada se move entre a sexta e a segunda seguinte — e ainda punha
+     31/12/2025 dentro da planilha de 2026. Quem já tinha escolhido ela cai no
+     padrão, que é o que ela de fato representava. */
+  const bruto = (r.modo === 'ultimoUtilAnterior') ? 'primeiroUtil' : r.modo;
+  const modo = ['primeiroUtil','ultimoUtil','diaFixo'].includes(bruto) ? bruto : 'primeiroUtil';
   const dia = Math.min(28, Math.max(1, parseInt(r.dia, 10) || 10));
   return { modo, dia };
 }
@@ -89331,8 +89337,8 @@ try{ window.setDispoRefSaldo = setDispoRefSaldo; }catch(_){}
 function dispoDataRef(y, mIdx){
   const cfg = dispoRefConfig();
   const ano = parseInt(y, 10);
-  if(cfg.modo === 'ultimoUtilAnterior'){
-    const d = new Date(ano, mIdx, 0);          // último dia do mês anterior
+  if(cfg.modo === 'ultimoUtil'){
+    const d = new Date(ano, mIdx + 1, 0);      // último dia do PRÓPRIO mês
     return dispoUtilAnterior(d);
   }
   if(cfg.modo === 'diaFixo'){
@@ -99185,8 +99191,8 @@ function renderDispoRefBar(){
     `<span class="sf-lbl">Saldo em</span>` +
     bt('primeiroUtil', 'Primeiro dia útil',
        'Foto no primeiro dia útil de cada mês — pulando fim de semana e feriado') +
-    bt('ultimoUtilAnterior', 'Fechamento do mês anterior',
-       'Último dia útil do mês anterior. É o mesmo dinheiro do primeiro dia útil, só a convenção oposta') +
+    bt('ultimoUtil', 'Último dia útil',
+       'Foto no fechamento de cada mês — depois de folha, impostos e recebimentos do período') +
     bt('diaFixo', 'Dia fixo',
        'Um dia do mês à sua escolha, caindo pro próximo dia útil quando bate em fim de semana ou feriado') +
     (cfg.modo === 'diaFixo'
@@ -99204,7 +99210,7 @@ function renderDispoSheet(){
   const year = dispoCurYear();
   // Header
   const _refCfg = dispoRefConfig();
-  const _refNome = _refCfg.modo === 'ultimoUtilAnterior' ? 'último dia útil do mês anterior'
+  const _refNome = _refCfg.modo === 'ultimoUtil' ? 'último dia útil do mês'
                  : _refCfg.modo === 'diaFixo' ? ('dia ' + _refCfg.dia + ' (ou o próximo dia útil)')
                  : 'primeiro dia útil do mês';
   const mesThs = DISPO_MESES.map((_,m) => {
@@ -104411,8 +104417,15 @@ try{
     for(const m of muts){
       for(const nó of m.addedNodes){
         if(nó.nodeType !== 1) continue;
-        if(nó.matches && nó.matches('input[type="number"]')) _fkVirgulizarInput(nó);
-        else fkVirgulizarTudo(nó);
+        /* MESMO critério do fkVirgulizarTudo. Antes esta linha aceitava
+           qualquer input[type=number] criado dinamicamente, enquanto o scanner
+           exigia step="0.01" ou .fk-money — então campo numérico que não é
+           dinheiro (quantidade, dia do mês, percentual) nascia formatado como
+           moeda: "10" virava "10,00". Só acontecia com campo criado depois do
+           load, o que fazia parecer aleatório. */
+        if(nó.matches && nó.matches('input[type="number"][step="0.01"], input[type="number"].fk-money')){
+          _fkVirgulizarInput(nó);
+        } else fkVirgulizarTudo(nó);
       }
     }
   });
