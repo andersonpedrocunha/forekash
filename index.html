@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787323598"/>
+  <meta name="fk-build" content="forekash-v1787324024"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -109623,6 +109623,54 @@ async function pwaRegisterSW(){
     try{ console.warn('[PWA] SW registration failed:', e.message); }catch(_){}
   }
 }
+
+/* ══ AVISO DE VERSÃO NOVA, PELA VERSÃO DE VERDADE ═══════════════════════
+   O banner do service worker só acorda quando o WORKER muda de estado. Só que
+   o HTML aqui é sempre buscado da rede, então a página aberta pode estar velha
+   com o worker já atualizado — e nada avisa. Resultado prático: deploy sai,
+   a pessoa continua olhando a tela antiga, reporta como bug o que já foi
+   corrigido, e eu procuro defeito em código que não está rodando. Aconteceu o
+   dia inteiro em 20/08/2026.
+
+   Aqui a comparação é com o que realmente está carregado: version.txt do
+   servidor contra a meta fk-build desta página. */
+let _fkVerAvisada = false;
+/* Devolve o que decidiu ('igual', 'avisado', 'ja-avisado', 'sem-rede'...) em
+   vez de sumir em silêncio: função de diagnóstico que não se deixa
+   diagnosticar é a razão de eu ter passado o dia caçando bug no escuro. */
+async function fkChecarVersao(){
+  if(_fkVerAvisada) return 'ja-avisado';
+  let r;
+  try{
+    r = await fetch('/version.txt?t=' + Date.now(), { cache: 'no-store' });
+  }catch(e){ return 'sem-rede'; }
+  if(!r.ok) return 'http-' + r.status;
+  try{
+    const publicada = (await r.text()).trim();
+    const carregada = String(window.FK_VERSION || '').trim();
+    if(!publicada) return 'sem-version-txt';
+    if(!carregada) return 'sem-meta';
+    if(publicada === carregada) return 'igual';
+    _fkVerAvisada = true;
+    const b = document.getElementById('pwa-update-banner');
+    if(b){
+      const txt = b.querySelector('span');
+      if(txt) txt.textContent = 'Nova versão publicada';
+      b.classList.add('show');
+    }
+    try{ console.log('%c[FK] versão nova publicada: ' + publicada + ' · esta aba está em ' + carregada,
+      'background:#B45309;color:#fff;font-weight:700;padding:2px 8px;border-radius:4px'); }catch(_){}
+    return 'avisado';
+  }catch(e){ return 'erro: ' + (e && e.message); }
+}
+try{ window.fkChecarVersao = fkChecarVersao; }catch(_){}
+try{
+  setTimeout(fkChecarVersao, 20000);
+  setInterval(fkChecarVersao, 120000);
+  document.addEventListener('visibilitychange', () => {
+    if(document.visibilityState === 'visible') fkChecarVersao();
+  });
+}catch(_){}
 
 function pwaApplyUpdate(){
   if(PWA_REGISTRATION && PWA_REGISTRATION.waiting){
