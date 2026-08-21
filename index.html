@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787327903"/>
+  <meta name="fk-build" content="forekash-v1787338526"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -12465,6 +12465,12 @@
     .dispo-dados-list::-webkit-scrollbar-thumb{background:#D1D5DB;border-radius:3px}
     .dispo-dados-card{border:1px solid var(--bdr);border-radius:10px;padding:12px 14px;
                       background:#fff}
+    /* Marca permanente: o diálogo aparece uma vez, mas quem abrir a tela daqui
+       a três meses precisa enxergar isso sem ter visto o aviso. */
+    .dispo-enc-flag{margin-left:7px;padding:1px 7px;border-radius:4px;
+                    background:#FEF2F2;color:#B91C1C;border:1px solid #FECACA;
+                    font-size:.56rem;font-weight:800;letter-spacing:.04em;
+                    text-transform:uppercase;white-space:nowrap;cursor:help}
     .dispo-dados-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
     /* Recolhida: some tudo menos o cabeçalho e a faixa que explica de onde os
        dados vêm. Sem a explicação, "sumiu o formulário" viraria bug. */
@@ -99211,6 +99217,9 @@ function renderDispoRow(c, year){
       <div class="dispo-banco-cell${banco?'':' empty'}" onclick="openDispoBancoPicker(event, ${c.id})">
         ${rowHandleHtml()}
         ${renderDispoBancoCellInner(banco)}
+        ${(!isAtivo && DISPO_MESES.some((_,m)=> (+c.saldos[dispoMesKey(year,m)] || 0) > 0))
+          ? '<span class="dispo-enc-flag" title="Conta encerrada com saldo lançado neste ano. O valor conta nos totais — confira se é isso mesmo.">encerrada · com saldo</span>'
+          : ''}
       </div>
     </td>
     <td class="stk stk-2">
@@ -99502,6 +99511,12 @@ function reorderDispoConta(srcId, dstId, placeAbove){
   }
 }
 ROW_REORDERERS.dispo = reorderDispoConta;
+/* Contas encerradas já avisadas nesta sessão. O aviso é UMA vez por conta:
+   quem está preenchendo doze meses de uma conta encerrada não pode levar doze
+   diálogos na cara — a partir do segundo, o aviso vira obstáculo e a pessoa
+   clica em "ok" sem ler, que é o oposto de estar ciente. */
+const _dispoAvisadasEncerrada = new Set();
+
 function setDispoSaldo(id, key, val){
   const c = dispo.contas.find(x=>x.id===id); if(!c) return;
   const num = parseBR(val);
@@ -99509,6 +99524,26 @@ function setDispoSaldo(id, key, val){
     delete c.saldos[key];
   } else {
     c.saldos[key] = num;
+  }
+  /* Lançar saldo em conta encerrada é legítimo — a conta pode ter fechado com
+     dinheiro dentro, e esse dinheiro existiu. Por isso avisa, não bloqueia. O
+     risco é o silencioso: lançar sem perceber que a conta está inativa e
+     depois procurar o valor num saldo que a tela some. */
+  if(num > 0 && !c.ativo && !_dispoAvisadasEncerrada.has(id)){
+    _dispoAvisadasEncerrada.add(id);
+    const banco = (typeof dispoBanco === 'function' && dispoBanco(c.bancoId)) || null;
+    const tipo  = (typeof dispoTipo === 'function' && dispoTipo(c.tipoId)) || null;
+    const nome  = (banco ? banco.nome : 'Conta #' + c.id) + (tipo ? ' · ' + (tipo.abrev || tipo.nome) : '');
+    /* Toast, e não diálogo: anaConfirm e _dkbConfirm existem mas NÃO renderizam
+       nesta tela (testado). Diálogo que não aparece é pior que aviso nenhum —
+       some sem deixar rastro e a pessoa segue achando que está tudo certo.
+       O rastro que fica é o selo vermelho na linha, esse sim permanente. */
+    setTimeout(() => {
+      if(typeof toast === 'function'){
+        toast('⚠ ' + nome + ' está ENCERRADA — o valor foi lançado e conta nos totais. '
+            + 'Confira se é essa conta mesmo.', 7000);
+      }
+    }, 0);
   }
   dispoSave();
   updateDispoKpis();
