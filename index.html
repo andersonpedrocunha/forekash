@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787596952"/>
+  <meta name="fk-build" content="forekash-v1787602163"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -12997,16 +12997,33 @@
       transition:opacity .12s,background .12s,border-color .12s}
     .flx-cashbox-ctl .flx-check:hover{opacity:1;background:#ECFDF5;border-color:#10B981}
     .flx-cashbox-ctl .flx-check.on{opacity:1;background:#ECFDF5;border-color:#10B981}
-    .flx-sheet tbody td.mes.flx-projetado{background:#FBFCFE;color:#64748B}
-    .flx-sheet tbody tr:hover td.mes.flx-projetado{background:#F5F8FD}
-    .flx-sheet tbody td.mes.flx-projetado .flx-inp{color:#64748B}
+    /* Os DOIS estados se marcam, não só um. A versão anterior pintava só a
+       projeção, apostando que o realizado seria maioria — com o Extrato vazio
+       antes de agosto, 100% das células viraram projeção e a tela ficou
+       uniforme: marca que só existe por contraste some quando não há contraste.
+
+       Projeção: número em itálico e tom claro. Itálico é o que se lê mesmo com
+       a tabela inteira nesse estado, porque não depende de comparar com nada. */
+    .flx-sheet tbody td.mes.flx-projetado{background:#FAFBFF;color:#64748B;font-style:italic}
+    .flx-sheet tbody tr:hover td.mes.flx-projetado{background:#F1F5FD}
+    .flx-sheet tbody td.mes.flx-projetado .flx-inp{color:#64748B;font-style:italic}
     .flx-sheet thead th.mes.flx-projetado{color:#94A3B8}
-    /* Realizado: o número em tinta cheia e um traço no pé da célula. O traço é
-       o que se lê de longe — cor sozinha some em tela clara e não sobrevive a
-       impressão em preto e branco. */
-    .flx-sheet tbody td.mes.flx-realizado{color:#0F172A;font-weight:600;
-                                          box-shadow:inset 0 -2px 0 #A7F3D0}
-    .flx-sheet tbody td.mes.flx-realizado .flx-inp{color:#0F172A;font-weight:600}
+    /* Realizado: tinta cheia, sem itálico, e traço verde no pé. O traço é o que
+       sobrevive a impressão em preto e branco — cor sozinha não. */
+    .flx-sheet tbody td.mes.flx-realizado{color:#0F172A;font-weight:600;font-style:normal;
+                                          box-shadow:inset 0 -2px 0 #34D399}
+    .flx-sheet tbody td.mes.flx-realizado .flx-inp{color:#0F172A;font-weight:600;font-style:normal}
+    /* Legenda: com a tabela inteira num estado só, é ela que informa. */
+    .flx-legenda{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+                 margin:0 0 10px;font-size:.72rem;color:var(--txm)}
+    .flx-leg-item{display:inline-flex;align-items:center;gap:6px}
+    .flx-leg-sw{width:22px;height:14px;border-radius:3px;border:1px solid var(--bdr);
+                display:inline-block;flex:none}
+    .flx-leg-sw.real{background:#fff;box-shadow:inset 0 -2px 0 #34D399}
+    .flx-leg-sw.proj{background:#FAFBFF}
+    .flx-leg-aviso{margin-left:auto;padding:4px 10px;border-radius:7px;
+                   background:#FFFBEB;border:1px solid #FDE68A;color:#92400E;
+                   font-weight:600}
     /* (sem linha divisória) A separação é da CÉLULA, não uma parede no meio da
        tabela: linha e coluna não são realizadas em bloco — Empréstimos não tem
        leitor no Extrato, então continua projeção mesmo em mês fechado. Uma
@@ -21522,6 +21539,10 @@ td.mes.do-extrato{background:#ECFDF5}
              padrão sazonal que a tabela não mostra. -->
 
         <!-- Toolbar: Visão, Análise Vertical/Horizontal, Voltar projeção -->
+        <!-- Legenda: quando a tabela inteira está num estado só, é ela que
+             informa — a marca visual depende de contraste e some sem ele. -->
+        <div class="flx-legenda" id="flx-legenda"></div>
+
         <div class="flx-ana-toolbar" role="group" aria-label="Ferramentas do Demonstrativo">
           <span class="flx-ana-label">Visão</span>
           <div class="flx-view-group" role="group" aria-label="Modo de visualização">
@@ -39790,6 +39811,35 @@ try{ window._flxEhVirada = _flxEhVirada; }catch(_){}
 /* Classe da célula: só é realizada quando o valor veio MESMO do Extrato.
    Linha sem leitor (Empréstimos) ou mês sem lançamento continuam projeção —
    é a diferença entre "o mês fechou" e "eu conferi o que saiu". */
+/* Conta quantos meses de fato têm realizado vindo do Extrato — em QUALQUER
+   linha. É o número que responde "o que aqui é fato e o que é estimativa?",
+   e ele precisa aparecer mesmo quando a resposta é "nada". */
+function renderFlxLegenda(){
+  const el = document.getElementById('flx-legenda');
+  if(!el) return;
+  const year = flxActiveYear;
+  const linhas = ['receita','folha','despesas','impostos'];
+  let mesesReais = 0;
+  for(let m = 0; m < 12; m++){
+    if(flxClasseRealizado(year, m) !== 'flx-realizado') continue;
+    const tem = linhas.some(rk => {
+      try{ return flxRealizadoExtrato(year, rk, m) != null; }catch(_){ return false; }
+    });
+    if(tem) mesesReais++;
+  }
+  const fechados = (() => { let n = 0; for(let m=0;m<12;m++) if(flxClasseRealizado(year,m)==='flx-realizado') n++; return n; })();
+  const aviso = (fechados > 0 && mesesReais === 0)
+    ? `<span class="flx-leg-aviso" title="Os meses fechados estão sendo preenchidos com a previsão dos módulos porque o Extrato não tem lançamentos neles. Importe o extrato para virarem realizado.">Nenhum mês realizado — o Extrato não tem lançamentos em ${year}</span>`
+    : (mesesReais < fechados
+        ? `<span class="flx-leg-aviso" title="Meses fechados sem lançamento no Extrato seguem mostrando a previsão dos módulos.">${mesesReais} de ${fechados} meses fechados têm realizado</span>`
+        : '');
+  el.innerHTML =
+    `<span class="flx-leg-item"><span class="flx-leg-sw real"></span>Realizado · vem do Extrato</span>` +
+    `<span class="flx-leg-item"><span class="flx-leg-sw proj"></span><em>Projeção · calculada pelos módulos</em></span>` +
+    aviso;
+}
+try{ window.renderFlxLegenda = renderFlxLegenda; }catch(_){}
+
 function flxClasseCelula(year, rowKey, mIdx){
   if(flxClasseRealizado(year, mIdx) !== 'flx-realizado') return 'flx-projetado';
   if(!rowKey) return 'flx-projetado';
@@ -41126,6 +41176,7 @@ function flxChildRowsImpParcelamentos(year, ctx){
 }
 
 function renderFlxSheet(){
+  try{ renderFlxLegenda(); }catch(_){}
   const thead = document.getElementById('flx-thead');
   const tbody = document.getElementById('flx-tbody');
   if(!thead || !tbody) return;
