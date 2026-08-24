@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787595055"/>
+  <meta name="fk-build" content="forekash-v1787596952"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -12997,13 +12997,20 @@
       transition:opacity .12s,background .12s,border-color .12s}
     .flx-cashbox-ctl .flx-check:hover{opacity:1;background:#ECFDF5;border-color:#10B981}
     .flx-cashbox-ctl .flx-check.on{opacity:1;background:#ECFDF5;border-color:#10B981}
-    .flx-sheet tbody td.mes.flx-projetado{background:#FBFCFE}
+    .flx-sheet tbody td.mes.flx-projetado{background:#FBFCFE;color:#64748B}
     .flx-sheet tbody tr:hover td.mes.flx-projetado{background:#F5F8FD}
     .flx-sheet tbody td.mes.flx-projetado .flx-inp{color:#64748B}
     .flx-sheet thead th.mes.flx-projetado{color:#94A3B8}
-    /* A virada ganha uma linha vertical: é onde o fato vira estimativa. */
-    .flx-sheet td.mes.flx-projetado.flx-virada,
-    .flx-sheet th.mes.flx-projetado.flx-virada{box-shadow:inset 2px 0 0 #C7D2FE}
+    /* Realizado: o número em tinta cheia e um traço no pé da célula. O traço é
+       o que se lê de longe — cor sozinha some em tela clara e não sobrevive a
+       impressão em preto e branco. */
+    .flx-sheet tbody td.mes.flx-realizado{color:#0F172A;font-weight:600;
+                                          box-shadow:inset 0 -2px 0 #A7F3D0}
+    .flx-sheet tbody td.mes.flx-realizado .flx-inp{color:#0F172A;font-weight:600}
+    /* (sem linha divisória) A separação é da CÉLULA, não uma parede no meio da
+       tabela: linha e coluna não são realizadas em bloco — Empréstimos não tem
+       leitor no Extrato, então continua projeção mesmo em mês fechado. Uma
+       divisória vertical afirmaria um corte que não existe. */
 
     /* ── Toolbar: Análise AV / AH ── */
     /* ── Aba Evolução: toolbar + tabela loan × mês ── */
@@ -39686,6 +39693,15 @@ function _flxInpCell(year, mIdx, field, curVal){
 
 // Retorna o valor auto (derivado de outra aba) para uma rowKey pullable.
 function _flxAutoForRow(year, rowKey, mIdx){
+  /* Mês fechado com realizado no Extrato: o Extrato manda. É ele que viu o
+     dinheiro passar; o módulo só sabe o que estava combinado. Sem realizado
+     (ou mês ainda em curso), segue a projeção do módulo. */
+  try{
+    if(flxClasseRealizado(year, mIdx) === 'flx-realizado'){
+      const r = flxRealizadoExtrato(year, rowKey, mIdx);
+      if(r != null) return r;
+    }
+  }catch(_){}
   try{
     if(rowKey === 'receita')      return _flxAutoReceita(year, mIdx);
     if(rowKey === 'folha')        return _flxAutoFolha(year, mIdx);
@@ -39726,12 +39742,61 @@ function _flxManualCell(year, rowKey, mIdx){
    Mês corrente e futuros = projeção, que é o que os módulos calculam.
    O mês corrente é projeção de propósito: ele ainda está acontecendo, e metade
    de um mês não é um fato — é um pedaço. */
+/* ══ REALIZADO DE VERDADE ═══════════════════════════════════════════════
+   Marcar a célula de "realizado" só porque o mês fechou era rótulo sem lastro:
+   as linhas continuavam vindo dos módulos. Folha, por exemplo, sai de
+   pessoas[].salarios — o COMBINADO — e por isso jun, jul e ago apareciam
+   idênticos. Contrato repetido não é pagamento.
+
+   Aqui a célula só é realizada quando o número veio mesmo do Extrato. Cada
+   módulo já tem seu leitor, construído nos últimos dias; isto só os reúne.
+   Empréstimos fica de fora porque não existe leitor — e chamar de realizado o
+   que não foi conferido seria repetir o erro. */
+function flxRealizadoExtrato(year, rowKey, mIdx){
+  const ym = year + '-' + String(mIdx+1).padStart(2,'0');
+  const somaMapa = (mapa) => {
+    if(!mapa) return null;
+    let t = 0, achou = false;
+    for(const k of Object.keys(mapa)){
+      const v = (mapa[k] || {})[ym];
+      if(v != null){ t += +v || 0; achou = true; }
+    }
+    return achou ? t : null;
+  };
+  try{
+    if(rowKey === 'receita'   && typeof recRealizadoExtrato === 'function')
+      return somaMapa(recRealizadoExtrato(year));
+    if(rowKey === 'despesas'  && typeof estRealizadoExtrato === 'function')
+      return somaMapa(estRealizadoExtrato(year));
+    if(rowKey === 'impostos'  && typeof impRealizadoExtrato === 'function')
+      return somaMapa(impRealizadoExtrato(year));
+    if(rowKey === 'folha'     && typeof pesPagoExtrato === 'function'){
+      const m = pesPagoExtrato(year);
+      const v = m && m[ym];
+      return v != null ? (+v || 0) : null;
+    }
+  }catch(_){}
+  return null;
+}
+try{ window.flxRealizadoExtrato = flxRealizadoExtrato; }catch(_){}
+
 /* Primeiro mês projetado do ano — é onde o fato vira estimativa. */
 function _flxEhVirada(year, mIdx){
   if(flxClasseRealizado(year, mIdx) !== 'flx-projetado') return false;
   return mIdx === 0 || flxClasseRealizado(year, mIdx - 1) === 'flx-realizado';
 }
 try{ window._flxEhVirada = _flxEhVirada; }catch(_){}
+
+/* Classe da célula: só é realizada quando o valor veio MESMO do Extrato.
+   Linha sem leitor (Empréstimos) ou mês sem lançamento continuam projeção —
+   é a diferença entre "o mês fechou" e "eu conferi o que saiu". */
+function flxClasseCelula(year, rowKey, mIdx){
+  if(flxClasseRealizado(year, mIdx) !== 'flx-realizado') return 'flx-projetado';
+  if(!rowKey) return 'flx-projetado';
+  try{ return flxRealizadoExtrato(year, rowKey, mIdx) != null ? 'flx-realizado' : 'flx-projetado'; }
+  catch(_){ return 'flx-projetado'; }
+}
+try{ window.flxClasseCelula = flxClasseCelula; }catch(_){}
 
 function flxClasseRealizado(year, mIdx){
   const h = new Date();
@@ -41091,7 +41156,7 @@ function renderFlxSheet(){
       return parts.join('');
     };
     const top = FLX_MESES.map((m, i) =>
-      `<th class="mes mes-top ${flxClasseRealizado(year, i)}${_flxEhVirada(year,i)?' flx-virada':''}"
+      `<th class="mes mes-top ${flxClasseRealizado(year, i)}"
            colspan="${subCols}" title="${flxClasseRealizado(year,i)==='flx-realizado'
              ? 'Mês fechado · realizado, vindo do Extrato Financeiro'
              : 'Projeção — calculada pelos módulos'}">${m.toUpperCase()}</th>`
@@ -41105,7 +41170,7 @@ function renderFlxSheet(){
     </tr><tr>${bot}${subHeader()}${subHeader()}</tr>`;
   } else {
     const mesCols = FLX_MESES.map((m, i) =>
-      `<th class="mes ${flxClasseRealizado(year, i)}${_flxEhVirada(year,i)?' flx-virada':''}"
+      `<th class="mes ${flxClasseRealizado(year, i)}"
            title="${flxClasseRealizado(year,i)==='flx-realizado'
              ? 'Mês fechado · realizado, vindo do Extrato Financeiro'
              : 'Projeção — calculada pelos módulos'}">${m.toUpperCase()}</th>`).join('');
@@ -41223,7 +41288,7 @@ function renderFlxSheet(){
         ? _flxManualCell(year, rowKey, m)
         : _flxCell(v, opts);
       const checkBtn = '';
-      const tdCls = 'mes ' + flxClasseRealizado(year, m) + (_flxEhVirada(year,m) ? ' flx-virada' : '');
+      const tdCls = 'mes ' + flxClasseCelula(year, rowKey, m);
       if(hasAna && analyze){
         const extra = _flxExtraCells(v, arr, m, arrReceita);
         return `<td class="${tdCls}">${inner}${checkBtn}</td>${extra}`;
@@ -41267,7 +41332,7 @@ function renderFlxSheet(){
     const cells = FLX_MESES.map((_,m)=>{
       const raw = (((fluxo.inputs||{})[year]||{})[field]||{})[m];
       const inp = _flxInpCell(year, m, field==='impostos'?'Imposto':(field==='creditoAlv'?'Credito':(field==='outrasDesp'?'OutrasDesp':'Outras')), raw);
-      const tdCls = 'mes ' + flxClasseRealizado(year, m) + (_flxEhVirada(year,m) ? ' flx-virada' : '');
+      const tdCls = 'mes ' + flxClasseCelula(year, rowKey, m);
       return `<td class="${tdCls}"${span}>${inp}</td>`;
     }).join('');
     const dotSpan = dot ? `<span class="flx-dot ${dot}"></span>` : '';
