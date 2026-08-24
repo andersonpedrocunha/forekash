@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787604202"/>
+  <meta name="fk-build" content="forekash-v1787605415"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -39001,7 +39001,7 @@ function flxImpParcelamentoMesAuto(year, mIdx){
 // Parcelamentos de impostos: total pago no mês (principal + juros) consolidado
 // nos parcelamentos ativos. Respeita override manual digitado na planilha.
 function flxImpParcelamentoMes(year, mIdx){
-  return flxImpParcelamentoMesFinal(year, mIdx);
+  return _flxValorMes(year, 'parcImpostos', mIdx, flxImpParcelamentoMesFinal);
 }
 // Parcelamentos de impostos: juros efetivamente pagos (≠ juros teóricos SELIC).
 // Deriva da variação do saldo: jurosPago = parcela - principal_amortizado.
@@ -39099,39 +39099,37 @@ try{ window.flxRetencoesMes = flxRetencoesMes; }catch(_){}
 
 // Wrappers: override manual (se houver) vence; senão, usa o valor derivado da aba.
 // Usados em: renderFlxSheet, updateFlxKpis, módulo Orçamento (realizado).
-function flxReceitaMes(year, mIdx){
-  return flxHasOverride(year,'receita',mIdx)
-       ? flxOverrideVal(year,'receita',mIdx)
-       : _flxAutoReceita(year,mIdx);
+/* Portão único das linhas puxadas. Existe porque a primeira versão da regra
+   ficou só no caminho de EXIBIÇÃO (_flxAutoForRow) — a célula zerava mas
+   RESULTADO e FLUXO DE CAIXA continuavam somando a projeção, e a tela passava
+   a se contradizer.
+
+   Ordem: override do usuário > Extrato (em mês fechado) > módulo.
+   O override vem primeiro porque é ele digitando um número, não uma estimativa
+   herdada — e existe o botão "Voltar com a projeção" pra limpar. */
+function _flxValorMes(year, rowKey, mIdx, auto){
+  if(flxHasOverride(year, rowKey, mIdx)) return flxOverrideVal(year, rowKey, mIdx);
+  try{
+    if(flxClasseRealizado(year, mIdx) === 'flx-realizado'){
+      const r = flxRealizadoExtrato(year, rowKey, mIdx);
+      return r != null ? r : 0;
+    }
+  }catch(_){ return 0; }
+  return auto(year, mIdx);
 }
-function flxFolhaMes(year, mIdx){
-  return flxHasOverride(year,'folha',mIdx)
-       ? flxOverrideVal(year,'folha',mIdx)
-       : _flxAutoFolha(year,mIdx);
-}
-function flxDespesasMes(year, mIdx){
-  return flxHasOverride(year,'despesas',mIdx)
-       ? flxOverrideVal(year,'despesas',mIdx)
-       : _flxAutoDespesas(year,mIdx);
-}
-function flxEmprestimosMes(year, mIdx){
-  return flxHasOverride(year,'emprestimos',mIdx)
-       ? flxOverrideVal(year,'emprestimos',mIdx)
-       : _flxAutoEmprestimos(year,mIdx);
-}
+function flxReceitaMes(year, mIdx){     return _flxValorMes(year,'receita',mIdx,_flxAutoReceita); }
+function flxFolhaMes(year, mIdx){       return _flxValorMes(year,'folha',mIdx,_flxAutoFolha); }
+function flxDespesasMes(year, mIdx){    return _flxValorMes(year,'despesas',mIdx,_flxAutoDespesas); }
+function flxEmprestimosMes(year, mIdx){ return _flxValorMes(year,'emprestimos',mIdx,_flxAutoEmprestimos); }
 function flxImpostoMes(year, mIdx){
   if(typeof _impCalcCache !== 'undefined' && _impCalcCache){
     const k = 'flxImpostoMes:' + year + ':' + mIdx;
     if(k in _impCalcCache) return _impCalcCache[k];
-    const v = flxHasOverride(year,'impostos',mIdx)
-       ? flxOverrideVal(year,'impostos',mIdx)
-       : _flxAutoImpostos(year, mIdx);
+    const v = _flxValorMes(year,'impostos',mIdx,_flxAutoImpostos);
     _impCalcCache[k] = v;
     return v;
   }
-  return flxHasOverride(year,'impostos',mIdx)
-       ? flxOverrideVal(year,'impostos',mIdx)
-       : _flxAutoImpostos(year, mIdx);
+  return _flxValorMes(year,'impostos',mIdx,_flxAutoImpostos);
 }
 
 // ─── Natureza de imposto para a DRE gerencial ─────────────────────────────
@@ -39739,15 +39737,17 @@ function _flxInpCell(year, mIdx, field, curVal){
 
 // Retorna o valor auto (derivado de outra aba) para uma rowKey pullable.
 function _flxAutoForRow(year, rowKey, mIdx){
-  /* Mês fechado com realizado no Extrato: o Extrato manda. É ele que viu o
-     dinheiro passar; o módulo só sabe o que estava combinado. Sem realizado
-     (ou mês ainda em curso), segue a projeção do módulo. */
+  /* MÊS FECHADO = SÓ O EXTRATO. Decisão dele, tomada vendo a tela: período que
+     já passou não se projeta. Sem lançamento correspondente, a célula vale
+     ZERO — e zero aqui não é "não gastou", é "não há prova", que a marca âmbar
+     diz na tela. Cair no módulo enchia sete meses de custo afirmado sem
+     lastro, e ainda contaminava Resultado e Fluxo de Caixa. */
   try{
     if(flxClasseRealizado(year, mIdx) === 'flx-realizado'){
       const r = flxRealizadoExtrato(year, rowKey, mIdx);
-      if(r != null) return r;
+      return r != null ? r : 0;
     }
-  }catch(_){}
+  }catch(_){ return 0; }
   try{
     if(rowKey === 'receita')      return _flxAutoReceita(year, mIdx);
     if(rowKey === 'folha')        return _flxAutoFolha(year, mIdx);
@@ -39767,14 +39767,20 @@ function _flxManualCell(year, rowKey, mIdx){
   const valStr = hasOvr ? fmtBR(flxOverrideVal(year, rowKey, mIdx)) : '';
   const autoN  = _flxAutoForRow(year, rowKey, mIdx);
   const ph     = autoN ? fmtBR(autoN) : '0,00';
-  const confirmed = flxIsConfirmed(year, rowKey, mIdx);
-  const tip    = confirmed
-    ? 'Valor confirmado — remova o ✓ para editar.'
-    : (autoN
-        ? 'Puxado da aba de origem: '+fmtBRL(autoN)+'. Digite para sobrescrever.'
-        : 'Nada registrado na aba de origem. Digite para preencher manualmente.');
-  const ro = confirmed ? ' readonly' : '';
-  const roClick = confirmed ? ' onmousedown="notifyLocked()"' : '';
+  /* A confirmação por célula deixou de existir junto com o ✓. Se ela
+     continuasse travando o campo, uma marcação antiga deixaria a célula
+     READONLY com a dica "remova o ✓ para editar" — e não há mais ✓ para
+     remover. Campo trancado sem chave é pior que campo destrancado. */
+  const estado = flxClasseCelula(year, rowKey, mIdx);
+  const tip    = estado === 'flx-realizado'
+    ? 'Realizado — veio do Extrato Financeiro. Digite para sobrescrever.'
+    : (estado === 'flx-naoconferido'
+        ? 'Mês já fechado e sem lançamento no Extrato. Zero aqui significa "sem prova", não "sem gasto" — importe ou lance no Extrato.'
+        : (autoN
+            ? 'Projeção da aba de origem: '+fmtBRL(autoN)+'. Digite para sobrescrever.'
+            : 'Nada registrado na aba de origem. Digite para preencher manualmente.'));
+  const ro = '';
+  const roClick = '';
   return `<input class="flx-inp${hasOvr?' flx-ovr':''}" type="text"
                  value="${valStr}"
                  placeholder="${ph}"
@@ -39829,8 +39835,45 @@ function flxRealizadoExtrato(year, rowKey, mIdx){
       const v = m && m[ym];
       return v != null ? (+v || 0) : null;
     }
+    /* Empréstimos e Parcelamento não tinham leitor próprio, mas ESTÃO no
+       Extrato — as parcelas do Pronampe entram com categoria Empréstimos.
+       Somar por módulo do catmap cobre os dois sem inventar nada. */
+    if(rowKey === 'emprestimos')  return _flxRealPorModulo(year, 'emprestimos', ym);
+    if(rowKey === 'parcImpostos') return _flxRealPorCategoria(year, 'Parcelamento de Impostos', ym);
   }catch(_){}
   return null;
+}
+
+/* Soma do Extrato por módulo do catmap — mês do pagamento, como o DRC pede. */
+function _flxRealPorModulo(year, moduloId, ym){
+  try{
+    const cats = new Set();
+    (catmapData.categorias || []).forEach(c => {
+      if(c && c.moduloId === moduloId && c.nome) cats.add(String(c.nome).trim().toLowerCase());
+    });
+    if(!cats.size) return null;
+    return _flxSomaExtrato(ym, l => cats.has(String(l.categoria||'').trim().toLowerCase()));
+  }catch(_){ return null; }
+}
+function _flxRealPorCategoria(year, nome, ym){
+  const alvo = String(nome).trim().toLowerCase();
+  return _flxSomaExtrato(ym, l => String(l.categoria||'').trim().toLowerCase() === alvo);
+}
+function _flxSomaExtrato(ym, casa){
+  let lans = [];
+  try{ lans = (extratoData && extratoData.lancamentos) || []; }catch(_){ return null; }
+  let t = 0, achou = false;
+  for(const l of lans){
+    if(!l || l.tipo !== 'gasto' || !casa(l)) continue;
+    const bs = (typeof extBaixas === 'function') ? extBaixas(l) : [];
+    if(bs.length){
+      bs.forEach(b => { if(String(b.data||'').slice(0,7) === ym){ t += parseFloat(b.valor)||0; achou = true; } });
+    } else if(l.status === 'pago'){
+      const d = String(l.dataPagamento || l.data || '').slice(0,7);
+      if(d === ym){ t += parseFloat(l.valorPago || l.valor) || 0; achou = true; }
+    }
+  }
+  return achou ? t : null;
 }
 try{ window.flxRealizadoExtrato = flxRealizadoExtrato; }catch(_){}
 
