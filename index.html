@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787605415"/>
+  <meta name="fk-build" content="forekash-v1787607465"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -13015,9 +13015,30 @@
     .flx-sheet thead th.mes.flx-projetado{color:#A5B4FC}
     /* Realizado: tinta cheia, sem itálico, e traço verde no pé. O traço é o que
        sobrevive a impressão em preto e branco — cor sozinha não. */
-    .flx-sheet tbody td.mes.flx-realizado{background:#fff;color:#0F172A;font-weight:700;
-                                          font-style:normal;box-shadow:inset 0 -3px 0 #10B981}
-    .flx-sheet tbody td.mes.flx-realizado .flx-inp{color:#0F172A;font-weight:700;font-style:normal}
+    /* Verde suave, não branco. Contra uma coluna inteira de âmbar, o branco lia
+       como "faltou formatar" em vez de "isto está conferido" — estado precisa
+       de cor própria, não da ausência das outras. */
+    /* !important como no flx-projetado: linhas de destaque (RECEITA, GASTO
+       TOTAL, RESULTADO) trazem fundo próprio e venciam o estado da célula —
+       janeiro aparecia azulado, sem cara de conferido. */
+    .flx-sheet tbody td.mes.flx-realizado{background:#F0FDF4 !important;color:#065F46;
+                                          font-weight:700;font-style:normal;
+                                          box-shadow:inset 0 -3px 0 #10B981}
+    .flx-sheet tbody tr:hover td.mes.flx-realizado{background:#DCFCE7 !important}
+    .flx-sheet tbody td.mes.flx-realizado .flx-inp{color:#065F46;font-weight:700;font-style:normal;
+                                                   background:transparent}
+    .flx-leg-sw.real{background:#F0FDF4;color:#065F46}
+
+    /* ══ MÊS ATUAL ══ Mesma cor do seu estado, mais forte. Ele não é um quarto
+       estado — é o mês em que você está, e precisa ser achado de relance sem
+       inventar outra semântica. */
+    .flx-sheet thead th.mes.flx-mes-atual{background:#312E81;color:#fff}
+    .flx-sheet tbody td.mes.flx-mes-atual.flx-projetado{background:#C7D2FE !important;
+                                                        color:#312E81;font-weight:700}
+    .flx-sheet tbody td.mes.flx-mes-atual.flx-projetado .flx-inp{color:#312E81;font-weight:700}
+    .flx-sheet tbody tr:hover td.mes.flx-mes-atual.flx-projetado{background:#A5B4FC !important}
+    .flx-sheet tbody td.mes.flx-mes-atual.flx-realizado{background:#BBF7D0 !important}
+
     /* Legenda: com a tabela inteira num estado só, é ela que informa. */
     .flx-legenda{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
                  margin:0 0 10px;font-size:.72rem;color:var(--txm)}
@@ -13030,18 +13051,7 @@
     .flx-leg-sw.real::after{content:"123"}
     .flx-leg-sw.proj{background:#EEF2FF;color:#4F46E5;font-style:italic;border-color:#C7D2FE}
     .flx-leg-sw.proj::after{content:"123"}
-    .flx-leg-sw.naoconf{background:#FFFBEB;color:#B45309;border-color:#FDE68A;
-                        box-shadow:inset 0 -3px 0 #FBBF24}
-    .flx-leg-sw.naoconf::after{content:"123"}
-    /* Mês que JÁ PASSOU sem lançamento no Extrato. Âmbar porque é o único dos
-       três que pede ação: o dinheiro saiu de verdade lá atrás e ninguém
-       conferiu. Não é estimativa de futuro — é buraco de conferência, e
-       precisa incomodar um pouco. */
-    .flx-sheet tbody td.mes.flx-naoconferido{background:#FFFBEB !important;color:#B45309;
-                                             font-style:normal;box-shadow:inset 0 -3px 0 #FDE68A}
-    .flx-sheet tbody tr:hover td.mes.flx-naoconferido{background:#FEF3C7 !important}
-    .flx-sheet tbody td.mes.flx-naoconferido .flx-inp{color:#B45309;font-style:normal;
-                                                      background:transparent}
+
     .flx-leg-aviso{margin-left:auto;padding:4px 10px;border-radius:7px;
                    background:#FFFBEB;border:1px solid #FDE68A;color:#92400E;
                    font-weight:600}
@@ -39773,12 +39783,12 @@ function _flxManualCell(year, rowKey, mIdx){
      remover. Campo trancado sem chave é pior que campo destrancado. */
   const estado = flxClasseCelula(year, rowKey, mIdx);
   const tip    = estado === 'flx-realizado'
-    ? 'Realizado — veio do Extrato Financeiro. Digite para sobrescrever.'
-    : (estado === 'flx-naoconferido'
-        ? 'Mês já fechado e sem lançamento no Extrato. Zero aqui significa "sem prova", não "sem gasto" — importe ou lance no Extrato.'
-        : (autoN
-            ? 'Projeção da aba de origem: '+fmtBRL(autoN)+'. Digite para sobrescrever.'
-            : 'Nada registrado na aba de origem. Digite para preencher manualmente.'));
+    ? (autoN
+        ? 'Realizado — veio do Extrato Financeiro. Digite para sobrescrever.'
+        : 'Mês fechado: o Extrato não tem lançamento aqui, então vale zero. Importe o extrato ou digite para sobrescrever.')
+    : (autoN
+        ? 'Projeção da aba de origem: '+fmtBRL(autoN)+'. Digite para sobrescrever.'
+        : 'Nada registrado na aba de origem. Digite para preencher manualmente.');
   const ro = '';
   const roClick = '';
   return `<input class="flx-inp${hasOvr?' flx-ovr':''}" type="text"
@@ -39877,6 +39887,13 @@ function _flxSomaExtrato(ym, casa){
 }
 try{ window.flxRealizadoExtrato = flxRealizadoExtrato; }catch(_){}
 
+/* O mês em que estamos. Não é estado — é posição. */
+function _flxEhMesAtual(year, mIdx){
+  const h = new Date();
+  return parseInt(year,10) === h.getFullYear() && mIdx === h.getMonth();
+}
+try{ window._flxEhMesAtual = _flxEhMesAtual; }catch(_){}
+
 /* Primeiro mês projetado do ano — é onde o fato vira estimativa. */
 function _flxEhVirada(year, mIdx){
   if(flxClasseRealizado(year, mIdx) !== 'flx-projetado') return false;
@@ -39894,45 +39911,41 @@ function renderFlxLegenda(){
   const el = document.getElementById('flx-legenda');
   if(!el) return;
   const year = flxActiveYear;
-  /* Conta por CÉLULA, não por mês: um mês pode ter a receita conferida e a
-     folha não. Dizer "o mês está realizado" quando só uma linha está seria a
-     mesma meia-verdade de antes. */
-  const linhas = ['receita','folha','despesas','impostos'];
-  let reais = 0, naoConf = 0;
+  /* Conta quantas linhas de mês fechado o Extrato realmente preencheu. Zero
+     legítimo e zero por falta de lançamento são indistinguíveis na célula, e
+     é este contador que avisa quando o Extrato está vazio. */
+  const linhas = ['receita','folha','despesas','impostos','emprestimos'];
+  let comValor = 0, total = 0;
   for(let m = 0; m < 12; m++){
     if(flxClasseRealizado(year, m) !== 'flx-realizado') continue;
     for(const rk of linhas){
-      if(flxClasseCelula(year, rk, m) === 'flx-realizado') reais++; else naoConf++;
+      total++;
+      try{ if(flxRealizadoExtrato(year, rk, m) != null) comValor++; }catch(_){}
     }
   }
-  const aviso = naoConf > 0
-    ? `<span class="flx-leg-aviso" title="Mês que já passou, com valor vindo do módulo porque o Extrato não tem lançamento correspondente. Importe ou lance no Extrato para virar realizado.">`
-      + `${naoConf} valor(es) de meses fechados ainda não foram conferidos no Extrato</span>`
+  const aviso = (total > 0 && comValor === 0)
+    ? `<span class="flx-leg-aviso" title="Os meses fechados leem só o Extrato Financeiro. Sem lançamento lá, a célula vale zero — importe o extrato para preencher.">`
+      + `O Extrato não tem lançamentos em ${year} — meses fechados estão zerados</span>`
     : '';
   el.innerHTML =
     `<span class="flx-leg-item"><span class="flx-leg-sw real"></span>Realizado · vem do Extrato</span>` +
-    `<span class="flx-leg-item"><span class="flx-leg-sw naoconf"></span>Não conferido · mês fechado sem lançamento</span>` +
-    `<span class="flx-leg-item"><span class="flx-leg-sw proj"></span><em>Projeção · mês futuro</em></span>` +
+    `<span class="flx-leg-item"><span class="flx-leg-sw proj"></span><em>Projeção · mês corrente e futuros</em></span>` +
     aviso;
 }
 try{ window.renderFlxLegenda = renderFlxLegenda; }catch(_){}
 
-/* TRÊS estados, não dois. Chamar de "projeção" o valor de um mês que já passou
-   é errado na palavra e esconde o que importa: aquele número não é uma
-   estimativa do futuro, é um previsto que ninguém conferiu contra o Extrato.
+/* DOIS estados. O terceiro ("não conferido") existia enquanto o mês fechado
+   ainda podia cair na projeção do módulo — aí fazia sentido distinguir "isto
+   veio do Extrato" de "isto é previsto sem prova".
 
-   · realizado      — mês fechado, veio do Extrato
-   · nao-conferido  — mês fechado, veio do módulo (falta lançar/importar)
-   · projetado      — mês corrente ou futuro, veio do módulo
+   Com a regra atual, mês fechado lê SÓ o Extrato. A resposta dele, inclusive
+   quando é zero, É o realizado. Manter um terceiro estado depois disso seria
+   marcar de amarelo o próprio Extrato dizendo "não houve movimento".
 
-   O do meio é o único que pede ação, e por isso é o único em âmbar. */
+   · realizado — mês fechado: o que o Extrato tem (zero inclusive)
+   · projetado — mês corrente e futuros: o que os módulos calculam */
 function flxClasseCelula(year, rowKey, mIdx){
-  const fechado = flxClasseRealizado(year, mIdx) === 'flx-realizado';
-  if(!fechado) return 'flx-projetado';
-  if(!rowKey) return 'flx-naoconferido';
-  try{
-    return flxRealizadoExtrato(year, rowKey, mIdx) != null ? 'flx-realizado' : 'flx-naoconferido';
-  }catch(_){ return 'flx-naoconferido'; }
+  return flxClasseRealizado(year, mIdx) === 'flx-realizado' ? 'flx-realizado' : 'flx-projetado';
 }
 try{ window.flxClasseCelula = flxClasseCelula; }catch(_){}
 
@@ -41295,7 +41308,7 @@ function renderFlxSheet(){
       return parts.join('');
     };
     const top = FLX_MESES.map((m, i) =>
-      `<th class="mes mes-top ${flxClasseRealizado(year, i)}"
+      `<th class="mes mes-top ${flxClasseRealizado(year, i)}${_flxEhMesAtual(year,i)?' flx-mes-atual':''}"
            colspan="${subCols}" title="${flxClasseRealizado(year,i)==='flx-realizado'
              ? 'Mês fechado · realizado, vindo do Extrato Financeiro'
              : 'Projeção — calculada pelos módulos'}">${m.toUpperCase()}</th>`
@@ -41309,7 +41322,7 @@ function renderFlxSheet(){
     </tr><tr>${bot}${subHeader()}${subHeader()}</tr>`;
   } else {
     const mesCols = FLX_MESES.map((m, i) =>
-      `<th class="mes ${flxClasseRealizado(year, i)}"
+      `<th class="mes ${flxClasseRealizado(year, i)}${_flxEhMesAtual(year,i)?' flx-mes-atual':''}"
            title="${flxClasseRealizado(year,i)==='flx-realizado'
              ? 'Mês fechado · realizado, vindo do Extrato Financeiro'
              : 'Projeção — calculada pelos módulos'}">${m.toUpperCase()}</th>`).join('');
@@ -41427,7 +41440,7 @@ function renderFlxSheet(){
         ? _flxManualCell(year, rowKey, m)
         : _flxCell(v, opts);
       const checkBtn = '';
-      const tdCls = 'mes ' + flxClasseCelula(year, rowKey, m);
+      const tdCls = 'mes ' + flxClasseCelula(year, rowKey, m) + (_flxEhMesAtual(year,m) ? ' flx-mes-atual' : '');
       if(hasAna && analyze){
         const extra = _flxExtraCells(v, arr, m, arrReceita);
         return `<td class="${tdCls}">${inner}${checkBtn}</td>${extra}`;
@@ -41471,7 +41484,7 @@ function renderFlxSheet(){
     const cells = FLX_MESES.map((_,m)=>{
       const raw = (((fluxo.inputs||{})[year]||{})[field]||{})[m];
       const inp = _flxInpCell(year, m, field==='impostos'?'Imposto':(field==='creditoAlv'?'Credito':(field==='outrasDesp'?'OutrasDesp':'Outras')), raw);
-      const tdCls = 'mes ' + flxClasseCelula(year, rowKey, m);
+      const tdCls = 'mes ' + flxClasseCelula(year, rowKey, m) + (_flxEhMesAtual(year,m) ? ' flx-mes-atual' : '');
       return `<td class="${tdCls}"${span}>${inp}</td>`;
     }).join('');
     const dotSpan = dot ? `<span class="flx-dot ${dot}"></span>` : '';
