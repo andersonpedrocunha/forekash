@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787592223"/>
+  <meta name="fk-build" content="forekash-v1787595055"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -12981,30 +12981,29 @@
 
     /* Per-cell subtle confirm check (segue padrão .pago das outras planilhas) */
     .flx-sheet tbody td.mes{position:relative}
-    .flx-sheet tbody td.mes .flx-check{
-      position:absolute;top:3px;right:3px;width:13px;height:13px;
-      background:#fff;border:1px solid #CBD5E1;border-radius:3px;
-      color:#10B981;font-size:9px;font-weight:900;line-height:1;
-      display:inline-flex;align-items:center;justify-content:center;
-      padding:0;cursor:pointer;opacity:0;
-      transition:opacity .12s,background .12s,border-color .12s,transform .1s;
-      z-index:2
-    }
-    .flx-sheet tbody td.mes:hover .flx-check{opacity:.65}
-    .flx-sheet tbody td.mes .flx-check:hover{opacity:1;background:#ECFDF5;border-color:#10B981;transform:scale(1.08)}
-    /* Célula confirmada: fundo verde sutil + barra verde à esquerda + ✓ no canto */
-    .flx-sheet tbody td.mes.flx-confirmed{background:#ECFDF5 !important;
-                                          box-shadow:inset 3px 0 0 #10B981}
-    .flx-sheet tbody tr:hover td.mes.flx-confirmed{background:#D1FAE5 !important}
-    .flx-sheet tbody td.mes.flx-confirmed::before{
-      content:"✓";position:absolute;top:2px;left:5px;
-      font-size:.55rem;color:#10B981;opacity:.75;font-weight:900;
-      pointer-events:none;z-index:1
-    }
-    .flx-sheet tbody tr.editable td.mes.flx-confirmed .flx-inp{color:#065F46}
-    /* Hide check em linhas agregadas (sem semântica de confirmação) */
-    .flx-sheet tbody tr.flx-no-check td.mes .flx-check{display:none}
-    .flx-sheet tbody tr.flx-no-check td.mes.flx-confirmed::before{content:none}
+    /* ══ REALIZADO × PROJETADO ══════════════════════════════════════════
+       Substitui o antigo "confirmado" por célula. Realizado não é uma marca
+       que alguém aplica: é uma condição do mês. Fechado, o dinheiro já passou
+       e o Extrato já viu; daqui pra frente é projeção dos módulos.
+
+       O corte é sóbrio de propósito — realizado é a maioria das células do
+       ano, e pintar a maioria de verde faria a exceção (a projeção) sumir. Por
+       isso o realizado fica em papel neutro e é a PROJEÇÃO que se distingue,
+       com números em tom mais leve e a coluna levemente listrada. */
+    .flx-cashbox-ctl .flx-check{width:18px;height:18px;background:#fff;
+      border:1px solid #CBD5E1;border-radius:4px;color:#10B981;font-size:11px;
+      font-weight:900;line-height:1;display:inline-flex;align-items:center;
+      justify-content:center;padding:0;cursor:pointer;opacity:.55;
+      transition:opacity .12s,background .12s,border-color .12s}
+    .flx-cashbox-ctl .flx-check:hover{opacity:1;background:#ECFDF5;border-color:#10B981}
+    .flx-cashbox-ctl .flx-check.on{opacity:1;background:#ECFDF5;border-color:#10B981}
+    .flx-sheet tbody td.mes.flx-projetado{background:#FBFCFE}
+    .flx-sheet tbody tr:hover td.mes.flx-projetado{background:#F5F8FD}
+    .flx-sheet tbody td.mes.flx-projetado .flx-inp{color:#64748B}
+    .flx-sheet thead th.mes.flx-projetado{color:#94A3B8}
+    /* A virada ganha uma linha vertical: é onde o fato vira estimativa. */
+    .flx-sheet td.mes.flx-projetado.flx-virada,
+    .flx-sheet th.mes.flx-projetado.flx-virada{box-shadow:inset 2px 0 0 #C7D2FE}
 
     /* ── Toolbar: Análise AV / AH ── */
     /* ── Aba Evolução: toolbar + tabela loan × mês ── */
@@ -39723,16 +39722,50 @@ function _flxManualCell(year, rowKey, mIdx){
                  onkeydown="if(event.key==='Enter'){this.blur();event.preventDefault();}">`;
 }
 
-// Botão sutil de confirmação (✓) por célula — segue padrão .pago das outras planilhas.
-function _flxCheckBtn(year, rowKey, mIdx){
-  const on = flxIsConfirmed(year, rowKey, mIdx);
-  const title = on ? 'Valor confirmado — clique para desmarcar' : 'Marcar como confirmado';
+/* Mês fechado = realizado (o dinheiro já passou e o Extrato já viu).
+   Mês corrente e futuros = projeção, que é o que os módulos calculam.
+   O mês corrente é projeção de propósito: ele ainda está acontecendo, e metade
+   de um mês não é um fato — é um pedaço. */
+/* Primeiro mês projetado do ano — é onde o fato vira estimativa. */
+function _flxEhVirada(year, mIdx){
+  if(flxClasseRealizado(year, mIdx) !== 'flx-projetado') return false;
+  return mIdx === 0 || flxClasseRealizado(year, mIdx - 1) === 'flx-realizado';
+}
+try{ window._flxEhVirada = _flxEhVirada; }catch(_){}
+
+function flxClasseRealizado(year, mIdx){
+  const h = new Date();
+  const y = parseInt(year, 10);
+  if(y < h.getFullYear()) return 'flx-realizado';
+  if(y > h.getFullYear()) return 'flx-projetado';
+  return mIdx < h.getMonth() ? 'flx-realizado' : 'flx-projetado';
+}
+try{ window.flxClasseRealizado = flxClasseRealizado; }catch(_){}
+
+/* (removido) O ✓ de "marcar como confirmado" por célula.
+
+   O Demonstrativo é a última tela onde uma baixa deveria ser dada: ele não
+   registra dinheiro, ele CONSOLIDA o que os módulos já sabem. Confirmar aqui
+   criava uma segunda verdade — a célula ficava verde de "confirmado" enquanto
+   o Extrato, que é quem viu o dinheiro passar, não sabia de nada.
+
+   Realizado vem do Extrato Financeiro, sempre. Aqui o que muda é só a
+   apresentação: mês fechado aparece como realizado, mês corrente e futuros
+   como projeção vinda dos módulos.
+
+   As confirmações antigas continuam gravadas em fluxo.confirmados — não apago
+   dado do usuário — mas não são mais lidas nem exibidas. */
+function _flxCheckBtn(){ return ''; }
+
+/* Confirmação do Saldo Inicial — o único ✓ que sobrou nesta tela. */
+function _flxCheckSaldoInicial(year){
+  const on = flxIsConfirmed(year, 'saldoInicial', 0);
+  const t = on ? 'Saldo inicial confirmado — clique para desmarcar'
+               : 'Confirmar que este é o saldo de partida';
   return `<button type="button" class="flx-check${on?' on':''}" tabindex="-1"
                   onmousedown="event.preventDefault()"
-                  title="${title}"
-                  aria-label="${title}"
-                  aria-pressed="${on?'true':'false'}"
-                  onclick="event.stopPropagation();toggleFlxConfirm('${year}','${rowKey}',${mIdx})">✓</button>`;
+                  title="${t}" aria-label="${t}" aria-pressed="${on?'true':'false'}"
+                  onclick="event.stopPropagation();toggleFlxConfirm('${year}','saldoInicial',0)">✓</button>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -41057,8 +41090,11 @@ function renderFlxSheet(){
       if(flxShowAH) parts.push('<th class="mes-sub pct-ah">AH</th>');
       return parts.join('');
     };
-    const top = FLX_MESES.map(m =>
-      `<th class="mes mes-top" colspan="${subCols}">${m.toUpperCase()}</th>`
+    const top = FLX_MESES.map((m, i) =>
+      `<th class="mes mes-top ${flxClasseRealizado(year, i)}${_flxEhVirada(year,i)?' flx-virada':''}"
+           colspan="${subCols}" title="${flxClasseRealizado(year,i)==='flx-realizado'
+             ? 'Mês fechado · realizado, vindo do Extrato Financeiro'
+             : 'Projeção — calculada pelos módulos'}">${m.toUpperCase()}</th>`
     ).join('');
     const bot = FLX_MESES.map(subHeader).join('');
     thead.innerHTML = `<tr>
@@ -41068,7 +41104,11 @@ function renderFlxSheet(){
       <th class="med mes-top" colspan="${subCols}">Média</th>
     </tr><tr>${bot}${subHeader()}${subHeader()}</tr>`;
   } else {
-    const mesCols = FLX_MESES.map(m => `<th class="mes">${m.toUpperCase()}</th>`).join('');
+    const mesCols = FLX_MESES.map((m, i) =>
+      `<th class="mes ${flxClasseRealizado(year, i)}${_flxEhVirada(year,i)?' flx-virada':''}"
+           title="${flxClasseRealizado(year,i)==='flx-realizado'
+             ? 'Mês fechado · realizado, vindo do Extrato Financeiro'
+             : 'Projeção — calculada pelos módulos'}">${m.toUpperCase()}</th>`).join('');
     thead.innerHTML = `<tr>
       <th class="stk-1">Descrição</th>
       ${mesCols}
@@ -41179,12 +41219,11 @@ function renderFlxSheet(){
     const sum = arr.reduce((a,b)=>a+b,0);
     const med = sum/12;
     const cells = arr.map((v, m) => {
-      const conf = rowKey && flxIsConfirmed(year, rowKey, m);
       const inner = (rowKey && pullable)
         ? _flxManualCell(year, rowKey, m)
         : _flxCell(v, opts);
-      const checkBtn = rowKey ? _flxCheckBtn(year, rowKey, m) : '';
-      const tdCls = 'mes' + (conf ? ' flx-confirmed' : '');
+      const checkBtn = '';
+      const tdCls = 'mes ' + flxClasseRealizado(year, m) + (_flxEhVirada(year,m) ? ' flx-virada' : '');
       if(hasAna && analyze){
         const extra = _flxExtraCells(v, arr, m, arrReceita);
         return `<td class="${tdCls}">${inner}${checkBtn}</td>${extra}`;
@@ -41228,10 +41267,8 @@ function renderFlxSheet(){
     const cells = FLX_MESES.map((_,m)=>{
       const raw = (((fluxo.inputs||{})[year]||{})[field]||{})[m];
       const inp = _flxInpCell(year, m, field==='impostos'?'Imposto':(field==='creditoAlv'?'Credito':(field==='outrasDesp'?'OutrasDesp':'Outras')), raw);
-      const conf = rowKey && flxIsConfirmed(year, rowKey, m);
-      const checkBtn = rowKey ? _flxCheckBtn(year, rowKey, m) : '';
-      const tdCls = 'mes' + (conf ? ' flx-confirmed' : '');
-      return `<td class="${tdCls}"${span}>${inp}${checkBtn}</td>`;
+      const tdCls = 'mes ' + flxClasseRealizado(year, m) + (_flxEhVirada(year,m) ? ' flx-virada' : '');
+      return `<td class="${tdCls}"${span}>${inp}</td>`;
     }).join('');
     const dotSpan = dot ? `<span class="flx-dot ${dot}"></span>` : '';
     const trCls = ['editable', rowClass||'', rowKey?'':'flx-no-check'].filter(Boolean).join(' ');
@@ -41526,7 +41563,10 @@ function renderFlxCashbox(){
   let sf = si;
   for(let m=siMes; m<12; m++) sf += flxSaldoMesVal(year, m);
   const inp = _flxInpCell(year, 0, 'SaldoInicial', fluxo.saldoInicial[year]);
-  const checkBtn = _flxCheckBtn(year, 'saldoInicial', 0);
+  /* O ✓ do Saldo Inicial FICA. Ele não é baixa de pagamento — é você
+     declarando que aquele saldo de partida confere com o banco, e é ele que
+     trava o mês âncora. Coisa diferente do ✓ por célula, que foi removido. */
+  const checkBtn = _flxCheckSaldoInicial(year);
   const conf = flxIsConfirmed(year, 'saldoInicial', 0);
   const sfCls = sf > 0 ? 'flx-pos' : (sf < 0 ? 'flx-neg' : '');
   // Select de mês — trava se saldoInicial confirmado
