@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787689615"/>
+  <meta name="fk-build" content="forekash-v1787691556"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -6208,6 +6208,29 @@
       border-radius:7px;background:#F5F3FF;color:#5B21B6;font:inherit;font-size:.74rem;
       font-weight:700;cursor:pointer;white-space:nowrap}
     .ccc-detalhar:hover{background:#EDE9FE;border-color:#7C3AED}
+    .ccc-aud{margin:0 0 10px;padding:10px 14px;border-radius:9px;font-size:.8rem;line-height:1.45;
+      display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .ccc-aud b{font-weight:800}
+    .ccc-aud.ok{background:#F0FDF4;border:1px solid #BBF7D0;color:#065F46}
+    .ccc-aud.alerta{background:#FFFBEB;border:1px solid #FDE68A;color:#78350F}
+    .ccc-aud.erro{background:#FEF2F2;border:1px solid #FECACA;color:#7F1D1D}
+    .ccc-aud-btn{margin-left:auto;padding:5px 11px;border:1px solid #FCA5A5;border-radius:7px;
+      background:#fff;color:#B91C1C;font:inherit;font-size:.74rem;font-weight:700;cursor:pointer}
+    .ccc-aud-btn:hover{background:#FEF2F2}
+    .ccc-desc-lista{margin:0 0 10px;border:1px solid #E2E8F0;border-radius:9px;background:#fff;overflow:hidden}
+    .ccc-desc-hd{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;
+      background:#F8FAFC;border-bottom:1px solid #E2E8F0;font-size:.72rem;font-weight:800;
+      text-transform:uppercase;letter-spacing:.05em;color:#475569}
+    .ccc-desc-hd button{border:0;background:none;color:#64748B;font:inherit;font-size:.7rem;cursor:pointer}
+    .ccc-desc-li{display:grid;grid-template-columns:190px minmax(0,1fr) auto;gap:10px;align-items:center;
+      padding:6px 12px;border-bottom:1px solid #F1F5F9;font-size:.76rem}
+    .ccc-desc-li:last-child{border-bottom:none}
+    .ccc-desc-li .mot{font-size:.66rem;font-weight:700;color:#92400E;background:#FEF3C7;
+      border-radius:999px;padding:2px 8px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .ccc-desc-li .txt{color:#334155;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.72rem;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .ccc-desc-li button{padding:3px 10px;border:1px solid #C4B5FD;border-radius:6px;background:#F5F3FF;
+      color:#5B21B6;font:inherit;font-size:.7rem;font-weight:700;cursor:pointer}
     .ccc-aviso-dup{margin:0 0 10px;padding:10px 14px;border-radius:9px;font-size:.8rem;line-height:1.45;
       background:#FEF2F2;border:1px solid #FECACA;color:#7F1D1D}
     .ccc-aviso-dup b{font-weight:800}
@@ -66161,6 +66184,12 @@ const CCC_BANK_TEMPLATES = {
        atrás. Sem isso, fevereiro viraria futuro. */
     parsePDF(lines, text, year){
       const items = [];
+      /* TODO descarte fica registrado com o motivo. "Não deixar passar nada"
+         não é promessa de parser perfeito — é não deixar sumir em silêncio:
+         se a soma não fechar com o total do banco, a tela mostra exatamente
+         quais linhas eu joguei fora e por quê, e ele inclui na mão. */
+      const descartes = [];
+      const larga = (ln, motivo) => { if(ln && ln.length >= 6) descartes.push({ linha: ln, motivo }); };
       const MES = { jan:1, fev:2, mar:3, abr:4, mai:5, jun:6, jul:7, ago:8, set:9, out:10, nov:11, dez:12 };
       // Mês de fechamento, pra decidir o ano de cada compra
       let mesRef = 12;
@@ -66180,16 +66209,24 @@ const CCC_BANK_TEMPLATES = {
       for(let i = 0; i < lines.length; i++){
         const ln = lines[i];
         if(!ln || ln.length < 6) continue;
-        if(CCC_LINHAS_RUINS_DEFAULT.test(ln)) continue;
+        if(CCC_LINHAS_RUINS_DEFAULT.test(ln)){ larga(ln, 'linha de resumo/encargo'); continue; }
         // Blocos que não são compra
         /* Linhas que NÃO são compra. PAGTO DEB é o pagamento da fatura
            anterior — entra como crédito e, se contado, infla a soma em sete
            mil. VANTAGEM PROGRESSIVA é estorno da anuidade. */
-        if(/SALDO\s+ANTERIOR|^TOTAL\b|TOTAL\s+DE\s|PAGTO\s+DEB|LIMITES?\s+TOTAIS|VENCIMENTO|PAGAMENTO\s+M[IÍ]NIMO|VANTAGEM\s+PROGRESSIVA|FATURA\s+ANTERIOR|PAGAMENTOS\s+RECEBIDOS/i.test(ln)) continue;
+        if(/SALDO\s+ANTERIOR|^TOTAL\b|TOTAL\s+DE\s|PAGTO\s+DEB|LIMITES?\s+TOTAIS|VENCIMENTO|PAGAMENTO\s+M[IÍ]NIMO|VANTAGEM\s+PROGRESSIVA|FATURA\s+ANTERIOR|PAGAMENTOS\s+RECEBIDOS/i.test(ln)){
+          larga(ln, 'cabeçalho ou total da fatura');
+          continue;
+        }
         const m = rxLinha.exec(ln);
-        if(!m) continue;
+        /* Só registra o que PARECE compra — linha com data e valor. Registrar
+           tudo encheria a auditoria de texto legal e ninguém leria. */
+        if(!m){
+          if(/\d{1,2}\s+[A-Z]{3}/i.test(ln) && /R\$|\d+[.,]\d{2}/.test(ln)) larga(ln, 'não reconheci o formato da linha');
+          continue;
+        }
         const mesN = MES[(m[2]||'').toLowerCase()];
-        if(!mesN) continue;
+        if(!mesN){ larga(ln, 'mês não reconhecido'); continue; }
 
         /* A linha da fatura NEM SEMPRE é uma linha do PDF. O extrator quebra
            a mesma compra em até quatro pedaços, de dois jeitos diferentes:
@@ -66271,7 +66308,7 @@ const CCC_BANK_TEMPLATES = {
         }
         /* Sem descrição de verdade não é compra — "11 JAN 2025" é a linha de
            vencimento, e sem esta guarda ela virava um lançamento de mil reais. */
-        if(!_temTexto(resto)) continue;
+        if(!_temTexto(resto)){ larga(ln, 'sem descrição — pode ser cabeçalho'); continue; }
         /* O mesmo filtro de novo, agora sobre a descrição REMONTADA. Com a data
            vindo sozinha ("01 NOV" + "ANUIDADE MASTERCARD" abaixo), a linha crua
            não continha a palavra e anuidade, seu estorno e proteção entravam
@@ -66287,9 +66324,13 @@ const CCC_BANK_TEMPLATES = {
            verdade, dinheiro que sai. Deixá-las de fora fazia a soma não fechar
            com o total do banco — exatamente o número que a conciliação existe
            pra conferir. */
-        if(/ANUIDADE|VANTAGEM\s+PROGRESSIVA|PAGTO\s+DEB|SALDO\s+ANTERIOR/i.test(resto)) continue;
+        if(/ANUIDADE|VANTAGEM\s+PROGRESSIVA|PAGTO\s+DEB|SALDO\s+ANTERIOR/i.test(resto)){
+          larga(ln, /ANUIDADE|VANTAGEM/i.test(resto)
+            ? 'anuidade e o estorno dela se anulam' : 'pagamento da fatura anterior');
+          continue;
+        }
         const val = valStr ? _cccParseValor(valStr) : 0;
-        if(!val) continue;
+        if(!val){ larga(ln, 'não achei valor em reais nesta compra'); continue; }
 
         // Parcela, quando houver
         let parcela = '';
@@ -66309,7 +66350,7 @@ const CCC_BANK_TEMPLATES = {
         let desc = resto.replace(/-?\s*R\$\s*$/i,'').replace(/\s{2,}/g, ' ').trim();
         if(parcela) desc += ' (' + parcela + ')';
         desc = desc.slice(0, 80);
-        if(!desc) continue;
+        if(!desc){ larga(ln, 'descrição vazia depois de limpar'); continue; }
 
         /* Mês depois do fechamento pertence ao ano anterior. */
         const ano = (mesN > mesRef) ? anoBase - 1 : anoBase;
@@ -66318,7 +66359,8 @@ const CCC_BANK_TEMPLATES = {
                      fitid: data+'|'+Math.abs(val).toFixed(2)+'|'+desc.slice(0,20), raw: ln });
         i += consumidas;
       }
-      return { items, totalFatura: _cccFindTotal(text, ['valor\\s+total\\s+de','^TOTAL\\s','total\\s+da\\s+fatura']) };
+      return { items, descartes,
+               totalFatura: _cccFindTotal(text, ['valor\\s+total\\s+de','^TOTAL\\s','total\\s+da\\s+fatura']) };
     }
   },
   bradesco: {
@@ -66616,6 +66658,7 @@ async function _cccParsePDF(file){
   return {
     items: dedup,
     totalFatura: result.totalFatura || dedup.reduce((s,i) => s + i.valor, 0),
+    descartes: result.descartes || [],
     vencimentoArquivo: (result.vencimento || _cccFindVencimento(text) || ''),
     formato: 'PDF · ' + bankTpl.name + ' ' + bankTpl.icon,
     bancoId: bankId,
@@ -66906,6 +66949,54 @@ function _cccRenderWorkbench(){
   /* Arquivo repetido e transações já conciliadas ficam DITOS, em cima de tudo.
      Sem isso, reimportar a mesma fatura duplicava tudo em silêncio — e a única
      defesa era ele lembrar se já tinha importado. */
+  /* ══ AUDITORIA DA LEITURA ══════════════════════════════════════════════
+     O total impresso na fatura é o contrato. Se a soma do que eu li não bate
+     com ele, alguma coisa passou — e passar em silêncio é o que gera erro em
+     cascata: o mês fecha errado, o Demonstrativo herda, e ninguém sabe onde
+     começou. Então: ou fecha no centavo, ou a tela mostra a diferença e as
+     linhas que descartei, com o motivo de cada uma. */
+  const _audTotal = (CCC_STATE.parsed && CCC_STATE.parsed.totalFatura) || 0;
+  const _audSoma = ((CCC_STATE.parsed && CCC_STATE.parsed.items) || [])
+    .reduce((acc, x) => acc + (parseFloat(x.valor) || 0), 0);
+  const _audDif = _audTotal ? (_audTotal - _audSoma) : 0;
+  const _audOk = _audTotal > 0 && Math.abs(_audDif) < 0.01;
+  const _audDesc = (CCC_STATE.parsed && CCC_STATE.parsed.descartes) || [];
+  if(CCC_STATE.parsed){
+    const fmt = v => 'R$ ' + Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2});
+    if(_audOk){
+      html += '<div class="ccc-aud ok">'
+        + '<b>Leitura conferida.</b> As ' + ((CCC_STATE.parsed.items||[]).length)
+        + ' transações somam exatamente o total impresso na fatura (' + fmt(_audTotal) + ').'
+        + '</div>';
+    } else if(!_audTotal){
+      html += '<div class="ccc-aud alerta">'
+        + '<b>Não achei o total impresso na fatura.</b> Sem ele não consigo provar que li tudo — '
+        + 'confira a soma abaixo (' + fmt(_audSoma) + ') contra o papel antes de conciliar.'
+        + '</div>';
+    } else {
+      html += '<div class="ccc-aud erro">'
+        + '<b>Faltam ' + fmt(_audDif) + ' pra fechar com a fatura.</b> '
+        + 'Li ' + ((CCC_STATE.parsed.items||[]).length) + ' transações somando ' + fmt(_audSoma)
+        + ', e o banco imprimiu ' + fmt(_audTotal) + '. '
+        + 'Não concilie assim: o mês fecharia errado e o Demonstrativo herdaria o erro.'
+        + (_audDesc.length
+            ? ('<button type="button" class="ccc-aud-btn" onclick="cccVerDescartes()">Ver as '
+               + _audDesc.length + ' linhas que descartei</button>')
+            : '')
+        + '</div>';
+    }
+    if(CCC_STATE.verDescartes && _audDesc.length){
+      html += '<div class="ccc-desc-lista">'
+        + '<div class="ccc-desc-hd">Linhas descartadas na leitura'
+        +   '<button type="button" onclick="cccVerDescartes()">fechar</button></div>'
+        + _audDesc.map((d, k) => '<div class="ccc-desc-li">'
+            + '<span class="mot">' + cartEsc(d.motivo) + '</span>'
+            + '<span class="txt" title="' + cartEsc(d.linha) + '">' + cartEsc(d.linha.slice(0,110)) + '</span>'
+            + '<button type="button" onclick="cccIncluirDescarte(' + k + ')" title="Transformar esta linha em transação">incluir</button>'
+          + '</div>').join('')
+        + '</div>';
+    }
+  }
   const _ja = CCC_STATE.jaImportado;
   const _jaConc = CCC_STATE.parsed ? _cccJaConciliadas(CCC_STATE.parsed) : 0;
   const _totLidas = (CCC_STATE.parsed && CCC_STATE.parsed.items) ? CCC_STATE.parsed.items.length : 0;
@@ -67747,6 +67838,50 @@ try{
   window.cartConcVincular = cartConcVincular;
 }catch(_){}
 
+function cccVerDescartes(){
+  CCC_STATE.verDescartes = !CCC_STATE.verDescartes;
+  _cccRenderWorkbench();
+}
+/* Incluir na mão o que o leitor deixou de fora. Data e valor saem da própria
+   linha; o que não der pra ler ele corrige no campo, como em qualquer linha. */
+function cccIncluirDescarte(k){
+  const d = ((CCC_STATE.parsed && CCC_STATE.parsed.descartes) || [])[k];
+  if(!d) return;
+  const ln = d.linha;
+  const mv = /(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/.exec(ln)
+          || /R\$\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/.exec(ln);
+  const valor = mv ? Math.abs(_cccParseValor(mv[1]) || 0) : 0;
+  if(!valor){
+    if(typeof toast === 'function') toast('⚠ Não achei valor nesta linha — inclua pelo botão de lançamento novo');
+    return;
+  }
+  const MES = { JAN:1,FEV:2,MAR:3,ABR:4,MAI:5,JUN:6,JUL:7,AGO:8,SET:9,OUT:10,NOV:11,DEZ:12 };
+  const md = /(\d{1,2})\s+([A-Z]{3})/i.exec(ln);
+  let data = '';
+  const fatVenc = _cccVencFatura();
+  if(md && MES[md[2].toUpperCase()]){
+    const ano = fatVenc ? parseInt(fatVenc.slice(0,4), 10) : new Date().getFullYear();
+    const mm = MES[md[2].toUpperCase()];
+    const mesVenc = fatVenc ? parseInt(fatVenc.slice(5,7), 10) : mm;
+    /* Mês depois do vencimento é do ano anterior — mesma regra do leitor. */
+    const anoUsar = (mm > mesVenc) ? ano - 1 : ano;
+    data = anoUsar + '-' + String(mm).padStart(2,'0') + '-' + String(parseInt(md[1],10)).padStart(2,'0');
+  }
+  if(!data) data = fatVenc || new Date().toISOString().slice(0,10);
+  const desc = ln.replace(/(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/g,'').replace(/R\$/g,'')
+                 .replace(/^\d{1,2}\s+[A-Z]{3}\s*/i,'').replace(/\s{2,}/g,' ').trim() || 'Lançamento da fatura';
+  const ofx = { fitid: 'manual|' + k + '|' + valor.toFixed(2), data, descricao: desc.slice(0,80),
+                valor, _incluidoNaMao: true };
+  CCC_STATE.parsed.items.push(ofx);
+  CCC_STATE.parsed.descartes.splice(k, 1);
+  const novo = { _idx: CCC_STATE.matches.length, bucket: 'novo', tipo: 'novo', ofx, sistema: null };
+  CCC_STATE.matches.push(novo);
+  CCC_STATE.bucket = 'novo';
+  _cccRenderWorkbench();
+  if(typeof toast === 'function') toast('✓ Linha incluída · confira descrição e categoria');
+}
+try{ window.cccVerDescartes = cccVerDescartes; window.cccIncluirDescarte = cccIncluirDescarte; }catch(_){}
+
 function cartConcSetBucket(b){ CCC_STATE.bucket = b; _cccRenderWorkbench(); }
 function cartConcResolve(idx, action){
   if(action === 'undo'){ CCC_STATE.resolved.delete(idx); }
@@ -67787,6 +67922,31 @@ function _cccNotaOrigem(ofx){
 
 function cartConcApply(){
   if(!cartoes) return;
+  /* Trava, não aviso. Conciliar com a leitura sem fechar grava um mês errado no
+     Extrato, e o Demonstrativo herda sem que ninguém saiba onde começou — o
+     erro em cascata. Dá pra seguir assim mesmo, mas tem que ser escolha
+     consciente, dita em voz alta. */
+  try{
+    const p2 = CCC_STATE.parsed;
+    const tot = (p2 && p2.totalFatura) || 0;
+    if(tot > 0 && !CCC_STATE.leituraLiberada){
+      const soma = (p2.items || []).reduce((a2, x) => a2 + (parseFloat(x.valor) || 0), 0);
+      const dif = tot - soma;
+      if(Math.abs(dif) >= 0.01){
+        const f = v => 'R$ ' + Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2});
+        const ok = confirm(
+          'A leitura do arquivo não fechou com a fatura.\n\n'
+          + 'Li ' + (p2.items||[]).length + ' transações somando ' + f(soma) + '.\n'
+          + 'O banco imprimiu ' + f(tot) + '.\n'
+          + 'Diferença: ' + f(dif) + '.\n\n'
+          + 'Conciliar assim grava o mês errado no Extrato, e o Demonstrativo herda.\n'
+          + 'Prefiro que você inclua o que faltou (botão "Ver as linhas que descartei").\n\n'
+          + 'Conciliar mesmo assim?');
+        if(!ok) return;
+        CCC_STATE.leituraLiberada = true;
+      }
+    }
+  }catch(e){ console.warn('[ccc] auditoria:', e && e.message); }
   const fatId = CCC_STATE.faturaId, cartaoId = CCC_STATE.cartaoId;
   const fat = cartoes.faturas.find(f => f.id === fatId);
   if(!fat){ if(typeof toast === 'function') toast('Fatura não encontrada'); return; }
