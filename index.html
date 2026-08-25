@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787686724"/>
+  <meta name="fk-build" content="forekash-v1787687281"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -6196,6 +6196,10 @@
       cursor:pointer;user-select:none}
     .ext-pc-chk input{width:15px;height:15px;accent-color:#7C3AED;cursor:pointer}
     /* Botão "Detalhar" da linha da conciliação: abre o modal de sempre. */
+    .ccc-hist{align-self:flex-end;height:31px;display:inline-flex;align-items:center;padding:0 10px;
+      border-radius:7px;background:#ECFDF5;border:1px solid #A7F3D0;color:#047857;
+      font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;
+      cursor:help;white-space:nowrap}
     .ccc-detalhar{align-self:flex-end;height:31px;padding:0 12px;border:1px solid #C4B5FD;
       border-radius:7px;background:#F5F3FF;color:#5B21B6;font:inherit;font-size:.74rem;
       font-weight:700;cursor:pointer;white-space:nowrap}
@@ -67082,6 +67086,157 @@ function cccCbxCriar(idx, tipo){
   const pop = document.getElementById('ccc-cbx-' + tipo + '-' + idx + '-pop');
   if(pop) pop.classList.remove('open');
 }
+/* ══ APRENDIZADO PELO HISTÓRICO ═══════════════════════════════════════════
+   A sugestão vinha de uma lista de regras que eu escrevi na mão ("uber|99app
+   → Transporte"). Isso não sabe nada da empresa dele: não sabe que
+   "MERCADOLIVRE*MERCADO" é sempre Material de Escritório, nem que "EBN*CANVAV"
+   é um fornecedor com nome próprio. O que sabe isso é o histórico — tudo que
+   ele já categorizou, no Extrato e no cartão.
+
+   O índice é de TOKENS, não da frase inteira, porque o banco nunca escreve
+   igual duas vezes: "UBER *TRIP HELP SAO PAULO", "Uber UBER *TRIP HELP" e
+   "UBER* TRIPV OSASCO" são a mesma coisa. Cada token pesa pelo inverso de
+   quantos fornecedores diferentes ele aparece — "UBER" decide, "SAO" e "PAULO"
+   quase não valem nada, sem eu precisar listar cidade nenhuma.
+
+   Casa também com o texto ORIGINAL do banco, que hoje fica nas observações do
+   lançamento: é a chave mais forte que existe, porque é exatamente o que vem
+   no arquivo da próxima vez. */
+const FK_STOP = new Set(['PAGTO','PAGAMENTO','PAG','COMPRA','CARTAO','CARD','DEB','DEBITO',
+  'CRED','CREDITO','PARC','PARCELA','LTDA','EIRELI','MEI','BRASIL','FATURA','BANCO',
+  'TRANSFERENCIA','TED','DOC','PIX','ORIGINAL','IMPORTADO','EXTRATO','CONFORME']);
+let _fkAprIdx = null;
+
+function _fkTokens(txt){
+  return String(txt || '')
+    .toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .split(' ')
+    .filter(t => t.length >= 3 && !FK_STOP.has(t) && !/^\d+$/.test(t));
+}
+/* Texto do banco guardado nas observações — a chave mais confiável. */
+function _fkTextoBanco(notas){
+  const m = /(?:Fatura|Extrato)\s*\(banco\):\s*(.+)/i.exec(String(notas || ''));
+  return m ? m[1].split('\n')[0].trim() : '';
+}
+function _fkAprIndexar(idx, texto, cat, forn){
+  if(!texto) return;
+  const brutos = _fkTokens(texto);
+  const toks = [...new Set(brutos)];
+  if(!toks.length) return;
+  const cabeca = brutos[0];              /* quem lidera a frase = o estabelecimento */
+  for(const t of toks){
+    let e = idx.tok.get(t);
+    if(!e){ e = { docs: 0, cats: new Map(), forns: new Map(), cabecas: new Set() }; idx.tok.set(t, e); }
+    e.docs++;
+    if(cabeca) e.cabecas.add(cabeca);
+    if(cat)  e.cats.set(cat,  (e.cats.get(cat)  || 0) + 1);
+    if(forn) e.forns.set(forn,(e.forns.get(forn)|| 0) + 1);
+  }
+}
+function fkAprConstruir(){
+  const idx = { tok: new Map(), n: 0 };
+  const add = (texto, cat, forn) => {
+    if(!cat && !forn) return;
+    _fkAprIndexar(idx, texto, cat, forn);
+    idx.n++;
+  };
+  try{
+    for(const l of (extratoData && extratoData.lancamentos) || []){
+      if(!l) continue;
+      const cat = String(l.categoria || '').trim();
+      const forn = String(l.contraparte || '').trim();
+      add(l.descricao, cat, forn);
+      const banco = _fkTextoBanco(l.notas);
+      if(banco) add(banco, cat, forn);          /* o que o banco escreve mesmo */
+      for(const it of (l.itens || [])){
+        if(it) add(it.descricao, String(it.categoria||'').trim(), String(it.contraparte||'').trim());
+      }
+    }
+  }catch(_){}
+  try{
+    const nomeDe = id => {
+      const r = (pessoas.registry || []).find(x => x && x.id === id);
+      return r ? String(r.nome || '').trim() : '';
+    };
+    for(const l of (cartoes && cartoes.lancamentos) || []){
+      if(!l) continue;
+      const cat = String(l.categoria || '').trim();
+      const forn = l.fornecedorId ? nomeDe(l.fornecedorId) : String(l.estabelecimento || '').trim();
+      add(l.descricao, cat, forn);
+      const banco = _fkTextoBanco(l.notas);
+      if(banco) add(banco, cat, forn);
+    }
+  }catch(_){}
+  _fkAprIdx = idx;
+  return idx;
+}
+/* Reconstrói na hora de usar: importar é raro e o índice é barato. Deixar
+   índice velho em cache faria a sugestão ignorar o que ele acabou de decidir. */
+function fkSugerirPeloHistorico(texto){
+  const idx = fkAprConstruir();
+  const toks = [];
+  const vistos = new Set();
+  for(const t of _fkTokens(texto)){ if(!vistos.has(t)){ vistos.add(t); toks.push(t); } }
+  if(!toks.length || !idx.n) return null;
+  const N = idx.n;
+  /* O NOME VEM NA FRENTE. Se o primeiro token nunca apareceu no histórico, é
+     estabelecimento novo — e sugerir por cidade ou por sufixo ("SAN FRANCISCO",
+     "CURITIBA") é chutar. Foi o que aconteceu com "POSTO IPIRANGA CURITIBA",
+     classificado como Software porque CURITIBA tinha aparecido uma vez. */
+  if(!idx.tok.get(toks[0])) return null;
+  const cats = new Map(), forns = new Map();
+  let temDistintivo = false;
+  for(let p = 0; p < toks.length; p++){
+    const e = idx.tok.get(toks[p]);
+    if(!e) continue;
+    /* NOME DO ESTABELECIMENTO VEM NA FRENTE. "MERCADOLIVRE*MERCADO SAO PAULO"
+       começa pelo que importa e termina em cidade; sem pesar a posição, "SAO"
+       e "PAULO" — que aparecem em meio mundo de lançamento — decidiam a
+       sugestão, e Mercado Livre virava Uber. */
+    const posW = p === 0 ? 3 : (p === 1 ? 2 : 1);
+    /* IDF de verdade: token raro decide, token comum quase não conta. E a
+       divisão por e.docs impede que fornecedor com muito lançamento vença
+       só por ser frequente. */
+    /* Token que acompanha MUITOS estabelecimentos diferentes é cidade, estado
+       ou sufixo de maquininha — não identifica ninguém. Isso sai dos próprios
+       dados, sem eu precisar manter lista de cidade do Brasil. */
+    const nCabecas = (e.cabecas && e.cabecas.size) || 1;
+    const idf = Math.log((N + 1) / (e.docs + 0.5)) / nCabecas;
+    if(idf <= 0) continue;
+    /* Token distintivo = raro E no começo da frase. Sem exigir isso, "POSTO
+       IPIRANGA CURITIBA" era classificado como Software só porque CURITIBA
+       tinha aparecido uma vez num lançamento de software. Cidade sozinha não
+       pode decidir nada. */
+    /* Exigir cabeça ÚNICA era estreito demais: o mesmo fornecedor entra no
+       índice duas vezes — pela descrição que ele escreveu ("Assinatura
+       Atlassian") e pelo texto do banco ("ATLASSIAN SAN FRANCISCO") — e isso
+       já dá duas cabeças diferentes pro mesmo estabelecimento. */
+    if(p <= 1 && e.docs <= Math.max(2, N * 0.35) && nCabecas <= 2) temDistintivo = true;
+    const base = idf * posW;
+    for(const [k, n] of e.cats)  cats.set(k,  (cats.get(k)  || 0) + base * (n / e.docs));
+    for(const [k, n] of e.forns) forns.set(k, (forns.get(k) || 0) + base * (n / e.docs));
+  }
+  if(!temDistintivo) return null;
+  const melhor = (mapa) => {
+    let nome = '', v = 0, segundo = 0;
+    for(const [k, x] of mapa){ if(x > v){ segundo = v; nome = k; v = x; } else if(x > segundo) segundo = x; }
+    /* Empate técnico não sugere: chutar entre dois parecidos é pior que deixar
+       em branco, porque passa despercebido na conferência. */
+    if(!nome || v < 1.0 || (segundo && v < segundo * 1.3)) return { nome: '', forca: 0 };
+    return { nome, forca: v };
+  };
+  const c = melhor(cats), f = melhor(forns);
+  if(!c.nome && !f.nome) return null;
+  return { categoria: c.nome, contraparte: f.nome,
+           forca: Math.max(c.forca, f.forca), origem: 'historico' };
+}
+try{
+  window.fkSugerirPeloHistorico = fkSugerirPeloHistorico;
+  window.fkAprConstruir = fkAprConstruir;
+}catch(_){}
+
 /* ══ CRIAR DE DENTRO DE UMA IMPORTAÇÃO ════════════════════════════════════
    Importar fatura e importar OFX esbarram no mesmo problema: aparece um nome
    que ainda não existe no cadastro. As duas telas usam ESTAS funções — e elas
@@ -67176,10 +67331,15 @@ try{
 function _cccLinhaNovo(m, idx){
   const esc = (typeof cartEsc === 'function') ? cartEsc : (x => String(x||''));
   const forns = _cccCbxLista('counter');
-  const sugCat  = m.ofx._cat  != null ? m.ofx._cat  : _cccSugereCategoria(m.ofx.descricao);
-  const sugForn = m.ofx._forn != null ? m.ofx._forn : _cccSugereFornecedor(m.ofx.descricao, forns);
-  if(m.ofx._cat  == null) m.ofx._cat  = sugCat;
-  if(m.ofx._forn == null) m.ofx._forn = sugForn;
+  /* Histórico primeiro: ele sabe o que ESTA empresa faz. Regra fixa é só o
+     fallback pra quando nunca se lançou nada parecido. */
+  if(m.ofx._cat == null || m.ofx._forn == null){
+    let hist = null;
+    try{ hist = fkSugerirPeloHistorico(m.ofx.descricao); }catch(_){}
+    if(m.ofx._cat  == null) m.ofx._cat  = (hist && hist.categoria)   || _cccSugereCategoria(m.ofx.descricao);
+    if(m.ofx._forn == null) m.ofx._forn = (hist && hist.contraparte) || _cccSugereFornecedor(m.ofx.descricao, forns);
+    m.ofx._doHistorico = !!(hist && (hist.categoria || hist.contraparte));
+  }
   /* A busca por parecido roda SOZINHA, ancorada na data da compra. Perguntar
      "já está lançado?" era jogar pro usuário um trabalho que o app faz melhor:
      ele teria que clicar 35 vezes pra descobrir que 34 não tinham nada. */
@@ -67208,10 +67368,14 @@ function _cccLinhaNovo(m, idx){
     + ' onclick="extOpenModal(\'gasto\',\'ccc:' + idx + '\')"'
     + ' title="Abrir no modal de Lançar Gasto — centro de custo, documento, parcelamento">'
     + 'Detalhar</button>';
+  const seloHist = m.ofx._doHistorico
+    ? '<span class="ccc-hist" title="Preenchido pelo histórico: já houve lançamento parecido com esta categoria/fornecedor. Confira antes de aprovar.">pelo histórico</span>'
+    : '';
   return '<div class="ccc-novo">'
     + descHtml
     + _cccCbxHtml(idx, 'counter', m.ofx._forn)
     + _cccCbxHtml(idx, 'cat', m.ofx._cat)
+    + seloHist
     + btnDetalhe
     + parc
     + alerta
@@ -67224,7 +67388,11 @@ function _cccSugereCategoria(desc){
   const d = String(desc||'').toLowerCase();
   if(/uber|99app|taxi|posto|combust|estacion|parki/.test(d)) return 'Transporte';
   if(/aws|heroku|atlassian|digitalocean|vercel|twilio|cursor|github|google|microsoft|openai|clicksign|rd station|canva|figma/.test(d)) return 'Software';
-  if(/iof/.test(d)) return 'Tarifas Bancárias';
+  /* IOF é TRIBUTO, não tarifa. Tarifa remunera um serviço do banco e dá pra
+     negociar; IOF é imposto federal, o banco só arrecada. Juntar os dois
+     esconde exatamente a parte que dá pra reduzir. */
+  if(/\biof\b/.test(d)) return 'IOF';
+  if(/tarifa|cesta|manuten[çc][ãa]o de conta|anuidade/.test(d)) return 'Tarifas Bancárias';
   return '';
 }
 function _cccSugereFornecedor(desc, forns){
@@ -123276,9 +123444,19 @@ function ofxMemAprender(desc, { categoria, contraparte, tipo }){
 }
 
 // Sugestão em cascata: memória aprendida → regras fixas → nada
+/* Cascata: decisão explícita de importações anteriores → HISTÓRICO de
+   lançamentos → regra fixa. O histórico entra no meio porque é o que sabe da
+   empresa, mas não pode passar por cima de uma correção que ele já fez de
+   propósito numa importação anterior. */
 function ofxSugerir(desc, valor){
   const mem = ofxMemConsultar(desc);
   if(mem && (mem.categoria || mem.contraparte || mem.tipo)) return mem;
+  let hist = null;
+  try{ hist = fkSugerirPeloHistorico(desc); }catch(_){}
+  if(hist && (hist.categoria || hist.contraparte)){
+    return { categoria: hist.categoria || '', contraparte: hist.contraparte || '',
+             tipo: '', vezes: 0, aprendido: true, doHistorico: true };
+  }
   const cat = (typeof smartCatSuggest === 'function') ? smartCatSuggest(desc) : null;
   return { categoria: cat || '', contraparte: '', tipo: '', vezes: 0, aprendido: false };
 }
@@ -123300,6 +123478,7 @@ function _ofxShowPreview(lancs, fname){
     l._forn = s.contraparte || '';
     l._tipo = s.tipo || (l.valor >= 0 ? 'ganho' : 'gasto');
     l._aprendido = !!s.aprendido;
+    l._doHistorico = !!s.doHistorico;
     l._vezes = s.vezes || 0;
   });
   window._ofxPendingLancs = lancs;
@@ -123364,7 +123543,13 @@ function ofxRevRender(){
       +     ' oninput="ofxRevSet(' + i + ',\'_desc\',this.value)" placeholder="como você chama isso">'
       +   '<small class="ofx-desc-banco" title="O texto original do banco vai para as observações do lançamento.">'
       +     '<i>descrição conforme banco:</i> ' + _esc((l.descricao||'').slice(0,46)) + '</small>'
-      +   (l._aprendido ? '<span class="ofx-badge" title="Preenchido a partir de ' + l._vezes + ' importação(ões) anterior(es)">aprendido</span>' : '')
+      +   (l._aprendido
+            ? ('<span class="ofx-badge" title="'
+               + (l._doHistorico
+                   ? 'Preenchido pelo histórico: já houve lançamento parecido com esta categoria/fornecedor. Confira antes de importar.'
+                   : ('Preenchido a partir de ' + l._vezes + ' importação(ões) anterior(es).'))
+               + '">' + (l._doHistorico ? 'pelo histórico' : 'aprendido') + '</span>')
+            : '')
       +   (_ofxDupHtml(l, i))
       + '</td>'
       + '<td class="c-tp"><select onchange="ofxRevSet(' + i + ',\'_tipo\',this.value)">'
