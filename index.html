@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787682772"/>
+  <meta name="fk-build" content="forekash-v1787683522"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -56971,7 +56971,7 @@ function _viagParseRecibo(text){
   const out = { valor: null, data: null, categoria: null, descricao: null };
   if(!text) return out;
   // VALOR — pega o maior valor R$ encontrado (geralmente o total)
-  const valorMatches = text.match(/R\$?\s*(\d{1,3}(?:\.\d{3})*,\d{2})/g) || [];
+  const valorMatches = text.match(/R\$?\s*(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/g) || [];
   if(valorMatches.length > 0){
     const valores = valorMatches.map(m => {
       const n = m.replace(/R\$|\s/g, '').replace(/\./g, '').replace(',', '.');
@@ -65607,17 +65607,17 @@ function cartConcOpen(cartaoId, faturaId){
   const fat = (cartoes && Array.isArray(cartoes.faturas)) ? cartoes.faturas.find(f => f.id === faturaId) : null;
   const tit = document.getElementById('ccc-hd-tit');
   const sub = document.getElementById('ccc-hd-sub');
-  if(tit && cart && fat) tit.textContent = 'Conciliar ' + (cart.apelido || 'cartão') + ' · ' + cartMesLabel(fat.refY, fat.refM);
+  /* Sem período no título ANTES de ler o arquivo: quem manda no período é a
+     fatura importada, e anunciar "Julho 2027" só porque era a fatura aberta
+     afirma algo que o arquivo ainda não disse. O período aparece depois, na
+     faixa do cartão, com o vencimento lido. */
+  if(tit && cart) tit.textContent = 'Conciliar ' + (cart.apelido || 'cartão');
   /* O VENCIMENTO no cabeçalho, não só nas linhas parceladas. É ele que amarra
      TUDO que for importado a esta fatura — a compra de IOF tanto quanto a
      parcelada — e antes só aparecia quando havia parcelamento, o que fazia
      parecer que o vínculo não existia nas demais. */
   if(sub){
-    const v = _cccVencDe(fat) ? _cccFmtDia(_cccVencDe(fat)) : '';
-    sub.innerHTML = v
-      ? 'Tudo que for importado entra na fatura que <b>vence ' + v + '</b>'
-        + ' · <span style="color:#94A3B8">PDF, CSV ou OFX</span>'
-      : 'Importe a fatura (PDF, CSV ou OFX) · MR KASH cruza com seus lançamentos';
+    sub.innerHTML = 'Importe a fatura em PDF, CSV ou OFX · o vencimento vem do arquivo';
   }
   _cccRenderDrop();
 }
@@ -65836,15 +65836,28 @@ function _cccNormDate(raw, fallbackYear){
   return y + '-' + mo + '-' + d;
 }
 
+/* A mesma cooperativa exporta fatura em duas convenções: "7.016,99" e
+   "7,016.99". Fixar a brasileira fazia o leitor não achar UMA transação sequer
+   no arquivo americano — e a tela dizia "PDF escaneado", que é falso.
+   Regra que vale nas duas: o ÚLTIMO separador seguido de exatamente dois
+   dígitos é o decimal; todo o resto é separador de milhar. */
 function _cccParseValor(s){
-  if(!s) return null;
-  const v = parseFloat(String(s).replace(/\./g,'').replace(',','.'));
-  return isFinite(v) ? v : null;
+  if(s == null || s === '') return null;
+  let t = String(s).trim().replace(/R\$|US\$|U\$|\s/gi, '');
+  const neg = /^-/.test(t);
+  t = t.replace(/^[-+]/, '');
+  if(!t) return null;
+  const m = /^(\d[\d.,]*)([.,])(\d{2})$/.exec(t);
+  let v;
+  if(m) v = parseFloat(m[1].replace(/[.,]/g, '') + '.' + m[3]);
+  else   v = parseFloat(t.replace(/[.,]/g, ''));
+  if(!isFinite(v)) return null;
+  return neg ? -v : v;
 }
 
 function _cccFindTotal(text, kws){
   for(const kw of kws){
-    const re = new RegExp('(?:' + kw + ')\\s*:?\\s*R?\\$?\\s*(\\d{1,3}(?:\\.\\d{3})*,\\d{2})', 'i');
+    const re = new RegExp('(?:' + kw + ')\\s*:?\\s*R?\\$?\\s*(\\d{1,3}(?:[.,]\\d{3})*[.,]\\d{2})', 'i');
     const m = re.exec(text);
     if(m){
       const v = _cccParseValor(m[1]);
@@ -65910,8 +65923,8 @@ const CCC_BANK_TEMPLATES = {
       const items = [];
       // Nubank: "05 MAI · ESTABELECIMENTO · R$ 285,00" OU "05/05  ESTAB  R$ 285,00"
       const rxs = [
-        /^(\d{2}\s+[A-Z]{3})\s+(.+?)\s+R\$\s*(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/i,
-        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R\$\s*(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/
+        /^(\d{2}\s+[A-Z]{3})\s+(.+?)\s+R\$\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/i,
+        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R\$\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/
       ];
       for(const ln of lines){
         if(ln.length < 10) continue;
@@ -65941,7 +65954,7 @@ const CCC_BANK_TEMPLATES = {
       const items = [];
       // Itaú: "DD/MM/AAAA  HISTÓRICO  R$ 1.234,56" ou DD/MM
       const rxs = [
-        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R?\$?\s*(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/
+        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R?\$?\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/
       ];
       for(const ln of lines){
         if(ln.length < 10) continue;
@@ -65970,8 +65983,8 @@ const CCC_BANK_TEMPLATES = {
     parsePDF(lines, text, year){
       const items = [];
       const rxs = [
-        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R?\$?\s*(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/,
-        /^(\d{2}\s+[A-Z]{3})\s+(.+?)\s+R?\$?\s*(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/i
+        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R?\$?\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/,
+        /^(\d{2}\s+[A-Z]{3})\s+(.+?)\s+R?\$?\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/i
       ];
       for(const ln of lines){
         if(ln.length < 10) continue;
@@ -66026,7 +66039,7 @@ const CCC_BANK_TEMPLATES = {
          inteira. A guarda de descrição mais abaixo é quem descarta data solta
          que não vira compra. */
       const rxLinha = /^(\d{1,2})\s+([A-Z]{3})\b\s*(.*)$/i;
-      const rxValor = /(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/;
+      const rxValor = /(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/;
       const rxParcela = /\b(\d{1,2})\/(\d{1,2})\b/;
 
       for(let i = 0; i < lines.length; i++){
@@ -66072,7 +66085,18 @@ const CCC_BANK_TEMPLATES = {
             const mp2 = rxLinha.exec(prox);
             if(mp2 && MES[(mp2[2]||'').toLowerCase()]) break;
             // ruído de conversão: cotação, número solto
-            if(/^(US\$|U\$|V\.DOL)/i.test(prox) || /^[\d.,]+$/.test(prox)){ consumidas = k; continue; }
+            /* A cotação às vezes DIVIDE a linha com o valor em reais
+               ("V.DOL 5,2301 R$ 73,22"). Pular a linha inteira, como eu fazia,
+               jogava fora justamente o valor — e a compra sumia da fatura.
+               Pega o número que vem depois do R$, nunca o dólar. */
+            if(/^(US\$|U\$|V\.DOL)/i.test(prox)){
+              const vBRL = (/R\$\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/.exec(prox) || [])[1];
+              if(vBRL){ valStr = vBRL; consumidas = k; break; }
+              consumidas = k; continue;
+            }
+            if(/^[\d.,]+$/.test(prox)){ consumidas = k; continue; }
+            /* Cabeçalho de coluna repetido no meio do bloco não é descrição. */
+            if(/^\s*DATA\s+DESCRI[ÇC][ÃA]O\s+CIDADE/i.test(prox)){ consumidas = k; continue; }
             const v = (rxValor.exec(prox) || [])[1];
             if(v){
               valStr = v;
@@ -66093,7 +66117,17 @@ const CCC_BANK_TEMPLATES = {
            não continha a palavra e anuidade, seu estorno e proteção entravam
            como compra — R$ 61,54 a mais. E o estorno vinha somado em vez de
            subtraído, porque o valor é lido em módulo. */
-        if(/ANUIDADE|VANTAGEM\s+PROGRESSIVA|PROTE[ÇC][ÃA]O\s+PERDA|SMS\s+M[EÊ]S|PAGTO\s+DEB|SALDO\s+ANTERIOR/i.test(resto)) continue;
+        /* Fora ficam só três coisas, e por motivos diferentes:
+           · PAGTO DEB / SALDO ANTERIOR — não são compra, são o pagamento da
+             fatura passada e uma linha de resumo;
+           · ANUIDADE + o estorno dela (VANTAGEM PROGRESSIVA / DESC ANUIDADE) —
+             vêm em par e se anulam, e o valor é lido em módulo: incluir só a
+             positiva somaria a anuidade duas vezes.
+           PROTEÇÃO PERDA/ROUBO e SMS MÊS voltaram a entrar: são cobrança de
+           verdade, dinheiro que sai. Deixá-las de fora fazia a soma não fechar
+           com o total do banco — exatamente o número que a conciliação existe
+           pra conferir. */
+        if(/ANUIDADE|VANTAGEM\s+PROGRESSIVA|PAGTO\s+DEB|SALDO\s+ANTERIOR/i.test(resto)) continue;
         const val = valStr ? _cccParseValor(valStr) : 0;
         if(!val) continue;
 
@@ -66128,7 +66162,7 @@ const CCC_BANK_TEMPLATES = {
     parsePDF(lines, text, year){
       const items = [];
       const rxs = [
-        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/
+        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/
       ];
       for(const ln of lines){
         if(ln.length < 10) continue;
@@ -66156,7 +66190,7 @@ const CCC_BANK_TEMPLATES = {
     parsePDF(lines, text, year){
       const items = [];
       const rxs = [
-        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/
+        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/
       ];
       for(const ln of lines){
         if(ln.length < 10) continue;
@@ -66184,7 +66218,7 @@ const CCC_BANK_TEMPLATES = {
     parsePDF(lines, text, year){
       const items = [];
       const rxs = [
-        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R?\$?\s*(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/
+        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R?\$?\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/
       ];
       for(const ln of lines){
         if(ln.length < 10) continue;
@@ -66212,7 +66246,7 @@ const CCC_BANK_TEMPLATES = {
     parsePDF(lines, text, year){
       const items = [];
       const rxs = [
-        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/
+        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/
       ];
       for(const ln of lines){
         if(ln.length < 10) continue;
@@ -66240,7 +66274,7 @@ const CCC_BANK_TEMPLATES = {
     parsePDF(lines, text, year){
       const items = [];
       const rxs = [
-        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/
+        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/
       ];
       for(const ln of lines){
         if(ln.length < 10) continue;
@@ -66395,8 +66429,8 @@ async function _cccParsePDFLegacy(file){
   }
   const items = [];
   const rxs = [
-    /(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R?\$?\s*(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/,
-    /(\d{2}\/\d{2}\/\d{2,4})\s+(.{5,80})\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/
+    /(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R?\$?\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/,
+    /(\d{2}\/\d{2}\/\d{2,4})\s+(.{5,80})\s+(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/
   ];
   const today = new Date();
   for(const ln of text.split('\n')){
@@ -66431,7 +66465,7 @@ async function _cccParsePDFLegacy(file){
   }
   // Tenta achar TOTAL da fatura no texto
   let totalFatura = items.reduce((s,i) => s + i.valor, 0);
-  const totalM = /(?:total\s+da\s+fatura|total\s+a\s+pagar|valor\s+total\s+da\s+fatura)\s*:?\s*R?\$?\s*(\d{1,3}(?:\.\d{3})*,\d{2})/i.exec(text);
+  const totalM = /(?:total\s+da\s+fatura|total\s+a\s+pagar|valor\s+total\s+da\s+fatura)\s*:?\s*R?\$?\s*(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/i.exec(text);
   if(totalM){
     const t = parseFloat(totalM[1].replace(/\./g,'').replace(',','.'));
     if(isFinite(t) && t > 0) totalFatura = t;
@@ -80708,7 +80742,7 @@ function _ecapParseText(text, file){
   let valor = null, valorConf = 'no';
   const RUIDO = /(multa|juros|mora|desconto|abatimento|acr[ée]scimo|ao\s*dia|por\s*dia|taxa)/i;
   const vizinhancaSuja = (pos) => RUIDO.test(norm.slice(Math.max(0, pos - 90), pos + 20));
-  const NUM = '(\\d{1,3}(?:\\.\\d{3})*,\\d{2}|\\d+,\\d{2})';
+  const NUM = '(\\d{1,3}(?:[.,]\\d{3})*[.,]\\d{2}|\\d+,\\d{2})';
   const vAlvos = [
     { re: new RegExp('valor\\s*(?:do\\s*)?documento\\s*[:R$\\-()=\\s]*' + NUM, 'i'), conf: 'hi' },
     { re: new RegExp('valor\\s*(?:total|a\\s*pagar|cobrado|recebido|l[íi]quido)\\s*[:R$\\-()=\\s]*' + NUM, 'i'), conf: 'hi' },
