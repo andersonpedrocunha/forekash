@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787665962"/>
+  <meta name="fk-build" content="forekash-v1787666965"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -6125,6 +6125,27 @@
        dentro do grid — a linha já tem seis colunas e enfiar mais três ali
        espremeria a descrição, que é o que se lê primeiro. */
     .ccc-row-wrap{border-bottom:1px solid var(--bdr)}
+    /* Faixa do cartão — o contexto que não pode sumir ao rolar 40 linhas. */
+    .ccc-faixa{display:flex;align-items:center;gap:10px;padding:10px 14px;margin:0 0 10px;
+      border-radius:10px;background:linear-gradient(135deg,#1E1B4B,#312E81);color:#E0E7FF;
+      box-shadow:0 1px 3px rgba(30,27,75,.25)}
+    .ccc-faixa-ico{font-size:1.05rem;opacity:.85}
+    .ccc-faixa-nome{font-size:.95rem;font-weight:800;letter-spacing:-.01em;color:#fff}
+    .ccc-faixa-sep{width:1px;height:20px;background:rgba(199,210,254,.3)}
+    .ccc-faixa-venc{display:flex;align-items:baseline;gap:6px}
+    .ccc-faixa-venc small{font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:#A5B4FC}
+    .ccc-faixa-venc b{font-size:.95rem;font-weight:800;color:#fff;font-variant-numeric:tabular-nums}
+    .ccc-faixa-venc.alerta{font-size:.75rem;font-weight:700;color:#FCA5A5}
+    .ccc-faixa-tag{font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:#A5B4FC}
+    /* Descrição editável, com o texto do banco logo abaixo pra conferência. */
+    .ccc-desc-fld{display:flex;flex-direction:column;gap:3px;flex:1 1 240px;min-width:200px}
+    .ccc-desc-fld>span{font-size:.66rem;font-weight:800;text-transform:uppercase;
+      letter-spacing:.05em;color:#64748B}
+    .ccc-desc-fld input{padding:7px 10px;border:1px solid #CBD5E1;border-radius:7px;
+      font-family:inherit;font-size:.84rem;background:#fff;color:#0F172A;width:100%}
+    .ccc-desc-fld input:focus{outline:none;border-color:#6366F1;box-shadow:0 0 0 3px rgba(99,102,241,.15)}
+    .ccc-desc-fld small{font-size:.66rem;color:#94A3B8;white-space:nowrap;overflow:hidden;
+      text-overflow:ellipsis;cursor:help}
     .ccc-novo{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;
               padding:0 14px 11px 58px;background:#F8FAFF}
     .ccc-novo-f{display:flex;flex-direction:column;gap:3px;min-width:190px}
@@ -6139,9 +6160,18 @@
     .ccc-cbx > input:focus{outline:none;border-color:#7C3AED;box-shadow:0 0 0 3px rgba(124,58,237,.12)}
     .ccc-cbx-seta{position:absolute;right:9px;top:50%;transform:translateY(-50%);
                   font-size:.62rem;color:#94A3B8;pointer-events:none}
-    .ccc-cbx-pop{display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:40;
-                 max-height:260px;overflow-y:auto;background:#fff;border:1px solid var(--bdr);
+    /* min-width maior que o campo e nome em UMA linha: "ANDERSON PEDRO DA
+       CUNHA" quebrava em três e a lista virava um paredão ilegível. Quem não
+       couber ganha reticências, e o title mostra inteiro. */
+    .ccc-cbx-pop{display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:40;
+                 min-width:max(320px, 100%);max-width:440px;
+                 max-height:280px;overflow-y:auto;background:#fff;border:1px solid var(--bdr);
                  border-radius:9px;box-shadow:0 10px 28px rgba(15,23,42,.16)}
+    .ccc-cbx-pop .cart-cbx-item{white-space:nowrap}
+    .ccc-cbx-pop .cbx-nome{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+    .ccc-venc-chip{align-self:flex-end;padding:5px 10px;border-radius:7px;
+                   background:#ECFDF5;color:#065F46;border:1px solid #A7F3D0;
+                   font-size:.7rem;font-weight:700;cursor:help;white-space:nowrap}
     .ccc-cbx-pop.open{display:block}
     /* Aviso de possível duplicata: nasce sozinho, não precisa de clique. */
     .ccc-dup{flex:1 0 100%;margin-top:6px;padding:9px 11px;background:#FFFBEB;
@@ -65505,7 +65535,17 @@ function cartConcOpen(cartaoId, faturaId){
   const tit = document.getElementById('ccc-hd-tit');
   const sub = document.getElementById('ccc-hd-sub');
   if(tit && cart && fat) tit.textContent = 'Conciliar ' + (cart.apelido || 'cartão') + ' · ' + cartMesLabel(fat.refY, fat.refM);
-  if(sub) sub.textContent = 'Importe a fatura (PDF, CSV ou OFX) · MR KASH cruza com seus lançamentos';
+  /* O VENCIMENTO no cabeçalho, não só nas linhas parceladas. É ele que amarra
+     TUDO que for importado a esta fatura — a compra de IOF tanto quanto a
+     parcelada — e antes só aparecia quando havia parcelamento, o que fazia
+     parecer que o vínculo não existia nas demais. */
+  if(sub){
+    const v = _cccVencDe(fat) ? _cccFmtDia(_cccVencDe(fat)) : '';
+    sub.innerHTML = v
+      ? 'Tudo que for importado entra na fatura que <b>vence ' + v + '</b>'
+        + ' · <span style="color:#94A3B8">PDF, CSV ou OFX</span>'
+      : 'Importe a fatura (PDF, CSV ou OFX) · MR KASH cruza com seus lançamentos';
+  }
   _cccRenderDrop();
 }
 function cartConcClose(){
@@ -66436,6 +66476,21 @@ function _cccRenderWorkbench(){
     orfao: matches.filter(m => m.bucket === 'orfao' && !CCC_STATE.resolved.has(m._idx)).length
   };
   let html = '';
+  /* O cartão e o vencimento ficam no TOPO, sempre visíveis. Quem está no meio
+     de 40 linhas precisa saber em que fatura isso tudo vai cair — e a resposta
+     é o vencimento, não o mês de referência. */
+  const _cCard = (cartoes.list||[]).find(c => c && c.id === CCC_STATE.cartaoId);
+  const _cVenc = _cccVencFatura();
+  html += '<div class="ccc-faixa">'
+    +   '<span class="ccc-faixa-ico fkico fkico-card"></span>'
+    +   '<span class="ccc-faixa-nome">' + cartEsc((_cCard && _cCard.apelido) || 'Cartão') + '</span>'
+    +   (_cVenc
+        ? '<span class="ccc-faixa-sep"></span>'
+          + '<span class="ccc-faixa-venc"><small>vence em</small><b>' + _cccFmtDia(_cVenc) + '</b></span>'
+        : '<span class="ccc-faixa-sep"></span><span class="ccc-faixa-venc alerta">sem vencimento na fatura</span>')
+    +   '<span style="flex:1"></span>'
+    +   '<span class="ccc-faixa-tag">tudo importado cai aqui</span>'
+    + '</div>';
   // Saldo guard
   html += '<div class="ccc-saldo">'
     +   '<div class="ccc-saldo-it"><span class="ccc-saldo-lbl">Total fatura (banco)</span><span class="ccc-saldo-val">R$ ' + totalFatura.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span></div>'
@@ -66667,9 +66722,26 @@ function _cccLinhaNovo(m, idx){
   const parecidos = _cccParecidos(m.ofx);
   const alerta = parecidos.length ? _cccAlertaDuplicata(parecidos, idx) : '';
   const parc = _cccParcelaHtml(m, idx);
+  const venc = _cccVencFatura();
+  const chipVenc = venc
+    ? '<span class="ccc-venc-chip" title="Este lançamento entra na fatura que vence nesta data.">→ fatura de ' + _cccFmtDia(venc) + '</span>'
+    : '';
+  /* O texto do banco é sigla de maquininha ("PG *IUGU 4412"), não descrição.
+     Ele pode reescrever — e o original não some: vai pras observações do
+     lançamento, que é onde se confere de volta com a fatura depois. */
+  if(m.ofx._desc == null) m.ofx._desc = m.ofx.descricao || '';
+  const descHtml = '<label class="ccc-desc-fld">'
+    + '<span>Descrição</span>'
+    + '<input type="text" value="' + esc(m.ofx._desc) + '" placeholder="como você chama isso"'
+    +   ' oninput="cccSetDesc(' + idx + ', this.value)">'
+    + '<small title="O texto original da fatura vai para as observações do lançamento.">banco: '
+    +   esc((m.ofx.descricao||'').slice(0,42)) + '</small>'
+    + '</label>';
   return '<div class="ccc-novo">'
+    + descHtml
     + _cccCbxHtml(idx, 'counter', m.ofx._forn)
     + _cccCbxHtml(idx, 'cat', m.ofx._cat)
+    + chipVenc
     + parc
     + alerta
     + '</div>';
@@ -66788,9 +66860,12 @@ function _cccParcAtual(m){
   if(!n || !tot || tot < 2 || n > tot) return null;
   return { n, tot };
 }
+/* O campo da fatura é `vencimento` — eu tinha escrito `venc`, nome que só
+   existia nos meus dados de teste. Com dado real o vencimento vinha vazio e a
+   geração de parcelas desistia em silêncio. Aceita os dois por segurança. */
+function _cccVencDe(f){ return (f && (f.vencimento || f.venc)) || ''; }
 function _cccVencFatura(){
-  const f = (cartoes.faturas||[]).find(x => x && x.id === CCC_STATE.faturaId);
-  return f && f.venc ? f.venc : '';
+  return _cccVencDe((cartoes.faturas||[]).find(x => x && x.id === CCC_STATE.faturaId));
 }
 function _cccFmtDia(iso){
   if(!iso) return '';
@@ -66848,25 +66923,67 @@ function _cccParcModalRender(){
   if(!ov){ ov = document.createElement('div'); ov.id = 'ccc-parc-ov'; ov.className = 'ccc-parc-ov';
     ov.onclick = e => { if(e.target === ov) cccParcModalClose(); };
     document.body.appendChild(ov); }
+  /* Dizer PELAS DATAS, não por números de parcela: "começou em junho, termina
+     em maio" é como a pessoa lembra do parcelamento — ninguém guarda "é a
+     oitava de doze". Os números seguem as datas, não o contrário. E o passo é
+     de mês em mês porque é assim que a fatura vence. */
   ov.innerHTML = '<div class="ccc-parc-modal">'
     + '<div class="ccc-pm-hd"><h4>Parcelamento</h4>'
     +   '<button type="button" onclick="cccParcModalClose()">✕</button></div>'
     + '<div class="ccc-pm-sub">' + esc((m.ofx.descricao||'').slice(0,60))
     +   ' · R$ ' + (parseFloat(m.ofx.valor)||0).toLocaleString('pt-BR',{minimumFractionDigits:2}) + ' por parcela</div>'
     + '<div class="ccc-pm-campos">'
-    +   '<label>Esta é a parcela<input type="number" min="1" max="' + p.tot + '" value="' + p.n + '"'
-    +     ' onchange="cccParcModalSet(' + idx + ',\'n\',this.value)"></label>'
-    +   '<label>de um total de<input type="number" min="2" max="99" value="' + p.tot + '"'
+    +   '<label>Primeira parcela<input type="month" value="' + (inicio||'').slice(0,7) + '"'
+    +     ' onchange="cccParcModalData(' + idx + ',\'ini\',this.value)"></label>'
+    +   '<label>Última parcela<input type="month" value="' + (fim||'').slice(0,7) + '"'
+    +     ' onchange="cccParcModalData(' + idx + ',\'fim\',this.value)"></label>'
+    +   '<label>Total<input type="number" min="2" max="99" value="' + p.tot + '"'
     +     ' onchange="cccParcModalSet(' + idx + ',\'tot\',this.value)"></label>'
     + '</div>'
-    + '<div class="ccc-pm-resumo">Começou na fatura de <b>' + _cccFmtDia(inicio) + '</b>'
-    +   ' e termina na de <b>' + _cccFmtDia(fim) + '</b></div>'
+    + '<div class="ccc-pm-resumo">Parcela <b>' + p.n + ' de ' + p.tot + '</b> · começou na fatura de <b>'
+    +   _cccFmtDia(inicio) + '</b> e termina na de <b>' + _cccFmtDia(fim) + '</b></div>'
     + '<div class="ccc-pm-lista">' + linhas.join('') + '</div>'
     + '<div class="ccc-pm-ft">'
-    +   '<span>Só as marcadas <b>a lançar</b> serão criadas. As passadas ficam registradas no plano.</span>'
+    +   '<span>Só as marcadas <b>a lançar</b> serão criadas. As que já vieram ficam registradas no plano.</span>'
     +   '<button type="button" class="ccc-pm-ok" onclick="cccParcModalClose()">Pronto</button>'
     + '</div></div>';
 }
+function cccSetDesc(idx, v){
+  const m = CCC_STATE.matches[idx];
+  if(m && m.ofx) m.ofx._desc = v;   /* sem re-render: o campo está sob o cursor */
+}
+try{ window.cccSetDesc = cccSetDesc; }catch(_){}
+
+/* Mês informado vira número de parcela contando do vencimento desta fatura.
+   Um mês de distância = uma parcela, porque a fatura vence de mês em mês. */
+function cccParcModalData(idx, campo, valorYm){
+  const m = CCC_STATE.matches[idx];
+  const p = _cccParcAtual(m) || { n:1, tot:2 };
+  const vencAtual = _cccVencFatura();
+  if(!vencAtual || !valorYm) return;
+  const meses = _cccDifMeses(valorYm, vencAtual.slice(0,7));
+  let n = p.n, tot = p.tot;
+  if(campo === 'ini'){
+    /* Quantos meses ATRÁS começou → esta é a parcela (diferença + 1). */
+    n = Math.max(1, meses + 1);
+    if(n > tot) tot = n;
+  } else {
+    /* Quantos meses À FRENTE termina → total = atual + o que falta. */
+    tot = Math.max(n, n - meses);
+    if(tot < n) tot = n;
+  }
+  m.ofx._parcelaEdit = n + '/' + tot;
+  _cccParcModalRender();
+  _cccRenderWorkbench();
+}
+/* meses de `de` até `ate`, ambos 'YYYY-MM'. Positivo = `de` é anterior. */
+function _cccDifMeses(de, ate){
+  const [ay, am] = de.split('-').map(Number);
+  const [by, bm] = ate.split('-').map(Number);
+  return (by - ay) * 12 + (bm - am);
+}
+try{ window.cccParcModalData = cccParcModalData; }catch(_){}
+
 function cccParcModalSet(idx, campo, valor){
   const m = CCC_STATE.matches[idx];
   const p = _cccParcAtual(m) || { n:1, tot:2 };
@@ -66889,7 +67006,8 @@ try{
 function _cccGerarParcelasFuturas(base, parcela, cartaoId, faturaAtual){
   const [n, tot] = String(parcela).split('/').map(x => parseInt(x, 10));
   if(!n || !tot || n >= tot) return 0;
-  const vencAtual = faturaAtual && faturaAtual.venc ? new Date(faturaAtual.venc + 'T12:00:00') : null;
+  const vencIso = _cccVencDe(faturaAtual);
+  const vencAtual = vencIso ? new Date(vencIso + 'T12:00:00') : null;
   if(!vencAtual || isNaN(vencAtual)) return 0;
   let criadas = 0;
   for(let k = 1; k <= (tot - n); k++){
@@ -66897,12 +67015,24 @@ function _cccGerarParcelasFuturas(base, parcela, cartaoId, faturaAtual){
     const iso = venc.toISOString().slice(0,10);
     /* Fatura é encontrada PELO VENCIMENTO. Se não existir, nasce aqui — senão
        a parcela não teria onde morar e seria descartada em silêncio. */
-    let fat = (cartoes.faturas || []).find(f => f && f.cartaoId === cartaoId && f.venc === iso);
+    let fat = (cartoes.faturas || []).find(f => f && f.cartaoId === cartaoId && _cccVencDe(f) === iso);
     if(!fat){
-      const novoId = Math.max(0, ...(cartoes.faturas||[]).map(f => f.id||0)) + 1;
-      fat = { id: novoId, cartaoId, ano: venc.getFullYear(), mes: venc.getMonth()+1,
-              venc: iso, status: 'aberta', geradaPor: 'parcelamento' };
+      /* Nasce no MESMO formato das outras faturas do app (refY/refM/ciclo/
+         vencimento). Criar com campos inventados faria a fatura existir e não
+         funcionar em nenhuma outra tela. */
+      const novoId = (cartoes.nextFaturaId || (Math.max(0, ...(cartoes.faturas||[]).map(f => f.id||0)) + 1));
+      const c = (cartoes.list||[]).find(x => x && x.id === cartaoId);
+      let ciclo = null;
+      try{
+        if(c && typeof _cartFaturaCicloFor === 'function') ciclo = _cartFaturaCicloFor(c, iso);
+      }catch(_){}
+      fat = { id: novoId, cartaoId,
+              refY: venc.getFullYear(), refM: venc.getMonth()+1,
+              ciclo: ciclo ? { de: ciclo.cicloDe, ate: ciclo.cicloAte } : null,
+              vencimento: iso, status: 'aberta', pagamento: null,
+              geradaPor: 'parcelamento' };
       cartoes.faturas.push(fat);
+      cartoes.nextFaturaId = novoId + 1;
     }
     const novoLanc = Math.max(0, ...(cartoes.lancamentos||[]).map(l => l.id||0)) + 1;
     const numero = n + k;
@@ -66910,6 +67040,9 @@ function _cccGerarParcelasFuturas(base, parcela, cartaoId, faturaAtual){
       id: novoLanc, cartaoId, faturaId: fat.id,
       data: base.data,
       descricao: base.descricao,
+      /* A parcela futura carrega a mesma observação da compra original —
+         é por ela que se confere de volta com o PDF da fatura de origem. */
+      notas: base.notas || '',
       estabelecimento: base.estabelecimento,
       valor: base.valor,
       categoria: base.categoria,
@@ -66978,6 +67111,15 @@ try {
   window.cartConcBulkIgnore = cartConcBulkIgnore;
 } catch(e){}
 
+/* Rastro da importação dentro do próprio lançamento: o que o banco escreveu e
+   de que arquivo veio. Sem isso, reescrever a descrição apagaria o único texto
+   que dá pra conferir contra o PDF da fatura. */
+function _cccNotaOrigem(ofx){
+  const linhas = ['Fatura (banco): ' + (ofx.descricao || '(sem descrição)')];
+  if(CCC_STATE.arquivoNome) linhas.push('Importado de: ' + CCC_STATE.arquivoNome);
+  return linhas.join('\n');
+}
+
 function cartConcApply(){
   if(!cartoes) return;
   const fatId = CCC_STATE.faturaId, cartaoId = CCC_STATE.cartaoId;
@@ -67005,7 +67147,10 @@ function cartConcApply(){
         id: newId,
         cartaoId, faturaId: fatId,
         data: m.ofx.data,
-        descricao: m.ofx.descricao,
+        /* Descrição = o que ele escreveu. Original do banco preservado em
+           `notas`, o mesmo campo de observações do lançamento manual. */
+        descricao: (m.ofx._desc || '').trim() || m.ofx.descricao,
+        notas: _cccNotaOrigem(m.ofx),
         estabelecimento: forn || m.ofx.descricao,
         valor: m.ofx.valor,
         categoria: (m.ofx._cat || '').trim(),
@@ -68591,6 +68736,9 @@ function _extCollect(){
           valor: parseFloat(l.valor) || 0,
           status: fatPaga ? 'pago' : 'pendente',
           numeroDocumento: l.numeroDocumento || '',
+          /* Observações seguem pro Extrato — é lá que se confere a compra
+             contra o texto original da fatura. */
+          notas: l.notas || '',
           centroCustoId: l.centroCustoId || null,
           moedaOrigem: l.moedaOrigem || null,
           valorOrigem: l.valorOrigem || null,
