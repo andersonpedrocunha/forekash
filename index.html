@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787693531"/>
+  <meta name="fk-build" content="forekash-v1787695374"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -6225,6 +6225,13 @@
     .ccc-desc-li{display:grid;grid-template-columns:190px minmax(0,1fr) auto;gap:10px;align-items:center;
       padding:6px 12px;border-bottom:1px solid #F1F5F9;font-size:.76rem}
     .ccc-desc-li:last-child{border-bottom:none}
+    /* Falha de leitura em cima e destacada; exclusão intencional fica discreta. */
+    .ccc-desc-li.quase{background:#ECFDF5;border-left:3px solid #10B981}
+    .ccc-desc-alvo{position:absolute;margin-left:-8px;margin-top:-22px;font-size:.6rem;font-weight:800;
+      color:#047857;background:#D1FAE5;border-radius:999px;padding:1px 8px;text-transform:uppercase;
+      letter-spacing:.04em}
+    .ccc-desc-li.falha{background:#FFFBEB}
+    .ccc-desc-li.falha .mot{background:#FEE2E2;color:#991B1B}
     .ccc-desc-li .mot{font-size:.66rem;font-weight:700;color:#92400E;background:#FEF3C7;
       border-radius:999px;padding:2px 8px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .ccc-desc-li .txt{color:#334155;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.72rem;
@@ -57043,7 +57050,7 @@ function _viagParseRecibo(text){
   const out = { valor: null, data: null, categoria: null, descricao: null };
   if(!text) return out;
   // VALOR — pega o maior valor R$ encontrado (geralmente o total)
-  const valorMatches = text.match(/R\$?\s*(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/g) || [];
+  const valorMatches = text.match(/R\$?\s*((?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})/g) || [];
   if(valorMatches.length > 0){
     const valores = valorMatches.map(m => {
       const n = m.replace(/R\$|\s/g, '').replace(/\./g, '').replace(',', '.');
@@ -66028,7 +66035,7 @@ function _cccParseValor(s){
 
 function _cccFindTotal(text, kws){
   for(const kw of kws){
-    const re = new RegExp('(?:' + kw + ')\\s*:?\\s*R?\\$?\\s*(\\d{1,3}(?:[.,]\\d{3})*[.,]\\d{2})', 'i');
+    const re = new RegExp('(?:' + kw + ')\\s*:?\\s*R?\\$?\\s*((?:\\d{1,3}(?:[.,]\\d{3})+|\\d+)[.,]\\d{2})', 'i');
     const m = re.exec(text);
     if(m){
       const v = _cccParseValor(m[1]);
@@ -66083,6 +66090,20 @@ function _cccISODe(d, mo, y){
 }
 
 // Linha "ruim" (resumo, encargo, cabeçalho) que nunca deve virar transação
+/* Descarte tem duas naturezas, e misturar as duas destrói o aviso: linha de
+   total, texto de contrato e o par anuidade/estorno são exclusões QUE EU QUIS
+   fazer; "não reconheci o formato" e "não achei valor" são FALHA minha de
+   leitura. Só a segunda merece alarme — avisar 18 vezes numa leitura que
+   fechou no centavo ensina o usuário a ignorar o aviso, e aí ele ignora o que
+   importa. */
+const CCC_DESCARTE_FALHA = new Set([
+  'não reconheci o formato da linha',
+  'não achei valor em reais nesta compra',
+  'sem descrição — pode ser cabeçalho',
+  'descrição vazia depois de limpar',
+  'mês não reconhecido'
+]);
+
 const CCC_LINHAS_RUINS_DEFAULT = /total|saldo|limite|encargos|juros|multa|tarifa|seguro|p[áa]gamento\s+anterior|valor\s+anterior|valor\s+pago|cr[ée]dito\s+rotativ|fatura\s+anterior|^subtotal|^d[ée]bitos\s+autom/i;
 
 const CCC_BANK_TEMPLATES = {
@@ -66094,8 +66115,8 @@ const CCC_BANK_TEMPLATES = {
       const items = [];
       // Nubank: "05 MAI · ESTABELECIMENTO · R$ 285,00" OU "05/05  ESTAB  R$ 285,00"
       const rxs = [
-        /^(\d{2}\s+[A-Z]{3})\s+(.+?)\s+R\$\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/i,
-        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R\$\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/
+        /^(\d{2}\s+[A-Z]{3})\s+(.+?)\s+R\$\s*(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})\s*$/i,
+        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R\$\s*(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})\s*$/
       ];
       for(const ln of lines){
         if(ln.length < 10) continue;
@@ -66125,7 +66146,7 @@ const CCC_BANK_TEMPLATES = {
       const items = [];
       // Itaú: "DD/MM/AAAA  HISTÓRICO  R$ 1.234,56" ou DD/MM
       const rxs = [
-        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R?\$?\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/
+        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R?\$?\s*(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})\s*$/
       ];
       for(const ln of lines){
         if(ln.length < 10) continue;
@@ -66154,8 +66175,8 @@ const CCC_BANK_TEMPLATES = {
     parsePDF(lines, text, year){
       const items = [];
       const rxs = [
-        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R?\$?\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/,
-        /^(\d{2}\s+[A-Z]{3})\s+(.+?)\s+R?\$?\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/i
+        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R?\$?\s*(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})\s*$/,
+        /^(\d{2}\s+[A-Z]{3})\s+(.+?)\s+R?\$?\s*(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})\s*$/i
       ];
       for(const ln of lines){
         if(ln.length < 10) continue;
@@ -66216,7 +66237,7 @@ const CCC_BANK_TEMPLATES = {
          inteira. A guarda de descrição mais abaixo é quem descarta data solta
          que não vira compra. */
       const rxLinha = /^(\d{1,2})\s+([A-Z]{3})\b\s*(.*)$/i;
-      const rxValor = /(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/;
+      const rxValor = /(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})\s*$/;
       const rxParcela = /\b(\d{1,2})\/(\d{1,2})\b/;
 
       for(let i = 0; i < lines.length; i++){
@@ -66235,7 +66256,20 @@ const CCC_BANK_TEMPLATES = {
         /* Só registra o que PARECE compra — linha com data e valor. Registrar
            tudo encheria a auditoria de texto legal e ninguém leria. */
         if(!m){
-          if(/\d{1,2}\s+[A-Z]{3}/i.test(ln) && /R\$|\d+[.,]\d{2}/.test(ln)) larga(ln, 'não reconheci o formato da linha');
+          /* Três letras quaisquer não é mês: "R$ 0,00 EDUCAÇÃO" casava com
+             \d{1,2}\s+[A-Z]{3} e virava falso alarme no quadro de gastos por
+             categoria. Alarme falso repetido ensina a ignorar o alarme. */
+          if(/\b\d{1,2}\s+(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\b/i.test(ln)
+             && /R\$|\d+[.,]\d{2}/.test(ln)){
+            larga(ln, 'não reconheci o formato da linha');
+          } else if(/\d+[.,]\d{2}/.test(ln)){
+            /* Registro FRACO: qualquer linha com cara de valor. Não vira alarme
+               quando a soma fecha (seria ruído), mas quando NÃO fecha eu já sei
+               que perdi alguma coisa — e aí ela precisa estar na lista pra ele
+               poder incluir com um clique. Sem isso a tela dizia "faltam
+               R$ 7.016,99" e não mostrava nenhuma linha pra resolver. */
+            larga(ln, 'linha com valor que não virou compra');
+          }
           continue;
         }
         const mesN = MES[(m[2]||'').toLowerCase()];
@@ -66275,7 +66309,7 @@ const CCC_BANK_TEMPLATES = {
                jogava fora justamente o valor — e a compra sumia da fatura.
                Pega o número que vem depois do R$, nunca o dólar. */
             if(/^(US\$|U\$|V\.DOL)/i.test(prox)){
-              const vBRL = (/R\$\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/.exec(prox) || [])[1];
+              const vBRL = (/R\$\s*(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})/.exec(prox) || [])[1];
               if(vBRL){ valStr = vBRL; consumidas = k; break; }
               consumidas = k; continue;
             }
@@ -66383,7 +66417,7 @@ const CCC_BANK_TEMPLATES = {
     parsePDF(lines, text, year){
       const items = [];
       const rxs = [
-        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/
+        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})\s*$/
       ];
       for(const ln of lines){
         if(ln.length < 10) continue;
@@ -66411,7 +66445,7 @@ const CCC_BANK_TEMPLATES = {
     parsePDF(lines, text, year){
       const items = [];
       const rxs = [
-        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/
+        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})\s*$/
       ];
       for(const ln of lines){
         if(ln.length < 10) continue;
@@ -66439,7 +66473,7 @@ const CCC_BANK_TEMPLATES = {
     parsePDF(lines, text, year){
       const items = [];
       const rxs = [
-        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R?\$?\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/
+        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R?\$?\s*(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})\s*$/
       ];
       for(const ln of lines){
         if(ln.length < 10) continue;
@@ -66467,7 +66501,7 @@ const CCC_BANK_TEMPLATES = {
     parsePDF(lines, text, year){
       const items = [];
       const rxs = [
-        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/
+        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})\s*$/
       ];
       for(const ln of lines){
         if(ln.length < 10) continue;
@@ -66495,7 +66529,7 @@ const CCC_BANK_TEMPLATES = {
     parsePDF(lines, text, year){
       const items = [];
       const rxs = [
-        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/
+        /^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})\s*$/
       ];
       for(const ln of lines){
         if(ln.length < 10) continue;
@@ -66720,8 +66754,8 @@ async function _cccParsePDFLegacy(file){
   }
   const items = [];
   const rxs = [
-    /(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R?\$?\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/,
-    /(\d{2}\/\d{2}\/\d{2,4})\s+(.{5,80})\s+(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/
+    /(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+R?\$?\s*(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})\s*$/,
+    /(\d{2}\/\d{2}\/\d{2,4})\s+(.{5,80})\s+(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})\s*$/
   ];
   const today = new Date();
   for(const ln of text.split('\n')){
@@ -66756,7 +66790,7 @@ async function _cccParsePDFLegacy(file){
   }
   // Tenta achar TOTAL da fatura no texto
   let totalFatura = items.reduce((s,i) => s + i.valor, 0);
-  const totalM = /(?:total\s+da\s+fatura|total\s+a\s+pagar|valor\s+total\s+da\s+fatura)\s*:?\s*R?\$?\s*(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/i.exec(text);
+  const totalM = /(?:total\s+da\s+fatura|total\s+a\s+pagar|valor\s+total\s+da\s+fatura)\s*:?\s*R?\$?\s*((?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})/i.exec(text);
   if(totalM){
     const t = parseFloat(totalM[1].replace(/\./g,'').replace(',','.'));
     if(isFinite(t) && t > 0) totalFatura = t;
@@ -66980,8 +67014,7 @@ function _cccRenderWorkbench(){
       /* Soma fechada é forte, mas não é prova absoluta: um valor lido a mais
          poderia compensar outro que ficou de fora. Se descartei alguma linha
          com cara de compra, isso fica dito mesmo assim. */
-      const _susp = _audDesc.filter(d => /\d{1,2}[\/\s][A-Z0-9]{2,3}/i.test(d.linha)
-                                       && /\d+[.,]\d{2}/.test(d.linha)).length;
+      const _susp = _audDesc.filter(d => CCC_DESCARTE_FALHA.has(d.motivo)).length;
       html += '<div class="ccc-aud ok">'
         + '<b>Leitura conferida.</b> As ' + ((CCC_STATE.parsed.items||[]).length)
         + ' transações somam exatamente o total impresso na fatura (' + fmt(_audTotal) + ').'
@@ -67019,10 +67052,13 @@ function _cccRenderWorkbench(){
       html += '<div class="ccc-desc-lista">'
         + '<div class="ccc-desc-hd">Linhas descartadas na leitura'
         +   '<button type="button" onclick="cccVerDescartes()">fechar</button></div>'
-        + _audDesc.map((d, k) => '<div class="ccc-desc-li">'
+        + _cccOrdenaDescartes(_audDesc, _audDif)
+            .map((d) => '<div class="ccc-desc-li' + (CCC_DESCARTE_FALHA.has(d.motivo) ? ' falha' : '')
+                       + (d._quase ? ' quase' : '') + '">'
+              + (d._quase ? '<span class="ccc-desc-alvo" title="O valor desta linha é exatamente o que falta pra fechar.">é o que falta</span>' : '')
             + '<span class="mot">' + cartEsc(d.motivo) + '</span>'
             + '<span class="txt" title="' + cartEsc(d.linha) + '">' + cartEsc(d.linha.slice(0,110)) + '</span>'
-            + '<button type="button" onclick="cccIncluirDescarte(' + k + ')" title="Transformar esta linha em transação">incluir</button>'
+            + '<button type="button" onclick="cccIncluirDescarte(' + d._k + ')" title="Transformar esta linha em transação">incluir</button>'
           + '</div>').join('')
         + '</div>';
     }
@@ -67868,6 +67904,56 @@ try{
   window.cartConcVincular = cartConcVincular;
 }catch(_){}
 
+/* Ordena o que descartei pelo que RESOLVE o problema: se faltam R$ 7.016,99,
+   a linha que tem 7.016,99 vai pro topo marcada. Noventa linhas em ordem de
+   leitura não são acionáveis; a primeira que fecha a conta é. */
+/* TODOS os valores da linha, não só o do fim. A compra que eu não soube ler
+   pode ter o valor no meio ("... 18/FEV >> 7016,99 <<") — foi exatamente o que
+   aconteceu no teste, e a linha que resolvia o buraco ficou no fim da lista. */
+function _cccValoresDaLinha(ln){
+  const out = [];
+  /* `(?<![\d.,])` impede casar o FIM de um número maior: sem a barreira,
+     "7016,99" entregava "016,99" → R$ 16,99. Sete mil reais sumindo em
+     silêncio — exatamente o que a auditoria existe pra impedir. */
+  const rx = /(?<![\d.,])(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})/g;
+  let m;
+  while((m = rx.exec(String(ln || ''))) !== null){
+    const v = Math.abs(_cccParseValor(m[1]) || 0);
+    if(v) out.push(v);
+  }
+  return out;
+}
+/* Valor "útil" da linha: o mais próximo do que falta, quando se sabe quanto
+   falta; senão o maior, que é o candidato mais provável a compra. */
+function _cccValorDaLinha(ln, falta){
+  const vs = _cccValoresDaLinha(ln);
+  if(!vs.length) return 0;
+  if(falta > 0.01){
+    let melhor = vs[0];
+    for(const v of vs) if(Math.abs(v - falta) < Math.abs(melhor - falta)) melhor = v;
+    return melhor;
+  }
+  return Math.max.apply(null, vs);
+}
+function _cccOrdenaDescartes(lista, faltando){
+  const falta = Math.abs(faltando || 0);
+  const arr = lista.map((d, k) => {
+    const v = _cccValorDaLinha(d.linha, falta);
+    return Object.assign({}, d, {
+      _k: k, _v: v,
+      _quase: falta > 0.01 && v > 0 && Math.abs(v - falta) < 0.01
+    });
+  });
+  arr.sort((a, b) => {
+    if(a._quase !== b._quase) return a._quase ? -1 : 1;
+    const fa = CCC_DESCARTE_FALHA.has(a.motivo), fb = CCC_DESCARTE_FALHA.has(b.motivo);
+    if(fa !== fb) return fa ? -1 : 1;
+    if(falta > 0.01) return Math.abs(a._v - falta) - Math.abs(b._v - falta);
+    return b._v - a._v;
+  });
+  return arr;
+}
+
 function cccVerDescartes(){
   CCC_STATE.verDescartes = !CCC_STATE.verDescartes;
   _cccRenderWorkbench();
@@ -67878,9 +67964,15 @@ function cccIncluirDescarte(k){
   const d = ((CCC_STATE.parsed && CCC_STATE.parsed.descartes) || [])[k];
   if(!d) return;
   const ln = d.linha;
-  const mv = /(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*$/.exec(ln)
-          || /R\$\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/.exec(ln);
-  const valor = mv ? Math.abs(_cccParseValor(mv[1]) || 0) : 0;
+  /* Mesmo critério da ordenação: se sei quanto falta, uso o valor que fecha. */
+  let _falta = 0;
+  try{
+    const p3 = CCC_STATE.parsed;
+    if(p3 && p3.totalFatura){
+      _falta = p3.totalFatura - (p3.items||[]).reduce((a2, x) => a2 + (parseFloat(x.valor)||0), 0);
+    }
+  }catch(_){}
+  const valor = _cccValorDaLinha(ln, Math.abs(_falta));
   if(!valor){
     if(typeof toast === 'function') toast('⚠ Não achei valor nesta linha — inclua pelo botão de lançamento novo');
     return;
@@ -67898,7 +67990,7 @@ function cccIncluirDescarte(k){
     data = anoUsar + '-' + String(mm).padStart(2,'0') + '-' + String(parseInt(md[1],10)).padStart(2,'0');
   }
   if(!data) data = fatVenc || new Date().toISOString().slice(0,10);
-  const desc = ln.replace(/(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/g,'').replace(/R\$/g,'')
+  const desc = ln.replace(/(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})/g,'').replace(/R\$/g,'')
                  .replace(/^\d{1,2}\s+[A-Z]{3}\s*/i,'').replace(/\s{2,}/g,' ').trim() || 'Lançamento da fatura';
   const ofx = { fitid: 'manual|' + k + '|' + valor.toFixed(2), data, descricao: desc.slice(0,80),
                 valor, _incluidoNaMao: true };
@@ -81561,7 +81653,7 @@ function _ecapParseText(text, file){
   let valor = null, valorConf = 'no';
   const RUIDO = /(multa|juros|mora|desconto|abatimento|acr[ée]scimo|ao\s*dia|por\s*dia|taxa)/i;
   const vizinhancaSuja = (pos) => RUIDO.test(norm.slice(Math.max(0, pos - 90), pos + 20));
-  const NUM = '(\\d{1,3}(?:[.,]\\d{3})*[.,]\\d{2}|\\d+,\\d{2})';
+  const NUM = '((?:\\d{1,3}(?:[.,]\\d{3})+|\\d+)[.,]\\d{2}|\\d+,\\d{2})';
   const vAlvos = [
     { re: new RegExp('valor\\s*(?:do\\s*)?documento\\s*[:R$\\-()=\\s]*' + NUM, 'i'), conf: 'hi' },
     { re: new RegExp('valor\\s*(?:total|a\\s*pagar|cobrado|recebido|l[íi]quido)\\s*[:R$\\-()=\\s]*' + NUM, 'i'), conf: 'hi' },
