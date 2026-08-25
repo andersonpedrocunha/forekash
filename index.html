@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787691556"/>
+  <meta name="fk-build" content="forekash-v1787693531"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -6236,6 +6236,12 @@
     .ccc-aviso-dup b{font-weight:800}
     .ccc-aviso-dup.parcial{background:#FFFBEB;border-color:#FDE68A;color:#78350F}
     /* Faixa do cartão — o contexto que não pode sumir ao rolar 40 linhas. */
+    /* Disclaimer da leitura automática. Fica ANTES de escolher o arquivo,
+       porque limitação dita na hora certa é informação — dita depois do
+       erro, é desculpa. */
+    .ccc-disclaimer{margin:0 0 14px;padding:11px 15px;border-radius:9px;font-size:.79rem;
+      line-height:1.5;background:#F8FAFC;border:1px solid #E2E8F0;color:#475569;max-width:760px}
+    .ccc-disclaimer b{color:#0F172A;font-weight:800}
     .ccc-faixa{display:flex;align-items:center;gap:10px;padding:10px 14px;margin:0 0 10px;
       border-radius:10px;background:linear-gradient(135deg,#1E1B4B,#312E81);color:#E0E7FF;
       box-shadow:0 1px 3px rgba(30,27,75,.25)}
@@ -65755,7 +65761,14 @@ function _cccRenderDrop(){
   // Lista de bancos suportados pra PDF
   const bancosLbl = Object.values(CCC_BANK_TEMPLATES).map(b => b.icon + ' ' + b.name).join(' · ');
   bd.innerHTML =
-      '<div class="ccc-intro">'
+      '<div class="ccc-disclaimer">'
+    +   '<b>Leitura automática — confira antes de conciliar.</b> '
+    +   'Eu leio o arquivo e comparo a soma com o <b>total impresso na fatura</b>. '
+    +   'Se bater, digo que conferiu. Se não bater, digo quanto falta e mostro as linhas que descartei. '
+    +   'Layout de banco muda, e um formato novo pode me escapar: onde o arquivo não traz um total '
+    +   '(caso de CSV e da maioria dos OFX), <b>não tenho como provar que li tudo</b> — aí a conferência é sua.'
+    + '</div>'
+    +   '<div class="ccc-intro">'
     +   '<img class="mrkash-inline ccc-intro-ico" alt="MR KASH" draggable="false">'
     +   '<div><b>Como funciona:</b> arraste o arquivo da fatura. O MR KASH detecta o banco, '
     +   'extrai as transações, e cruza com os <b>' + lans.length + ' lançamentos</b> que você '
@@ -66964,14 +66977,31 @@ function _cccRenderWorkbench(){
   if(CCC_STATE.parsed){
     const fmt = v => 'R$ ' + Math.abs(v).toLocaleString('pt-BR',{minimumFractionDigits:2});
     if(_audOk){
+      /* Soma fechada é forte, mas não é prova absoluta: um valor lido a mais
+         poderia compensar outro que ficou de fora. Se descartei alguma linha
+         com cara de compra, isso fica dito mesmo assim. */
+      const _susp = _audDesc.filter(d => /\d{1,2}[\/\s][A-Z0-9]{2,3}/i.test(d.linha)
+                                       && /\d+[.,]\d{2}/.test(d.linha)).length;
       html += '<div class="ccc-aud ok">'
         + '<b>Leitura conferida.</b> As ' + ((CCC_STATE.parsed.items||[]).length)
         + ' transações somam exatamente o total impresso na fatura (' + fmt(_audTotal) + ').'
+        + (_susp
+            ? ('<button type="button" class="ccc-aud-btn" onclick="cccVerDescartes()">'
+               + 'Ainda assim, veja ' + _susp + ' linha(s) que descartei</button>')
+            : '')
         + '</div>';
     } else if(!_audTotal){
+      /* Sem total no arquivo eu NÃO consigo provar que li tudo. Isso tem o
+         mesmo peso de um erro e precisa aparecer assim, com a conta na mão
+         pra ele bater contra o papel. */
       html += '<div class="ccc-aud alerta">'
-        + '<b>Não achei o total impresso na fatura.</b> Sem ele não consigo provar que li tudo — '
-        + 'confira a soma abaixo (' + fmt(_audSoma) + ') contra o papel antes de conciliar.'
+        + '<b>Não consigo provar que li tudo.</b> Este arquivo não traz um total pra eu conferir '
+        + '(normal em CSV e na maioria dos OFX). Li <b>' + ((CCC_STATE.parsed.items||[]).length)
+        + '</b> transações somando <b>' + fmt(_audSoma) + '</b> — compare com a fatura antes de conciliar.'
+        + (_audDesc.length
+            ? ('<button type="button" class="ccc-aud-btn" onclick="cccVerDescartes()">Ver as '
+               + _audDesc.length + ' linhas que descartei</button>')
+            : '')
         + '</div>';
     } else {
       html += '<div class="ccc-aud erro">'
