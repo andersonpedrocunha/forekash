@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787682201"/>
+  <meta name="fk-build" content="forekash-v1787682464"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -64344,7 +64344,7 @@ function _cartRenderDetail(){
     .sort((a, b) => (b.refY * 100 + b.refM) - (a.refY * 100 + a.refM));
   html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:10px">'
     + '<h3 style="margin:0;font-size:1rem;font-weight:800;color:#0F172A">Faturas</h3>'
-    + '<button class="cart-btn cart-btn-secondary" onclick="cartGerarFaturasAteMes(' + c.id + ')" title="Gera as próximas 12 faturas em branco">+ Gerar próximas</button>'
+    + '<button class="cart-btn cart-btn-secondary" onclick="cartGerarFaturasAteMes(' + c.id + ')" title="Cria as faturas dos próximos 12 meses, todas em branco, pra você já poder lançar compras futuras.">Gerar 12 faturas em branco</button>'
   + '</div>';
   if(allFats.length === 0){
     html += '<div class="cart-empty"><span class="ico fkico fkico-doc"></span><div class="title">Sem faturas ainda</div><div class="sub">Adicione um lançamento ou importe um OFX pra criar faturas.</div></div>';
@@ -65675,8 +65675,18 @@ async function _cccHandleFile(file){
       const fat  = (cartoes.faturas||[]).find(f => f && f.id === CCC_STATE.faturaId);
       if(vArq && fat && _cccVencDe(fat) !== vArq){
         CCC_STATE.vencAnterior = _cccVencDe(fat);
-        _cccAplicarVenc(fat, vArq);
+        /* TROCA de fatura, não reescreve a data desta. Reescrever moveria uma
+           fatura de agosto/2027 pra janeiro/2025 e poderia colidir com a
+           janeiro que já existe — duas faturas do mesmo mês, e o mês de
+           referência mentindo em todas as telas que leem refY/refM. */
+        const destino = _extFaturaPorVenc(CCC_STATE.cartaoId, vArq);
+        if(destino && destino.id !== fat.id){
+          CCC_STATE.faturaId = destino.id;
+        } else if(!destino){
+          _cccAplicarVenc(fat, vArq);
+        }
         CCC_STATE.vencDoArquivo = true;
+        try{ if(typeof cartSave === 'function') cartSave(); }catch(_){}
       }
     }catch(e){ console.warn('[CCC] vencimento do arquivo:', e && e.message); }
     const lans = (cartoes && Array.isArray(cartoes.lancamentos))
@@ -67045,7 +67055,11 @@ function _cccAplicarVenc(fat, iso){
 function cccSetVenc(iso){
   const fat = (cartoes.faturas||[]).find(f => f && f.id === CCC_STATE.faturaId);
   if(!fat || !iso) return;
-  _cccAplicarVenc(fat, iso);
+  /* Se já existe fatura com esse vencimento, vai pra ela em vez de criar uma
+     segunda do mesmo mês. Só reescreve a data quando a fatura é esta mesma. */
+  const destino = _extFaturaPorVenc(CCC_STATE.cartaoId, iso);
+  if(destino && destino.id !== fat.id) CCC_STATE.faturaId = destino.id;
+  else _cccAplicarVenc(fat, iso);
   CCC_STATE.vencDoArquivo = false;      /* passou a ser escolha dele */
   try{ if(typeof cartSave === 'function') cartSave(); }catch(_){}
   _cccRenderWorkbench();
