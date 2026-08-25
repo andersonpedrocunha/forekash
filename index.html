@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787688442"/>
+  <meta name="fk-build" content="forekash-v1787689615"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -6057,9 +6057,13 @@
     .cart-fat-card.is-current{border-color:#F59E0B;background:#FFFBEB;box-shadow:0 0 0 2px rgba(245,158,11,.15) inset}
     .cart-fat-card.is-paga{background:#F0FDF4;border-color:#BBF7D0}
     .cart-fat-card.is-empty{opacity:.5}
-    .cart-fat-card.is-conciliada::before{content:'✓ conciliada';position:absolute;top:6px;right:8px;
+    /* O selo era absoluto no canto e caía EM CIMA do mês ("Março 2026" some
+       atrás de "✓ CONCILIADA" num card de 160px). Vira a primeira linha do
+       card: ocupa o espaço dela, e nada mais se sobrepõe. */
+    .cart-fat-card.is-conciliada::before{content:'✓ conciliada';align-self:flex-start;
                                             font-size:.58rem;color:#15803D;font-weight:800;letter-spacing:.04em;
-                                            text-transform:uppercase;background:#DCFCE7;padding:1px 6px;border-radius:3px}
+                                            text-transform:uppercase;background:#DCFCE7;padding:1px 6px;
+                                            border-radius:3px;line-height:1.5}
 
     .cart-btn-conc{background:linear-gradient(135deg,#2563EB 0%,#7C3AED 100%);color:#fff;border:none;
                      box-shadow:0 2px 8px rgba(124,58,237,.3)}
@@ -6204,6 +6208,10 @@
       border-radius:7px;background:#F5F3FF;color:#5B21B6;font:inherit;font-size:.74rem;
       font-weight:700;cursor:pointer;white-space:nowrap}
     .ccc-detalhar:hover{background:#EDE9FE;border-color:#7C3AED}
+    .ccc-aviso-dup{margin:0 0 10px;padding:10px 14px;border-radius:9px;font-size:.8rem;line-height:1.45;
+      background:#FEF2F2;border:1px solid #FECACA;color:#7F1D1D}
+    .ccc-aviso-dup b{font-weight:800}
+    .ccc-aviso-dup.parcial{background:#FFFBEB;border-color:#FDE68A;color:#78350F}
     /* Faixa do cartão — o contexto que não pode sumir ao rolar 40 linhas. */
     .ccc-faixa{display:flex;align-items:center;gap:10px;padding:10px 14px;margin:0 0 10px;
       border-radius:10px;background:linear-gradient(135deg,#1E1B4B,#312E81);color:#E0E7FF;
@@ -6298,8 +6306,19 @@
                      border-radius:6px;cursor:pointer;white-space:nowrap}
     .ccc-cand button:hover{background:#D1FAE5}
     .ccc-cand-vazio{padding:8px;font-size:.76rem;color:#94A3B8;font-style:italic}
-    .ccc-row{display:grid;grid-template-columns:auto 1fr auto 1fr auto auto;gap:10px;padding:10px 14px;
+    /* Sete elementos na linha (selo, banco, valor, seta, sistema, valor, ações)
+       e o grid declarava SEIS colunas: as ações caíam numa segunda linha, o que
+       inchava a altura de todas as linhas. E as colunas de valor eram `auto`:
+       como cada linha é um grid próprio, cada uma media a largura sozinha e os
+       valores nunca ficavam na mesma vertical. Largura fixa resolve as duas
+       coisas — números alinhados e linha de uma altura só. */
+    .ccc-row{display:grid;
+                grid-template-columns:74px minmax(0,1fr) 116px 18px minmax(0,1fr) 116px auto;
+                gap:10px;padding:10px 14px;
                 border:1px solid #E5E7EB;border-radius:8px;margin-bottom:7px;background:#fff;align-items:center}
+    @media (max-width:1100px){
+      .ccc-row{grid-template-columns:64px minmax(0,1fr) 104px 14px minmax(0,1fr) 104px auto;gap:7px}
+    }
     .ccc-row.match{border-color:#BBF7D0;background:#F0FDF4}
     .ccc-row.fuzzy{border-color:#FDE68A;background:#FFFBEB}
     .ccc-row.novo{border-color:#BFDBFE;background:#EFF6FF}
@@ -6313,7 +6332,7 @@
                      text-overflow:ellipsis;white-space:nowrap}
     .ccc-row-val{font-size:.9rem;font-weight:800;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;
                     color:#B91C1C}
-    .ccc-row-arrow{font-size:1.1rem;color:#94A3B8}
+    .ccc-row-arrow{font-size:1.1rem;color:#94A3B8;text-align:center}
     .ccc-row-conf{padding:2px 8px;border-radius:11px;font-size:.62rem;font-weight:800;letter-spacing:.04em;
                      text-transform:uppercase;white-space:nowrap}
     .ccc-row-conf.match{background:#BBF7D0;color:#14532D}
@@ -65743,6 +65762,39 @@ function _cccRenderDrop(){
 }
 
 // ── PARSERS ──
+async function _cccFingerprintArquivo(parsed){
+  const it = (parsed && parsed.items) || [];
+  if(!it.length) return '';
+  const total = (parsed.totalFatura || it.reduce((s2,x) => s2 + (x.valor||0), 0)).toFixed(2);
+  const pri = it[0], ult = it[it.length - 1];
+  return [it.length, total, pri.data, pri.valor.toFixed(2), ult.data, ult.valor.toFixed(2)].join('|');
+}
+/* Procura a impressão digital em TODAS as faturas do cartão, não só na aberta:
+   quem importa o arquivo errado costuma estar na fatura errada também. */
+function _cccJaImportado(parsed){
+  const fp = _cccFingerprintArquivo(parsed);
+  if(!fp) return null;
+  try{
+    for(const f of (cartoes.faturas || [])){
+      if(!f || f.cartaoId !== CCC_STATE.cartaoId) continue;
+      if(f.conciliadaFingerprint === fp){
+        return { fatura: f, quando: f.conciliadaEm || '', arquivo: f.conciliadaArquivo || '' };
+      }
+    }
+  }catch(_){}
+  return null;
+}
+/* Quantas das transações do arquivo já existem como lançamento conciliado. */
+function _cccJaConciliadas(parsed){
+  try{
+    const fitids = new Set((cartoes.lancamentos || [])
+      .filter(l => l && l.cartaoId === CCC_STATE.cartaoId && l.cardConc && l.cardConc.fitid)
+      .map(l => l.cardConc.fitid));
+    if(!fitids.size) return 0;
+    return ((parsed && parsed.items) || []).filter(x => fitids.has(x.fitid)).length;
+  }catch(_){ return 0; }
+}
+
 async function _cccHandleFile(file){
   if(!file) return;
   if(file.size > 10 * 1024 * 1024){
@@ -65755,6 +65807,12 @@ async function _cccHandleFile(file){
   try {
     const parsed = await _cccParseFile(file);
     CCC_STATE.parsed = parsed;
+    /* Já importei este arquivo? A resposta não pode depender da memória dele:
+       importar duas vezes duplica a fatura inteira em silêncio. A impressão
+       digital é do CONTEÚDO (quantas transações, total, primeira e última),
+       não do nome do arquivo — "Fatura (2).pdf" e "Fatura.pdf" são o mesmo
+       documento baixado duas vezes. */
+    CCC_STATE.jaImportado = _cccJaImportado(parsed);
     /* O vencimento impresso na fatura manda sobre o calculado pelo dia de
        vencimento do cadastro: feriado, mudança de contrato e fatura de
        fechamento fora do padrão fazem os dois divergirem. */
@@ -66845,6 +66903,27 @@ function _cccRenderWorkbench(){
      pra corrigir na hora do que uma data travada, ou nenhuma. */
   const _origem = CCC_STATE.vencDoArquivo ? 'lido do arquivo'
                 : (CCC_STATE.parsed ? 'confira: veio do cadastro do cartão' : 'do cadastro do cartão');
+  /* Arquivo repetido e transações já conciliadas ficam DITOS, em cima de tudo.
+     Sem isso, reimportar a mesma fatura duplicava tudo em silêncio — e a única
+     defesa era ele lembrar se já tinha importado. */
+  const _ja = CCC_STATE.jaImportado;
+  const _jaConc = CCC_STATE.parsed ? _cccJaConciliadas(CCC_STATE.parsed) : 0;
+  const _totLidas = (CCC_STATE.parsed && CCC_STATE.parsed.items) ? CCC_STATE.parsed.items.length : 0;
+  if(_ja){
+    const q = _ja.quando ? (' em ' + _ja.quando.slice(0,10).split('-').reverse().join('/')) : '';
+    const mes = (typeof cartMesLabel === 'function' && _ja.fatura)
+      ? cartMesLabel(_ja.fatura.refY, _ja.fatura.refM) : '';
+    html += '<div class="ccc-aviso-dup">'
+      +   '<b>Este arquivo já foi importado' + q + '.</b> '
+      +   'Mesmo conteúdo da fatura ' + cartEsc(mes) + ' — mesma quantidade de transações, mesmo total, '
+      +   'mesma primeira e última compra. Importar de novo cria tudo em duplicidade.'
+      + '</div>';
+  } else if(_jaConc > 0){
+    html += '<div class="ccc-aviso-dup parcial">'
+      +   '<b>' + _jaConc + ' de ' + _totLidas + ' transações deste arquivo já estão conciliadas.</b> '
+      +   'Elas aparecem como <i>Match</i> e não serão criadas de novo — aprovar não duplica.'
+      + '</div>';
+  }
   html += '<div class="ccc-faixa">'
     +   '<span class="ccc-faixa-ico fkico fkico-card"></span>'
     +   '<span class="ccc-faixa-nome">' + cartEsc((_cCard && _cCard.apelido) || 'Cartão') + '</span>'
@@ -66856,7 +66935,9 @@ function _cccRenderWorkbench(){
     +     '<em class="ccc-faixa-org' + (CCC_STATE.vencDoArquivo ? ' ok' : '') + '">' + _origem + '</em>'
     +   '</span>'
     +   '<span style="flex:1"></span>'
-    +   '<span class="ccc-faixa-tag">tudo importado cai nesta fatura</span>'
+    +   (_totLidas
+        ? '<span class="ccc-faixa-tag">' + _totLidas + ' transações lidas do arquivo</span>'
+        : '<span class="ccc-faixa-tag">tudo importado cai nesta fatura</span>')
     + '</div>';
   // Saldo guard
   html += '<div class="ccc-saldo">'
@@ -66866,6 +66947,12 @@ function _cccRenderWorkbench(){
     +   '<div class="ccc-saldo-it"><span class="ccc-saldo-lbl">Diferença</span><span class="ccc-saldo-val ' + (saldoOk?'match':'diff') + '">' + (saldoOk?'✓ ':'') + 'R$ ' + Math.abs(diff).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span></div>'
     + '</div>';
   // Tabs
+  const _somaAbas = matches.length;
+  if(_totLidas && _somaAbas < _totLidas){
+    html += '<div class="ccc-aviso-dup parcial">'
+      + '<b>' + (_totLidas - _somaAbas) + ' transação(ões) lida(s) do arquivo não entraram em nenhuma aba.</b> '
+      + 'Isso é falha minha de leitura — me avise pra corrigir.</div>';
+  }
   html += '<div class="ccc-tabs">'
     +   '<button class="ccc-tab match ' + (CCC_STATE.bucket==='match'?'is-active':'') + '" onclick="cartConcSetBucket(\'match\')"><span class="lbl">✓ Match</span><span class="num">' + counts.match + '</span></button>'
     +   '<button class="ccc-tab fuzzy ' + (CCC_STATE.bucket==='fuzzy'?'is-active':'') + '" onclick="cartConcSetBucket(\'fuzzy\')"><span class="lbl">? Possível</span><span class="num">' + counts.fuzzy + '</span></button>'
@@ -67776,6 +67863,8 @@ function cartConcApply(){
   fat.conciliadaArquivo = CCC_STATE.arquivoNome;
   fat.conciliadaFormato = (CCC_STATE.parsed && CCC_STATE.parsed.formato) || '';
   fat.conciliadaTotal = (CCC_STATE.parsed && CCC_STATE.parsed.totalFatura) || 0;
+  /* Assinatura do conteúdo, pra reconhecer o mesmo arquivo numa próxima vez. */
+  try{ fat.conciliadaFingerprint = _cccFingerprintArquivo(CCC_STATE.parsed); }catch(_){}
   // Salva
   if(typeof cartSave === 'function') cartSave();
   if(typeof renderCartoes === 'function') try { renderCartoes(); } catch(e){}
@@ -68851,10 +68940,21 @@ function _extPeriodLabel(){
 // Interruptor pra comparar (console do navegador):
 //   localStorage.setItem('fk_extrato_puro','0')  → volta ao consolidado antigo
 //   localStorage.removeItem('fk_extrato_puro')   → independente (padrão)
+/* A regra do "só o que passou pela conta" existe pra barrar PROJEÇÃO: Receita,
+   Estrutura, Pessoas, Impostos e Empréstimos calculam linha na hora, e misturar
+   isso com caixa foi a origem de uma classe inteira de bug.
+
+   Cartão não é projeção. A fatura importada é fato: a compra aconteceu e o
+   dinheiro vai sair no vencimento. Deixá-la de fora fazia o Extrato mostrar
+   março inteiro vazio com uma fatura de R$ 9.329,19 vencendo dia 11 — o mês
+   parecia sem despesa nenhuma. Em Caixa entra UMA linha por fatura, no mês do
+   vencimento, expansível pra ver as compras; em Competência, uma linha por
+   compra, na data em que foi feita. */
+const _EXT_FONTES_REAIS = new Set(['manual', 'cartao-fatura', 'cartao']);
 function _extCollectReal(){
   const todas = _extCollect();
   if(localStorage.getItem('fk_extrato_puro') === '0') return todas;  // modo legado
-  return todas.filter(x => x.sourceKind === 'manual');
+  return todas.filter(x => _EXT_FONTES_REAIS.has(x.sourceKind));
 }
 try { window._extCollectReal = _extCollectReal; } catch(e){}
 
