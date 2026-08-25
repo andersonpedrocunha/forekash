@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787664782"/>
+  <meta name="fk-build" content="forekash-v1787665494"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -6132,14 +6132,30 @@
                      letter-spacing:.05em;color:#94A3B8}
     .ccc-novo-f input, .ccc-novo-f select{padding:5px 9px;font:inherit;font-size:.76rem;
                      border:1px solid var(--bdr);border-radius:7px;background:#fff}
-    .ccc-novo-busca{align-self:flex-end;padding:6px 12px;font:inherit;font-size:.72rem;
-                    font-weight:700;color:#4338CA;background:#EEF2FF;border:1px solid #C7D2FE;
-                    border-radius:7px;cursor:pointer}
-    .ccc-novo-busca:hover{background:#E0E7FF}
-    .ccc-busca{flex:1 0 100%;margin-top:8px;padding:10px;background:#fff;
-               border:1px solid var(--bdr);border-radius:9px}
-    .ccc-busca > input{width:100%;padding:6px 10px;font:inherit;font-size:.78rem;
-                       border:1px solid var(--bdr);border-radius:7px;margin-bottom:8px}
+    /* Combobox: mesma caixa do Extrato. */
+    .ccc-cbx{position:relative}
+    .ccc-cbx > input{width:100%;padding:6px 26px 6px 10px;font:inherit;font-size:.78rem;
+                     border:1px solid var(--bdr);border-radius:7px;background:#fff}
+    .ccc-cbx > input:focus{outline:none;border-color:#7C3AED;box-shadow:0 0 0 3px rgba(124,58,237,.12)}
+    .ccc-cbx-seta{position:absolute;right:9px;top:50%;transform:translateY(-50%);
+                  font-size:.62rem;color:#94A3B8;pointer-events:none}
+    .ccc-cbx-pop{display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:40;
+                 max-height:260px;overflow-y:auto;background:#fff;border:1px solid var(--bdr);
+                 border-radius:9px;box-shadow:0 10px 28px rgba(15,23,42,.16)}
+    .ccc-cbx-pop.open{display:block}
+    /* Aviso de possível duplicata: nasce sozinho, não precisa de clique. */
+    .ccc-dup{flex:1 0 100%;margin-top:6px;padding:9px 11px;background:#FFFBEB;
+             border:1px solid #FDE68A;border-radius:9px}
+    .ccc-dup-tit{display:block;font-size:.64rem;font-weight:800;text-transform:uppercase;
+                 letter-spacing:.05em;color:#B45309;margin-bottom:5px}
+    /* Parcela: o que já passou e o que ainda vem. */
+    .ccc-parc{display:flex;align-items:center;gap:9px;flex-wrap:wrap;flex:1 0 100%;
+              margin-top:2px;font-size:.74rem;color:#475569}
+    .ccc-parc-tag{padding:2px 8px;border-radius:5px;background:#EDE9FE;color:#5B21B6;
+                  font-size:.64rem;font-weight:800;letter-spacing:.03em}
+    .ccc-parc-txt{color:#64748B}
+    .ccc-parc-chk{display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+                  font-weight:600;color:#334155}
     .ccc-cand{display:flex;align-items:center;gap:10px;padding:6px 8px;font-size:.76rem;
               border-radius:6px}
     .ccc-cand:hover{background:#F8FAFC}
@@ -66476,35 +66492,158 @@ function _cccRenderRow(m){
     + '</div>';
 }
 
-/* Campos e busca da linha que vai virar lançamento novo. */
+/* ══ COMBOBOX DA CONCILIAÇÃO ══════════════════════════════════════════════
+   Usa a mesma caixa do Extrato — lista formatada, grupos, e a opção de
+   cadastrar sem sair da tela. Um <select> puro não permitia criar categoria
+   nem fornecedor novo, e importar fatura é justamente quando aparecem nomes
+   que ainda não existem no cadastro. */
+function _cccCbxHtml(idx, tipo, valor){
+  const esc = (typeof cartEsc === 'function') ? cartEsc : (x => String(x||''));
+  const id = 'ccc-cbx-' + tipo + '-' + idx;
+  const lbl = tipo === 'cat' ? 'Categoria' : 'Fornecedor';
+  const ph  = tipo === 'cat' ? 'escolha ou digite' : 'quem recebeu';
+  return '<label class="ccc-novo-f"><span>' + lbl + '</span>'
+    + '<div class="ccc-cbx" data-cbx="' + id + '">'
+    +   '<input id="' + id + '" value="' + esc(valor||'') + '" placeholder="' + ph + '" autocomplete="off"'
+    +   ' onfocus="cccCbxOpen(' + idx + ',\'' + tipo + '\')"'
+    +   ' oninput="cccCbxFiltrar(' + idx + ',\'' + tipo + '\')">'
+    +   '<span class="ccc-cbx-seta">▾</span>'
+    +   '<div class="ccc-cbx-pop" id="' + id + '-pop"></div>'
+    + '</div></label>';
+}
+function _cccCbxLista(tipo){
+  if(tipo === 'cat') return (typeof _extOfficialCats === 'function') ? _extOfficialCats('gasto') : [];
+  return (typeof _extOfficialCounters === 'function') ? _extOfficialCounters('gasto') : [];
+}
+function cccCbxRender(idx, tipo){
+  const inp = document.getElementById('ccc-cbx-' + tipo + '-' + idx);
+  const pop = document.getElementById('ccc-cbx-' + tipo + '-' + idx + '-pop');
+  if(!inp || !pop) return;
+  const esc = (typeof cartEsc === 'function') ? cartEsc : (x => String(x||''));
+  const q = (inp.value||'').trim(), qLow = q.toLowerCase();
+  const todos = _cccCbxLista(tipo);
+  const lista = q ? todos.filter(x => x.toLowerCase().includes(qLow)) : todos;
+  const exato = q && todos.some(x => x.toLowerCase() === qLow);
+  let html = '';
+  if(!lista.length && !q) html += '<div class="cart-cbx-item empty">Nada cadastrado ainda — digite para criar</div>';
+  lista.forEach((v, k) => {
+    if(tipo === 'cat' && typeof _extCatCabecalho === 'function'){
+      try{ html += _extCatCabecalho(lista, k, 'gasto'); }catch(_){}
+    }
+    const marca = (tipo === 'counter' && typeof _extCounterMarca === 'function') ? _extCounterMarca(v) : '';
+    html += '<div class="cart-cbx-item" onmousedown="event.preventDefault();cccCbxPick(' + idx + ',\'' + tipo + '\',' + k + ')">'
+          + '<span class="cbx-nome">' + esc(v) + '</span>' + marca + '</div>';
+  });
+  if(q && !exato){
+    html += '<div class="cart-cbx-add" onmousedown="event.preventDefault();cccCbxCriar(' + idx + ',\'' + tipo + '\')">'
+          + (tipo === 'cat' ? 'Cadastrar categoria "' : 'Cadastrar fornecedor "') + esc(q) + '"</div>';
+  }
+  pop.innerHTML = html;
+  pop._lista = lista;
+}
+function cccCbxOpen(idx, tipo){
+  document.querySelectorAll('.ccc-cbx-pop.open').forEach(p => p.classList.remove('open'));
+  cccCbxRender(idx, tipo);
+  const pop = document.getElementById('ccc-cbx-' + tipo + '-' + idx + '-pop');
+  if(!pop) return;
+  pop.classList.add('open');
+  setTimeout(() => {
+    const fecha = (e) => {
+      if(pop.contains(e.target)) return;
+      const inp = document.getElementById('ccc-cbx-' + tipo + '-' + idx);
+      if(inp && e.target === inp) return;
+      pop.classList.remove('open');
+      document.removeEventListener('mousedown', fecha, true);
+    };
+    document.addEventListener('mousedown', fecha, true);
+  }, 0);
+}
+function cccCbxFiltrar(idx, tipo){
+  cccCbxRender(idx, tipo);
+  const inp = document.getElementById('ccc-cbx-' + tipo + '-' + idx);
+  cartConcSetCampo(idx, tipo === 'cat' ? '_cat' : '_forn', inp ? inp.value : '');
+}
+function cccCbxPick(idx, tipo, k){
+  const pop = document.getElementById('ccc-cbx-' + tipo + '-' + idx + '-pop');
+  const inp = document.getElementById('ccc-cbx-' + tipo + '-' + idx);
+  const v = pop && pop._lista ? pop._lista[k] : null;
+  if(v == null || !inp) return;
+  inp.value = v;
+  cartConcSetCampo(idx, tipo === 'cat' ? '_cat' : '_forn', v);
+  pop.classList.remove('open');
+}
+/* Cadastro sem sair da conciliação. Categoria de compra de cartão é custo, por
+   isso entra em 'estrutura'; fornecedor entra no registro compartilhado, e
+   reaproveita quem já existe com o mesmo nome em vez de duplicar. */
+function cccCbxCriar(idx, tipo){
+  const inp = document.getElementById('ccc-cbx-' + tipo + '-' + idx);
+  const nome = inp ? (inp.value||'').trim() : '';
+  if(!nome) return;
+  const norm = v => String(v||'').trim().toLowerCase();
+  try{
+    if(tipo === 'cat'){
+      if(!Array.isArray(catmapData.categorias)) catmapData.categorias = [];
+      if(!catmapData.categorias.some(c => c && norm(c.nome) === norm(nome))){
+        const ids = catmapData.categorias.map(c => parseInt(c.id)||0);
+        const id = Math.max(catmapData.nextId||1, ids.length ? Math.max(...ids)+1 : 1);
+        catmapData.categorias.push({ id, nome, moduloId:'estrutura', linhaId:null,
+          cor:'#64748B', autoDiscovered:false, userCreated:true, origem:'Conciliação de cartão' });
+        catmapData.nextId = id + 1;
+        if(typeof _catmapSave === 'function') _catmapSave();
+        if(typeof toast === 'function') toast('✓ Categoria "' + nome + '" cadastrada');
+      }
+    } else {
+      if(!Array.isArray(pessoas.registry)) pessoas.registry = [];
+      const existe = pessoas.registry.find(r => r && norm(r.nome) === norm(nome));
+      if(existe){
+        if(typeof pesAdicionarPapel === 'function') pesAdicionarPapel(existe, 'fornecedor');
+      } else {
+        if(!pessoas.nextRegId) pessoas.nextRegId = 1;
+        pessoas.registry.push({ id: pessoas.nextRegId++, nome, foto:'', anexos:[], tags:[],
+          kind:'fornecedor', tipoPessoa:'pj', ativo:true });
+        if(typeof pessoasSave === 'function') pessoasSave();
+        if(typeof toast === 'function') toast('✓ Fornecedor "' + nome + '" cadastrado');
+      }
+    }
+  }catch(e){ if(typeof toast === 'function') toast('Não consegui cadastrar: ' + e.message); return; }
+  cartConcSetCampo(idx, tipo === 'cat' ? '_cat' : '_forn', nome);
+  cccCbxRender(idx, tipo);
+  const pop = document.getElementById('ccc-cbx-' + tipo + '-' + idx + '-pop');
+  if(pop) pop.classList.remove('open');
+}
+try{
+  window.cccCbxOpen = cccCbxOpen; window.cccCbxFiltrar = cccCbxFiltrar;
+  window.cccCbxPick = cccCbxPick; window.cccCbxCriar = cccCbxCriar;
+}catch(_){}
+
+/* Campos da linha que vai virar lançamento novo. */
 function _cccLinhaNovo(m, idx){
   const esc = (typeof cartEsc === 'function') ? cartEsc : (x => String(x||''));
-  const cats = (typeof _extOfficialCats === 'function') ? _extOfficialCats('gasto') : [];
-  const forns = (typeof _extOfficialCounters === 'function') ? _extOfficialCounters('gasto') : [];
+  const forns = _cccCbxLista('counter');
   const sugCat  = m.ofx._cat  != null ? m.ofx._cat  : _cccSugereCategoria(m.ofx.descricao);
   const sugForn = m.ofx._forn != null ? m.ofx._forn : _cccSugereFornecedor(m.ofx.descricao, forns);
-  const opt = (lista, atual) => '<option value=""></option>' + lista.map(v =>
-    '<option value="' + esc(v) + '"' + (v === atual ? ' selected' : '') + '>' + esc(v) + '</option>').join('');
-  const aberto = CCC_STATE.buscaAberta === idx;
+  if(m.ofx._cat  == null) m.ofx._cat  = sugCat;
+  if(m.ofx._forn == null) m.ofx._forn = sugForn;
+  /* A busca por parecido roda SOZINHA, ancorada na data da compra. Perguntar
+     "já está lançado?" era jogar pro usuário um trabalho que o app faz melhor:
+     ele teria que clicar 35 vezes pra descobrir que 34 não tinham nada. */
+  const parecidos = _cccParecidos(m.ofx);
+  const alerta = parecidos.length ? _cccAlertaDuplicata(parecidos, idx) : '';
+  const parc = _cccParcelaHtml(m, idx);
   return '<div class="ccc-novo">'
-    + '<label class="ccc-novo-f"><span>Fornecedor</span>'
-    +   '<input list="ccc-dl-forn" value="' + esc(sugForn) + '" placeholder="quem recebeu"'
-    +   ' onchange="cartConcSetCampo(' + idx + ',\'_forn\',this.value)"></label>'
-    + '<label class="ccc-novo-f"><span>Categoria</span>'
-    +   '<select onchange="cartConcSetCampo(' + idx + ',\'_cat\',this.value)">' + opt(cats, sugCat) + '</select></label>'
-    + '<button type="button" class="ccc-novo-busca" onclick="cartConcToggleBusca(' + idx + ')">'
-    +   (aberto ? 'fechar busca' : 'já está lançado?') + '</button>'
-    + '<datalist id="ccc-dl-forn">' + forns.map(v => '<option value="' + esc(v) + '">').join('') + '</datalist>'
-    + (aberto ? _cccBuscaSimilar(m, idx) : '')
+    + _cccCbxHtml(idx, 'counter', m.ofx._forn)
+    + _cccCbxHtml(idx, 'cat', m.ofx._cat)
+    + parc
+    + alerta
     + '</div>';
 }
 
-/* Categoria adivinhada pela descrição — só como ponto de partida, nunca
-   gravada sem o usuário ver. */
+/* Sugestão inicial — nunca gravada sozinha: fica no campo, visível, e a pessoa
+   muda antes de aprovar. */
 function _cccSugereCategoria(desc){
   const d = String(desc||'').toLowerCase();
-  if(/uber|99app|taxi|posto|combust/.test(d)) return 'Transporte';
-  if(/aws|heroku|atlassian|digitalocean|vercel|twilio|cursor|github|google|microsoft|openai/.test(d)) return 'Software';
+  if(/uber|99app|taxi|posto|combust|estacion|parki/.test(d)) return 'Transporte';
+  if(/aws|heroku|atlassian|digitalocean|vercel|twilio|cursor|github|google|microsoft|openai|clicksign|rd station|canva|figma/.test(d)) return 'Software';
   if(/iof/.test(d)) return 'Tarifas Bancárias';
   return '';
 }
@@ -66517,45 +66656,126 @@ function _cccSugereFornecedor(desc, forns){
   return '';
 }
 
-/* "Já está lançado?" — procura no PRÓPRIO cartão, incluindo outras faturas:
-   compra lançada na fatura errada é o caso comum, e é justamente o que a
-   conciliação deveria pegar antes de duplicar. */
-function _cccBuscaSimilar(m, idx){
-  const esc = (typeof cartEsc === 'function') ? cartEsc : (x => String(x||''));
-  const termo = String(CCC_STATE.buscaTermo || '').trim().toLowerCase();
-  const alvo = Math.abs(parseFloat(m.ofx.valor) || 0);
+/* ══ BUSCA INTELIGENTE POR DATA ═══════════════════════════════════════════
+   Cartão repete estabelecimento todo mês (AWS em janeiro e em fevereiro são
+   compras diferentes). Só nome e valor produziriam falso positivo todo mês;
+   é a DATA que separa uma assinatura de janeiro da mesma assinatura de
+   fevereiro. Por isso a janela é curta e o valor tem que bater junto. */
+function _cccParecidos(ofx){
   const lans = (cartoes && Array.isArray(cartoes.lancamentos)) ? cartoes.lancamentos : [];
-  const cands = lans.filter(l => {
-    if(!l || l.cartaoId !== CCC_STATE.cartaoId) return false;
+  const alvo = Math.abs(parseFloat(ofx.valor) || 0);
+  const d0 = Date.parse(ofx.data + 'T00:00:00');
+  if(!alvo || isNaN(d0)) return [];
+  const nome = String(ofx.descricao||'').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,10);
+  const out = [];
+  for(const l of lans){
+    if(!l || l.cartaoId !== CCC_STATE.cartaoId) continue;
+    if(l.cardConc && l.cardConc.fitid === ofx.fitid) continue;   // já é este
     const v = Math.abs(parseFloat(l.valor) || 0);
-    const perto = alvo > 0 && Math.abs(v - alvo) <= Math.max(alvo * 0.02, 1);
-    const texto = ((l.descricao||'') + ' ' + (l.estabelecimento||'')).toLowerCase();
-    if(termo) return texto.includes(termo) || String(v.toFixed(2)).includes(termo);
-    return perto;
-  }).slice(0, 6);
-  const linhas = cands.length
-    ? cands.map(l => '<div class="ccc-cand">'
-        + '<span><b>' + (l.data||'').slice(8,10) + '/' + (l.data||'').slice(5,7) + '</b> · '
-        + esc((l.descricao || l.estabelecimento || '(sem descrição)').slice(0,44))
-        + ' · R$ ' + (parseFloat(l.valor)||0).toLocaleString('pt-BR',{minimumFractionDigits:2})
-        + (l.faturaId !== CCC_STATE.faturaId ? ' <i>(outra fatura)</i>' : '') + '</span>'
-        + '<button type="button" onclick="cartConcVincular(' + idx + ',' + l.id + ')">é este</button>'
-      + '</div>').join('')
-    : '<div class="ccc-cand-vazio">Nada parecido neste cartão. Deixe criar novo.</div>';
-  return '<div class="ccc-busca">'
-    + '<input placeholder="descrição, estabelecimento ou valor" value="' + esc(CCC_STATE.buscaTermo||'') + '"'
-    + ' oninput="CCC_STATE.buscaTermo=this.value;_cccRenderWorkbench()">'
-    + '<div class="ccc-cands">' + linhas + '</div></div>';
+    const dl = Date.parse((l.data||'') + 'T00:00:00');
+    if(isNaN(dl)) continue;
+    const dias = Math.abs(dl - d0) / 86400000;
+    if(dias > 5) continue;                                        // janela curta
+    const perto = Math.abs(v - alvo) <= Math.max(alvo * 0.02, 1);
+    if(!perto) continue;
+    const txt = ((l.descricao||'') + (l.estabelecimento||'')).toLowerCase().replace(/[^a-z0-9]/g,'');
+    const mesmoNome = nome.length >= 4 && txt.includes(nome);
+    out.push({ l, dias: Math.round(dias), mesmoNome });
+  }
+  /* Mesmo nome primeiro, depois o mais próximo em data. */
+  out.sort((a,b) => (b.mesmoNome - a.mesmoNome) || (a.dias - b.dias));
+  return out.slice(0, 3);
 }
+function _cccAlertaDuplicata(parecidos, idx){
+  const esc = (typeof cartEsc === 'function') ? cartEsc : (x => String(x||''));
+  return '<div class="ccc-dup">'
+    + '<span class="ccc-dup-tit">Talvez já esteja lançado</span>'
+    + parecidos.map(p => '<div class="ccc-cand">'
+        + '<span><b>' + (p.l.data||'').slice(8,10) + '/' + (p.l.data||'').slice(5,7) + '</b> · '
+        + esc((p.l.descricao || p.l.estabelecimento || '(sem descrição)').slice(0,40))
+        + ' · R$ ' + (parseFloat(p.l.valor)||0).toLocaleString('pt-BR',{minimumFractionDigits:2})
+        + (p.dias ? ' · <i>' + p.dias + (p.dias===1?' dia':' dias') + ' de diferença</i>' : ' · <i>mesma data</i>')
+        + (p.l.faturaId !== CCC_STATE.faturaId ? ' · <i>outra fatura</i>' : '') + '</span>'
+        + '<button type="button" onclick="cartConcVincular(' + idx + ',' + p.l.id + ')">é o mesmo</button>'
+      + '</div>').join('')
+    + '</div>';
+}
+
+/* ══ PARCELAS, INCLUSIVE AS QUE JÁ PASSARAM ══════════════════════════════
+   "11/12" numa fatura de janeiro quer dizer: a compra foi lá atrás, dez
+   parcelas já vieram em faturas anteriores e falta uma. O importador antes
+   jogava fora essa informação e criava um lançamento solto — a dívida futura
+   sumia e o histórico também.
+
+   Aqui a parcela vira plano: a atual entra nesta fatura, as que faltam são
+   projetadas nas próximas, e as passadas ficam registradas como já quitadas.  */
+function _cccParcelaHtml(m, idx){
+  const p = m.ofx.parcela;
+  if(!p) return '';
+  const [n, tot] = p.split('/').map(x => parseInt(x, 10));
+  if(!n || !tot || tot < 2) return '';
+  const faltam = tot - n;
+  const gerar = m.ofx._gerarParcelas !== false;
+  return '<div class="ccc-parc">'
+    + '<span class="ccc-parc-tag">parcela ' + n + ' de ' + tot + '</span>'
+    + '<span class="ccc-parc-txt">'
+    +   (n > 1 ? (n-1) + ' já vieram em faturas anteriores' : 'primeira parcela')
+    +   (faltam ? ' · faltam ' + faltam : ' · última')
+    + '</span>'
+    + (faltam
+        ? '<label class="ccc-parc-chk"><input type="checkbox"' + (gerar ? ' checked' : '')
+          + ' onchange="cartConcSetCampo(' + idx + ',\'_gerarParcelas\',this.checked)">'
+          + 'lançar as ' + faltam + ' que faltam nas próximas faturas</label>'
+        : '')
+    + '</div>';
+}
+
+/* Cria as parcelas que ainda faltam, uma por fatura seguinte, criando a fatura
+   quando ela ainda não existe. Sem isso a dívida futura do cartão some: o app
+   mostraria só a parcela deste mês e o fluxo de caixa ficaria otimista. */
+function _cccGerarParcelasFuturas(base, parcela, cartaoId, faturaAtual){
+  const [n, tot] = String(parcela).split('/').map(x => parseInt(x, 10));
+  if(!n || !tot || n >= tot) return 0;
+  const vencAtual = faturaAtual && faturaAtual.venc ? new Date(faturaAtual.venc + 'T12:00:00') : null;
+  if(!vencAtual || isNaN(vencAtual)) return 0;
+  let criadas = 0;
+  for(let k = 1; k <= (tot - n); k++){
+    const venc = new Date(vencAtual); venc.setMonth(venc.getMonth() + k);
+    const iso = venc.toISOString().slice(0,10);
+    /* Fatura é encontrada PELO VENCIMENTO. Se não existir, nasce aqui — senão
+       a parcela não teria onde morar e seria descartada em silêncio. */
+    let fat = (cartoes.faturas || []).find(f => f && f.cartaoId === cartaoId && f.venc === iso);
+    if(!fat){
+      const novoId = Math.max(0, ...(cartoes.faturas||[]).map(f => f.id||0)) + 1;
+      fat = { id: novoId, cartaoId, ano: venc.getFullYear(), mes: venc.getMonth()+1,
+              venc: iso, status: 'aberta', geradaPor: 'parcelamento' };
+      cartoes.faturas.push(fat);
+    }
+    const novoLanc = Math.max(0, ...(cartoes.lancamentos||[]).map(l => l.id||0)) + 1;
+    const numero = n + k;
+    cartoes.lancamentos.push({
+      id: novoLanc, cartaoId, faturaId: fat.id,
+      data: base.data,
+      descricao: base.descricao,
+      estabelecimento: base.estabelecimento,
+      valor: base.valor,
+      categoria: base.categoria,
+      fornecedorId: base.fornecedorId,
+      centroCustoId: null,
+      parcela: numero + '/' + tot,
+      parceladoDe: base.id,
+      futura: true
+    });
+    cartoes.nextLancId = novoLanc + 1;
+    criadas++;
+  }
+  return criadas;
+}
+try{ window._cccGerarParcelasFuturas = _cccGerarParcelasFuturas; }catch(_){}
 
 function cartConcSetCampo(idx, campo, valor){
   const m = CCC_STATE.matches[idx];
   if(m && m.ofx) m.ofx[campo] = valor;
-}
-function cartConcToggleBusca(idx){
-  CCC_STATE.buscaAberta = (CCC_STATE.buscaAberta === idx) ? null : idx;
-  CCC_STATE.buscaTermo = '';
-  _cccRenderWorkbench();
 }
 /* Vincular = deixa de criar e vira match com o lançamento existente. */
 function cartConcVincular(idx, lancId){
@@ -66573,7 +66793,6 @@ function cartConcVincular(idx, lancId){
 }
 try{
   window.cartConcSetCampo = cartConcSetCampo;
-  window.cartConcToggleBusca = cartConcToggleBusca;
   window.cartConcVincular = cartConcVincular;
 }catch(_){}
 
@@ -66651,6 +66870,14 @@ function cartConcApply(){
         }catch(_){}
       }
       cartoes.lancamentos.push(lanc);
+      /* Parcelas que ainda vão vir. Cada uma na fatura cujo VENCIMENTO cai no
+         mês seguinte — é o vencimento que amarra a compra à fatura, não a data
+         da compra: uma compra de 28/12 entra na fatura que vence em janeiro. */
+      if(m.ofx.parcela && m.ofx._gerarParcelas !== false){
+        try{ _cccGerarParcelasFuturas(lanc, m.ofx.parcela, cartaoId, fat); }catch(e){
+          console.warn('[cartao] parcelas futuras:', e && e.message);
+        }
+      }
       cartoes.nextLancId = newId + 1;
       okNovo++;
     } else if(m.bucket === 'orfao'){
