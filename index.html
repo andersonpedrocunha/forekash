@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787681952"/>
+  <meta name="fk-build" content="forekash-v1787682201"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -6338,6 +6338,8 @@
     .cart-fat-table.is-compact .cart-fat-actions button{padding:3px 8px;font-size:.66rem}
     .cart-fat-density-toggle{display:inline-flex;align-items:center;gap:2px;background:#F1F5F9;
       border-radius:7px;padding:3px;margin-right:4px}
+    .cart-fat-branco{font-size:.66rem;font-weight:600;color:#94A3B8;padding:0 4px 0 10px;
+      white-space:nowrap;cursor:help}
     .cart-fat-density-toggle .dens-lbl{font-size:.62rem;font-weight:700;text-transform:uppercase;
       letter-spacing:.06em;color:#94A3B8;padding:0 7px 0 5px}
     .cart-fat-density-toggle button{padding:5px 11px;background:transparent;border:none;border-radius:5px;cursor:pointer;font-family:inherit;font-size:.72rem;font-weight:600;color:#64748B;transition:all .12s;line-height:1;white-space:nowrap}
@@ -64370,15 +64372,27 @@ function _cartRenderDetail(){
       else if(st === 'fechada'){ cFechadas++; totFechadas += v; }
       else if(st === 'paga'){ cPagas++; totPagas += (f.pagamento ? (f.pagamento.valorPago||0) + (f.pagamento.juros||0) + (f.pagamento.multa||0) - (f.pagamento.desconto||0) : v); }
     }
+    /* "A pagar" contava fatura EM BRANCO. O app gera faturas vazias de
+       propósito (botão "Gerar próximas", e o parcelamento cria as futuras) —
+       fatura de R$ 0,00 não é conta a pagar. Dizia "5 a pagar" pra quem não
+       tinha lançado nada. Conta só o que tem valor, e diz quantas estão em
+       branco em vez de deixar a diferença entre Todas e o resto sem
+       explicação. */
+    const cEmBranco = fatsYear.filter(f => cartFaturaStatus(f) !== 'paga' && cartFaturaTotal(f.id) <= 0).length;
+    const cAPagar = (cAbertas + cFechadas) - cEmBranco;
     const stTabs = [
       { k:'todas',    lbl:'Todas',    cnt: fatsYear.length },
-      { k:'aberto',   lbl:'A pagar',  cnt: cAbertas + cFechadas },
+      { k:'aberto',   lbl:'A pagar',  cnt: cAPagar },
       { k:'pagas',    lbl:'Pagas',    cnt: cPagas }
     ];
     let stHtml = '';
     for(const t of stTabs){
       stHtml += '<button class="' + (_cartView.fatStatus === t.k ? 'active' : '') + '" onclick="_cartSetFatStatus(\'' + t.k + '\')">'
         + cartEsc(t.lbl) + '<span class="cnt">' + t.cnt + '</span></button>';
+    }
+    if(cEmBranco > 0){
+      stHtml += '<span class="cart-fat-branco" title="Faturas já criadas para os meses seguintes, ainda sem nenhuma compra. Aparecem em Todas.">'
+        + cEmBranco + ' em branco</span>';
     }
     // Density toggle
     /* Eram dois hambúrgueres quase idênticos (☰ e ≡) sem rótulo: ninguém
@@ -64405,7 +64419,8 @@ function _cartRenderDetail(){
     // Filtro
     let fatsShow = fatsYear;
     if(_cartView.fatStatus === 'aberto'){
-      fatsShow = fatsYear.filter(f => cartFaturaStatus(f) !== 'paga');
+      /* Mesma régua da contagem: sem valor, não é conta a pagar. */
+      fatsShow = fatsYear.filter(f => cartFaturaStatus(f) !== 'paga' && cartFaturaTotal(f.id) > 0);
     } else if(_cartView.fatStatus === 'pagas'){
       fatsShow = fatsYear.filter(f => cartFaturaStatus(f) === 'paga');
     }
