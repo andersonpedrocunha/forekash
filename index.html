@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787662358"/>
+  <meta name="fk-build" content="forekash-v1787663962"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -65724,6 +65724,135 @@ const CCC_BANK_TEMPLATES = {
         }
       }
       return { items, totalFatura: _cccFindTotal(text, ['total\\s+da\\s+fatura','total\\s+a\\s+pagar']) };
+    }
+  },
+  ailos: {
+    name: 'Ailos / Unilos',
+    icon: '',
+    detect: (text) => /ailos|sistema\s+de\s+cooperativas|unilos/i.test(text),
+    /* A fatura Ailos tem duas coisas que os outros templates não enfrentam:
+
+       1. COMPRA INTERNACIONAL EM DUAS LINHAS. A primeira traz data, descrição e
+          cidade SEM valor; a seguinte traz a cotação; e o valor em reais vem
+          depois. Um parser linha-a-linha simplesmente perde essas compras — e
+          nesta fatura elas são a maioria do valor (Heroku 1.781, Atlassian
+          1.629). Por isso o valor é procurado nas duas linhas seguintes quando
+          a linha da compra não tem nenhum.
+
+       2. PARCELA NO MEIO DA DESCRIÇÃO ("EBN*CANVAV 11/12"). É informação boa
+          demais pra jogar fora: sai da descrição e vira campo próprio.
+
+       E a data não tem ano ("16 FEV" numa fatura de janeiro/2025): mês maior
+       que o do fechamento é do ano anterior — compra parcelada começou lá
+       atrás. Sem isso, fevereiro viraria futuro. */
+    parsePDF(lines, text, year){
+      const items = [];
+      const MES = { jan:1, fev:2, mar:3, abr:4, mai:5, jun:6, jul:7, ago:8, set:9, out:10, nov:11, dez:12 };
+      // Mês de fechamento, pra decidir o ano de cada compra
+      let mesRef = 12;
+      const mRef = /REF\s+\d{1,2}\s+([A-Z]{3})\s+A\s+\d{1,2}\s+([A-Z]{3})/i.exec(text);
+      if(mRef) mesRef = MES[(mRef[2]||'').toLowerCase().slice(0,3)] || 12;
+      const anoBase = parseInt(year, 10) || new Date().getFullYear();
+
+      /* O resto é OPCIONAL: quando a descrição quebra de linha, a data fica
+         sozinha ("24 SET") e a compra continua abaixo. Exigindo texto depois do
+         mês, a linha nem era reconhecida — e o MercadoLivre sumia da fatura
+         inteira. A guarda de descrição mais abaixo é quem descarta data solta
+         que não vira compra. */
+      const rxLinha = /^(\d{1,2})\s+([A-Z]{3})\b\s*(.*)$/i;
+      const rxValor = /(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/;
+      const rxParcela = /\b(\d{1,2})\/(\d{1,2})\b/;
+
+      for(let i = 0; i < lines.length; i++){
+        const ln = lines[i];
+        if(!ln || ln.length < 6) continue;
+        if(CCC_LINHAS_RUINS_DEFAULT.test(ln)) continue;
+        // Blocos que não são compra
+        /* Linhas que NÃO são compra. PAGTO DEB é o pagamento da fatura
+           anterior — entra como crédito e, se contado, infla a soma em sete
+           mil. VANTAGEM PROGRESSIVA é estorno da anuidade. */
+        if(/SALDO\s+ANTERIOR|^TOTAL\b|TOTAL\s+DE\s|PAGTO\s+DEB|LIMITES?\s+TOTAIS|VENCIMENTO|PAGAMENTO\s+M[IÍ]NIMO|VANTAGEM\s+PROGRESSIVA|FATURA\s+ANTERIOR|PAGAMENTOS\s+RECEBIDOS/i.test(ln)) continue;
+        const m = rxLinha.exec(ln);
+        if(!m) continue;
+        const mesN = MES[(m[2]||'').toLowerCase()];
+        if(!mesN) continue;
+
+        /* A linha da fatura NEM SEMPRE é uma linha do PDF. O extrator quebra
+           a mesma compra em até quatro pedaços, de dois jeitos diferentes:
+
+             24 SET                          ← data sozinha
+             MERCADOLIVRE*IGYNV              ← descrição
+             04/10                           ← parcela
+             Osasco R$ 189,00                ← cidade + valor
+
+             01 DEZ DIGITALOCEAN.COM AMSTERDAM
+             US$ 6,00 U$ 6,00 V.DOL          ← cotação, parte 1
+             6,0535                          ← cotação, parte 2 (número solto!)
+             R$ 36,32                        ← valor
+
+           Ler pedaço por pedaço perdia as duas: a primeira porque a data ficou
+           órfã, a segunda porque "6,0535" parece um valor e cortava a busca.
+           Aqui a compra é REMONTADA até achar o valor em reais. */
+        let resto = m[3] || '';
+        let valStr = (rxValor.exec(resto) || [])[1];
+        let consumidas = 0;
+        if(valStr){
+          resto = resto.replace(rxValor, '').trim();
+        } else {
+          for(let k = 1; k <= 5 && i + k < lines.length; k++){
+            const prox = (lines[i + k] || '').trim();
+            if(!prox) continue;
+            // outra compra começou: esta não tem valor, desiste
+            const mp2 = rxLinha.exec(prox);
+            if(mp2 && MES[(mp2[2]||'').toLowerCase()]) break;
+            // ruído de conversão: cotação, número solto
+            if(/^(US\$|U\$|V\.DOL)/i.test(prox) || /^[\d.,]+$/.test(prox)){ consumidas = k; continue; }
+            const v = (rxValor.exec(prox) || [])[1];
+            if(v){
+              valStr = v;
+              const texto = prox.replace(rxValor, '').replace(/R\$\s*$/i,'').trim();
+              if(texto && !/^R\$$/i.test(texto)) resto = (resto + ' ' + texto).trim();
+              consumidas = k;
+              break;
+            }
+            resto = (resto + ' ' + prox).trim();   // pedaço da descrição
+            consumidas = k;
+          }
+        }
+        /* Sem descrição de verdade não é compra — "11 JAN 2025" é a linha de
+           vencimento, e sem esta guarda ela virava um lançamento de mil reais. */
+        if(!/[A-Za-zÀ-ÿ]{3}/.test(resto.replace(/R\$|US\$|V\.DOL/gi,''))) continue;
+        /* O mesmo filtro de novo, agora sobre a descrição REMONTADA. Com a data
+           vindo sozinha ("01 NOV" + "ANUIDADE MASTERCARD" abaixo), a linha crua
+           não continha a palavra e anuidade, seu estorno e proteção entravam
+           como compra — R$ 61,54 a mais. E o estorno vinha somado em vez de
+           subtraído, porque o valor é lido em módulo. */
+        if(/ANUIDADE|VANTAGEM\s+PROGRESSIVA|PROTE[ÇC][ÃA]O\s+PERDA|SMS\s+M[EÊ]S|PAGTO\s+DEB|SALDO\s+ANTERIOR/i.test(resto)) continue;
+        const val = valStr ? _cccParseValor(valStr) : 0;
+        if(!val) continue;
+
+        // Parcela, quando houver
+        let parcela = '';
+        const mp = rxParcela.exec(resto);
+        if(mp && parseInt(mp[1],10) <= parseInt(mp[2],10) && parseInt(mp[2],10) <= 36){
+          parcela = mp[1] + '/' + mp[2];
+          resto = resto.replace(rxParcela, ' ').trim();
+        }
+        // Cidade costuma ser a última palavra em CAIXA ALTA — fora da descrição
+        /* Símbolo de moeda solto vira sujeira na descrição ("... - C -R$"). */
+        let desc = resto.replace(/-?\s*R\$\s*$/i,'').replace(/\s{2,}/g, ' ').trim();
+        if(parcela) desc += ' (' + parcela + ')';
+        desc = desc.slice(0, 80);
+        if(!desc) continue;
+
+        /* Mês depois do fechamento pertence ao ano anterior. */
+        const ano = (mesN > mesRef) ? anoBase - 1 : anoBase;
+        const data = ano + '-' + String(mesN).padStart(2,'0') + '-' + String(parseInt(m[1],10)).padStart(2,'0');
+        items.push({ data, descricao: desc, valor: Math.abs(val), parcela,
+                     fitid: data+'|'+Math.abs(val).toFixed(2)+'|'+desc.slice(0,20), raw: ln });
+        i += consumidas;
+      }
+      return { items, totalFatura: _cccFindTotal(text, ['valor\\s+total\\s+de','^TOTAL\\s','total\\s+da\\s+fatura']) };
     }
   },
   bradesco: {
