@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787665494"/>
+  <meta name="fk-build" content="forekash-v1787665962"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -6156,6 +6156,43 @@
     .ccc-parc-txt{color:#64748B}
     .ccc-parc-chk{display:inline-flex;align-items:center;gap:6px;cursor:pointer;
                   font-weight:600;color:#334155}
+    /* Vencimento na cara: e ele que amarra a compra a fatura. */
+    .ccc-parc-venc{padding:2px 8px;border-radius:5px;background:#ECFDF5;color:#065F46;
+                   border:1px solid #A7F3D0;font-size:.66rem;font-weight:700;cursor:help}
+    .ccc-parc-prox{font-size:.68rem;color:#64748B}
+    .ccc-parc-edit{padding:4px 10px;font:inherit;font-size:.68rem;font-weight:700;
+                   color:#5B21B6;background:#F5F3FF;border:1px solid #DDD6FE;
+                   border-radius:6px;cursor:pointer}
+    .ccc-parc-edit:hover{background:#EDE9FE}
+    /* Modal do parcelamento */
+    .ccc-parc-ov{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:100010;
+                 display:flex;align-items:center;justify-content:center;padding:20px}
+    .ccc-parc-modal{background:#fff;border-radius:14px;max-width:520px;width:100%;
+                    max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(15,23,42,.3)}
+    .ccc-pm-hd{display:flex;align-items:center;justify-content:space-between;
+               padding:15px 18px 8px}
+    .ccc-pm-hd h4{margin:0;font-size:1rem;font-weight:800;color:#0F172A}
+    .ccc-pm-hd button{border:0;background:none;font-size:1.05rem;color:#94A3B8;cursor:pointer}
+    .ccc-pm-sub{padding:0 18px 12px;font-size:.8rem;color:#64748B}
+    .ccc-pm-campos{display:flex;gap:14px;flex-wrap:wrap;padding:0 18px 12px}
+    .ccc-pm-campos label{display:flex;flex-direction:column;gap:4px;font-size:.72rem;
+                         font-weight:700;color:#475569}
+    .ccc-pm-campos input{width:92px;padding:6px 10px;font:inherit;font-size:.86rem;
+                         border:1px solid var(--bdr);border-radius:7px}
+    .ccc-pm-resumo{margin:0 18px 12px;padding:9px 12px;background:#F8FAFC;border-radius:8px;
+                   font-size:.8rem;color:#334155}
+    .ccc-pm-lista{padding:0 18px;display:flex;flex-direction:column;gap:3px}
+    .ccc-pm-linha{display:grid;grid-template-columns:64px 1fr auto;gap:10px;align-items:center;
+                  padding:6px 9px;border-radius:7px;font-size:.76rem}
+    .ccc-pm-linha.passada{background:#F8FAFC;color:#94A3B8}
+    .ccc-pm-linha.atual{background:#ECFDF5;color:#065F46;font-weight:700}
+    .ccc-pm-linha.futura{background:#F5F3FF;color:#5B21B6}
+    .ccc-pm-n{font-weight:800;font-variant-numeric:tabular-nums}
+    .ccc-pm-e{font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;opacity:.8}
+    .ccc-pm-ft{display:flex;align-items:center;gap:12px;padding:14px 18px 16px;
+               font-size:.72rem;color:#64748B}
+    .ccc-pm-ok{margin-left:auto;padding:7px 16px;font:inherit;font-size:.78rem;font-weight:700;
+               color:#fff;background:var(--blue-d);border:0;border-radius:8px;cursor:pointer}
     .ccc-cand{display:flex;align-items:center;gap:10px;padding:6px 8px;font-size:.76rem;
               border-radius:6px}
     .ccc-cand:hover{background:#F8FAFC}
@@ -66710,25 +66747,141 @@ function _cccAlertaDuplicata(parecidos, idx){
    Aqui a parcela vira plano: a atual entra nesta fatura, as que faltam são
    projetadas nas próximas, e as passadas ficam registradas como já quitadas.  */
 function _cccParcelaHtml(m, idx){
-  const p = m.ofx.parcela;
+  const p = _cccParcAtual(m);
   if(!p) return '';
-  const [n, tot] = p.split('/').map(x => parseInt(x, 10));
-  if(!n || !tot || tot < 2) return '';
+  const { n, tot } = p;
   const faltam = tot - n;
   const gerar = m.ofx._gerarParcelas !== false;
+  const venc = _cccVencFatura();
+  /* O VENCIMENTO precisa aparecer. O vínculo já era por ele no código, mas a
+     tela não dizia — e vínculo que não se vê é vínculo em que não se confia. */
+  const refVenc = venc
+    ? '<span class="ccc-parc-venc" title="Esta fatura vence nesta data. As parcelas seguintes vão para as faturas que vencem nos meses seguintes.">nesta fatura · vence ' + _cccFmtDia(venc) + '</span>'
+    : '';
+  const prox = (faltam && venc) ? _cccVencimentosFuturos(venc, faltam) : [];
+  const listaProx = prox.length
+    ? '<span class="ccc-parc-prox">próximas: ' + prox.slice(0,3).map(_cccFmtDia).join(' · ')
+      + (prox.length > 3 ? ' … até ' + _cccFmtDia(prox[prox.length-1]) : '') + '</span>'
+    : '';
   return '<div class="ccc-parc">'
     + '<span class="ccc-parc-tag">parcela ' + n + ' de ' + tot + '</span>'
+    + refVenc
     + '<span class="ccc-parc-txt">'
-    +   (n > 1 ? (n-1) + ' já vieram em faturas anteriores' : 'primeira parcela')
+    +   (n > 1 ? (n-1) + ' já vieram antes' : 'primeira parcela')
     +   (faltam ? ' · faltam ' + faltam : ' · última')
     + '</span>'
     + (faltam
         ? '<label class="ccc-parc-chk"><input type="checkbox"' + (gerar ? ' checked' : '')
           + ' onchange="cartConcSetCampo(' + idx + ',\'_gerarParcelas\',this.checked)">'
-          + 'lançar as ' + faltam + ' que faltam nas próximas faturas</label>'
+          + 'lançar as que faltam</label>'
         : '')
+    + listaProx
+    + '<button type="button" class="ccc-parc-edit" onclick="cccParcModal(' + idx + ')">ajustar parcelamento</button>'
     + '</div>';
 }
+
+/* Parcela em vigor: o que veio do PDF, ou o que a pessoa ajustou no modal. */
+function _cccParcAtual(m){
+  const p = m.ofx._parcelaEdit || m.ofx.parcela;
+  if(!p) return null;
+  const [n, tot] = String(p).split('/').map(x => parseInt(x, 10));
+  if(!n || !tot || tot < 2 || n > tot) return null;
+  return { n, tot };
+}
+function _cccVencFatura(){
+  const f = (cartoes.faturas||[]).find(x => x && x.id === CCC_STATE.faturaId);
+  return f && f.venc ? f.venc : '';
+}
+function _cccFmtDia(iso){
+  if(!iso) return '';
+  return iso.slice(8,10) + '/' + iso.slice(5,7) + '/' + iso.slice(0,4);
+}
+function _cccAddMes(iso, k){
+  const d = new Date(iso + 'T12:00:00');
+  if(isNaN(d)) return '';
+  d.setMonth(d.getMonth() + k);
+  return d.toISOString().slice(0,10);
+}
+function _cccVencimentosFuturos(vencBase, quantas){
+  const out = [];
+  for(let k = 1; k <= quantas; k++){ const v = _cccAddMes(vencBase, k); if(v) out.push(v); }
+  return out;
+}
+
+/* ══ MODAL DO PARCELAMENTO ═══════════════════════════════════════════════
+   O número lido do PDF nem sempre é o que a empresa quer registrar: compra
+   antiga pode ter sido renegociada, o PDF pode trazer "04/10" de um plano que
+   na verdade começou noutro mês, e há caso de parcela pra trás que nunca foi
+   lançada. Aqui dá pra dizer QUANDO começou e ATÉ QUANDO vai — e a tela mostra
+   em que fatura cada parcela cai, pelo vencimento. */
+function cccParcModal(idx){
+  const m = CCC_STATE.matches[idx];
+  if(!m || !m.ofx) return;
+  CCC_STATE.parcModal = idx;
+  _cccParcModalRender();
+}
+function cccParcModalClose(){
+  CCC_STATE.parcModal = null;
+  const ov = document.getElementById('ccc-parc-ov');
+  if(ov) ov.remove();
+}
+function _cccParcModalRender(){
+  const idx = CCC_STATE.parcModal;
+  const m = CCC_STATE.matches[idx];
+  if(!m) return;
+  const esc = (typeof cartEsc === 'function') ? cartEsc : (x => String(x||''));
+  const p = _cccParcAtual(m) || { n:1, tot:2 };
+  const vencAtual = _cccVencFatura();
+  const inicio = _cccAddMes(vencAtual, -(p.n - 1));
+  const fim    = _cccAddMes(vencAtual,  (p.tot - p.n));
+  const linhas = [];
+  for(let i = 1; i <= p.tot; i++){
+    const v = _cccAddMes(vencAtual, i - p.n);
+    const estado = i < p.n ? 'passada' : (i === p.n ? 'atual' : 'futura');
+    linhas.push('<div class="ccc-pm-linha ' + estado + '">'
+      + '<span class="ccc-pm-n">' + i + '/' + p.tot + '</span>'
+      + '<span class="ccc-pm-v">fatura que vence ' + _cccFmtDia(v) + '</span>'
+      + '<span class="ccc-pm-e">' + (estado === 'passada' ? 'já veio' : (estado === 'atual' ? 'esta fatura' : 'a lançar')) + '</span>'
+      + '</div>');
+  }
+  let ov = document.getElementById('ccc-parc-ov');
+  if(!ov){ ov = document.createElement('div'); ov.id = 'ccc-parc-ov'; ov.className = 'ccc-parc-ov';
+    ov.onclick = e => { if(e.target === ov) cccParcModalClose(); };
+    document.body.appendChild(ov); }
+  ov.innerHTML = '<div class="ccc-parc-modal">'
+    + '<div class="ccc-pm-hd"><h4>Parcelamento</h4>'
+    +   '<button type="button" onclick="cccParcModalClose()">✕</button></div>'
+    + '<div class="ccc-pm-sub">' + esc((m.ofx.descricao||'').slice(0,60))
+    +   ' · R$ ' + (parseFloat(m.ofx.valor)||0).toLocaleString('pt-BR',{minimumFractionDigits:2}) + ' por parcela</div>'
+    + '<div class="ccc-pm-campos">'
+    +   '<label>Esta é a parcela<input type="number" min="1" max="' + p.tot + '" value="' + p.n + '"'
+    +     ' onchange="cccParcModalSet(' + idx + ',\'n\',this.value)"></label>'
+    +   '<label>de um total de<input type="number" min="2" max="99" value="' + p.tot + '"'
+    +     ' onchange="cccParcModalSet(' + idx + ',\'tot\',this.value)"></label>'
+    + '</div>'
+    + '<div class="ccc-pm-resumo">Começou na fatura de <b>' + _cccFmtDia(inicio) + '</b>'
+    +   ' e termina na de <b>' + _cccFmtDia(fim) + '</b></div>'
+    + '<div class="ccc-pm-lista">' + linhas.join('') + '</div>'
+    + '<div class="ccc-pm-ft">'
+    +   '<span>Só as marcadas <b>a lançar</b> serão criadas. As passadas ficam registradas no plano.</span>'
+    +   '<button type="button" class="ccc-pm-ok" onclick="cccParcModalClose()">Pronto</button>'
+    + '</div></div>';
+}
+function cccParcModalSet(idx, campo, valor){
+  const m = CCC_STATE.matches[idx];
+  const p = _cccParcAtual(m) || { n:1, tot:2 };
+  let n = p.n, tot = p.tot;
+  const v = Math.max(1, parseInt(valor, 10) || 1);
+  if(campo === 'n') n = v; else tot = Math.max(2, v);
+  if(n > tot) n = tot;
+  m.ofx._parcelaEdit = n + '/' + tot;
+  _cccParcModalRender();
+  _cccRenderWorkbench();
+}
+try{
+  window.cccParcModal = cccParcModal; window.cccParcModalClose = cccParcModalClose;
+  window.cccParcModalSet = cccParcModalSet;
+}catch(_){}
 
 /* Cria as parcelas que ainda faltam, uma por fatura seguinte, criando a fatura
    quando ela ainda não existe. Sem isso a dívida futura do cartão some: o app
@@ -66857,7 +67010,8 @@ function cartConcApply(){
         valor: m.ofx.valor,
         categoria: (m.ofx._cat || '').trim(),
         centroCustoId: null,
-        parcela: m.ofx.parcela || null,
+        /* O que a pessoa ajustou no modal manda sobre o que veio do PDF. */
+        parcela: m.ofx._parcelaEdit || m.ofx.parcela || null,
         cardConc: { fitid: m.ofx.fitid, conciliadoEm: nowISO, confianca: 'novo', criado:true }
       };
       /* Fornecedor escolhido vira vínculo com o cadastro, não só texto —
@@ -66873,8 +67027,9 @@ function cartConcApply(){
       /* Parcelas que ainda vão vir. Cada uma na fatura cujo VENCIMENTO cai no
          mês seguinte — é o vencimento que amarra a compra à fatura, não a data
          da compra: uma compra de 28/12 entra na fatura que vence em janeiro. */
-      if(m.ofx.parcela && m.ofx._gerarParcelas !== false){
-        try{ _cccGerarParcelasFuturas(lanc, m.ofx.parcela, cartaoId, fat); }catch(e){
+      const parcelaFinal = m.ofx._parcelaEdit || m.ofx.parcela;
+      if(parcelaFinal && m.ofx._gerarParcelas !== false){
+        try{ _cccGerarParcelasFuturas(lanc, parcelaFinal, cartaoId, fat); }catch(e){
           console.warn('[cartao] parcelas futuras:', e && e.message);
         }
       }
