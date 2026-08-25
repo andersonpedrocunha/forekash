@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787685490"/>
+  <meta name="fk-build" content="forekash-v1787685849"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -66883,10 +66883,20 @@ function _cccRenderRow(m){
   const isResolved = CCC_STATE.resolved.has(idx);
   const confLbl = m.tipo === 'exato' ? 'EXATO' : (m.tipo === 'fuzzy' ? 'FUZZY ' + Math.round((m.sim||0)*100) + '%' : (m.tipo === 'novo' ? 'NOVO' : 'ÓRFÃO'));
   const confCls = m.tipo === 'fuzzy' ? 'fuzzy' : (m.tipo === 'exato' ? 'match' : (m.tipo === 'novo' ? 'novo' : 'orfao'));
-  let leftHtml = '<div class="ccc-row-side"><div class="lbl">' + (m.ofx ? 'Fatura banco' : '— sem fatura —') + '</div>';
+  /* A linha mostra a descrição QUE VAI VIRAR LANÇAMENTO — a dele, quando
+     editou. Continuar exibindo o texto do banco fazia a edição parecer perdida,
+     ainda mais depois de aprovar, quando os campos somem da tela. O texto do
+     banco não some: fica no title e vai pras observações do lançamento. */
+  const _descBanco = (m.ofx && m.ofx.descricao) || '';
+  const _descUsar  = (m.ofx && m.ofx._desc != null && String(m.ofx._desc).trim())
+                       ? String(m.ofx._desc).trim() : _descBanco;
+  const _editada   = _descUsar !== _descBanco;
+  let leftHtml = '<div class="ccc-row-side"><div class="lbl">'
+    + (m.ofx ? (_editada ? 'Fatura banco · descrição sua' : 'Fatura banco') : '— sem fatura —') + '</div>';
   if(m.ofx){
     leftHtml += '<span class="ccc-row-data">' + m.ofx.data.slice(8,10) + '/' + m.ofx.data.slice(5,7) + '</span>'
-      + '<span class="ccc-row-desc" title="' + cartEsc(m.ofx.descricao) + '">' + cartEsc((m.ofx.descricao||'').slice(0,50)) + '</span>';
+      + '<span class="ccc-row-desc" title="' + cartEsc(_editada ? ('Você escreveu: ' + _descUsar + '\nNo banco: ' + _descBanco + '\n(o texto do banco vai para as observações)') : _descBanco) + '">'
+      + cartEsc(_descUsar.slice(0,50)) + '</span>';
   } else leftHtml += '<span class="ccc-row-desc" style="opacity:.5">— não vem na fatura —</span>';
   leftHtml += '</div>';
   const ofxVal = m.ofx ? '−R$ ' + m.ofx.valor.toLocaleString('pt-BR',{minimumFractionDigits:2}) : '—';
@@ -67475,11 +67485,14 @@ function cartConcApply(){
         /* Descrição = o que ele escreveu. Original do banco preservado em
            `notas`, o mesmo campo de observações do lançamento manual. */
         descricao: (m.ofx._desc || '').trim() || m.ofx.descricao,
-        notas: _cccNotaOrigem(m.ofx),
+        /* O que ele escreveu nas observações manda; sem edição, entra o rastro
+           da importação (texto do banco + arquivo de origem). */
+        notas: (m.ofx._notas && m.ofx._notas.trim()) ? m.ofx._notas : _cccNotaOrigem(m.ofx),
         estabelecimento: forn || m.ofx.descricao,
         valor: m.ofx.valor,
         categoria: (m.ofx._cat || '').trim(),
-        centroCustoId: null,
+        numeroDocumento: (m.ofx._doc || '').trim(),
+        centroCustoId: (m.ofx._cc != null) ? m.ofx._cc : null,
         /* O que a pessoa ajustou no modal manda sobre o que veio do PDF. */
         parcela: m.ofx._parcelaEdit || m.ofx.parcela || null,
         cardConc: { fitid: m.ofx.fitid, conciliadoEm: nowISO, confianca: 'novo', criado:true }
