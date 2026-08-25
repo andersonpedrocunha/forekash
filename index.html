@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787685849"/>
+  <meta name="fk-build" content="forekash-v1787686724"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -4901,7 +4901,27 @@
     .ofx-rev-tbl tr.is-transf td{background:#F5F3FF}
     .ofx-rev-tbl tr.is-transf .c-vl{color:#7C3AED !important;text-decoration:line-through;opacity:.65}
     .ofx-rev-tbl .c-dt{width:86px;font-family:Consolas,Menlo,monospace;color:#475569;white-space:nowrap}
-    .ofx-rev-tbl .c-ds{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#1E293B}
+    /* A coluna de descrição virou campo editável, com o texto do banco embaixo
+       pra conferência — mesma forma da conciliação de cartão. */
+    .ofx-rev-tbl .c-ds{max-width:300px;color:#1E293B;vertical-align:top;padding-top:7px}
+    .ofx-rev-tbl .ofx-desc{width:100%;padding:5px 8px;border:1px solid #E2E8F0;border-radius:6px;
+      font:inherit;font-size:.8rem;color:#0F172A;background:#fff}
+    .ofx-rev-tbl .ofx-desc:focus{outline:none;border-color:#7C3AED;box-shadow:0 0 0 2px rgba(124,58,237,.12)}
+    .ofx-desc-banco{display:block;margin-top:2px;font-size:.63rem;color:#94A3B8;cursor:help;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:290px}
+    .ofx-desc-banco i{font-style:normal;font-weight:700;color:#B6C0CE}
+    /* Campo + botão de cadastrar, lado a lado. */
+    .ofx-cria{display:flex;gap:4px;align-items:center}
+    .ofx-cria input{flex:1;min-width:0}
+    .ofx-cria button{flex:none;width:24px;height:26px;border:1px solid #C4B5FD;border-radius:6px;
+      background:#F5F3FF;color:#5B21B6;font-weight:800;font-size:.85rem;cursor:pointer;line-height:1}
+    .ofx-cria button:hover{background:#EDE9FE;border-color:#7C3AED}
+    .ofx-dup{display:inline-block;margin-top:3px;font-size:.62rem;font-weight:700;color:#92400E;
+      background:#FEF3C7;border:1px solid #FDE68A;border-radius:999px;padding:1px 7px;cursor:help}
+    .ofx-detalhar{display:block;margin-top:4px;padding:3px 9px;border:1px solid #C4B5FD;border-radius:6px;
+      background:#F5F3FF;color:#5B21B6;font:inherit;font-size:.66rem;font-weight:700;cursor:pointer;
+      white-space:nowrap;margin-left:auto}
+    .ofx-detalhar:hover{background:#EDE9FE;border-color:#7C3AED}
     .ofx-rev-tbl .c-tp{width:132px}
     .ofx-rev-tbl .c-ct{width:180px}
     .ofx-rev-tbl .c-fn{width:190px}
@@ -67028,14 +67048,15 @@ function cccCbxCriar(idx, tipo){
   try{
     if(tipo === 'cat'){
       if(!Array.isArray(catmapData.categorias)) catmapData.categorias = [];
-      if(!catmapData.categorias.some(c => c && norm(c.nome) === norm(nome))){
-        const ids = catmapData.categorias.map(c => parseInt(c.id)||0);
-        const id = Math.max(catmapData.nextId||1, ids.length ? Math.max(...ids)+1 : 1);
-        catmapData.categorias.push({ id, nome, moduloId:'estrutura', linhaId:null,
-          cor:'#64748B', autoDiscovered:false, userCreated:true, origem:'Conciliação de cartão' });
-        catmapData.nextId = id + 1;
-        if(typeof _catmapSave === 'function') _catmapSave();
-        if(typeof toast === 'function') toast('✓ Categoria "' + nome + '" cadastrada');
+      const jaExiste = catmapData.categorias.some(c => c && norm(c.nome) === norm(nome));
+      if(!jaExiste){
+        /* Categoria SEM módulo é categoria que não aparece em lugar nenhum: não
+           entra na Estrutura, não soma no Demonstrativo, e o gasto some do
+           planejamento. Eu criava direto em "estrutura" por conta própria —
+           chute silencioso. Agora abre o mesmo modal de Customizações, com
+           módulo, cor e linhas de DRC/DRE, como em todo o resto do app. */
+        _cccAbrirCatModal(idx, nome);
+        return;
       }
     } else {
       if(!Array.isArray(pessoas.registry)) pessoas.registry = [];
@@ -67043,17 +67064,16 @@ function cccCbxCriar(idx, tipo){
       if(existe){
         if(typeof pesAdicionarPapel === 'function') pesAdicionarPapel(existe, 'fornecedor');
       } else {
-        if(!pessoas.nextRegId) pessoas.nextRegId = 1;
-        const novoId = pessoas.nextRegId++;
-        pessoas.registry.push({ id: novoId, nome, foto:'', anexos:[], tags:[],
-          kind:'fornecedor', tipoPessoa:'pj', ativo:true,
-          origem:'Conciliação de cartão' });
-        if(typeof pessoasSave === 'function') pessoasSave();
-        /* Abre o cadastro na hora. Nascer só com o nome — muitas vezes a sigla
-           da maquininha — deixa CNPJ, contato e dados de pagamento em branco
-           pra sempre, porque ninguém volta depois. É o mesmo cadastro usado em
-           todo o resto do app, não uma versão reduzida. */
-        _cccAbrirCadastro(novoId, nome);
+        fkCriarContraparte(nome, 'fornecedor', (nomeFinal) => {
+          if(CCC_STATE && Array.isArray(CCC_STATE.matches)){
+            for(const mm of CCC_STATE.matches){
+              if(mm && mm.ofx && mm.ofx._forn === nome) mm.ofx._forn = nomeFinal;
+            }
+          }
+          cartConcSetCampo(idx, '_forn', nomeFinal);
+          if(typeof _cccRenderWorkbench === 'function') _cccRenderWorkbench();
+        });
+        return;
       }
     }
   }catch(e){ if(typeof toast === 'function') toast('Não consegui cadastrar: ' + e.message); return; }
@@ -67062,38 +67082,90 @@ function cccCbxCriar(idx, tipo){
   const pop = document.getElementById('ccc-cbx-' + tipo + '-' + idx + '-pop');
   if(pop) pop.classList.remove('open');
 }
-/* O cadastro abre por cima da conciliação, e ao fechar a linha já reflete o
-   nome que ficou (a busca por CNPJ costuma trocar a sigla pela razão social). */
-function _cccAbrirCadastro(regId, nomeAntes){
+/* ══ CRIAR DE DENTRO DE UMA IMPORTAÇÃO ════════════════════════════════════
+   Importar fatura e importar OFX esbarram no mesmo problema: aparece um nome
+   que ainda não existe no cadastro. As duas telas usam ESTAS funções — e elas
+   abrem os modais de sempre, não versões reduzidas. Categoria sem módulo não
+   aparece em lugar nenhum (nem na Estrutura, nem no Demonstrativo), e
+   fornecedor que nasce só com a sigla da maquininha fica sem CNPJ pra sempre.
+   `aoCriar` recebe o nome final — a busca por CNPJ costuma trocar a sigla pela
+   razão social, e a linha precisa acompanhar. */
+function fkCriarCategoria(nome, aoCriar){
+  if(typeof catmapOpenModal !== 'function'){
+    if(typeof toast === 'function') toast('Cadastre a categoria em Customizações');
+    return;
+  }
+  if(typeof catmapAoCriar === 'function') catmapAoCriar(aoCriar);
+  setTimeout(() => {
+    try{
+      catmapOpenModal();
+      const ov = document.getElementById('catmap-modal-ov');
+      if(ov) ov.style.zIndex = '10050';
+      const inp = document.getElementById('catmap-modal-nome');
+      if(inp){
+        inp.value = nome || '';
+        if(typeof catmapModalRefreshSuggestion === 'function') catmapModalRefreshSuggestion();
+        inp.focus();
+      }
+    }catch(e){ console.warn('[fk] criar categoria:', e && e.message); }
+  }, 40);
+}
+function fkCriarContraparte(nome, papel, aoCriar){
+  const nm = String(nome || '').trim();
+  if(!nm) return;
+  const norm = v => String(v||'').trim().toLowerCase();
+  if(!Array.isArray(pessoas.registry)) pessoas.registry = [];
+  const existe = pessoas.registry.find(r => r && norm(r.nome) === norm(nm));
+  if(existe){
+    if(typeof pesAdicionarPapel === 'function') pesAdicionarPapel(existe, papel || 'fornecedor');
+    if(typeof pessoasSave === 'function') pessoasSave();
+    if(typeof aoCriar === 'function') aoCriar(existe.nome);
+    return;
+  }
+  if(!pessoas.nextRegId) pessoas.nextRegId = 1;
+  const id = pessoas.nextRegId++;
+  pessoas.registry.push({ id, nome: nm, foto:'', anexos:[], tags:[],
+    kind: papel || 'fornecedor', tipoPessoa:'pj', ativo:true, origem:'Importação' });
+  if(typeof pessoasSave === 'function') pessoasSave();
+  fkAbrirCadastroContraparte(id, nm, aoCriar);
+}
+function fkAbrirCadastroContraparte(regId, nomeAntes, aoFechar){
   if(typeof openFornecedorCard !== 'function'){
-    if(typeof toast === 'function') toast('✓ Fornecedor "' + nomeAntes + '" cadastrado');
+    if(typeof aoFechar === 'function') aoFechar(nomeAntes);
     return;
   }
   setTimeout(() => {
     try{
       openFornecedorCard(regId);
       const ov = document.getElementById('ov-forn-card');
-      if(ov) ov.style.zIndex = '10050';         /* acima do modal de conciliação */
-    }catch(e){ console.warn('[ccc] cadastro:', e && e.message); }
+      if(ov) ov.style.zIndex = '10050';
+    }catch(e){ console.warn('[fk] cadastro:', e && e.message); }
   }, 60);
-  /* Quando o cadastro fechar, a linha pega o nome final. */
   const espera = setInterval(() => {
     const ov = document.getElementById('ov-forn-card');
     if(ov && ov.classList.contains('open')) return;
     clearInterval(espera);
     if(ov) ov.style.zIndex = '';
+    let nomeFinal = nomeAntes;
     try{
       const reg = (pessoas.registry||[]).find(r => r && r.id === regId);
-      const nomeFinal = reg ? String(reg.nome||'').trim() : '';
-      if(nomeFinal && nomeFinal !== nomeAntes && CCC_STATE && Array.isArray(CCC_STATE.matches)){
-        for(const mm of CCC_STATE.matches){
-          if(mm && mm.ofx && mm.ofx._forn === nomeAntes) mm.ofx._forn = nomeFinal;
-        }
-      }
-      if(typeof _cccRenderWorkbench === 'function') _cccRenderWorkbench();
+      if(reg && String(reg.nome||'').trim()) nomeFinal = String(reg.nome).trim();
     }catch(_){}
+    if(typeof aoFechar === 'function') aoFechar(nomeFinal);
   }, 400);
 }
+try{
+  window.fkCriarCategoria = fkCriarCategoria;
+  window.fkCriarContraparte = fkCriarContraparte;
+}catch(_){}
+
+function _cccAbrirCatModal(idx, nome){
+  fkCriarCategoria(nome, (nomeCriado) => {
+    cartConcSetCampo(idx, '_cat', nomeCriado);
+    if(typeof _cccRenderWorkbench === 'function') _cccRenderWorkbench();
+  });
+}
+
 
 try{
   window.cccCbxOpen = cccCbxOpen; window.cccCbxFiltrar = cccCbxFiltrar;
@@ -72115,6 +72187,67 @@ function _extBtnExcluir(editId){
   if(id.startsWith('cartao:')) return 'extDeleteCartao()';
   return 'extDeleteManual()';
 }
+/* Linha de importação ainda não existe: não há o que excluir. */
+function _extTemExcluir(editId){
+  const id = String(editId || '');
+  return !(id.startsWith('ccc:') || id.startsWith('ofx:'));
+}
+/* Linha do OFX: vira o mesmo objeto que o modal de Gasto/Ganho entende. */
+function _extLancDeOfx(editId){
+  const i = parseInt(String(editId).split(':')[1], 10);
+  const l = (window._ofxPendingLancs || [])[i];
+  if(!l) return null;
+  const tipo = l._tipo === 'ganho' ? 'ganho' : (l._tipo === 'transferencia' ? 'transferencia' : 'gasto');
+  return {
+    tipo,
+    data: l.data || '',
+    dataVencimento: l.data || '',
+    dataEmissao: l._comp || l.data || '',
+    valor: Math.abs(parseFloat(l.valor) || 0),
+    descricao: (l._desc != null ? l._desc : l.descricao) || '',
+    categoria: l._cat || '',
+    contraparte: l._forn || '',
+    conta: l.conta || '',
+    status: 'pago',
+    dataPagamento: l.data || '',
+    notas: l._notas || ('Extrato (banco): ' + (l.descricao || '(sem descrição)')
+            + (l._arquivo ? ('\nImportado de: ' + l._arquivo) : '')),
+    documento: l._doc || '',
+    centroCustoId: (l._cc != null) ? l._cc : null
+  };
+}
+/* Salvar volta pra linha pendente — nada é criado antes de confirmar a
+   importação, igual à conciliação de cartão. */
+function _extSalvarOfx(){
+  const i = parseInt(String(_extEditingId).split(':')[1], 10);
+  const l = (window._ofxPendingLancs || [])[i];
+  if(!l){ if(typeof toast === 'function') toast('⚠ Linha não encontrada'); return; }
+  const itens = (_extItems || []).filter(it => (parseFloat(it.valor) || 0) > 0);
+  if(itens.length === 0){ if(typeof toast === 'function') toast('⚠ Informe o valor'); return; }
+  const it = itens[0];
+  const sinal = (parseFloat(l.valor) || 0) < 0 ? -1 : 1;
+  l._desc = (it.descricao || '').trim() || l._desc || l.descricao;
+  l._cat  = (it.categoria || '').trim();
+  l._forn = (it.contraparte || '').trim();
+  l.valor = sinal * itens.reduce((acc, x) => acc + (parseFloat(x.valor) || 0), 0);
+  const venc = (document.getElementById('ext-fld-data')?.value || '').trim();
+  if(venc) l.data = venc;
+  const comp = (document.getElementById('ext-fld-comp')?.value || '').trim();
+  if(comp) l._comp = comp;
+  const notas = (document.getElementById('ext-fld-notas')?.value || '').trim();
+  if(notas) l._notas = notas;
+  const doc = (document.getElementById('ext-fld-doc')?.value || '').trim();
+  if(doc) l._doc = doc;
+  const ccRaw = (document.getElementById('ext-fld-cc')?.value || '').trim();
+  l._cc = ccRaw ? parseInt(ccRaw, 10) : null;
+  const conta = (document.getElementById('ext-fld-conta')?.value || '').trim();
+  if(conta) l.conta = conta;
+  extCloseModal();
+  if(typeof ofxRevRender === 'function') ofxRevRender();
+  if(typeof toast === 'function') toast('✓ Linha detalhada');
+}
+try{ window._extSalvarOfx = _extSalvarOfx; }catch(_){}
+
 /* Linha da conciliação: vira o mesmo objeto que o modal de Gasto entende. */
 function _extLancDeConciliacao(editId){
   const idx = parseInt(String(editId).split(':')[1], 10);
@@ -72350,6 +72483,9 @@ function extOpenModal(tipo, editId){
         _groupChildren = info.children;
       }
     }
+  } else if(editId && typeof editId === 'string' && editId.startsWith('ofx:')){
+    /* Linha da importação de OFX: mesmo modal, antes de existir. */
+    l = _extLancDeOfx(editId);
   } else if(editId && typeof editId === 'string' && editId.startsWith('ccc:')){
     /* Linha da conciliação que ainda vai virar lançamento: mesmo modal, antes
        mesmo de existir. É onde ele decide descrição, categoria, fornecedor e
@@ -72658,7 +72794,7 @@ function extOpenModal(tipo, editId){
       +   '</div>'
       + '</div>'
       + '<div class="dkb-modal-ft">'
-      +   (editId ? ('<button type="button" class="btn-del" onclick="' + _extBtnExcluir(editId) + '">Excluir</button>') : '')
+      +   ((editId && _extTemExcluir(editId)) ? ('<button type="button" class="btn-del" onclick="' + _extBtnExcluir(editId) + '">Excluir</button>') : '')
       +   '<button type="button" class="btn-cancel" onclick="extCloseModal()">Cancelar</button>'
       +   '<button type="button" class="btn-save" onclick="extSaveModal(\''+ t + '\')">Salvar</button>'
       + '</div>'
@@ -73351,6 +73487,9 @@ function extSaveModal(tipo){
   }
   if(_extEditingId && typeof _extEditingId === 'string' && _extEditingId.startsWith('ccc:')){
     return _extSalvarConciliacao();
+  }
+  if(_extEditingId && typeof _extEditingId === 'string' && _extEditingId.startsWith('ofx:')){
+    return _extSalvarOfx();
   }
   const data    = (document.getElementById('ext-fld-data')?.value || '').trim();
   // Competência: quando o fato aconteceu. Vazia = mesma coisa que o vencimento.
@@ -75187,6 +75326,7 @@ function catmapAdd(){
     });
     _catmapSave();
     catmapCloseModal();
+    _catmapDispararAoCriar(nome);
     catmapRender();
     if(typeof toast === 'function') toast('✓ Categoria criada em Estrutura');
     return;
@@ -75209,6 +75349,7 @@ function catmapAdd(){
     });
     _catmapSave();
     catmapCloseModal();
+    _catmapDispararAoCriar(nome);
     catmapRender();
     /* O modal é aberto TAMBÉM de dentro de Outras Operações, e catmapRender só
        redesenha Customizações. Quem criava por lá continuava vendo "Nenhuma
@@ -75235,6 +75376,7 @@ function catmapAdd(){
     });
     _catmapSave();
     catmapCloseModal();
+    _catmapDispararAoCriar(nome);
     catmapRender();
     try{ if(typeof renderOutrasOp === 'function') renderOutrasOp(); }catch(_){}
     try{ if(typeof renderExtrato === 'function') renderExtrato(); }catch(_){}
@@ -75370,6 +75512,17 @@ function catmapModalUpdateTipo(){
 }
 try { window.catmapModalUpdateTipo = catmapModalUpdateTipo; } catch(e){}
 try { window.catmapModalRefreshSuggestion = catmapModalRefreshSuggestion; } catch(e){}
+/* Quem abriu o modal pode querer usar a categoria recém-criada (a conciliação
+   preenche a linha com ela). Um gancho de uma vez só, limpo no fechamento. */
+let _catmapAoCriar = null;
+function catmapAoCriar(fn){ _catmapAoCriar = (typeof fn === 'function') ? fn : null; }
+function _catmapDispararAoCriar(nome){
+  const fn = _catmapAoCriar;
+  _catmapAoCriar = null;
+  if(fn){ try{ fn(nome); }catch(e){ console.warn('[catmap] callback:', e && e.message); } }
+}
+try{ window.catmapAoCriar = catmapAoCriar; }catch(_){}
+
 function catmapCloseModal(){
   const ov = document.getElementById('catmap-modal-ov');
   if(ov) ov.remove();
@@ -123201,15 +123354,34 @@ function ofxRevRender(){
     const tr  = l._tipo === 'transferencia';
     return '<tr class="' + (tr ? 'is-transf' : '') + '">'
       + '<td class="c-dt">' + _esc((l.data||'').split('-').reverse().join('/')) + '</td>'
-      + '<td class="c-ds" title="' + _esc(l.descricao) + '">' + _esc(l.descricao)
+      /* As mesmas mecânicas da conciliação de cartão, porque é o mesmo ato:
+         descrição editável (o texto do banco vai pras observações), criar
+         categoria e contraparte sem sair da tela pelos modais de sempre, aviso
+         de possível duplicata ancorado na data, e "Detalhar" abrindo o modal de
+         Lançar Gasto/Ganho. */
+      + '<td class="c-ds">'
+      +   '<input class="ofx-desc" value="' + _esc(l._desc != null ? l._desc : l.descricao) + '"'
+      +     ' oninput="ofxRevSet(' + i + ',\'_desc\',this.value)" placeholder="como você chama isso">'
+      +   '<small class="ofx-desc-banco" title="O texto original do banco vai para as observações do lançamento.">'
+      +     '<i>descrição conforme banco:</i> ' + _esc((l.descricao||'').slice(0,46)) + '</small>'
       +   (l._aprendido ? '<span class="ofx-badge" title="Preenchido a partir de ' + l._vezes + ' importação(ões) anterior(es)">aprendido</span>' : '')
+      +   (_ofxDupHtml(l, i))
       + '</td>'
       + '<td class="c-tp"><select onchange="ofxRevSet(' + i + ',\'_tipo\',this.value)">'
       +   TIPOS.map(([v,t]) => '<option value="'+v+'"' + (l._tipo===v?' selected':'') + '>'+t+'</option>').join('')
       + '</select></td>'
-      + '<td class="c-ct"><input list="ofx-dl-cat" value="' + _esc(l._cat) + '" placeholder="—" oninput="ofxRevSet(' + i + ',\'_cat\',this.value)"></td>'
-      + '<td class="c-fn"><input list="ofx-dl-forn" value="' + _esc(l._forn) + '" placeholder="—" oninput="ofxRevSet(' + i + ',\'_forn\',this.value)"></td>'
-      + '<td class="c-vl ' + (neg?'neg':'pos') + '">' + (neg?'−':'+') + ' R$ ' + fmt(l.valor) + '</td>'
+      + '<td class="c-ct"><div class="ofx-cria">'
+      +   '<input list="ofx-dl-cat" value="' + _esc(l._cat) + '" placeholder="—" oninput="ofxRevSet(' + i + ',\'_cat\',this.value)">'
+      +   '<button type="button" title="Cadastrar categoria — abre o modal com módulo, cor e linhas de DRC/DRE" onclick="ofxCriarCat(' + i + ')">+</button>'
+      + '</div></td>'
+      + '<td class="c-fn"><div class="ofx-cria">'
+      +   '<input list="ofx-dl-forn" value="' + _esc(l._forn) + '" placeholder="—" oninput="ofxRevSet(' + i + ',\'_forn\',this.value)">'
+      +   '<button type="button" title="Cadastrar — abre a ficha completa (CNPJ, contato, dados de pagamento)" onclick="ofxCriarForn(' + i + ')">+</button>'
+      + '</div></td>'
+      + '<td class="c-vl ' + (neg?'neg':'pos') + '">' + (neg?'−':'+') + ' R$ ' + fmt(l.valor)
+      +   '<button type="button" class="ofx-detalhar" onclick="ofxDetalhar(' + i + ')"'
+      +   ' title="Abrir no modal de Lançar Gasto/Ganho — centro de custo, documento, retenções, parcelamento">Detalhar</button>'
+      + '</td>'
       + '</tr>';
   }).join('');
 
@@ -123225,6 +123397,70 @@ function ofxRevRender(){
   const el = document.getElementById('ofx-rev-aprend');
   if(el) el.textContent = na ? ('🧠 ' + na + ' preenchido(s) pelo histórico') : '';
 }
+
+/* Já está lançado? Mesma regra da conciliação: janela curta de data e valor
+   próximo. Perguntar linha a linha seria empurrar pro usuário um trabalho que
+   o app faz melhor. */
+function _ofxParecidos(l){
+  try{
+    const lans = (extratoData && Array.isArray(extratoData.lancamentos)) ? extratoData.lancamentos : [];
+    const alvo = Math.abs(parseFloat(l.valor) || 0);
+    const d0 = Date.parse((l.data||'') + 'T00:00:00');
+    if(!alvo || isNaN(d0)) return [];
+    const nome = String(l.descricao||'').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,10);
+    const out = [];
+    for(const x of lans){
+      if(!x) continue;
+      const v = Math.abs(parseFloat(x.valor) || 0);
+      const dx = Date.parse((x.data || x.dataVencimento || '') + 'T00:00:00');
+      if(isNaN(dx)) continue;
+      const dias = Math.abs(dx - d0) / 86400000;
+      if(dias > 5) continue;
+      if(Math.abs(v - alvo) > Math.max(alvo * 0.02, 1)) continue;
+      const txt = ((x.descricao||'') + (x.contraparte||'')).toLowerCase().replace(/[^a-z0-9]/g,'');
+      out.push({ l: x, dias: Math.round(dias), mesmoNome: nome.length >= 4 && txt.includes(nome) });
+    }
+    out.sort((a,b) => (b.mesmoNome - a.mesmoNome) || (a.dias - b.dias));
+    return out.slice(0, 2);
+  }catch(_){ return []; }
+}
+function _ofxDupHtml(l, i){
+  if(l._ignoraDup) return '';
+  const p = _ofxParecidos(l);
+  if(!p.length) return '';
+  const e = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  return '<span class="ofx-dup" title="Já existe lançamento parecido: '
+    + p.map(x => e((x.l.descricao||'sem descrição').slice(0,30)) + ' em ' + ((x.l.data||'').split('-').reverse().join('/'))).join(' · ')
+    + '">talvez já lançado</span>';
+}
+function ofxCriarCat(i){
+  const l = (window._ofxPendingLancs||[])[i];
+  if(!l) return;
+  fkCriarCategoria((l._cat||'').trim() || (l._desc || l.descricao || ''), (nome) => {
+    l._cat = nome; ofxRevRender();
+  });
+}
+function ofxCriarForn(i){
+  const l = (window._ofxPendingLancs||[])[i];
+  if(!l) return;
+  const nome = (l._forn||'').trim() || (l._desc || l.descricao || '').trim();
+  if(!nome){ if(typeof toast === 'function') toast('Escreva o nome antes de cadastrar'); return; }
+  fkCriarContraparte(nome, l._tipo === 'ganho' ? 'cliente' : 'fornecedor', (nomeFinal) => {
+    l._forn = nomeFinal; ofxRevRender();
+  });
+}
+/* Detalhar abre o modal de Lançar Gasto/Ganho — o modal do projeto — com o que
+   já foi preenchido na linha, e devolve pra linha o que for editado lá. */
+function ofxDetalhar(i){
+  const l = (window._ofxPendingLancs||[])[i];
+  if(!l) return;
+  if(typeof extOpenModal !== 'function') return;
+  extOpenModal(l._tipo === 'ganho' ? 'ganho' : 'gasto', 'ofx:' + i);
+}
+try{
+  window.ofxCriarCat = ofxCriarCat; window.ofxCriarForn = ofxCriarForn;
+  window.ofxDetalhar = ofxDetalhar;
+}catch(_){}
 
 function ofxRevSet(i, campo, valor){
   const l = (window._ofxPendingLancs||[])[i];
@@ -123288,11 +123524,21 @@ function ofxImportConfirm(){
       extratoData.lancamentos.unshift({
         id: 'ofx_' + Date.now() + '_' + (n++),
         data: l.data,
+        dataVencimento: l.data,
+        dataEmissao: l._comp || l.data,
         valor: l.valor,
-        descricao: l.descricao || '',
+        /* Descrição = a dele. O texto do banco vai pras observações, junto do
+           arquivo — é por ele que se confere de volta com o extrato depois. */
+        descricao: (l._desc || '').trim() || l.descricao || '',
+        notas: (l._notas && l._notas.trim())
+                 ? l._notas
+                 : ('Extrato (banco): ' + (l.descricao || '(sem descrição)')
+                    + (l._arquivo ? ('\nImportado de: ' + l._arquivo) : '')),
         categoria: l._cat || '',
         contraparte: l._forn || '',
         conta: l.conta || '',
+        documento: (l._doc || '').trim(),
+        centroCustoId: (l._cc != null) ? l._cc : null,
         tipo: tipo,
         status: 'pago',
         dataPagamento: l.data,
