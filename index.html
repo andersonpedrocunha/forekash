@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787682464"/>
+  <meta name="fk-build" content="forekash-v1787682772"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -6158,12 +6158,23 @@
     .ext-pc-n{font-weight:800;color:#64748B;font-variant-numeric:tabular-nums}
     .ext-pc-v{color:#475569;font-variant-numeric:tabular-nums}
     .ext-pc-e{font-size:.64rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#94A3B8}
-    .ext-pc-li.passada{background:#FAFAFA;color:#94A3B8}
-    .ext-pc-li.passada .ext-pc-n,.ext-pc-li.passada .ext-pc-v{color:#94A3B8}
-    .ext-pc-li.atual{background:#F0FDF4}
-    .ext-pc-li.atual .ext-pc-n,.ext-pc-li.atual .ext-pc-v{color:#065F46;font-weight:700}
-    .ext-pc-li.atual .ext-pc-e{color:#059669}
+    /* Três destinos, três leituras: fica de fora (apagado), é criada agora
+       (verde), será criada junto (roxo). "Já lançada" é cinza-neutro. */
+    .ext-pc-li.anterior,.ext-pc-li.fora{background:#FAFAFA;color:#94A3B8}
+    .ext-pc-li.anterior .ext-pc-n,.ext-pc-li.anterior .ext-pc-v,
+    .ext-pc-li.fora .ext-pc-n,.ext-pc-li.fora .ext-pc-v{color:#B6C0CE}
+    .ext-pc-li.existe .ext-pc-e{color:#64748B}
+    .ext-pc-li.agora{background:#F0FDF4}
+    .ext-pc-li.agora .ext-pc-n,.ext-pc-li.agora .ext-pc-v{color:#065F46;font-weight:700}
+    .ext-pc-li.agora .ext-pc-e{color:#059669}
     .ext-pc-li.futura .ext-pc-e{color:#7C3AED}
+    /* A frase que diz o que o Salvar vai fazer. */
+    .ext-pc-oquevai{padding:9px 12px;border-radius:8px;background:#F5F3FF;
+      border:1px solid #DDD6FE;font-size:.76rem;color:#5B21B6;line-height:1.45}
+    .ext-pc-oquevai b{font-weight:800}
+    .ext-pc-chk{display:flex;align-items:center;gap:8px;font-size:.78rem;color:#475569;
+      cursor:pointer;user-select:none}
+    .ext-pc-chk input{width:15px;height:15px;accent-color:#7C3AED;cursor:pointer}
     /* Botão "Detalhar" da linha da conciliação: abre o modal de sempre. */
     .ccc-detalhar{align-self:flex-end;height:31px;padding:0 12px;border:1px solid #C4B5FD;
       border-radius:7px;background:#F5F3FF;color:#5B21B6;font:inherit;font-size:.74rem;
@@ -66994,10 +67005,13 @@ function _cccParcelaHtml(m, idx){
     +   (n > 1 ? (n-1) + ' já vieram antes' : 'primeira parcela')
     +   (faltam ? ' · faltam ' + faltam : ' · última')
     + '</span>'
+    /* O controle mora no modal, junto com o plano inteiro. Aqui a linha só
+       DIZ o que vai acontecer — dois interruptores pra mesma coisa é o defeito
+       que já corrigi em Pessoas. */
     + (faltam
-        ? '<label class="ccc-parc-chk"><input type="checkbox"' + (gerar ? ' checked' : '')
-          + ' onchange="cartConcSetCampo(' + idx + ',\'_gerarParcelas\',this.checked)">'
-          + 'lançar as que faltam</label>'
+        ? '<span class="ccc-parc-txt">' + (gerar
+            ? ('+ ' + faltam + ' futura' + (faltam === 1 ? '' : 's') + ' serão lançadas')
+            : ('as ' + faltam + ' futuras ficam de fora')) + '</span>'
         : '')
     + listaProx
     + '<button type="button" class="ccc-parc-edit" onclick="extOpenModal(\'gasto\',\'ccc:' + idx + '\')">ajustar parcelamento</button>'
@@ -71710,21 +71724,66 @@ function _extParcCartaoHtml(){
   const parcelado = st.tot > 1;
   const inicio = _cccAddMes(st.venc, -(st.n - 1));
   const fim    = _cccAddMes(st.venc,  (st.tot - st.n));
-  let lista = '';
+  const gerar  = st.gerarFuturas !== false;
+  let lista = '', resumo = '';
   if(parcelado){
+    /* Cada linha diz O QUE VAI ACONTECER com aquela parcela, não um rótulo de
+       estado. "Já veio" não respondia a pergunta que a pessoa tem na frente da
+       tela: o Forekash vai criar isso ou não? */
     const linhas = [];
+    let criar = 0;
     for(let i = 1; i <= st.tot; i++){
       const v = _cccAddMes(st.venc, i - st.n);
-      const estado = i < st.n ? 'passada' : (i === st.n ? 'atual' : 'futura');
-      linhas.push('<div class="ext-pc-li ' + estado + '">'
+      let cls, acao, tip;
+      const existe = (st.origem === 'cartao') ? _extParcelaExiste(st, i) : false;
+      if(existe){
+        cls = 'existe'; acao = 'já lançada';
+        tip = 'Este lançamento já existe no Forekash, na fatura que vence ' + _cccFmtDia(v) + '.';
+      } else if(i < st.n){
+        cls = 'anterior'; acao = 'não lança';
+        tip = 'Esta parcela caiu numa fatura anterior, que o Forekash ainda não tem. '
+            + 'Ela não é criada aqui — importe a fatura de ' + _cccFmtDia(v) + ' se quiser esse gasto no sistema.';
+      } else if(i === st.n){
+        cls = 'agora'; acao = 'lança agora'; criar++;
+        tip = 'É a parcela desta fatura — é ela que está sendo lançada.';
+      } else {
+        cls = gerar ? 'futura' : 'fora';
+        acao = gerar ? 'lança junto' : 'não lança';
+        if(gerar) criar++;
+        tip = gerar
+          ? 'Será criada agora, na fatura que vence ' + _cccFmtDia(v) + ', pra você já ver o compromisso no fluxo de caixa.'
+          : 'Não será criada. Desmarcar deixa o futuro fora da projeção.';
+      }
+      linhas.push('<div class="ext-pc-li ' + cls + '" title="' + tip + '">'
         + '<span class="ext-pc-n">' + i + '/' + st.tot + '</span>'
         + '<span class="ext-pc-v">fatura de ' + _cccFmtDia(v) + '</span>'
-        + '<span class="ext-pc-e">' + (estado === 'passada' ? 'já veio'
-            : (estado === 'atual' ? 'esta fatura' : 'a lançar')) + '</span>'
+        + '<span class="ext-pc-e">' + acao + '</span>'
         + '</div>');
     }
     lista = '<div class="ext-pc-lista">' + linhas.join('') + '</div>';
+    /* Frase única dizendo o que o botão Salvar vai fazer. */
+    const anteriores = Math.max(0, st.n - 1);
+    const futuras = st.tot - st.n;
+    const partes = [];
+    partes.push('<b>' + criar + '</b> lançamento' + (criar === 1 ? '' : 's') + ' ser'
+                + (criar === 1 ? 'á criado' : 'ão criados'));
+    if(anteriores){
+      partes.push(anteriores === 1
+        ? 'a <b>1</b> anterior não — ela é de uma fatura passada'
+        : 'as <b>' + anteriores + '</b> anteriores não — elas são de faturas passadas');
+    }
+    if(futuras && !gerar){
+      partes.push(futuras === 1
+        ? 'a <b>1</b> futura ficou de fora'
+        : 'as <b>' + futuras + '</b> futuras ficaram de fora');
+    }
+    resumo = '<div class="ext-pc-oquevai">' + partes.join(' · ') + '</div>';
   }
+  const chk = (parcelado && st.tot > st.n)
+    ? '<label class="ext-pc-chk"><input type="checkbox"' + (gerar ? ' checked' : '')
+      + ' onchange="_extParcCartaoSet(\'gerar\', this.checked)">'
+      + 'Lançar também as ' + (st.tot - st.n) + ' que ainda vêm</label>'
+    : '';
   return '<div class="ext-pc" id="ext-pc-box">'
     + '<div class="ext-pc-tabs">'
     +   '<button type="button" class="ext-pc-tab' + (parcelado ? '' : ' on') + '"'
@@ -71743,15 +71802,31 @@ function _extParcCartaoHtml(){
         + '</div>'
         + '<div class="ext-pc-resumo">Parcela <b>' + st.n + ' de ' + st.tot + '</b>'
         +   ' · de <b>' + _cccFmtDia(inicio) + '</b> a <b>' + _cccFmtDia(fim) + '</b></div>'
+        + chk
+        + resumo
         + lista
       : '<div class="ext-pc-vazio">Compra à vista — uma cobrança só, na fatura que vence '
         + _cccFmtDia(st.venc) + '.</div>')
     + '</div>';
 }
+/* Existe lançamento pra essa parcela? Só faz sentido pra compra já criada. */
+function _extParcelaExiste(st, i){
+  try{
+    if(!st.lancId) return false;
+    const lan = (cartoes.lancamentos||[]).find(x => x && x.id === st.lancId);
+    if(!lan) return false;
+    const baseId = lan.parceladoDe || lan.id;
+    return (cartoes.lancamentos||[]).some(x => x &&
+      (x.id === baseId || x.parceladoDe === baseId) &&
+      (_extParcelaNums(x.parcela) || {}).n === i);
+  }catch(_){ return false; }
+}
+
 function _extParcCartaoSet(campo, valor){
   const st = _extParcCartao;
   if(!st) return;
-  if(campo === 'avista'){ st.tot = 1; st.n = 1; }
+  if(campo === 'gerar'){ st.gerarFuturas = !!valor; }
+  else if(campo === 'avista'){ st.tot = 1; st.n = 1; }
   else if(campo === 'parcelado'){ if(st.tot < 2){ st.tot = 2; st.n = 1; } }
   else if(campo === 'tot'){
     const t = parseInt(valor, 10) || 0;
@@ -71828,7 +71903,8 @@ function _extLancDeConciliacao(editId){
     documento: '',
     centroCustoId: null,
     _parc: { venc: venc, n: pc ? pc.n : 1, tot: pc ? pc.tot : 1,
-             cartaoId: CCC_STATE.cartaoId, origem: 'conciliacao' },
+             cartaoId: CCC_STATE.cartaoId, origem: 'conciliacao',
+             gerarFuturas: o._gerarParcelas !== false },
     _ccc: { idx }
   };
 }
@@ -71856,7 +71932,7 @@ function _extSalvarConciliacao(){
   if(_extParcCartao){
     m.ofx._parcelaEdit = _extParcCartao.tot > 1
       ? (_extParcCartao.n + '/' + _extParcCartao.tot) : null;
-    if(!m.ofx._parcelaEdit) m.ofx._gerarParcelas = false;
+    m.ofx._gerarParcelas = !!m.ofx._parcelaEdit && _extParcCartao.gerarFuturas !== false;
   }
   /* Vencimento mudou = a fatura toda muda: a linha não tem fatura própria. */
   const venc = (document.getElementById('ext-fld-data')?.value || '').trim();
@@ -71904,7 +71980,7 @@ function _extLancDeCartao(editId){
     repFreq: 'mensal',
     repCount: pc ? pc.tot : 6,
     _parc: { venc: venc, n: pc ? pc.n : 1, tot: pc ? pc.tot : 1,
-             cartaoId: lan.cartaoId, origem: 'cartao' },
+             cartaoId: lan.cartaoId, origem: 'cartao', lancId: lan.id },
     _cartao: { lancId: lan.id, cartaoId: lan.cartaoId, faturaId: lan.faturaId,
                parcelaN: pc ? pc.n : 0, parcelaTot: pc ? pc.tot : 0 }
   };
@@ -72052,7 +72128,9 @@ function extOpenModal(tipo, editId){
   /* Parcelamento de cartão: guarda o plano pra seção Repetição desenhar. */
   _extParcCartao = (l._parc && l._parc.venc) ? { venc: l._parc.venc, n: l._parc.n || 1,
                                                  tot: l._parc.tot || 1, cartaoId: l._parc.cartaoId || null,
-                                                 origem: l._parc.origem || '' } : null;
+                                                 origem: l._parc.origem || '',
+                                                 lancId: l._parc.lancId || null,
+                                                 gerarFuturas: l._parc.gerarFuturas !== false } : null;
   const t = l.tipo || tipo || 'gasto';
   const tLbl = t === 'ganho' ? 'Ganho' : t === 'transferencia' ? 'Transferência' : 'Gasto';
   const ov = document.createElement('div');
