@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787684514"/>
+  <meta name="fk-build" content="forekash-v1787685231"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -59244,6 +59244,7 @@ let _fcardOpenId = null;
 let _fcardTab = 'dados';
 
 function openFornecedorCard(pid){
+  _fcardCNPJBuscado = '';
   const reg = (typeof pesRegistry === 'function') ? pesRegistry().find(r => r.id === pid) : null;
   if(!reg){ if(typeof toast === 'function') toast('Fornecedor não encontrado'); return; }
   if(typeof reg.tipoPessoa !== 'string' || !['pf','pj','est'].includes(reg.tipoPessoa)) reg.tipoPessoa = 'pj';
@@ -59366,11 +59367,12 @@ function _fcardRender(){
         + '<div class="fcard-fld">'
           + '<label>Razão social oficial</label>'
           + '<input type="text" id="fcard-razao" value="' + _fcardEsc(reg.razaoSocial) + '" placeholder="ACME Comércio Ltda">'
-          + '<div class="hint">Use o 🔍 do CNPJ pra preencher.</div>'
+          + '<div class="hint">Preenchido pela Receita ao digitar o CNPJ.</div>'
         + '</div>'
         + '<div class="fcard-fld">'
           + '<label>CNPJ</label>'
-          + '<div style="display:flex;gap:6px"><input type="text" id="fcard-cnpj" value="' + _fcardEsc(reg.cnpj) + '" placeholder="00.000.000/0000-00" style="flex:1">'
+          + '<div style="display:flex;gap:6px"><input type="text" id="fcard-cnpj" value="' + _fcardEsc(reg.cnpj) + '" placeholder="00.000.000/0000-00" style="flex:1"'
+          + ' oninput="_fcardCNPJAuto(this)" onblur="_fcardLookupCNPJ(true)">'
           + '<button type="button" onclick="_fcardLookupCNPJ()" title="Buscar pelo CNPJ" style="padding:0 10px;border:1px solid #CBD5E1;background:#fff;border-radius:6px;cursor:pointer;font-size:.9rem" class="fkico fkico-search"></button></div>'
         + '</div>'
       + '</div>';
@@ -59666,21 +59668,72 @@ function _fcardValidatePix(applyFormat){
   }
 }
 
-function _fcardLookupCNPJ(){
+/* A consulta trazia SÓ a razão social — o Nome, que é o campo que aparece em
+   toda tela, continuava vazio, e para quem preencheu o CNPJ e viu tudo em
+   branco a busca simplesmente "não puxou". Agora traz nome, razão, telefone e
+   e-mail, e roda SOZINHA quando o CNPJ fica completo: caçar uma lupa de 20px
+   pra buscar o que o app já sabe buscar é trabalho que não devia existir.
+   Nada é sobrescrito — só preenche campo vazio, senão a busca apagaria o nome
+   curto que a pessoa escolheu ("Unilos") pela razão social inteira. */
+function _fcardLookupCNPJ(auto){
   const reg = pesRegistry().find(r => r.id === _fcardOpenId);
   if(!reg) return;
-  const cnpjInp = document.getElementById('fcard-cnpj');
+  const cnpjInp  = document.getElementById('fcard-cnpj');
   const razaoInp = document.getElementById('fcard-razao');
+  const nomeInp  = document.getElementById('fcard-nome');
+  const telInp   = document.getElementById('fcard-telefone');
+  const mailInp  = document.getElementById('fcard-email');
   if(!cnpjInp) return;
   const raw = (cnpjInp.value || '').replace(/\D/g,'');
-  if(raw.length !== 14){ if(typeof toast === 'function') toast('CNPJ inválido (14 dígitos)'); return; }
-  if(typeof toast === 'function') toast('Buscando dados...');
+  if(raw.length !== 14){
+    if(!auto && typeof toast === 'function') toast('CNPJ inválido (14 dígitos)');
+    return;
+  }
+  if(_fcardCNPJBuscado === raw) return;      /* não repete a mesma consulta */
+  _fcardCNPJBuscado = raw;
+  if(typeof toast === 'function') toast('Buscando dados do CNPJ...');
   fetch('https://brasilapi.com.br/api/cnpj/v1/' + raw).then(r => r.json()).then(data => {
-    if(!data || data.message){ if(typeof toast === 'function') toast('CNPJ não encontrado'); return; }
-    if(razaoInp) razaoInp.value = data.razao_social || data.nome_fantasia || '';
-    if(typeof toast === 'function') toast('✓ Razão social preenchida');
-  }).catch(() => { if(typeof toast === 'function') toast('Erro consultando BrasilAPI'); });
+    if(!data || data.message || !(data.razao_social || data.nome_fantasia)){
+      _fcardCNPJBuscado = '';
+      if(typeof toast === 'function') toast('CNPJ não encontrado na Receita');
+      return;
+    }
+    const vazio = el => el && !String(el.value || '').trim();
+    const preenchidos = [];
+    if(vazio(razaoInp)){ razaoInp.value = data.razao_social || ''; preenchidos.push('razão social'); }
+    if(vazio(nomeInp)){
+      nomeInp.value = data.nome_fantasia || data.razao_social || '';
+      preenchidos.push('nome');
+    }
+    if(vazio(telInp) && data.ddd_telefone_1){
+      const t = String(data.ddd_telefone_1).replace(/\D/g,'');
+      telInp.value = t.length >= 10
+        ? '(' + t.slice(0,2) + ') ' + t.slice(2, t.length - 4) + '-' + t.slice(-4)
+        : t;
+      preenchidos.push('telefone');
+    }
+    if(vazio(mailInp) && data.email){ mailInp.value = data.email; preenchidos.push('e-mail'); }
+    /* Grava e redesenha: o cabeçalho do modal mostra o nome, e sem isso ele
+       continuava exibindo o CNPJ mesmo com o campo já preenchido. */
+    _fcardCommitInputs();
+    if(typeof pessoasSave === 'function') pessoasSave();
+    try{ _fcardRender(); }catch(_){}
+    if(typeof toast === 'function'){
+      toast(preenchidos.length
+        ? ('✓ ' + preenchidos.join(', ') + ' · ' + (data.descricao_situacao_cadastral || 'consultado'))
+        : 'Nada a preencher — os campos já tinham conteúdo');
+    }
+  }).catch(() => {
+    _fcardCNPJBuscado = '';
+    if(typeof toast === 'function') toast('Não consegui consultar a Receita agora');
+  });
 }
+let _fcardCNPJBuscado = '';
+function _fcardCNPJAuto(inp){
+  const raw = (inp.value || '').replace(/\D/g,'');
+  if(raw.length === 14) _fcardLookupCNPJ(true);
+}
+try{ window._fcardCNPJAuto = _fcardCNPJAuto; }catch(_){}
 function _fcardSave(){
   _fcardCommitInputs();
   if(typeof pessoasSave === 'function') pessoasSave();
@@ -66981,10 +67034,16 @@ function cccCbxCriar(idx, tipo){
         if(typeof pesAdicionarPapel === 'function') pesAdicionarPapel(existe, 'fornecedor');
       } else {
         if(!pessoas.nextRegId) pessoas.nextRegId = 1;
-        pessoas.registry.push({ id: pessoas.nextRegId++, nome, foto:'', anexos:[], tags:[],
-          kind:'fornecedor', tipoPessoa:'pj', ativo:true });
+        const novoId = pessoas.nextRegId++;
+        pessoas.registry.push({ id: novoId, nome, foto:'', anexos:[], tags:[],
+          kind:'fornecedor', tipoPessoa:'pj', ativo:true,
+          origem:'Conciliação de cartão' });
         if(typeof pessoasSave === 'function') pessoasSave();
-        if(typeof toast === 'function') toast('✓ Fornecedor "' + nome + '" cadastrado');
+        /* Abre o cadastro na hora. Nascer só com o nome — muitas vezes a sigla
+           da maquininha — deixa CNPJ, contato e dados de pagamento em branco
+           pra sempre, porque ninguém volta depois. É o mesmo cadastro usado em
+           todo o resto do app, não uma versão reduzida. */
+        _cccAbrirCadastro(novoId, nome);
       }
     }
   }catch(e){ if(typeof toast === 'function') toast('Não consegui cadastrar: ' + e.message); return; }
@@ -66993,6 +67052,39 @@ function cccCbxCriar(idx, tipo){
   const pop = document.getElementById('ccc-cbx-' + tipo + '-' + idx + '-pop');
   if(pop) pop.classList.remove('open');
 }
+/* O cadastro abre por cima da conciliação, e ao fechar a linha já reflete o
+   nome que ficou (a busca por CNPJ costuma trocar a sigla pela razão social). */
+function _cccAbrirCadastro(regId, nomeAntes){
+  if(typeof openFornecedorCard !== 'function'){
+    if(typeof toast === 'function') toast('✓ Fornecedor "' + nomeAntes + '" cadastrado');
+    return;
+  }
+  setTimeout(() => {
+    try{
+      openFornecedorCard(regId);
+      const ov = document.getElementById('ov-forn-card');
+      if(ov) ov.style.zIndex = '10050';         /* acima do modal de conciliação */
+    }catch(e){ console.warn('[ccc] cadastro:', e && e.message); }
+  }, 60);
+  /* Quando o cadastro fechar, a linha pega o nome final. */
+  const espera = setInterval(() => {
+    const ov = document.getElementById('ov-forn-card');
+    if(ov && ov.classList.contains('open')) return;
+    clearInterval(espera);
+    if(ov) ov.style.zIndex = '';
+    try{
+      const reg = (pessoas.registry||[]).find(r => r && r.id === regId);
+      const nomeFinal = reg ? String(reg.nome||'').trim() : '';
+      if(nomeFinal && nomeFinal !== nomeAntes && CCC_STATE && Array.isArray(CCC_STATE.matches)){
+        for(const mm of CCC_STATE.matches){
+          if(mm && mm.ofx && mm.ofx._forn === nomeAntes) mm.ofx._forn = nomeFinal;
+        }
+      }
+      if(typeof _cccRenderWorkbench === 'function') _cccRenderWorkbench();
+    }catch(_){}
+  }, 400);
+}
+
 try{
   window.cccCbxOpen = cccCbxOpen; window.cccCbxFiltrar = cccCbxFiltrar;
   window.cccCbxPick = cccCbxPick; window.cccCbxCriar = cccCbxCriar;
