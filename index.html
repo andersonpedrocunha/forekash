@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787683522"/>
+  <meta name="fk-build" content="forekash-v1787684514"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -66109,9 +66109,34 @@ const CCC_BANK_TEMPLATES = {
             consumidas = k;
           }
         }
+        /* Tarifa do cartão vem com a descrição na linha DE CIMA:
+             PROTEÇÃO PERDA OU
+             25 FEV        R$ 3,20
+             ROUBO
+           Olhando só pra frente, ela ficava sem descrição e era descartada —
+           e a soma não fechava com o banco por exatamente esses R$ 3,20. */
+        const _temTexto = (t) => /[A-Za-zÀ-ÿ]{3}/.test(String(t||'').replace(/R\$|US\$|V\.DOL/gi,''));
+        if(!_temTexto(resto)){
+          for(let k = 1; k <= 2 && i - k >= 0; k++){
+            const ant = (lines[i - k] || '').trim();
+            if(!ant) continue;
+            if(rxLinha.test(ant)) break;                      /* outra compra */
+            if(/^(US\$|U\$|V\.DOL)|^[\d.,]+$/i.test(ant)) continue;
+            if(/TOTAL|SALDO|LIMITE|VENCIMENTO|DESCRI[ÇC][ÃA]O/i.test(ant)) break;
+            if(!_temTexto(ant)) continue;
+            resto = (ant + ' ' + resto).replace(/\s*R\$\s*/g, ' ').replace(/\s{2,}/g,' ').trim();
+            /* A descrição costuma quebrar: "PROTEÇÃO PERDA OU" / "ROUBO". */
+            const dep = (lines[i + 1] || '').trim();
+            if(dep && !rxLinha.test(dep) && _temTexto(dep) && !/R\$/.test(dep)
+               && !/TOTAL|SALDO|LIMITE|DESCRI[ÇC][ÃA]O/i.test(dep)){
+              resto = (resto + ' ' + dep).trim();
+            }
+            break;
+          }
+        }
         /* Sem descrição de verdade não é compra — "11 JAN 2025" é a linha de
            vencimento, e sem esta guarda ela virava um lançamento de mil reais. */
-        if(!/[A-Za-zÀ-ÿ]{3}/.test(resto.replace(/R\$|US\$|V\.DOL/gi,''))) continue;
+        if(!_temTexto(resto)) continue;
         /* O mesmo filtro de novo, agora sobre a descrição REMONTADA. Com a data
            vindo sozinha ("01 NOV" + "ANUIDADE MASTERCARD" abaixo), a linha crua
            não continha a palavra e anuidade, seu estorno e proteção entravam
@@ -66133,6 +66158,12 @@ const CCC_BANK_TEMPLATES = {
 
         // Parcela, quando houver
         let parcela = '';
+        /* "04/10" às vezes vem sozinho na linha de baixo, depois do valor.
+           Sem isso a compra entrava como se fosse à vista. */
+        if(!rxParcela.test(resto)){
+          const dep = (lines[i + 1 + consumidas] || '').trim();
+          if(/^\d{1,2}\/\d{1,2}$/.test(dep)){ resto = (resto + ' ' + dep).trim(); consumidas += 1; }
+        }
         const mp = rxParcela.exec(resto);
         if(mp && parseInt(mp[1],10) <= parseInt(mp[2],10) && parseInt(mp[2],10) <= 36){
           parcela = mp[1] + '/' + mp[2];
@@ -66318,21 +66349,90 @@ async function _cccParsePDF(file){
   let text = '';
   const allLines = [];
   const maxPages = Math.min(pdf.numPages, 10);
+  /* A fatura do Ailos é de DUAS COLUNAS de lançamentos. Agrupando só pela
+     altura, a compra da esquerda e a da direita viravam a mesma linha — o valor
+     lido no fim da linha era o da outra coluna, e uma linha que encostasse em
+     "TOTAL" era descartada inteira, levando junto a compra ao lado. Resultado:
+     zero transações lidas, e a tela culpando o PDF.
+
+     Quem denuncia a coluna é o x das DATAS: nesta fatura 29 lançamentos começam
+     em x≈30 e 6 em x≈300. Dois agrupamentos distantes = duas colunas. Vão
+     branco não serve de critério — dentro da mesma linha o espaço entre
+     descrição e valor é igualmente largo, e cortar ali separava a compra do
+     próprio valor. Fatura de uma coluna só não cai neste caminho. */
+  const _cccMesesRx = /^(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)$/i;
+  /* Onde as DATAS começam denuncia a coluna: nesta fatura 29 lançamentos
+     começam em x≈30 e 6 em x≈300. O histograma é do DOCUMENTO INTEIRO, não de
+     cada página: numa das páginas a coluna da direita tem só continuação
+     ("US$ ...", "TOTAL DE RAFAEL") e quase nenhuma data — página a página, ela
+     passava despercebida e as duas colunas voltavam a se misturar, comendo
+     três lançamentos. Vão branco não serve de critério: dentro da mesma linha
+     o espaço entre descrição e valor é igualmente largo, e cortar ali separava
+     a compra do próprio valor. */
+  const _cccHistDatas = (itens, hist) => {
+    for(let k = 0; k < itens.length - 1; k++){
+      if(/^\d{1,2}$/.test(itens[k].str) && _cccMesesRx.test(itens[k+1].str)){
+        const b = Math.round(itens[k].x / 10) * 10;
+        hist[b] = (hist[b] || 0) + 1;
+      }
+    }
+  };
+  const _cccCorteColuna = (hist, larguraPg) => {
+    const cols = Object.keys(hist).map(Number).filter(k => hist[k] >= 3).sort((a, b) => a - b);
+    if(cols.length < 2) return null;
+    const dir = cols[cols.length - 1], esq = cols[0];
+    if((dir - esq) <= larguraPg * 0.2) return null;
+    return dir - 6;
+  };
+  const _cccLinhasDaPagina = (itens, corte) => {
+    const linhas = [];
+    const agrupaY = (lista) => {
+      const porY = [];
+      for(const it of lista){
+        const alvo = porY.find(g => Math.abs(g.y - it.y) <= 2);
+        if(alvo) alvo.itens.push(it); else porY.push({ y: it.y, itens: [it] });
+      }
+      porY.sort((a, b) => b.y - a.y);
+      for(const g of porY){
+        g.itens.sort((a, b) => a.x - b.x);
+        const txt = g.itens.map(i => i.str).join(' ').replace(/\s{2,}/g, ' ').trim();
+        if(txt) linhas.push(txt);
+      }
+    };
+    if(corte == null){ agrupaY(itens); return linhas; }
+    agrupaY(itens.filter(it => it.x <  corte));   // coluna da esquerda, inteira
+    agrupaY(itens.filter(it => it.x >= corte));   // depois a da direita
+    return linhas;
+  };
+  const _paginas = [];
+  const _hist = {};
+  let _larguraDoc = 595;
   for(let p = 1; p <= maxPages; p++){
     const page = await pdf.getPage(p);
     const tc = await page.getTextContent();
-    let lastY = null;
-    let line = '';
+    _larguraDoc = (page.view && (page.view[2] - page.view[0])) || _larguraDoc;
+    const itens = [];
     for(const it of tc.items){
-      const y = it.transform[5];
-      if(lastY !== null && Math.abs(y - lastY) > 2){
-        if(line.trim()) allLines.push(line.trim());
-        line = '';
-      }
-      line += it.str + ' ';
-      lastY = y;
+      if(!it.str || !it.str.trim()) continue;
+      itens.push({ x: it.transform[4], y: it.transform[5], str: it.str.trim() });
     }
-    if(line.trim()) allLines.push(line.trim());
+    _cccHistDatas(itens, _hist);
+    _paginas.push(itens);
+  }
+  const _corteDoc = _cccCorteColuna(_hist, _larguraDoc);
+  for(const itens of _paginas){
+    /* O corte do documento só vale onde há LANÇAMENTO. A capa tem outro
+       layout, e cortá-la em duas quebrava o cabeçalho — o vencimento e o total
+       da fatura sumiam, e a frase "fatura de janeiro no valor total de R$ ..."
+       virava uma transação de mil reais. Cada página decide sozinha; a régua do
+       documento entra só quando a página é claramente de lançamentos e não
+       conseguiu decidir por conta própria. */
+    const hPg = {};
+    _cccHistDatas(itens, hPg);
+    const datasNaPg = Object.values(hPg).reduce((a2, b2) => a2 + b2, 0);
+    const corte = _cccCorteColuna(hPg, _larguraDoc)
+      || ((datasNaPg >= 5) ? _corteDoc : null);
+    for(const ln of _cccLinhasDaPagina(itens, corte)) allLines.push(ln);
   }
   text = allLines.join('\n');
 
