@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787678586"/>
+  <meta name="fk-build" content="forekash-v1787681706"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -68756,7 +68756,7 @@ function _extCollect(){
           const fr = pessoas.registry.find(r => r.id === fornId);
           if(fr) contraparte = fr.nome || contraparte;
         }
-        const contaShow = fatPaga ? (f.pagamento.conta || '') : ('💳 ' + apelido);
+        const contaShow = fatPaga ? (f.pagamento.conta || '') : fkContaDeCartao(c || { nome: apelido });
         const cat = (l.categoria || '').trim() || ('Cartão · ' + apelido);
         let descShow = l.descricao || '(sem descrição)';
         if(l.moedaOrigem && l.moedaOrigem !== 'BRL' && l.valorOrigem){
@@ -68846,7 +68846,7 @@ function _extCollect(){
             categoria: 'Cartão · ' + apelido,
             descricao: 'Fatura ' + apelido + ' · ' + mesLbl,
             contraparte: '',
-            conta: fatPaga ? (f.pagamento.conta || '') : ('💳 ' + apelido),
+            conta: fatPaga ? (f.pagamento.conta || '') : fkContaDeCartao(c || { nome: apelido }),
             valor: total,
             status: fatPaga ? 'pago' : 'pendente',
             numeroDocumento: '',
@@ -71786,7 +71786,7 @@ function _extLancDeConciliacao(editId){
     descricao: o._desc,
     categoria: o._cat,
     contraparte: o._forn,
-    conta: car ? ('💳 ' + car.apelido) : '',
+    conta: fkContaDeCartao(car),
     status: 'pendente',
     notas: (typeof _cccNotaOrigem === 'function') ? _cccNotaOrigem(o) : '',
     documento: '',
@@ -71857,7 +71857,7 @@ function _extLancDeCartao(editId){
     descricao: lan.descricao || '',
     categoria: (lan.categoria || '').trim(),
     contraparte: contraparte,
-    conta: car ? ('💳 ' + car.apelido) : '',
+    conta: fkContaDeCartao(car),
     status: paga ? 'pago' : 'pendente',
     dataPagamento: paga ? (fat.pagamento.data || venc) : '',
     notas: lan.notas || '',
@@ -72903,16 +72903,38 @@ function _extSalvarCartao(){
       lan.fornecedorId = reg ? reg.id : null;
     }catch(_){ }
   }
-  /* Vencimento mudou = a compra pertence a outra fatura. Move de fatura em vez
-     de guardar uma data que nenhuma fatura reconhece. */
+  /* Conta escolhida: compra de cartão mora num cartão. Trocar pra outro cartão
+     move a compra; escolher um banco não faz sentido aqui e a tela precisa
+     dizer isso em vez de ignorar em silêncio. */
   let moveu = '';
+  const contaEsc = (document.getElementById('ext-fld-conta')?.value || '').trim();
+  if(contaEsc){
+    const alvo = (cartoes.list || []).find(c => fkContaDeCartao(c) === contaEsc);
+    if(!alvo){
+      if(typeof toast === 'function'){
+        toast('⚠ Compra de cartão fica no cartão · pra lançar em banco, crie o lançamento no Extrato');
+      }
+      return;
+    }
+    if(alvo.id !== lan.cartaoId){
+      lan.cartaoId = alvo.id;
+      lan.faturaId = null;                 /* refeita logo abaixo pelo vencimento */
+      moveu = ' · movida pra ' + fkContaDeCartao(alvo);
+    }
+  }
   const fatAtual = (cartoes.faturas || []).find(f => f && f.id === lan.faturaId);
   if(venc && (!fatAtual || (fatAtual.vencimento || '') !== venc)){
     const nova = _extFaturaPorVenc(lan.cartaoId, venc);
     if(nova && nova.id !== lan.faturaId){
       lan.faturaId = nova.id;
-      moveu = ' · movida pra fatura de ' + venc.split('-').reverse().join('/');
+      moveu += ' · fatura de ' + venc.split('-').reverse().join('/');
     }
+  }
+  if(!lan.faturaId){
+    /* Trocou de cartão e não mexeu na data: a fatura tem que existir no cartão
+       novo, senão a compra fica órfã e some de todas as telas. */
+    const nova = _extFaturaPorVenc(lan.cartaoId, venc || (fatAtual && fatAtual.vencimento) || '');
+    if(nova) lan.faturaId = nova.id;
   }
   /* Parcelamento: o total lido da Repetição manda na série que já existe. */
   let ajuste = { criadas:0, removidas:0 };
@@ -78028,8 +78050,8 @@ function fkContasAgrupadas(){
     if(typeof cartoes !== 'undefined' && Array.isArray(cartoes.list)){
       cartoes.list.forEach(c => {
         if(!c || c.ativo === false) return;
-        const nome = String(c.nome || c.apelido || '').trim();
-        if(nome) cartoes_.push(nome.toLowerCase().includes('cart') ? nome : ('Cartão ' + nome));
+        const nome = fkContaDeCartao(c);
+        if(nome) cartoes_.push(nome);
       });
     }
   }catch(_){}
@@ -78416,6 +78438,17 @@ function fkContasDivergentes(){
   return linhas;
 }
 try{ window.fkContasDivergentes = fkContasDivergentes; }catch(_){}
+
+/* Nome da conta de um cartão — FONTE ÚNICA. Cada tela montava o seu ("💳 " +
+   apelido numa, "Cartão " + nome noutra) e o resultado era o cartão aparecendo
+   como conta não vinculada na própria lista onde ele existe. */
+function fkContaDeCartao(c){
+  if(!c) return '';
+  const nome = String(c.nome || c.apelido || '').trim();
+  if(!nome) return '';
+  return nome.toLowerCase().includes('cart') ? nome : ('Cartão ' + nome);
+}
+try{ window.fkContaDeCartao = fkContaDeCartao; }catch(_){}
 
 function fkContaOptsHTML(atual, rotuloVazio){
   const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x||''));
