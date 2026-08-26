@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787695374"/>
+  <meta name="fk-build" content="forekash-v1787751365"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -66240,9 +66240,28 @@ const CCC_BANK_TEMPLATES = {
       const rxValor = /(-?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})\s*$/;
       const rxParcela = /\b(\d{1,2})\/(\d{1,2})\b/;
 
+      /* Compra e resumo na MESMA linha. O extrator junta o que está na mesma
+         altura da página, então a coluna da direita cola no fim da linha da
+         esquerda: "20 FEV IOF OPERACAO EXTERIOR R$ 10,80 TOTAL R$ 9.453,72".
+         Eu descartava a linha inteira por conter "TOTAL" — e ia embora um IOF
+         de R$ 10,80. Agora CORTO no rótulo de resumo e leio o que vem antes.
+         Se o rótulo abre a linha, aí sim não há compra nenhuma nela. */
+      const rxCorte = /\s+(?=TOTAL\b|TOTAL\s+DE\b|SALDO\s+ANTERIOR|SALDO\s+TOTAL|LIMITES?\s+TOTAIS|VENCIMENTO\b|PAGAMENTO\s+M[IÍ]NIMO|FATURA\s+ANTERIOR|PAGAMENTOS\s+RECEBIDOS|ENCARGOS\b)/i;
+      const pendentesValor = [];
+      const usadasComoValor = new Set();
       for(let i = 0; i < lines.length; i++){
-        const ln = lines[i];
+        let ln = lines[i];
         if(!ln || ln.length < 6) continue;
+        const c = rxCorte.exec(ln);
+        if(c && c.index > 0){
+          const esq = ln.slice(0, c.index).trim();
+          /* Só corta se a metade da esquerda tiver cara de compra — data e
+             valor. Senão é resumo de ponta a ponta e vale descartar inteiro. */
+          if(/^\d{1,2}\s+[A-Z]{3}\b/i.test(esq) && /(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2}/.test(esq)){
+            larga(ln.slice(c.index).trim(), 'resumo colado no fim da linha da compra');
+            ln = esq;
+          }
+        }
         if(CCC_LINHAS_RUINS_DEFAULT.test(ln)){ larga(ln, 'linha de resumo/encargo'); continue; }
         // Blocos que não são compra
         /* Linhas que NÃO são compra. PAGTO DEB é o pagamento da fatura
@@ -66377,7 +66396,15 @@ const CCC_BANK_TEMPLATES = {
           continue;
         }
         const val = valStr ? _cccParseValor(valStr) : 0;
-        if(!val){ larga(ln, 'não achei valor em reais nesta compra'); continue; }
+        if(!val){
+          /* Não descarta ainda: compra internacional às vezes tem o valor em
+             reais numa linha SOZINHA, que o agrupamento por coluna joga longe
+             ("22 FEV 650 INDUSTRIES EXPOV PALO ALTO" ... "R$ 88,41"). Fica
+             pendente e o passo de reparo, no fim, tenta casar. */
+          pendentesValor.push({ i, ln, mesN, dia: parseInt(m[1],10), resto });
+          continue;
+        }
+        if(valStr) usadasComoValor.add(i + consumidas);
 
         // Parcela, quando houver
         let parcela = '';
@@ -66406,8 +66433,62 @@ const CCC_BANK_TEMPLATES = {
                      fitid: data+'|'+Math.abs(val).toFixed(2)+'|'+desc.slice(0,20), raw: ln });
         i += consumidas;
       }
-      return { items, descartes,
-               totalFatura: _cccFindTotal(text, ['valor\\s+total\\s+de','^TOTAL\\s','total\\s+da\\s+fatura']) };
+      const totalFatura = _cccFindTotal(text, ['valor\\s+total\\s+de','^TOTAL\\s','total\\s+da\\s+fatura']);
+
+      /* ══ REPARO ══════════════════════════════════════════════════════════
+         Compra internacional pode ficar sem valor porque o valor em reais está
+         numa linha sozinha, longe dela — o agrupamento por coluna separa as
+         duas. Aqui eu caso cada pendente com a linha-valor órfã mais próxima.
+
+         O reparo só é ACEITO se fizer a soma fechar com o total impresso. Sem
+         essa condição eu estaria adivinhando, e adivinhar valor de lançamento
+         é pior que não ler: entra número errado com cara de certo. Se não
+         fechar, desfaço tudo e as pendentes viram descarte normal, pra ele
+         incluir na mão vendo o que é. */
+      if(pendentesValor.length){
+        const orfas = [];
+        for(let k = 0; k < lines.length; k++){
+          if(usadasComoValor.has(k)) continue;
+          const t = String(lines[k] || '').trim();
+          const mo = /^R?\$?\s*((?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})$/.exec(t);
+          if(mo){
+            const v = _cccParseValor(mo[1]);
+            if(v) orfas.push({ k, v });
+          }
+        }
+        const somaAtual = items.reduce((a2, x) => a2 + x.valor, 0);
+        const falta = totalFatura ? (totalFatura - somaAtual) : 0;
+        const pares = [];
+        const usadas = new Set();
+        for(const pnd of pendentesValor){
+          let melhor = null;
+          for(const o of orfas){
+            if(usadas.has(o.k)) continue;
+            const dist = Math.abs(o.k - pnd.i);
+            if(dist > 8) continue;                     /* tem que ser vizinha */
+            if(!melhor || dist < melhor.dist) melhor = { o, dist };
+          }
+          if(melhor){ usadas.add(melhor.o.k); pares.push({ pnd, v: melhor.o.v }); }
+        }
+        const somaPares = pares.reduce((a2, x) => a2 + x.v, 0);
+        const fecha = totalFatura > 0 && Math.abs(falta - somaPares) < 0.01;
+        if(fecha){
+          for(const par of pares){
+            const p2 = par.pnd;
+            const ano = (p2.mesN > mesRef) ? anoBase - 1 : anoBase;
+            const data = ano + '-' + String(p2.mesN).padStart(2,'0') + '-' + String(p2.dia).padStart(2,'0');
+            let desc = String(p2.resto || '').replace(/-?\s*R\$\s*$/i,'').replace(/\s{2,}/g,' ').trim().slice(0,80);
+            if(!desc) desc = 'Compra da fatura';
+            items.push({ data, descricao: desc, valor: Math.abs(par.v), parcela: '',
+                         fitid: data + '|' + Math.abs(par.v).toFixed(2) + '|' + desc.slice(0,20),
+                         raw: p2.ln, _reparado: true });
+          }
+        } else {
+          for(const p2 of pendentesValor) larga(p2.ln, 'não achei valor em reais nesta compra');
+        }
+      }
+
+      return { items, descartes, totalFatura };
     }
   },
   bradesco: {
