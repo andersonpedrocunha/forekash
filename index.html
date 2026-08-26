@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787780273"/>
+  <meta name="fk-build" content="forekash-v1787780553"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -14870,8 +14870,11 @@
        texto encostava no badge da parcela e a origem ("CARTAO AILOS") ficava
        cortada embaixo. Agora a célula organiza em duas linhas de verdade, com
        o nome truncando por reticências em vez de vazar. */
-    .est-sheet tr.est-cartao-row > td.stk-1{padding-top:6px;padding-bottom:6px;line-height:1.3;
-      white-space:normal}
+    /* A primeira coluna é fixa em 260px. Sem quebrar dentro dela, o nome longo
+       vazava por cima da coluna seguinte e aparecia cortado nas duas pontas. */
+    .est-sheet tr.est-cartao-row > td.stk-1{padding:6px 10px 6px 12px;line-height:1.3;
+      white-space:normal;overflow:hidden}
+    .est-sheet tr.est-cartao-row > td.stk-1 > *{max-width:100%}
     /* Descrição INTEIRA: cortar com reticências escondia justamente o nome que
        ele deu ao lançamento. Quebra linha quando precisa; a coluna cresce. */
     .est-cartao-desc{display:inline;max-width:none;overflow:visible;white-space:normal;
@@ -86357,7 +86360,24 @@ function _fkCartaoLancamentosDoModulo(year, filtro){
       if(typeof filtro === 'function' && !filtro(cat)) continue;
       const v = parseFloat(l.valor) || 0;
       if(!v) continue;
-      out.push({ id: l.id, desc: l.descricao || l.estabelecimento || '(sem descrição)',
+      /* O texto do banco ("HEROKU* JAN-11005222 SAN FRANCISCO") é sigla de
+         maquininha, não nome de despesa. Na importação, o FORNECEDOR que ele
+         escolhe vai pra `estabelecimento` — curto e escolhido por ele — e o
+         texto do banco fica em `descricao`. Então: se ele reescreveu a
+         descrição, ela manda; se não reescreveu (descricao === o que está nas
+         observações como texto do banco), vale o fornecedor. O texto do banco
+         é o último recurso, e continua no title. */
+      const bancoTxt = (typeof _fkTextoBanco === 'function') ? _fkTextoBanco(l.notas) : '';
+      const desc = String(l.descricao || '').trim();
+      let curto = '';
+      if(l.fornecedorId && typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.registry)){
+        const r = pessoas.registry.find(x => x && x.id === l.fornecedorId);
+        if(r && r.nome) curto = String(r.nome).trim();
+      }
+      if(!curto) curto = String(l.estabelecimento || '').trim();
+      const reescrita = desc && bancoTxt && desc !== bancoTxt;
+      const mostrar = reescrita ? desc : (curto || desc || '(sem descrição)');
+      out.push({ id: l.id, desc: mostrar, descBanco: desc,
                  cat, valor: v, ym: info.ym, paga: info.paga, tipoId: l.tipoId || 'fix',
                  cartao: nomeCartao(l.cartaoId), parcela: l.parcela || '' });
     }
@@ -86416,7 +86436,8 @@ function _renderEstCartaoRows(year){
         + '<td class="stk stk-1 l"><span class="est-cartao-ico fkico fkico-card"></span>'
         +   '<button type="button" class="est-cartao-desc"'
         +     ' onclick="extOpenModal(\'gasto\',\'cartao:' + it.id + '\')"'
-        +     ' title="Abrir a compra — dá pra mudar descrição, categoria e fornecedor">'
+        +     ' title="' + esc(it.descBanco && it.descBanco !== it.desc ? (it.descBanco + ' · ') : '')
+        +       'Abrir a compra — dá pra mudar descrição, categoria e fornecedor">'
         +   esc(it.desc) + '</button>'
         +   (it.parcela ? '<em class="est-cartao-parc">' + esc(it.parcela) + '</em>' : '')
         +   '<em class="est-cartao-org" title="Compra no ' + esc(it.cartao)
