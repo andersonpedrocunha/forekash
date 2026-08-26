@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787781518"/>
+  <meta name="fk-build" content="forekash-v1787781906"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -14862,6 +14862,11 @@
     /* Leitura pura: a compra mora no cartão e se edita lá. Um atalho de edição
        aqui seria um segundo lugar de escrita pro mesmo dado. */
     .est-cartao-desc{color:inherit;cursor:default}
+    /* Quantas compras compõem aquele mês. Discreto: o número que importa é o
+       valor; a contagem só avisa que a soma tem mais de uma parcela. */
+    .est-cartao-n{margin-left:5px;font-style:normal;font-size:.58rem;font-weight:800;
+      color:#6366F1;background:#EEF2FF;border-radius:999px;padding:0 5px;cursor:help;
+      vertical-align:top}
     /* Nada de largura ou nowrap próprios aqui: o seletor do cartão é o mesmo
        elemento da linha normal (width:100% dentro do td), e qualquer regra a
        mais só produzia o corte em "DESPESA FIX". */
@@ -86407,10 +86412,15 @@ function _fkCartaoLancamentosDoModulo(year, filtro){
       const k = chave + '|' + _estNormCat(cat);
       let g = grupos.get(k);
       if(!g){
-        g = { chave: k, nome, cat, meses: {}, pagos: {}, compras: 0, tipoId: l.tipoId || 'fix' };
+        g = { chave: k, nome, cat, meses: {}, pagos: {}, detalhe: {}, compras: 0, tipoId: l.tipoId || 'fix' };
         grupos.set(k, g);
       }
       g.meses[info.ym] = (g.meses[info.ym] || 0) + v;
+      /* Guarda o que compõe o mês: o mesmo fornecedor pode aparecer duas ou
+         três vezes na mesma fatura, e a célula mostra só a soma. Sem a
+         composição, conferir R$ 804,97 contra o papel vira caça ao tesouro. */
+      if(!g.detalhe[info.ym]) g.detalhe[info.ym] = [];
+      g.detalhe[info.ym].push({ v, desc: String(l.descricao || l.estabelecimento || '').slice(0,40) });
       if(info.paga) g.pagos[info.ym] = true;
       g.compras++;
       if(l.tipoId) g.tipoId = l.tipoId;
@@ -86470,9 +86480,16 @@ function _renderEstCartaoRows(year){
         const fechado = estMesFechado(year, m) ? ' mes-fechado' : '';
         if(doCartao){
           /* Mês que veio do cartão é leitura: o valor é o que o banco cobrou. */
+          const partes = g.detalhe[ym] || [];
+          const comp = partes.length > 1
+            ? (partes.length + ' compras: ' + partes.map(x => fmtBR(x.v, 2)
+                + (x.desc ? (' (' + x.desc + ')') : '')).join(' + '))
+            : 'Veio da fatura do cartão — pra mudar, é no cartão.';
           return '<td class="pes-cell est-cartao-mes' + fechado + (g.pagos[ym] ? ' pago' : '') + '"'
-            + ' title="Veio da fatura do cartão — pra mudar, é no cartão.">'
-            + '<span class="est-cartao-val">' + fmtBR(doCartao, 2) + '</span></td>';
+            + ' title="' + esc(comp) + '">'
+            + '<span class="est-cartao-val">' + fmtBR(doCartao, 2) + '</span>'
+            + (partes.length > 1 ? '<em class="est-cartao-n">' + partes.length + '</em>' : '')
+            + '</td>';
         }
         /* Mês SEM compra é editável: serve pra projetar o que ainda vem desse
            mesmo fornecedor. Quando o próximo import trouxer a compra, ela ocupa
