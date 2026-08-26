@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787752938"/>
+  <meta name="fk-build" content="forekash-v1787753436"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17999,6 +17999,10 @@ td.mes.do-extrato{background:#ECFDF5}
   border:1px solid #FECACA !important;border-radius:8px;padding:8px 11px !important;
   margin-top:7px !important;line-height:1.45}
 .est-tag-pill.forasteira{outline:2px solid #DC2626;outline-offset:1px}
+.est-bloq-lista{margin:6px 0 0;padding-left:18px;font-size:.8rem;line-height:1.7}
+.est-bloq-undo{margin-left:6px;padding:1px 8px;border:1px solid #FCA5A5;border-radius:6px;
+  background:#fff;color:#B91C1C;font:inherit;font-size:.68rem;font-weight:700;cursor:pointer}
+.est-bloq-undo:hover{background:#FEF2F2}
 .est-real-alerta{margin:5px 0 0 !important;padding:0 0 0 13px;background:none;border:none;
   color:#B45309 !important;font-size:.63rem !important;position:relative}
 .est-real-alerta::before{content:'!';position:absolute;left:0;top:0;font-weight:800;color:#D97706}
@@ -85632,16 +85636,74 @@ function _estTagsForasteiras(){
   }catch(_){}
   return out;
 }
+/* BLOQUEIO, não aviso. A despesa cuja categoria pertence a outro módulo SAI de
+   `estrutura.itens` e vai pra quarentena. Não é preciosismo de arquitetura: são
+   18 pontos no código que somam `it.valores[k]` — guardar um a um garante que
+   um deles fique pra trás e a duplicidade volte por ali. Fora da lista, os 18
+   concordam sozinhos.
+
+   Nada é apagado: fica em `estrutura.bloqueados`, com o motivo, e volta inteiro
+   se ele mandar. */
+function estBloquearForasteiras(){
+  if(!estrutura || !Array.isArray(estrutura.itens)) return 0;
+  if(!Array.isArray(estrutura.bloqueados)) estrutura.bloqueados = [];
+  const tagPorId = new Map();
+  for(const t of (estrutura.tags || [])) if(t) tagPorId.set(t.id, t);
+  let movidos = 0;
+  const ficam = [];
+  for(const it of estrutura.itens){
+    const t = it && it.tagId ? tagPorId.get(it.tagId) : null;
+    const mod = t ? _estModuloDaTag(t.nome) : '';
+    if(mod && mod !== 'estrutura'){
+      estrutura.bloqueados.push({ item: it, tagNome: t.nome || '', modulo: mod,
+                                  quando: new Date().toISOString().slice(0,10) });
+      movidos++;
+    } else ficam.push(it);
+  }
+  if(movidos){
+    estrutura.itens = ficam;
+    if(typeof estSave === 'function') estSave();
+    if(typeof toast === 'function'){
+      toast('⛔ ' + movidos + ' despesa(s) saíram do custo fixo — a categoria pertence a outro módulo');
+    }
+  }
+  return movidos;
+}
+function estRestaurarBloqueado(idx){
+  if(!estrutura || !Array.isArray(estrutura.bloqueados)) return;
+  const b = estrutura.bloqueados[idx];
+  if(!b) return;
+  const dono = _EST_NOME_MODULO[b.modulo] || b.modulo;
+  if(!confirm('Devolver "' + ((b.item && b.item.desc) || 'a despesa') + '" pro custo fixo?\n\n'
+    + 'A categoria "' + b.tagNome + '" é do módulo ' + dono + ', que já projeta esse valor.\n'
+    + 'Devolvendo, o mesmo dinheiro volta a ser contado duas vezes.')) return;
+  /* Volta sem tag: com a tag de outro módulo ela seria bloqueada de novo no
+     próximo render, e ele veria a linha sumir sozinha sem entender. */
+  if(b.item) b.item.tagId = null;
+  estrutura.itens.push(b.item);
+  estrutura.bloqueados.splice(idx, 1);
+  if(typeof estSave === 'function') estSave();
+  if(typeof renderEstrutura === 'function') renderEstrutura();
+  if(typeof toast === 'function') toast('Devolvida sem categoria — escolha uma do próprio módulo');
+}
+try{ window.estBloquearForasteiras = estBloquearForasteiras;
+     window.estRestaurarBloqueado = estRestaurarBloqueado; }catch(_){}
+
 function _estAlertaOutroModulo(){
-  const fora = _estTagsForasteiras();
-  if(!fora.length) return '';
-  const nomes = fora.map(f => (f.tag.nome || '') + ' → ' + (_EST_NOME_MODULO[f.modulo] || f.modulo));
-  return '<p class="est-real-alerta forasteira">'
-    + '<b>' + fora.length + ' categoria(s) aqui pertencem a outro módulo:</b> '
-    + nomes.join(' · ') + '. '
-    + 'O módulo dono já projeta esse valor — mantendo a linha aqui, o mesmo dinheiro '
-    + 'entra duas vezes no custo fixo e no Demonstrativo. Mova a despesa pro módulo certo '
-    + 'ou apague a linha daqui.</p>';
+  const bloq = (estrutura && Array.isArray(estrutura.bloqueados)) ? estrutura.bloqueados : [];
+  if(!bloq.length) return '';
+  const esc2 = (typeof _extEsc === 'function') ? _extEsc : (x => String(x||''));
+  const linhas = bloq.map((b, k) => {
+    const dono = _EST_NOME_MODULO[b.modulo] || b.modulo;
+    return '<li>' + esc2((b.item && b.item.desc) || '(sem descrição)')
+      + ' <b>' + esc2(b.tagNome) + '</b> → contabilizada em ' + esc2(dono)
+      + ' <button type="button" class="est-bloq-undo" onclick="estRestaurarBloqueado(' + k + ')">devolver</button></li>';
+  }).join('');
+  return '<div class="est-real-alerta forasteira">'
+    + '<b>' + bloq.length + ' despesa(s) fora do custo fixo.</b> '
+    + 'A categoria pertence a outro módulo, que já projeta esse valor — somar aqui '
+    + 'contaria o mesmo dinheiro duas vezes. Nada foi apagado.'
+    + '<ul class="est-bloq-lista">' + linhas + '</ul></div>';
 }
 try{ window._estTagsForasteiras = _estTagsForasteiras; }catch(_){}
 
@@ -85964,6 +86026,7 @@ function renderEstrutura(){
   try{ estHelpInit(); }catch(_){}
   if(!estrutura) return;
   try{ estMigrarBaixaManual(); }catch(_){}
+  try{ estBloquearForasteiras(); }catch(e){ console.warn('[est] bloqueio:', e && e.message); }
   renderEstYearTabs();
   renderEstSheet();
   updateEstKpis();
@@ -87019,7 +87082,13 @@ function renderEstTagPicker(){
   const trashIco  = '<svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m2 0v14a2 2 0 01-2 2H8a2 2 0 01-2-2V6"/></svg>';
   const checkIco  = '<svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>';
   const closeIco  = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-  const tagsHtml = estrutura.tags.map(t => {
+  /* Tag de outro módulo não é oferecida: escolher "Folha (Pessoas)" aqui
+     projetaria o mesmo salário que o módulo Pessoas já projeta. Não é aviso —
+     é bloqueio, porque a soma resultante parece certa e não é. */
+  const tagsHtml = estrutura.tags.filter(t => {
+    const mod = _estModuloDaTag(t && t.nome);
+    return !(mod && mod !== 'estrutura');
+  }).map(t => {
     const uses = usage.get(t.id) || 0;
     const isEditing = _estTagPickerEditing === t.id;
     if(isEditing){
@@ -87076,6 +87145,7 @@ function toggleEstPickerSwatch(swatchEl, tagId){
 function commitEstTagRename(tagId, newName){
   const nm = (newName||'').trim();
   if(!nm) return;
+  if(_estBloqueiaTagDeOutroModulo(nm)) return;
   const t = estTag(tagId);
   if(t){ t.nome = nm; estSave(); }
   _estTagPickerEditing = null;
@@ -87156,10 +87226,26 @@ function renderEstTagManager(){
     </div>
   `;
 }
+/* Um nome só: quem barra é esta função, chamada por criar e por renomear. Sem
+   ela, bloquear o picker seria teatro — bastava renomear "ADM" pra "Folha" e a
+   duplicidade voltava. */
+function _estBloqueiaTagDeOutroModulo(nome){
+  const mod = _estModuloDaTag(nome);
+  if(!mod || mod === 'estrutura') return false;
+  const dono = _EST_NOME_MODULO[mod] || mod;
+  if(typeof toast === 'function'){
+    toast('⛔ "' + String(nome).trim() + '" pertence ao módulo ' + dono
+      + ' — lançar aqui contaria o mesmo dinheiro duas vezes');
+  }
+  return true;
+}
+try{ window._estBloqueiaTagDeOutroModulo = _estBloqueiaTagDeOutroModulo; }catch(_){}
+
 function addEstTag(){
   const inp = document.getElementById('est-new-tag-nome');
   const nome = (inp?.value||'').trim();
   if(!nome) return;
+  if(_estBloqueiaTagDeOutroModulo(nome)) return;
   const color = EST_COLOR_PALETTE[estrutura.tags.length % EST_COLOR_PALETTE.length];
   estrutura.tags.push({ id: estNextTagId(), nome, color });
   estSave();
@@ -87171,6 +87257,7 @@ function renameEstTag(id, nome){
   if(!t) return;
   const v = (nome||'').trim();
   if(!v) return;
+  if(_estBloqueiaTagDeOutroModulo(v)) return;
   t.nome = v;
   estSave();
   renderEstrutura();
