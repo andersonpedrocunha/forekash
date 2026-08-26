@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787753436"/>
+  <meta name="fk-build" content="forekash-v1787754159"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17999,6 +17999,8 @@ td.mes.do-extrato{background:#ECFDF5}
   border:1px solid #FECACA !important;border-radius:8px;padding:8px 11px !important;
   margin-top:7px !important;line-height:1.45}
 .est-tag-pill.forasteira{outline:2px solid #DC2626;outline-offset:1px}
+.est-real-alerta.cartao{color:#3730A3 !important;line-height:1.5}
+.est-real-alerta.cartao b{color:#1E1B4B}
 .est-bloq-lista{margin:6px 0 0;padding-left:18px;font-size:.8rem;line-height:1.7}
 .est-bloq-undo{margin-left:6px;padding:1px 8px;border:1px solid #FCA5A5;border-radius:6px;
   background:#fff;color:#B91C1C;font:inherit;font-size:.68rem;font-weight:700;cursor:pointer}
@@ -85660,12 +85662,21 @@ function estBloquearForasteiras(){
       movidos++;
     } else ficam.push(it);
   }
-  if(movidos){
-    estrutura.itens = ficam;
+  /* A tag de outro módulo também sai da lista da Estrutura. Ela não deveria ter
+     nascido aqui — quem criou fui eu, num fluxo que espelhava categoria em tag
+     sem olhar o módulo. Deixá-la visível só oferece de novo o erro que o resto
+     do código passou a bloquear. */
+  let tagsRemovidas = 0;
+  const tagsFicam = [];
+  for(const t of (estrutura.tags || [])){
+    const mod = t ? _estModuloDaTag(t.nome) : '';
+    if(mod && mod !== 'estrutura'){ tagsRemovidas++; continue; }
+    tagsFicam.push(t);
+  }
+  if(movidos || tagsRemovidas){
+    if(movidos) estrutura.itens = ficam;
+    if(tagsRemovidas) estrutura.tags = tagsFicam;
     if(typeof estSave === 'function') estSave();
-    if(typeof toast === 'function'){
-      toast('⛔ ' + movidos + ' despesa(s) saíram do custo fixo — a categoria pertence a outro módulo');
-    }
   }
   return movidos;
 }
@@ -85688,6 +85699,25 @@ function estRestaurarBloqueado(idx){
 }
 try{ window.estBloquearForasteiras = estBloquearForasteiras;
      window.estRestaurarBloqueado = estRestaurarBloqueado; }catch(_){}
+
+/* Onde ele foi procurar as compras do cartão e não achou. Aqui é o único lugar
+   que responde a pergunta certa: elas existem, estão classificadas, e entram no
+   realizado quando a fatura for paga — mesma regra do gasto manual pendente. */
+function _estPendenteCartaoHtml(ano){
+  try{
+    const doModulo = _estCatsDoModulo();
+    const p = fkCartaoPendentePorCat(ano, cat => doModulo.has(_estNormCat(cat)));
+    if(!p.total) return '';
+    const fmt = v => 'R$ ' + (Math.round(v*100)/100).toLocaleString('pt-BR',{minimumFractionDigits:2});
+    const cats = Object.keys(p.porCat).sort((a,b) => p.porCat[b] - p.porCat[a]).slice(0,4);
+    const quando = p.faturas.map(d => String(d).split('-').reverse().join('/')).join(' e ');
+    return '<p class="est-real-alerta cartao">'
+      + '<b>' + fmt(p.total) + '</b> em compras de cartão já classificadas aqui, esperando o '
+      + 'pagamento da fatura' + (quando ? (' (vence ' + quando + ')') : '') + ' pra entrar no realizado — '
+      + cats.map(c => c + ' ' + fmt(p.porCat[c])).join(' · ')
+      + '.</p>';
+  }catch(_){ return ''; }
+}
 
 function _estAlertaOutroModulo(){
   const bloq = (estrutura && Array.isArray(estrutura.bloqueados)) ? estrutura.bloqueados : [];
@@ -85761,6 +85791,41 @@ function fkCartaoRealizadoPorCat(ano, filtro){
   return out;
 }
 try{ window.fkCartaoRealizadoPorCat = fkCartaoRealizadoPorCat; }catch(_){}
+
+/* O espelho do realizado: compras de cartão em fatura AINDA NÃO PAGA. Não são
+   realizado (o dinheiro não saiu, e a mesma regra vale pro lançamento manual
+   pendente), mas ficar invisível é pior: ele categorizou 30 compras e não achou
+   nenhuma delas em módulo nenhum. Aparece como o que é — esperando a fatura. */
+function fkCartaoPendentePorCat(ano, filtro){
+  const out = { total: 0, porCat: {}, faturas: [] };
+  const y = String(ano || '');
+  try{
+    if(typeof cartoes === 'undefined' || !cartoes || !Array.isArray(cartoes.lancamentos)) return out;
+    const abertas = new Map();
+    for(const f of (cartoes.faturas || [])){
+      if(!f || f.status === 'paga') continue;
+      const d = f.vencimento || '';
+      if(String(d).slice(0,4) !== y) continue;
+      abertas.set(f.id, d);
+    }
+    if(!abertas.size) return out;
+    const vencs = new Set();
+    for(const l of cartoes.lancamentos){
+      if(!l || !abertas.has(l.faturaId)) continue;
+      const cat = String(l.categoria || '').trim();
+      if(!cat) continue;
+      if(typeof filtro === 'function' && !filtro(cat)) continue;
+      const v = parseFloat(l.valor) || 0;
+      if(!v) continue;
+      out.porCat[cat] = (out.porCat[cat] || 0) + v;
+      out.total += v;
+      vencs.add(abertas.get(l.faturaId));
+    }
+    out.faturas = Array.from(vencs).sort();
+  }catch(e){ console.warn('[fk] pendente do cartão:', e && e.message); }
+  return out;
+}
+try{ window.fkCartaoPendentePorCat = fkCartaoPendentePorCat; }catch(_){}
 
 function estRealizadoExtrato(ano){
   const out = {};
@@ -85991,7 +86056,8 @@ function estRenderRealizado(){
         ? '<p class="est-real-alerta">Extrato com gasto em ' + cobertos + ' de ' + esperados
           + ' mês(es) — onde falta importação a diferença aparece menor do que é.</p>'
         : '')
-    +   _estAlertaOutroModulo()
+    +   _estPendenteCartaoHtml(y)
+
     +   '</div>'
     +   '<div class="est-real-tot">'
     +     '<div><span>Pago até aqui</span><b>' + fmt(totReal) + '</b></div>'
