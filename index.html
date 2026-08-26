@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787781046"/>
+  <meta name="fk-build" content="forekash-v1787781518"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -85868,6 +85868,27 @@ function fkCartaoPrevistoPorCat(ano, filtro){
       if(!out[cat]) out[cat] = {};
       out[cat][ym] = (out[cat][ym] || 0) + v;
     }
+    /* A projeção que ele digitou nas células vazias da linha do cartão também é
+       projeção da categoria — senão o resumo mostraria menos que a planilha. */
+    const proj = (estrutura && estrutura.cartaoProj) || {};
+    const catDaChave = ch => String(ch || '').split('|')[1] || '';
+    const nomeCat = {};
+    for(const c of (catmapData && catmapData.categorias) || []){
+      if(c && c.nome) nomeCat[_estNormCat(c.nome)] = c.nome;
+    }
+    for(const ch of Object.keys(proj)){
+      const kcat = catDaChave(ch);
+      const nome = nomeCat[kcat] || kcat;
+      if(!nome) continue;
+      if(typeof filtro === 'function' && !filtro(nome)) continue;
+      for(const ym of Object.keys(proj[ch])){
+        if(String(ym).slice(0,4) !== y) continue;
+        const v2 = parseFloat(proj[ch][ym]) || 0;
+        if(!v2) continue;
+        if(!out[nome]) out[nome] = {};
+        out[nome][ym] = (out[nome][ym] || 0) + v2;
+      }
+    }
   }catch(e){ console.warn('[fk] previsto do cartão:', e && e.message); }
   return out;
 }
@@ -86345,13 +86366,21 @@ function _fkCartaoLancamentosDoModulo(year, filtro){
       const paga = (f.status === 'paga' && f.pagamento);
       const d = paga ? (f.pagamento.data || f.vencimento || '') : (f.vencimento || '');
       if(!d || String(d).slice(0,4) !== String(year)) continue;
-      fatInfo.set(f.id, { ym: String(d).slice(0,7), paga: !!paga, venc: f.vencimento || '' });
+      fatInfo.set(f.id, { ym: String(d).slice(0,7), paga: !!paga });
     }
     if(!fatInfo.size) return out;
-    const nomeCartao = id => {
-      const c = (cartoes.list || []).find(x => x && x.id === id);
-      return c ? (typeof fkContaDeCartao === 'function' ? fkContaDeCartao(c) : (c.nome || c.apelido || 'Cartão')) : 'Cartão';
-    };
+
+    /* UMA LINHA POR FORNECEDOR, não por compra. Era uma linha por lançamento, e
+       isso quebrava o uso: o Heroku de março e o de abril viravam linhas
+       diferentes, sem como comparar mês a mês nem projetar o que ainda vem.
+       Agrupando por fornecedor, o próximo import cai na MESMA linha — inclusive
+       vindo de outro cartão, porque a chave é quem recebe o dinheiro, não onde
+       foi pago.
+
+       A chave é, em ordem: o cadastro vinculado (fornecedorId), o nome do
+       estabelecimento, ou a descrição normalizada. Assim "Heroku" continua
+       Heroku mesmo quando a sigla do banco muda de mês pra mês. */
+    const grupos = new Map();
     for(const l of cartoes.lancamentos){
       if(!l) continue;
       const info = fatInfo.get(l.faturaId);
@@ -86361,44 +86390,61 @@ function _fkCartaoLancamentosDoModulo(year, filtro){
       if(typeof filtro === 'function' && !filtro(cat)) continue;
       const v = parseFloat(l.valor) || 0;
       if(!v) continue;
-      /* O texto do banco ("HEROKU* JAN-11005222 SAN FRANCISCO") é sigla de
-         maquininha, não nome de despesa. Na importação, o FORNECEDOR que ele
-         escolhe vai pra `estabelecimento` — curto e escolhido por ele — e o
-         texto do banco fica em `descricao`. Então: se ele reescreveu a
-         descrição, ela manda; se não reescreveu (descricao === o que está nas
-         observações como texto do banco), vale o fornecedor. O texto do banco
-         é o último recurso, e continua no title. */
-      const bancoTxt = (typeof _fkTextoBanco === 'function') ? _fkTextoBanco(l.notas) : '';
-      const desc = String(l.descricao || '').trim();
-      let curto = '';
+
+      let nome = '', chave = '';
       if(l.fornecedorId && typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.registry)){
         const r = pessoas.registry.find(x => x && x.id === l.fornecedorId);
-        if(r && r.nome) curto = String(r.nome).trim();
+        if(r && r.nome){ nome = String(r.nome).trim(); chave = 'f:' + l.fornecedorId; }
       }
-      if(!curto) curto = String(l.estabelecimento || '').trim();
-      const reescrita = desc && bancoTxt && desc !== bancoTxt;
-      const mostrar = reescrita ? desc : (curto || desc || '(sem descrição)');
-      out.push({ id: l.id, desc: mostrar, descBanco: desc,
-                 cat, valor: v, ym: info.ym, paga: info.paga, tipoId: l.tipoId || 'fix',
-                 cartao: nomeCartao(l.cartaoId), parcela: l.parcela || '' });
+      if(!nome){
+        const est = String(l.estabelecimento || '').trim();
+        const bancoTxt = (typeof _fkTextoBanco === 'function') ? _fkTextoBanco(l.notas) : '';
+        const desc = String(l.descricao || '').trim();
+        const reescrita = desc && bancoTxt && desc !== bancoTxt;
+        nome = reescrita ? desc : (est || desc || '(sem descrição)');
+        chave = 'n:' + _estNormCat(nome);
+      }
+      const k = chave + '|' + _estNormCat(cat);
+      let g = grupos.get(k);
+      if(!g){
+        g = { chave: k, nome, cat, meses: {}, pagos: {}, compras: 0, tipoId: l.tipoId || 'fix' };
+        grupos.set(k, g);
+      }
+      g.meses[info.ym] = (g.meses[info.ym] || 0) + v;
+      if(info.paga) g.pagos[info.ym] = true;
+      g.compras++;
+      if(l.tipoId) g.tipoId = l.tipoId;
     }
+    for(const g of grupos.values()) out.push(g);
     out.sort((a2, b2) => (a2.cat === b2.cat)
-      ? (a2.ym < b2.ym ? -1 : a2.ym > b2.ym ? 1 : b2.valor - a2.valor)
+      ? a2.nome.localeCompare(b2.nome, 'pt')
       : a2.cat.localeCompare(b2.cat, 'pt'));
   }catch(e){ console.warn('[est] linhas do cartão:', e && e.message); }
   return out;
 }
-/* Grava o tipo escolhido no lançamento do cartão — não numa cópia. */
-function setEstTipoCartao(lancId, tipoId){
+/* Projeção digitada nas células que o cartão não preencheu. Fica em
+   `estrutura.cartaoProj`, na chave do FORNECEDOR — então acompanha a linha e
+   sobrevive ao próximo import, que cai no mesmo lugar. */
+function estCartaoProjGet(chave, ym){
   try{
-    const l = (cartoes.lancamentos || []).find(x => x && x.id === lancId);
-    if(!l) return;
-    l.tipoId = tipoId;
-    if(typeof cartSave === 'function') cartSave();
-    if(typeof renderEstrutura === 'function') renderEstrutura();
-  }catch(e){ console.warn('[est] tipo do cartão:', e && e.message); }
+    const m = (estrutura && estrutura.cartaoProj) || {};
+    return (m[chave] && m[chave][ym]) || 0;
+  }catch(_){ return 0; }
 }
-try{ window.setEstTipoCartao = setEstTipoCartao; }catch(_){}
+function setEstCartaoProj(chave, ym, valor){
+  try{
+    if(!estrutura.cartaoProj) estrutura.cartaoProj = {};
+    if(!estrutura.cartaoProj[chave]) estrutura.cartaoProj[chave] = {};
+    const n = (typeof parseBR === 'function') ? parseBR(valor) : parseFloat(valor);
+    if(!n || isNaN(n)) delete estrutura.cartaoProj[chave][ym];
+    else estrutura.cartaoProj[chave][ym] = n;
+    if(!Object.keys(estrutura.cartaoProj[chave]).length) delete estrutura.cartaoProj[chave];
+    if(typeof estSave === 'function') estSave();
+    if(typeof renderEstrutura === 'function') renderEstrutura();
+  }catch(e){ console.warn('[est] projeção do cartão:', e && e.message); }
+}
+try{ window.setEstCartaoProj = setEstCartaoProj; window.estCartaoProjGet = estCartaoProjGet; }catch(_){}
+
 
 function _renderEstCartaoRows(year){
   const rows = [];
@@ -86408,60 +86454,95 @@ function _renderEstCartaoRows(year){
     if(!lista.length) return rows;
     const esc = (typeof _dkbEsc === 'function') ? _dkbEsc : (x => String(x||''));
     const tagDe = nome => (estrutura.tags || []).find(t => _estNormCat(t.nome) === _estNormCat(nome));
-    for(const it of lista){
-      const t = tagDe(it.cat);
+    for(const g of lista){
+      const t = tagDe(g.cat);
       const cor = (t && t.color) || '#E2E8F0';
-      /* Tipo é escolha dele, igual às outras linhas — só o default é Despesa
-         Fixa. Fica gravado no próprio lançamento do cartão, que é onde a compra
-         mora; a planilha continua só lendo. */
-      const tipoId = it.tipoId || 'fix';
+      const tipoId = g.tipoId || 'fix';
       const tp = (estrutura.tipos || []).find(x => x && x.id === tipoId);
       const tipoOpts = (estrutura.tipos || []).map(x =>
         '<option value="' + esc(x.id) + '"' + (x.id === tipoId ? ' selected' : '') + '>' + esc(x.nome) + '</option>').join('');
+      let totalLinha = 0;
       const cells = EST_MESES.map((_, m) => {
         const ym = year + '-' + String(m+1).padStart(2,'0');
-        const val = (ym === it.ym) ? it.valor : 0;
-        const cls = 'pes-cell est-cartao-mes' + (val ? ' has-val' : '')
-                  + (estMesFechado(year, m) ? ' mes-fechado' : '') + (it.paga && val ? ' pago' : '');
-        /* Mesma formatação das células normais (fmtBR com 2 casas). fmtShortBR
-           abreviava e a linha do cartão ficava "309" ao lado de "6.500,00" —
-           duas escalas na mesma coluna, impossível de comparar batendo o olho. */
-        return '<td class="' + cls + '">'
-          + (val ? '<span class="est-cartao-val">' + fmtBR(val, 2) + '</span>' : '')
-          + '</td>';
+        const doCartao = g.meses[ym] || 0;
+        const proj = doCartao ? 0 : estCartaoProjGet(g.chave, ym);
+        totalLinha += doCartao + proj;
+        const fechado = estMesFechado(year, m) ? ' mes-fechado' : '';
+        if(doCartao){
+          /* Mês que veio do cartão é leitura: o valor é o que o banco cobrou. */
+          return '<td class="pes-cell est-cartao-mes' + fechado + (g.pagos[ym] ? ' pago' : '') + '"'
+            + ' title="Veio da fatura do cartão — pra mudar, é no cartão.">'
+            + '<span class="est-cartao-val">' + fmtBR(doCartao, 2) + '</span></td>';
+        }
+        /* Mês SEM compra é editável: serve pra projetar o que ainda vem desse
+           mesmo fornecedor. Quando o próximo import trouxer a compra, ela ocupa
+           a célula e a projeção sai de cena — sem somar as duas. */
+        return '<td class="pes-cell est-cartao-mes est-cartao-proj' + fechado + '">'
+          + '<input type="text" class="est-val-input" value="' + (proj ? fmtBR(proj, 2) : '') + '"'
+          + ' placeholder="—"'
+          + ' onblur="setEstCartaoProj(\'' + esc(g.chave) + '\', \'' + ym + '\', this.value)"'
+          + ' onkeydown="if(event.key===\'Enter\'){event.preventDefault();this.blur();}"></td>';
       }).join('');
-      /* Cheguei a pôr aqui um atalho que abria o lançamento, e ele cortou — com
-         razão: um lugar a mais de escrita pro mesmo dado é como a duplicidade
-         começa. A compra mora no cartão e se edita lá. */
-      rows.push('<tr class="est-cartao-row" data-est-cat-tag="' + _estNormCat(it.cat) + '">'
+      rows.push('<tr class="est-cartao-row" data-est-cat-tag="' + _estNormCat(g.cat) + '">'
         + '<td class="stk stk-1 l"><span class="est-cartao-ico fkico fkico-card"></span>'
-        +   '<span class="est-cartao-desc"'
-        +     ' title="' + esc(it.descBanco && it.descBanco !== it.desc
-                              ? ('Na fatura: ' + it.descBanco) : it.desc) + '">'
-        +   esc(it.desc) + '</span>'
-        +   (it.parcela ? '<em class="est-cartao-parc">' + esc(it.parcela) + '</em>' : '')
-        +   '<em class="est-cartao-org" title="Compra no ' + esc(it.cartao)
-        +     '. O lançamento mora no cartão — edite por lá ou pelo Extrato.">' + esc(it.cartao) + '</em>'
+        +   '<span class="est-cartao-desc" title="' + esc(g.nome) + ' · '
+        +     g.compras + ' compra(s) no cartão neste ano">' + esc(g.nome) + '</span>'
+        +   '<em class="est-cartao-org">cartão de crédito</em>'
         + '</td>'
-        /* Mesmo invólucro das linhas normais (.est-tag-cell): sem ele a pill do
-           cartão nascia colada no padding do <td> e ficava alguns pixels fora
-           da vertical das outras — desalinhamento pequeno e visível, do tipo
-           que faz a tabela parecer montada em dois lugares. */
         + '<td class="stk stk-2"><div class="est-tag-cell">'
-        +   '<span class="est-tag-pill" style="--tgc:' + cor + '">' + esc(it.cat) + '</span>'
+        +   '<span class="est-tag-pill" style="--tgc:' + cor + '">' + esc(g.cat) + '</span>'
         + '</div></td>'
         + '<td class="stk stk-3">'
         +   '<select class="est-tipo-sel filled" style="--tpc:' + (tp ? tp.color : '#FED7AA') + ';--tptx:' + PES_TIPO_TXT + '"'
-        +   ' onchange="setEstTipoCartao(' + it.id + ', this.value)">' + tipoOpts + '</select>'
+        +   ' onchange="setEstTipoCartaoGrupo(\'' + esc(g.chave) + '\', this.value)">' + tipoOpts + '</select>'
         + '</td>'
         + cells
-        + '<td class="yr-tot">' + fmtBR(it.valor, 2) + '</td>'
+        + '<td class="yr-tot">' + fmtBR(totalLinha, 2) + '</td>'
         + '<td></td>'
         + '</tr>');
     }
   }catch(e){ console.warn('[est] render cartão:', e && e.message); }
   return rows;
 }
+/* Tipo escolhido vale pro fornecedor inteiro — é uma linha só. */
+function setEstTipoCartaoGrupo(chave, tipoId){
+  try{
+    const doModulo = _estCatsDoModulo();
+    const ano = String(estActiveYear || new Date().getFullYear());
+    /* Aplica em todos os lançamentos que compõem a linha, pra escolha valer
+       também nas compras que já existem. */
+    for(const l of (cartoes.lancamentos || [])){
+      if(!l) continue;
+      const g = _fkCartaoChaveDe(l);
+      if(g === chave) l.tipoId = tipoId;
+    }
+    if(typeof cartSave === 'function') cartSave();
+    if(typeof renderEstrutura === 'function') renderEstrutura();
+  }catch(e){ console.warn('[est] tipo do grupo:', e && e.message); }
+}
+/* Mesma chave usada no agrupamento — precisa ser UMA regra, senão o tipo é
+   gravado num conjunto de compras diferente do que a linha mostra. */
+function _fkCartaoChaveDe(l){
+  try{
+    const cat = String(l.categoria || '').trim();
+    if(!cat) return '';
+    let nome = '', chave = '';
+    if(l.fornecedorId && typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.registry)){
+      const r = pessoas.registry.find(x => x && x.id === l.fornecedorId);
+      if(r && r.nome){ nome = String(r.nome).trim(); chave = 'f:' + l.fornecedorId; }
+    }
+    if(!nome){
+      const est = String(l.estabelecimento || '').trim();
+      const bancoTxt = (typeof _fkTextoBanco === 'function') ? _fkTextoBanco(l.notas) : '';
+      const desc = String(l.descricao || '').trim();
+      const reescrita = desc && bancoTxt && desc !== bancoTxt;
+      nome = reescrita ? desc : (est || desc || '(sem descrição)');
+      chave = 'n:' + _estNormCat(nome);
+    }
+    return chave + '|' + _estNormCat(cat);
+  }catch(_){ return ''; }
+}
+try{ window.setEstTipoCartaoGrupo = setEstTipoCartaoGrupo; }catch(_){}
 
 function _renderEstComissaoRows(year){
   const out = [];
@@ -86637,9 +86718,14 @@ function renderEstSheet(){
      planilha sem entrar na conta se ficassem de fora. */
   try{
     const doModulo = _estCatsDoModulo();
-    for(const it of _fkCartaoLancamentosDoModulo(year, cat => doModulo.has(_estNormCat(cat)))){
-      const m = parseInt(String(it.ym).slice(5,7), 10) - 1;
-      if(m >= 0 && m < 12){ monthTotals[m] += it.valor; grand += it.valor; }
+    for(const g of _fkCartaoLancamentosDoModulo(year, cat => doModulo.has(_estNormCat(cat)))){
+      for(let m = 0; m < 12; m++){
+        const ym = year + '-' + String(m+1).padStart(2,'0');
+        /* O que veio do cartão OU a projeção digitada — nunca os dois: a compra
+           ocupa a célula e a projeção some, senão o mês contaria em dobro. */
+        const v = g.meses[ym] || estCartaoProjGet(g.chave, ym);
+        if(v){ monthTotals[m] += v; grand += v; }
+      }
     }
   }catch(_){}
   // Soma comissões no total
@@ -86819,10 +86905,13 @@ function updateEstKpis(){
      como pago; ainda não paga, como projetado. */
   try{
     const doModulo = _estCatsDoModulo();
-    for(const it of _fkCartaoLancamentosDoModulo(year, cat => doModulo.has(_estNormCat(cat)))){
-      /* Só o TOTAL: a parte paga já entrou acima, por estRealizadoExtrato, que
-         hoje inclui o cartão. Somar aqui de novo dobraria o valor. */
-      total += it.valor;
+    for(const g of _fkCartaoLancamentosDoModulo(year, cat => doModulo.has(_estNormCat(cat)))){
+      for(let m = 0; m < 12; m++){
+        const ym = year + '-' + String(m+1).padStart(2,'0');
+        /* Só o TOTAL: a parte paga já entrou acima, por estRealizadoExtrato, que
+           hoje inclui o cartão. Somar aqui de novo dobraria o valor. */
+        total += (g.meses[ym] || estCartaoProjGet(g.chave, ym));
+      }
     }
   }catch(_){}
   /* Projetado é o que falta pagar — sempre o resto, calculado por último, com
