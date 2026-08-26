@@ -12,6 +12,10 @@ cd "$(dirname "$0")/.."
 MSG="${1:-}"
 [ -z "$MSG" ] && { echo "uso: ./scripts/deploy.sh \"mensagem\""; exit 1; }
 
+# Sintaxe válida não é código vivo: um /* sem fechar engole função e passa
+# batido no validador do bump.
+node scripts/check-funcoes.js || { echo "abortado: código engolido por comentário"; exit 1; }
+
 ./scripts/bump.sh
 VER="$(cat version.txt)"
 
