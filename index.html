@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787751966"/>
+  <meta name="fk-build" content="forekash-v1787752481"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -76850,13 +76850,18 @@ function extBaixaOpen(id){
   const lblData = isEntrada ? 'Data do recebimento' : 'Data do pagamento';
   const lblValorAcao = isEntrada ? 'Valor recebido' : 'Valor pago';
 
-  // Bancos ativos pra Conta
-  const contaCur = it.conta || '';
-  let contaOpts = fkContaOptsHTML(contaCur);
-  const ativos = [];
-  if(contaCur && !ativos.some(b => (b.nome || b.id) === contaCur)){
-    contaOpts += '<option value="' + _extEsc(contaCur) + '" selected>' + _extEsc(contaCur) + ' (inativo)</option>';
-  }
+  /* `const ativos = []` deixava a condição SEMPRE verdadeira: toda conta já
+     preenchida ganhava o carimbo "(inativo)", inclusive um cartão ativo. Código
+     morto de uma versão anterior. `fkContaOptsHTML` já resolve conta
+     desconhecida, com rótulo honesto ("ainda não vinculado").
+
+     E pagar fatura de cartão não sai DO cartão: sai do banco. Vinha
+     pré-selecionado o próprio cartão, que é dizer "paguei o cartão com o
+     cartão". Aqui a conta nasce vazia, pra ele escolher de onde o dinheiro
+     saiu. */
+  const _ehFaturaCartao = String(id || '').startsWith('cartao-fat:');
+  const contaCur = _ehFaturaCartao ? '' : (it.conta || '');
+  const contaOpts = fkContaOptsHTML(contaCur, _ehFaturaCartao ? '— de qual conta saiu? —' : '');
 
   // Formas de pagamento
   const formaCur = (it.raw && it.raw._cellMeta && it.raw._cellMeta.formaPagamento) || '';
@@ -77145,6 +77150,33 @@ function extBaixaSave(){
     if(Array.isArray(_extBxCompData) && _extBxCompData.length > 0) l.comprovante = _extBxCompData.slice();
     else delete l.comprovante;
     _extSave();
+  } else if(id.startsWith('cartao-fat:')){
+    /* Pagar a fatura pelo Extrato. Antes o botão abria o modal e não fazia
+       NADA: extBaixaSave tratava rec/dkb/m/loan e ignorava a fatura em
+       silêncio. Grava exatamente a mesma forma que o módulo Cartões
+       (`cartPagarFatura`) — mesmo objeto, mesmo status — pra fatura paga por
+       aqui e por lá serem indistinguíveis. */
+    const fatId = parseInt(id.split(':')[1], 10);
+    const fat = (typeof cartoes !== 'undefined' && Array.isArray(cartoes.faturas))
+      ? cartoes.faturas.find(f => f && f.id === fatId) : null;
+    if(!fat){ if(typeof toast === 'function') toast('⚠ Fatura não encontrada'); return; }
+    /* O dinheiro sai de um banco. Deixar o próprio cartão como conta pagadora
+       criaria uma quitação que não tira dinheiro de lugar nenhum. */
+    let ehOProprioCartao = false;
+    try{
+      ehOProprioCartao = (cartoes.list || []).some(cc => cc && cc.id === fat.cartaoId
+        && typeof fkContaDeCartao === 'function' && fkContaDeCartao(cc) === conta);
+    }catch(_){}
+    if(ehOProprioCartao){
+      if(typeof toast === 'function') toast('⚠ Escolha a conta de onde o dinheiro saiu — não o próprio cartão');
+      return;
+    }
+    fat.status = 'paga';
+    fat.pagamento = { data, conta, valorPago: valor, juros, multa, desconto: desc,
+                      formaPagamento: forma || '',
+                      anexo: (Array.isArray(_extBxCompData) && _extBxCompData.length) ? _extBxCompData.slice() : null };
+    if(typeof cartSave === 'function') cartSave();
+    if(typeof renderCartoes === 'function'){ try{ renderCartoes(); }catch(_){} }
   } else if(id.startsWith('loan:')){
     // Loan: aceita o pagamento como sequencial (incrementa parcelasPagas)
     const parts = id.split(':');
