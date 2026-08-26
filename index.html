@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787772855"/>
+  <meta name="fk-build" content="forekash-v1787778801"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -14851,6 +14851,24 @@
     .est-sheet tr.est-row-comissao > td.stk-1 b{color:#78350F}
     .est-sheet tr.est-row-comissao > td.stk-2,
     .est-sheet tr.est-row-comissao > td.stk-3{background:#FFFBEB !important}
+    /* Compra de cartão na planilha: mesma família das comissões (linha que soma
+       mas não se edita aqui), em índigo pra não se confundir com o âmbar da
+       comissão nem com a linha branca de despesa própria. */
+    .est-sheet tr.est-cartao-row > td{background:#F8FAFF}
+    .est-sheet tr.est-cartao-row > td.stk-1{box-shadow:inset 3px 0 0 #6366F1;color:#312E81}
+    .est-sheet tr.est-cartao-row > td.stk-2,
+    .est-sheet tr.est-cartao-row > td.stk-3{background:#F8FAFF !important}
+    .est-cartao-ico{margin-right:7px;color:#6366F1;font-size:.9rem;vertical-align:middle}
+    .est-cartao-parc{margin-left:6px;font-style:normal;font-size:.64rem;font-weight:800;
+      color:#5B21B6;background:#EDE9FE;border-radius:999px;padding:1px 7px}
+    .est-cartao-org{display:block;margin-top:1px;font-style:normal;font-size:.63rem;
+      color:#94A3B8;cursor:help}
+    .est-cartao-tipo{display:inline-block;padding:2px 9px;border-radius:999px;font-size:.66rem;
+      font-weight:800;text-transform:uppercase;letter-spacing:.04em;
+      color:#3730A3;background:#EEF2FF;border:1px solid #C7D2FE}
+    .est-sheet tr.est-cartao-row td.est-cartao-mes{text-align:right;padding:6px 8px;
+      font-variant-numeric:tabular-nums;font-size:.78rem;font-weight:700;color:#3730A3}
+    .est-sheet tr.est-cartao-row td.est-cartao-mes.pago{color:#047857}
     .est-comissao-badge{display:inline-block;margin-right:6px;font-size:.9rem;vertical-align:middle}
     .est-comissao-tag{display:inline-block;padding:2px 8px;border-radius:999px;
                        font-size:.68rem;font-weight:700;color:#78350F;
@@ -86282,6 +86300,87 @@ try {
 } catch(e){}
 // Linhas virtuais de comissão (uma por vendedor ativo com valor no ano).
 // Aparecem na tabela com destaque âmbar + tag "Comercial" + célula read-only.
+/* Linhas VIRTUAIS das compras de cartão — item a item, como ele pediu. Mesmo
+   padrão das comissões: somam nos totais, não são editáveis aqui, e o dado
+   continua morando no cartão (aqui só se lê). Uma linha por compra, no mês do
+   vencimento da fatura; paga, no mês do pagamento.
+
+   Só entram compras cuja categoria pertence a ESTE módulo — o filtro é o mesmo
+   do realizado, então nada de outro módulo aparece. */
+function _fkCartaoLancamentosDoModulo(year, filtro){
+  const out = [];
+  try{
+    if(typeof cartoes === 'undefined' || !cartoes || !Array.isArray(cartoes.lancamentos)) return out;
+    const fatInfo = new Map();
+    for(const f of (cartoes.faturas || [])){
+      if(!f) continue;
+      const paga = (f.status === 'paga' && f.pagamento);
+      const d = paga ? (f.pagamento.data || f.vencimento || '') : (f.vencimento || '');
+      if(!d || String(d).slice(0,4) !== String(year)) continue;
+      fatInfo.set(f.id, { ym: String(d).slice(0,7), paga: !!paga, venc: f.vencimento || '' });
+    }
+    if(!fatInfo.size) return out;
+    const nomeCartao = id => {
+      const c = (cartoes.list || []).find(x => x && x.id === id);
+      return c ? (typeof fkContaDeCartao === 'function' ? fkContaDeCartao(c) : (c.nome || c.apelido || 'Cartão')) : 'Cartão';
+    };
+    for(const l of cartoes.lancamentos){
+      if(!l) continue;
+      const info = fatInfo.get(l.faturaId);
+      if(!info) continue;
+      const cat = String(l.categoria || '').trim();
+      if(!cat) continue;
+      if(typeof filtro === 'function' && !filtro(cat)) continue;
+      const v = parseFloat(l.valor) || 0;
+      if(!v) continue;
+      out.push({ id: l.id, desc: l.descricao || l.estabelecimento || '(sem descrição)',
+                 cat, valor: v, ym: info.ym, paga: info.paga,
+                 cartao: nomeCartao(l.cartaoId), parcela: l.parcela || '' });
+    }
+    out.sort((a2, b2) => (a2.cat === b2.cat)
+      ? (a2.ym < b2.ym ? -1 : a2.ym > b2.ym ? 1 : b2.valor - a2.valor)
+      : a2.cat.localeCompare(b2.cat, 'pt'));
+  }catch(e){ console.warn('[est] linhas do cartão:', e && e.message); }
+  return out;
+}
+function _renderEstCartaoRows(year){
+  const rows = [];
+  try{
+    const doModulo = _estCatsDoModulo();
+    const lista = _fkCartaoLancamentosDoModulo(year, cat => doModulo.has(_estNormCat(cat)));
+    if(!lista.length) return rows;
+    const esc = (typeof _dkbEsc === 'function') ? _dkbEsc : (x => String(x||''));
+    const tagDe = nome => (estrutura.tags || []).find(t => _estNormCat(t.nome) === _estNormCat(nome));
+    for(const it of lista){
+      const t = tagDe(it.cat);
+      const cor = (t && t.color) || '#E2E8F0';
+      const cells = EST_MESES.map((_, m) => {
+        const ym = year + '-' + String(m+1).padStart(2,'0');
+        const val = (ym === it.ym) ? it.valor : 0;
+        const cls = 'pes-cell est-cartao-mes' + (val ? ' has-val' : '')
+                  + (estMesFechado(year, m) ? ' mes-fechado' : '') + (it.paga && val ? ' pago' : '');
+        return '<td class="' + cls + '">'
+          + (val ? '<span class="est-cartao-val">' + fmtShortBR(val) + '</span>' : '')
+          + '</td>';
+      }).join('');
+      rows.push('<tr class="est-cartao-row">'
+        + '<td class="stk stk-1 l"><span class="est-cartao-ico fkico fkico-card"></span>'
+        +   esc(it.desc.slice(0,46))
+        +   (it.parcela ? '<em class="est-cartao-parc">' + esc(it.parcela) + '</em>' : '')
+        +   '<em class="est-cartao-org" title="Compra no ' + esc(it.cartao)
+        +     '. O lançamento mora no cartão — edite por lá ou pelo Extrato.">' + esc(it.cartao) + '</em>'
+        + '</td>'
+        + '<td class="stk stk-2"><span class="est-tag-pill" style="--tgc:' + cor + '">' + esc(it.cat) + '</span></td>'
+        + '<td class="stk stk-3"><span class="est-cartao-tipo">' + (it.paga ? 'pago' : 'a pagar') + '</span></td>'
+        + cells
+        + '<td class="yr-tot">' + fmtShortBR(it.valor) + '</td>'
+        + '<td></td>'
+        + '</tr>');
+    }
+  }catch(e){ console.warn('[est] render cartão:', e && e.message); }
+  return rows;
+}
+
 function _renderEstComissaoRows(year){
   const out = [];
   if(!vendedores || !Array.isArray(vendedores.lista)) return out;
@@ -86410,6 +86509,8 @@ function renderEstSheet(){
   // Somam nos totais mas não são editáveis (vêm do módulo Vendedores).
   const comissaoRows = _renderEstComissaoRows(year);
   for(const h of comissaoRows) rows.push(h);
+  /* Compras de cartão, item a item — mesmo tratamento das comissões. */
+  for(const h of _renderEstCartaoRows(year)) rows.push(h);
   tbody.innerHTML = rows.join('');
 
   // FOOT: totais por mês + total ano (inclui comissões)
@@ -86422,6 +86523,15 @@ function renderEstSheet(){
       grand += v;
     }
   }
+  /* Compras de cartão somam no total: são custo real do mês, e apareceriam na
+     planilha sem entrar na conta se ficassem de fora. */
+  try{
+    const doModulo = _estCatsDoModulo();
+    for(const it of _fkCartaoLancamentosDoModulo(year, cat => doModulo.has(_estNormCat(cat)))){
+      const m = parseInt(String(it.ym).slice(5,7), 10) - 1;
+      if(m >= 0 && m < 12){ monthTotals[m] += it.valor; grand += it.valor; }
+    }
+  }catch(_){}
   // Soma comissões no total
   if(vendedores && Array.isArray(vendedores.lista)){
     for(const v of vendedores.lista){
@@ -86586,6 +86696,17 @@ function updateEstKpis(){
       }
     }
   }
+  /* Compras de cartão contam no KPI também. Sem isto o rodapé da planilha e o
+     card do topo mostrariam números diferentes pra mesma coisa — e quem olha os
+     dois na mesma tela não teria como saber qual acreditar. Fatura paga entra
+     como pago; ainda não paga, como projetado. */
+  try{
+    const doModulo = _estCatsDoModulo();
+    for(const it of _fkCartaoLancamentosDoModulo(year, cat => doModulo.has(_estNormCat(cat)))){
+      total += it.valor;
+      if(it.paga) totalPago += it.valor; else totalProjetado += it.valor;
+    }
+  }catch(_){}
   const avg = total / 12;
   const elT = document.getElementById('est-kpi-total');   if(elT) elT.textContent = fmtBRL(total);
   const elM = document.getElementById('est-kpi-media');   if(elM) elM.textContent = fmtBRL(avg);
