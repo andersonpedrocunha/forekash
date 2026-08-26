@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787779498"/>
+  <meta name="fk-build" content="forekash-v1787779953"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -14861,17 +14861,33 @@
     .est-cartao-ico{margin-right:7px;color:#6366F1;font-size:.9rem;vertical-align:middle}
     .est-cartao-desc{border:0;background:none;padding:0;font:inherit;color:inherit;
       cursor:pointer;text-align:left;border-bottom:1px dashed transparent}
+    .est-sheet tr.est-cartao-row > td.stk-3{white-space:nowrap}
+    .est-sheet tr.est-cartao-row select.est-tipo-sel{max-width:118px}
     .est-cartao-desc:hover{color:#4338CA;border-bottom-color:#A5B4FC}
     .est-cartao-parc{margin-left:6px;font-style:normal;font-size:.64rem;font-weight:800;
       color:#5B21B6;background:#EDE9FE;border-radius:999px;padding:1px 7px}
-    .est-cartao-org{display:block;margin-top:1px;font-style:normal;font-size:.63rem;
-      color:#94A3B8;cursor:help}
+    /* A primeira coluna tem largura fixa e a descrição vinha longa demais: o
+       texto encostava no badge da parcela e a origem ("CARTAO AILOS") ficava
+       cortada embaixo. Agora a célula organiza em duas linhas de verdade, com
+       o nome truncando por reticências em vez de vazar. */
+    .est-sheet tr.est-cartao-row > td.stk-1{padding-top:5px;padding-bottom:5px;line-height:1.25}
+    .est-cartao-desc{display:inline-block;max-width:calc(100% - 62px);overflow:hidden;
+      text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+    .est-cartao-org{display:block;margin-top:1px;font-style:normal;font-size:.6rem;
+      color:#A5B0C0;cursor:help;letter-spacing:.02em;white-space:nowrap;overflow:hidden;
+      text-overflow:ellipsis}
     .est-cartao-tipo{display:inline-block;padding:2px 9px;border-radius:999px;font-size:.66rem;
       font-weight:800;text-transform:uppercase;letter-spacing:.04em;
       color:#3730A3;background:#EEF2FF;border:1px solid #C7D2FE}
-    .est-sheet tr.est-cartao-row td.est-cartao-mes{text-align:right;padding:6px 8px;
-      font-variant-numeric:tabular-nums;font-size:.78rem;font-weight:700;color:#3730A3}
-    .est-sheet tr.est-cartao-row td.est-cartao-mes.pago{color:#047857}
+    /* Mesma tinta e mesmo peso das células normais: em azul e negrito, a linha
+       do cartão gritava mais que a despesa própria, sendo o mesmo tipo de
+       número. Só o fundo distingue a origem. */
+    .est-sheet tr.est-cartao-row td.est-cartao-mes{text-align:right;padding:6px 16px 6px 4px;
+      font-variant-numeric:tabular-nums;font-size:.78rem;font-weight:600;color:#1E293B}
+    .est-sheet tr.est-cartao-row td.est-cartao-mes.mes-fechado{color:#94A3B8}
+    .est-cartao-status{display:block;margin-top:2px;font-size:.6rem;font-weight:700;
+      text-transform:uppercase;letter-spacing:.04em;color:#94A3B8}
+    .est-cartao-status.pago{color:#047857}
     .est-comissao-badge{display:inline-block;margin-right:6px;font-size:.9rem;vertical-align:middle}
     .est-comissao-tag{display:inline-block;padding:2px 8px;border-radius:999px;
                        font-size:.68rem;font-weight:700;color:#78350F;
@@ -86337,7 +86353,7 @@ function _fkCartaoLancamentosDoModulo(year, filtro){
       const v = parseFloat(l.valor) || 0;
       if(!v) continue;
       out.push({ id: l.id, desc: l.descricao || l.estabelecimento || '(sem descrição)',
-                 cat, valor: v, ym: info.ym, paga: info.paga,
+                 cat, valor: v, ym: info.ym, paga: info.paga, tipoId: l.tipoId || 'fix',
                  cartao: nomeCartao(l.cartaoId), parcela: l.parcela || '' });
     }
     out.sort((a2, b2) => (a2.cat === b2.cat)
@@ -86346,6 +86362,18 @@ function _fkCartaoLancamentosDoModulo(year, filtro){
   }catch(e){ console.warn('[est] linhas do cartão:', e && e.message); }
   return out;
 }
+/* Grava o tipo escolhido no lançamento do cartão — não numa cópia. */
+function setEstTipoCartao(lancId, tipoId){
+  try{
+    const l = (cartoes.lancamentos || []).find(x => x && x.id === lancId);
+    if(!l) return;
+    l.tipoId = tipoId;
+    if(typeof cartSave === 'function') cartSave();
+    if(typeof renderEstrutura === 'function') renderEstrutura();
+  }catch(e){ console.warn('[est] tipo do cartão:', e && e.message); }
+}
+try{ window.setEstTipoCartao = setEstTipoCartao; }catch(_){}
+
 function _renderEstCartaoRows(year){
   const rows = [];
   try{
@@ -86357,6 +86385,13 @@ function _renderEstCartaoRows(year){
     for(const it of lista){
       const t = tagDe(it.cat);
       const cor = (t && t.color) || '#E2E8F0';
+      /* Tipo é escolha dele, igual às outras linhas — só o default é Despesa
+         Fixa. Fica gravado no próprio lançamento do cartão, que é onde a compra
+         mora; a planilha continua só lendo. */
+      const tipoId = it.tipoId || 'fix';
+      const tp = (estrutura.tipos || []).find(x => x && x.id === tipoId);
+      const tipoOpts = (estrutura.tipos || []).map(x =>
+        '<option value="' + esc(x.id) + '"' + (x.id === tipoId ? ' selected' : '') + '>' + esc(x.nome) + '</option>').join('');
       const cells = EST_MESES.map((_, m) => {
         const ym = year + '-' + String(m+1).padStart(2,'0');
         const val = (ym === it.ym) ? it.valor : 0;
@@ -86372,7 +86407,7 @@ function _renderEstCartaoRows(year){
       /* Clicar abre a compra no modal de Lançar Gasto — de onde a descrição se
          muda. Editar aqui na planilha criaria um segundo lugar de edição pro
          mesmo dado; um atalho pro lugar certo, não. */
-      rows.push('<tr class="est-cartao-row">'
+      rows.push('<tr class="est-cartao-row" data-est-cat-tag="' + _estNormCat(it.cat) + '">'
         + '<td class="stk stk-1 l"><span class="est-cartao-ico fkico fkico-card"></span>'
         +   '<button type="button" class="est-cartao-desc"'
         +     ' onclick="extOpenModal(\'gasto\',\'cartao:' + it.id + '\')"'
@@ -86383,7 +86418,11 @@ function _renderEstCartaoRows(year){
         +     '. O lançamento mora no cartão — edite por lá ou pelo Extrato.">' + esc(it.cartao) + '</em>'
         + '</td>'
         + '<td class="stk stk-2"><span class="est-tag-pill" style="--tgc:' + cor + '">' + esc(it.cat) + '</span></td>'
-        + '<td class="stk stk-3"><span class="est-cartao-tipo">' + (it.paga ? 'pago' : 'a pagar') + '</span></td>'
+        + '<td class="stk stk-3">'
+        +   '<select class="est-tipo-sel filled" style="--tpc:' + (tp ? tp.color : '#FED7AA') + ';--tptx:' + PES_TIPO_TXT + '"'
+        +   ' onchange="setEstTipoCartao(' + it.id + ', this.value)">' + tipoOpts + '</select>'
+        +   '<span class="est-cartao-status' + (it.paga ? ' pago' : '') + '">' + (it.paga ? 'pago' : 'a pagar') + '</span>'
+        + '</td>'
         + cells
         + '<td class="yr-tot">' + fmtBR(it.valor, 2) + '</td>'
         + '<td></td>'
@@ -86513,16 +86552,43 @@ function renderEstSheet(){
       // permite que o drag-reorder persista via reordenação de `estrutura.itens`.
       return 0;
     });
-    for(const it of sorted){
+    /* AGRUPADO POR CATEGORIA, misturando linha própria com compra de cartão.
+       Antes o cartão era um bloco no fim: a mesma categoria aparecia em dois
+       lugares da tela, e comparar "Infra web" da planilha com "Infra web" do
+       cartão exigia rolar. Agrupando, cada categoria tem UM lugar. */
+    const cartaoPorTag = new Map();
+    for(const h of _renderEstCartaoRows(year)){
+      const mt = /data-est-cat-tag="([^"]*)"/.exec(h);
+      const chave = mt ? mt[1] : '';
+      if(!cartaoPorTag.has(chave)) cartaoPorTag.set(chave, []);
+      cartaoPorTag.get(chave).push(h);
+    }
+    const jaSaiu = new Set();
+    for(let q = 0; q < sorted.length; q++){
+      const it = sorted[q];
       rows.push(renderEstRow(it, year));
+      const t = estTag(it.tagId);
+      const chave = t ? _estNormCat(t.nome) : '';
+      if(!chave || jaSaiu.has(chave)) continue;
+      /* As compras entram depois da ÚLTIMA linha própria daquela categoria. */
+      const prox = sorted[q + 1];
+      const tProx = prox ? estTag(prox.tagId) : null;
+      const chaveProx = tProx ? _estNormCat(tProx.nome) : '';
+      if(chaveProx !== chave){
+        for(const h of (cartaoPorTag.get(chave) || [])) rows.push(h);
+        jaSaiu.add(chave);
+      }
+    }
+    /* Categoria que só existe no cartão, sem linha própria, entra no fim. */
+    for(const [chave, lista] of cartaoPorTag){
+      if(jaSaiu.has(chave)) continue;
+      for(const h of lista) rows.push(h);
     }
   }
   // Linhas VIRTUAIS de comissão — uma por vendedor ativo com valor no ano.
   // Somam nos totais mas não são editáveis (vêm do módulo Vendedores).
-  /* Compras de cartão, item a item — mesmo tratamento das comissões.
-     A comissão vem DEPOIS: é calculada, varia todo mês e fecha a lista, como
-     ele pediu. */
-  for(const h of _renderEstCartaoRows(year)) rows.push(h);
+  /* Comissão fecha a lista: é calculada, varia todo mês e não pertence a
+     categoria nenhuma da planilha. */
   for(const h of _renderEstComissaoRows(year)) rows.push(h);
   tbody.innerHTML = rows.join('');
 
