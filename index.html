@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787751365"/>
+  <meta name="fk-build" content="forekash-v1787751966"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -66445,6 +66445,7 @@ const CCC_BANK_TEMPLATES = {
          é pior que não ler: entra número errado com cara de certo. Se não
          fechar, desfaço tudo e as pendentes viram descarte normal, pra ele
          incluir na mão vendo o que é. */
+      let reparados = 0;
       if(pendentesValor.length){
         const orfas = [];
         for(let k = 0; k < lines.length; k++){
@@ -66458,20 +66459,49 @@ const CCC_BANK_TEMPLATES = {
         }
         const somaAtual = items.reduce((a2, x) => a2 + x.valor, 0);
         const falta = totalFatura ? (totalFatura - somaAtual) : 0;
-        const pares = [];
-        const usadas = new Set();
-        for(const pnd of pendentesValor){
-          let melhor = null;
-          for(const o of orfas){
-            if(usadas.has(o.k)) continue;
-            const dist = Math.abs(o.k - pnd.i);
-            if(dist > 8) continue;                     /* tem que ser vizinha */
-            if(!melhor || dist < melhor.dist) melhor = { o, dist };
+        /* Eu exigia que o valor órfão estivesse a até 8 linhas da compra. Errado:
+           o agrupamento por coluna pode jogar o valor pra longe, e foi o que
+           aconteceu com 650 INDUSTRIES (R$ 88,41) e EXTENSION MOBILE (R$ 25,32).
+           A distância não precisa ser o critério — o CRITÉRIO É FECHAR A CONTA.
+           Procuro a combinação de valores órfãos que soma exatamente o que
+           falta; achando, distribuo entre as compras sem valor pela proximidade.
+           Não achando, ninguém é inventado e elas viram descarte pra inclusão
+           manual. */
+        let pares = [];
+        let fecha = false;
+        if(totalFatura > 0 && falta > 0.005 && pendentesValor.length && orfas.length){
+          const alvo = Math.round(falta * 100);
+          const cand = orfas.map(o => ({ k: o.k, v: o.v, c: Math.round(o.v * 100) }));
+          const n = pendentesValor.length;
+          /* Combinação de tamanho n que soma o que falta. n é pequeno (uma ou
+             duas compras internacionais por fatura), então a busca é barata. */
+          let achou = null;
+          const busca = (idx, resto, acc) => {
+            if(achou) return;
+            if(acc.length === n){ if(resto === 0) achou = acc.slice(); return; }
+            for(let k = idx; k < cand.length; k++){
+              if(cand[k].c > resto) continue;
+              acc.push(cand[k]);
+              busca(k + 1, resto - cand[k].c, acc);
+              acc.pop();
+              if(achou) return;
+            }
+          };
+          busca(0, alvo, []);
+          if(achou){
+            /* Pareia pela ORDEM do documento, não pela distância. Com os dois
+               órfãos longe das compras, "o mais próximo" trocava os valores
+               entre elas: 650 INDUSTRIES ficava com 25,32 e EXTENSION com
+               88,41. A fatura fechava e dois lançamentos ficavam errados —
+               pior que não ler, porque não aparece em conferência nenhuma.
+               Fatura é escrita de cima pra baixo: a n-ésima compra sem valor
+               casa com o n-ésimo valor solto. */
+            const pnds = pendentesValor.slice().sort((x, y) => x.i - y.i);
+            const vals = achou.slice().sort((x, y) => x.k - y.k);
+            pares = pnds.map((pnd, q) => ({ pnd, v: vals[q].v }));
+            fecha = true;
           }
-          if(melhor){ usadas.add(melhor.o.k); pares.push({ pnd, v: melhor.o.v }); }
         }
-        const somaPares = pares.reduce((a2, x) => a2 + x.v, 0);
-        const fecha = totalFatura > 0 && Math.abs(falta - somaPares) < 0.01;
         if(fecha){
           for(const par of pares){
             const p2 = par.pnd;
@@ -66482,13 +66512,14 @@ const CCC_BANK_TEMPLATES = {
             items.push({ data, descricao: desc, valor: Math.abs(par.v), parcela: '',
                          fitid: data + '|' + Math.abs(par.v).toFixed(2) + '|' + desc.slice(0,20),
                          raw: p2.ln, _reparado: true });
+            reparados++;
           }
         } else {
           for(const p2 of pendentesValor) larga(p2.ln, 'não achei valor em reais nesta compra');
         }
       }
 
-      return { items, descartes, totalFatura };
+      return { items, descartes, totalFatura, reparados };
     }
   },
   bradesco: {
@@ -66787,6 +66818,7 @@ async function _cccParsePDF(file){
     items: dedup,
     totalFatura: result.totalFatura || dedup.reduce((s,i) => s + i.valor, 0),
     descartes: result.descartes || [],
+    reparados: result.reparados || 0,
     vencimentoArquivo: (result.vencimento || _cccFindVencimento(text) || ''),
     formato: 'PDF · ' + bankTpl.name + ' ' + bankTpl.icon,
     bancoId: bankId,
@@ -67096,9 +67128,15 @@ function _cccRenderWorkbench(){
          poderia compensar outro que ficou de fora. Se descartei alguma linha
          com cara de compra, isso fica dito mesmo assim. */
       const _susp = _audDesc.filter(d => CCC_DESCARTE_FALHA.has(d.motivo)).length;
+      /* Reparo é INFERÊNCIA minha, não leitura: eu casei uma compra sem valor
+         com um valor solto porque a conta fechou. Fechar é forte, mas o par
+         compra↔valor é dedução — e isso tem que estar dito. */
+      const _rep = (CCC_STATE.parsed && CCC_STATE.parsed.reparados) || 0;
       html += '<div class="ccc-aud ok">'
         + '<b>Leitura conferida.</b> As ' + ((CCC_STATE.parsed.items||[]).length)
         + ' transações somam exatamente o total impresso na fatura (' + fmt(_audTotal) + ').'
+        + (_rep ? (' <b>' + _rep + '</b> compra(s) tiveram o valor recuperado de linha solta — '
+                   + 'a conta fecha, mas confira se o valor foi pro lançamento certo.') : '')
         + (_susp
             ? ('<button type="button" class="ccc-aud-btn" onclick="cccVerDescartes()">'
                + 'Ainda assim, veja ' + _susp + ' linha(s) que descartei</button>')
@@ -68053,10 +68091,18 @@ function cccIncluirDescarte(k){
       _falta = p3.totalFatura - (p3.items||[]).reduce((a2, x) => a2 + (parseFloat(x.valor)||0), 0);
     }
   }catch(_){}
-  const valor = _cccValorDaLinha(ln, Math.abs(_falta));
+  let valor = _cccValorDaLinha(ln, Math.abs(_falta));
   if(!valor){
-    if(typeof toast === 'function') toast('⚠ Não achei valor nesta linha — inclua pelo botão de lançamento novo');
-    return;
+    /* Recusar aqui deixava ele sem saída justamente na linha que ele PRECISA
+       incluir — a compra internacional cujo valor ficou noutra linha. Pergunta
+       o valor, já sugerindo o que falta pra fechar. */
+    const sug = Math.abs(_falta) > 0.005
+      ? Math.abs(_falta).toLocaleString('pt-BR',{minimumFractionDigits:2}) : '';
+    const resp = prompt('Não achei o valor nesta linha:\n\n' + ln.slice(0,90)
+      + '\n\nQual o valor em reais?' + (sug ? ('\n(falta ' + sug + ' pra fechar a fatura)') : ''), sug);
+    if(resp == null) return;
+    valor = Math.abs(_cccParseValor(resp) || 0);
+    if(!valor){ if(typeof toast === 'function') toast('⚠ Valor inválido'); return; }
   }
   const MES = { JAN:1,FEV:2,MAR:3,ABR:4,MAI:5,JUN:6,JUL:7,AGO:8,SET:9,OUT:10,NOV:11,DEZ:12 };
   const md = /(\d{1,2})\s+([A-Z]{3})/i.exec(ln);
