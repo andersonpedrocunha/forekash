@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787780711"/>
+  <meta name="fk-build" content="forekash-v1787780931"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -86442,7 +86442,13 @@ function _renderEstCartaoRows(year){
         +   '<em class="est-cartao-org" title="Compra no ' + esc(it.cartao)
         +     '. O lançamento mora no cartão — edite por lá ou pelo Extrato.">' + esc(it.cartao) + '</em>'
         + '</td>'
-        + '<td class="stk stk-2"><span class="est-tag-pill" style="--tgc:' + cor + '">' + esc(it.cat) + '</span></td>'
+        /* Mesmo invólucro das linhas normais (.est-tag-cell): sem ele a pill do
+           cartão nascia colada no padding do <td> e ficava alguns pixels fora
+           da vertical das outras — desalinhamento pequeno e visível, do tipo
+           que faz a tabela parecer montada em dois lugares. */
+        + '<td class="stk stk-2"><div class="est-tag-cell">'
+        +   '<span class="est-tag-pill" style="--tgc:' + cor + '">' + esc(it.cat) + '</span>'
+        + '</div></td>'
         + '<td class="stk stk-3">'
         +   '<select class="est-tipo-sel filled" style="--tpc:' + (tp ? tp.color : '#FED7AA') + ';--tptx:' + PES_TIPO_TXT + '"'
         +   ' onchange="setEstTipoCartao(' + it.id + ', this.value)">' + tipoOpts + '</select>'
@@ -86783,22 +86789,29 @@ function updateEstKpis(){
   let countPago = 0;
   let countComValor = 0;
   for(const it of estrutura.itens){
-    const pagos = it.pagos || {};
     for(let m = 0; m < 12; m++){
       const key = estMesKey(year, m);
-      const raw = it.valores[key];
-      const v = +raw || 0;
+      const v = +it.valores[key] || 0;
       if(!v) continue; // 0 / null / undefined / NaN → nada a somar
       total += v;
       countComValor++;
-      if(pagos[key]){
-        totalPago += v;
-        countPago++;
-      } else {
-        totalProjetado += v;
-      }
     }
   }
+  /* PAGO vem do EXTRATO, não do ✓ por célula. Esse ✓ deixou de existir quando a
+     baixa passou a vir do Extrato, e a KPI continuou lendo `it.pagos` — sempre
+     vazio. Resultado: o card dizia "Pago R$ 0,00" com a tabela logo abaixo
+     mostrando 2.542,84 na coluna Pago. Mesma tela, dois números, e o errado
+     era o maior. Agora as duas leem a mesma fonte. */
+  try{
+    const real = estRealizadoExtrato(String(year));
+    for(const cat of Object.keys(real)){
+      for(const ym of Object.keys(real[cat])){
+        if(String(ym).slice(0,4) !== String(year)) continue;
+        const v = parseFloat(real[cat][ym]) || 0;
+        if(v){ totalPago += v; countPago++; }
+      }
+    }
+  }catch(e){ console.warn('[est] KPI pago:', e && e.message); }
   /* Compras de cartão contam no KPI também. Sem isto o rodapé da planilha e o
      card do topo mostrariam números diferentes pra mesma coisa — e quem olha os
      dois na mesma tela não teria como saber qual acreditar. Fatura paga entra
@@ -86806,10 +86819,15 @@ function updateEstKpis(){
   try{
     const doModulo = _estCatsDoModulo();
     for(const it of _fkCartaoLancamentosDoModulo(year, cat => doModulo.has(_estNormCat(cat)))){
+      /* Só o TOTAL: a parte paga já entrou acima, por estRealizadoExtrato, que
+         hoje inclui o cartão. Somar aqui de novo dobraria o valor. */
       total += it.valor;
-      if(it.paga) totalPago += it.valor; else totalProjetado += it.valor;
     }
   }catch(_){}
+  /* Projetado é o que falta pagar — sempre o resto, calculado por último, com
+     total e pago já fechados. Somar projetado em três lugares diferentes era
+     como as contas divergiam. */
+  totalProjetado = Math.max(0, total - totalPago);
   const avg = total / 12;
   const elT = document.getElementById('est-kpi-total');   if(elT) elT.textContent = fmtBRL(total);
   const elM = document.getElementById('est-kpi-media');   if(elM) elM.textContent = fmtBRL(avg);
