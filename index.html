@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787752481"/>
+  <meta name="fk-build" content="forekash-v1787752938"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -17992,6 +17992,13 @@ td.mes.do-extrato{background:#ECFDF5}
 .est-real-dif.abaixo{color:#059669}
 .est-real-dif.ok{color:#64748B;font-weight:700}
 .est-real-dif.zero,.est-real-dif.nova{color:#94A3B8;font-weight:600;font-size:.6rem}
+/* Categoria de outro módulo dentro da Estrutura: o mesmo dinheiro entra duas
+   vezes no custo fixo. Aviso vermelho, não amarelo — não é imprecisão, é
+   duplicidade. */
+.est-real-alerta.forasteira{color:#7F1D1D !important;background:#FEF2F2 !important;
+  border:1px solid #FECACA !important;border-radius:8px;padding:8px 11px !important;
+  margin-top:7px !important;line-height:1.45}
+.est-tag-pill.forasteira{outline:2px solid #DC2626;outline-offset:1px}
 .est-real-alerta{margin:5px 0 0 !important;padding:0 0 0 13px;background:none;border:none;
   color:#B45309 !important;font-size:.63rem !important;position:relative}
 .est-real-alerta::before{content:'!';position:absolute;left:0;top:0;font-weight:800;color:#D97706}
@@ -50811,6 +50818,19 @@ function outrasRealizadoExtrato(ano, tipo){
     } else if(l.status === 'pago' || l.status === 'recebido'){
       soma(cat, l.dataPagamento || l.data, parseFloat(l.valorPago || l.valor) || 0);
     }
+  }
+  /* Cartão só produz SAÍDA — em receitas não entra. */
+  if(!querGanho){
+    try{
+      const doCartao = fkCartaoRealizadoPorCat(y, cat => doModulo.has(_outrasNorm(cat)));
+      for(const cat of Object.keys(doCartao)){
+        const norm = _outrasNorm(cat);
+        if(!out[norm]) out[norm] = {};
+        for(const ym of Object.keys(doCartao[cat])){
+          out[norm][ym] = (out[norm][ym] || 0) + doCartao[cat][ym];
+        }
+      }
+    }catch(_){}
   }
   return out;
 }
@@ -85573,6 +85593,58 @@ function _estNormCat(v){
 
 /* Categorias que o catmap aponta pra estrutura. Sem catmap, cai pro nome das
    próprias categorias da planilha — melhor mostrar algo que nada. */
+/* Tag da Estrutura que na verdade pertence a OUTRO módulo. Folha tem lugar
+   próprio (Pessoas); projetar o mesmo salário aqui soma o custo duas vezes no
+   Demonstrativo e infla o custo fixo. Aviso em vez de apagar: o dado é dele, e
+   pode ter sido de propósito — mas não pode ficar mudo. */
+function _estModuloDaTag(nome){
+  try{
+    const alvo = _estNormCat(nome);
+    const cats = (typeof catmapData !== 'undefined' && Array.isArray(catmapData.categorias))
+      ? catmapData.categorias : [];
+    for(const c of cats){
+      if(!c || !c.nome) continue;
+      if(_estNormCat(c.nome) === alvo) return c.moduloId || '';
+    }
+    /* O rótulo às vezes já carrega o módulo entre parênteses: "Folha (Pessoas)". */
+    const m = /\(([^)]+)\)\s*$/.exec(String(nome || ''));
+    if(m){
+      const dentro = m[1].trim().toLowerCase();
+      const mapa = { 'pessoas':'pessoas', 'folha':'pessoas', 'impostos':'impostos',
+                     'receita':'receita', 'empréstimos':'emprestimos', 'emprestimos':'emprestimos' };
+      if(mapa[dentro]) return mapa[dentro];
+    }
+  }catch(_){}
+  return '';
+}
+const _EST_NOME_MODULO = { pessoas:'Pessoas', impostos:'Impostos', receita:'Receita',
+                           emprestimos:'Empréstimos', outrasRec:'Outras Operações',
+                           outrasDesp:'Outras Operações' };
+function _estTagsForasteiras(){
+  const out = [];
+  try{
+    const tags = (estrutura && Array.isArray(estrutura.tags)) ? estrutura.tags : [];
+    for(const t of tags){
+      if(!t || !t.nome) continue;
+      const mod = _estModuloDaTag(t.nome);
+      if(mod && mod !== 'estrutura') out.push({ tag: t, modulo: mod });
+    }
+  }catch(_){}
+  return out;
+}
+function _estAlertaOutroModulo(){
+  const fora = _estTagsForasteiras();
+  if(!fora.length) return '';
+  const nomes = fora.map(f => (f.tag.nome || '') + ' → ' + (_EST_NOME_MODULO[f.modulo] || f.modulo));
+  return '<p class="est-real-alerta forasteira">'
+    + '<b>' + fora.length + ' categoria(s) aqui pertencem a outro módulo:</b> '
+    + nomes.join(' · ') + '. '
+    + 'O módulo dono já projeta esse valor — mantendo a linha aqui, o mesmo dinheiro '
+    + 'entra duas vezes no custo fixo e no Demonstrativo. Mova a despesa pro módulo certo '
+    + 'ou apague a linha daqui.</p>';
+}
+try{ window._estTagsForasteiras = _estTagsForasteiras; }catch(_){}
+
 function _estCatsDoModulo(){
   const set = new Set();
   try{
@@ -85587,6 +85659,47 @@ function _estCatsDoModulo(){
 }
 
 /* { catNorm: { 'YYYY-MM': valorPago } } — mês do PAGAMENTO. */
+/* ══ COMPRA DE CARTÃO CONTA COMO REALIZADO NO MÓDULO ══════════════════════
+   Os leitores de realizado varriam só `extratoData.lancamentos` — os manuais.
+   Compra de cartão mora em `cartoes.lancamentos`, então o que ele comprou no
+   cartão não chegava a módulo NENHUM: categorizou "Infra Web" na conciliação e
+   a Estrutura de Custos continuava vazia.
+
+   Ancora no PAGAMENTO DA FATURA, não na data da compra: é quando o dinheiro
+   sai, e é o mesmo critério de caixa que o resto do leitor usa (`b.data` da
+   baixa). Fatura não paga continua sendo projeção — não vira realizado só por
+   ter sido conciliada.
+
+   `filtro` decide quais categorias interessam ao módulo que chamou. */
+function fkCartaoRealizadoPorCat(ano, filtro){
+  const out = {};
+  const y = String(ano || '');
+  try{
+    if(typeof cartoes === 'undefined' || !cartoes || !Array.isArray(cartoes.lancamentos)) return out;
+    const fatPaga = new Map();
+    for(const f of (cartoes.faturas || [])){
+      if(!f || f.status !== 'paga' || !f.pagamento) continue;
+      const d = f.pagamento.data || f.vencimento || '';
+      if(String(d).slice(0,4) !== y) continue;
+      fatPaga.set(f.id, String(d).slice(0,7));
+    }
+    if(!fatPaga.size) return out;
+    for(const l of cartoes.lancamentos){
+      if(!l || !fatPaga.has(l.faturaId)) continue;
+      const cat = String(l.categoria || '').trim();
+      if(!cat) continue;
+      if(typeof filtro === 'function' && !filtro(cat)) continue;
+      const ym = fatPaga.get(l.faturaId);
+      const v = parseFloat(l.valor) || 0;
+      if(!v) continue;
+      if(!out[cat]) out[cat] = {};
+      out[cat][ym] = (out[cat][ym] || 0) + v;
+    }
+  }catch(e){ console.warn('[fk] realizado do cartão:', e && e.message); }
+  return out;
+}
+try{ window.fkCartaoRealizadoPorCat = fkCartaoRealizadoPorCat; }catch(_){}
+
 function estRealizadoExtrato(ano){
   const out = {};
   const y = String(ano || estCurYear() || '');
@@ -85615,6 +85728,18 @@ function estRealizadoExtrato(ano){
       soma(cat, l.dataPagamento || l.data, parseFloat(l.valorPago || l.valor) || 0);
     }
   }
+  /* O que ele comprou no cartão e categorizou como custo de estrutura entra
+     aqui, no mês em que a fatura foi paga. */
+  try{
+    const doCartao = fkCartaoRealizadoPorCat(y, cat => doModulo.has(_estNormCat(cat)));
+    for(const cat of Object.keys(doCartao)){
+      const norm = _estNormCat(cat);
+      if(!out[norm]) out[norm] = {};
+      for(const ym of Object.keys(doCartao[cat])){
+        out[norm][ym] = (out[norm][ym] || 0) + doCartao[cat][ym];
+      }
+    }
+  }catch(_){}
   return out;
 }
 
@@ -85804,6 +85929,7 @@ function estRenderRealizado(){
         ? '<p class="est-real-alerta">Extrato com gasto em ' + cobertos + ' de ' + esperados
           + ' mês(es) — onde falta importação a diferença aparece menor do que é.</p>'
         : '')
+    +   _estAlertaOutroModulo()
     +   '</div>'
     +   '<div class="est-real-tot">'
     +     '<div><span>Pago até aqui</span><b>' + fmt(totReal) + '</b></div>'
@@ -86191,11 +86317,16 @@ function renderEstRow(it, year){
   //   - Click esquerdo → picker (trocar tag) — comportamento original
   //   - Botão DIREITO → abre menu de contexto com opções (handler delegado)
   // Pill armazena tagId + itemId em data-attrs pro handler global usar.
+  const _modOutro = tag ? _estModuloDaTag(tag.nome) : '';
+  const _forasteira = !!(_modOutro && _modOutro !== 'estrutura');
   const tagPill = tag
-    ? `<span class="est-tag-pill" data-est-tag-ws="${tag.id}" data-est-item="${it.id}"
+    ? `<span class="est-tag-pill${_forasteira ? ' forasteira' : ''}" data-est-tag-ws="${tag.id}" data-est-item="${it.id}"
              style="--tgc:${tag.color};--tgtx:${PES_TIPO_TXT}"
              onclick="openEstTagPicker(event, ${it.id})"
-             title="${esc(tag.nome)} — clique p/ trocar · botão direito p/ mais opções">${esc(tag.nome)}</span>`
+             title="${_forasteira
+                ? ('Esta categoria é do módulo ' + (_EST_NOME_MODULO[_modOutro] || _modOutro)
+                   + ', que já projeta esse valor. Mantendo aqui, o mesmo dinheiro conta duas vezes.')
+                : (esc(tag.nome) + ' — clique p/ trocar · botão direito p/ mais opções')}">${_forasteira ? '⚠ ' : ''}${esc(tag.nome)}</span>`
     : `<span class="est-tag-pill empty" onclick="openEstTagPicker(event, ${it.id})" title="Escolher tag">+ tag</span>`;
 
   // Valores mensais
