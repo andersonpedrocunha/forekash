@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787778801"/>
+  <meta name="fk-build" content="forekash-v1787779498"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -14859,6 +14859,9 @@
     .est-sheet tr.est-cartao-row > td.stk-2,
     .est-sheet tr.est-cartao-row > td.stk-3{background:#F8FAFF !important}
     .est-cartao-ico{margin-right:7px;color:#6366F1;font-size:.9rem;vertical-align:middle}
+    .est-cartao-desc{border:0;background:none;padding:0;font:inherit;color:inherit;
+      cursor:pointer;text-align:left;border-bottom:1px dashed transparent}
+    .est-cartao-desc:hover{color:#4338CA;border-bottom-color:#A5B4FC}
     .est-cartao-parc{margin-left:6px;font-style:normal;font-size:.64rem;font-weight:800;
       color:#5B21B6;background:#EDE9FE;border-radius:999px;padding:1px 7px}
     .est-cartao-org{display:block;margin-top:1px;font-style:normal;font-size:.63rem;
@@ -86359,13 +86362,22 @@ function _renderEstCartaoRows(year){
         const val = (ym === it.ym) ? it.valor : 0;
         const cls = 'pes-cell est-cartao-mes' + (val ? ' has-val' : '')
                   + (estMesFechado(year, m) ? ' mes-fechado' : '') + (it.paga && val ? ' pago' : '');
+        /* Mesma formatação das células normais (fmtBR com 2 casas). fmtShortBR
+           abreviava e a linha do cartão ficava "309" ao lado de "6.500,00" —
+           duas escalas na mesma coluna, impossível de comparar batendo o olho. */
         return '<td class="' + cls + '">'
-          + (val ? '<span class="est-cartao-val">' + fmtShortBR(val) + '</span>' : '')
+          + (val ? '<span class="est-cartao-val">' + fmtBR(val, 2) + '</span>' : '')
           + '</td>';
       }).join('');
+      /* Clicar abre a compra no modal de Lançar Gasto — de onde a descrição se
+         muda. Editar aqui na planilha criaria um segundo lugar de edição pro
+         mesmo dado; um atalho pro lugar certo, não. */
       rows.push('<tr class="est-cartao-row">'
         + '<td class="stk stk-1 l"><span class="est-cartao-ico fkico fkico-card"></span>'
-        +   esc(it.desc.slice(0,46))
+        +   '<button type="button" class="est-cartao-desc"'
+        +     ' onclick="extOpenModal(\'gasto\',\'cartao:' + it.id + '\')"'
+        +     ' title="Abrir a compra — dá pra mudar descrição, categoria e fornecedor">'
+        +   esc(it.desc.slice(0,46)) + '</button>'
         +   (it.parcela ? '<em class="est-cartao-parc">' + esc(it.parcela) + '</em>' : '')
         +   '<em class="est-cartao-org" title="Compra no ' + esc(it.cartao)
         +     '. O lançamento mora no cartão — edite por lá ou pelo Extrato.">' + esc(it.cartao) + '</em>'
@@ -86373,7 +86385,7 @@ function _renderEstCartaoRows(year){
         + '<td class="stk stk-2"><span class="est-tag-pill" style="--tgc:' + cor + '">' + esc(it.cat) + '</span></td>'
         + '<td class="stk stk-3"><span class="est-cartao-tipo">' + (it.paga ? 'pago' : 'a pagar') + '</span></td>'
         + cells
-        + '<td class="yr-tot">' + fmtShortBR(it.valor) + '</td>'
+        + '<td class="yr-tot">' + fmtBR(it.valor, 2) + '</td>'
         + '<td></td>'
         + '</tr>');
     }
@@ -86507,10 +86519,11 @@ function renderEstSheet(){
   }
   // Linhas VIRTUAIS de comissão — uma por vendedor ativo com valor no ano.
   // Somam nos totais mas não são editáveis (vêm do módulo Vendedores).
-  const comissaoRows = _renderEstComissaoRows(year);
-  for(const h of comissaoRows) rows.push(h);
-  /* Compras de cartão, item a item — mesmo tratamento das comissões. */
+  /* Compras de cartão, item a item — mesmo tratamento das comissões.
+     A comissão vem DEPOIS: é calculada, varia todo mês e fecha a lista, como
+     ele pediu. */
   for(const h of _renderEstCartaoRows(year)) rows.push(h);
+  for(const h of _renderEstComissaoRows(year)) rows.push(h);
   tbody.innerHTML = rows.join('');
 
   // FOOT: totais por mês + total ano (inclui comissões)
