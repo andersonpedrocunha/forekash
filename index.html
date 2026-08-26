@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787754686"/>
+  <meta name="fk-build" content="forekash-v1787755181"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -85646,9 +85646,26 @@ function _estTagsForasteiras(){
 
    Nada é apagado: fica em `estrutura.bloqueados`, com o motivo, e volta inteiro
    se ele mandar. */
+/* Só estes módulos projetam o próprio valor mês a mês e, por isso, duplicariam
+   se a mesma categoria também virasse linha de custo fixo. "Comercial" NÃO
+   entra: a comissão é desenhada como linha própria a partir de Vendedores, e
+   bloquear por ela derrubou categorias legítimas dele. Lista fechada, e o que
+   não estiver nela fica. */
+const EST_MODULOS_QUE_DUPLICAM = new Set(['pessoas', 'impostos', 'emprestimos', 'receita']);
 function estBloquearForasteiras(){
   if(!estrutura || !Array.isArray(estrutura.itens)) return 0;
   if(!Array.isArray(estrutura.bloqueados)) estrutura.bloqueados = [];
+  /* Devolve o que eu bloqueei por engano numa versão anterior — a régua era
+     "qualquer outro módulo" e levou junto o que não duplicava. */
+  try{
+    const devolver = [];
+    estrutura.bloqueados = estrutura.bloqueados.filter(b => {
+      if(b && b.modulo && !EST_MODULOS_QUE_DUPLICAM.has(b.modulo)){ devolver.push(b); return false; }
+      return true;
+    });
+    for(const b of devolver) if(b.item) estrutura.itens.push(b.item);
+    if(devolver.length && typeof estSave === 'function') estSave();
+  }catch(_){}
   const tagPorId = new Map();
   for(const t of (estrutura.tags || [])) if(t) tagPorId.set(t.id, t);
   let movidos = 0;
@@ -85656,26 +85673,17 @@ function estBloquearForasteiras(){
   for(const it of estrutura.itens){
     const t = it && it.tagId ? tagPorId.get(it.tagId) : null;
     const mod = t ? _estModuloDaTag(t.nome) : '';
-    if(mod && mod !== 'estrutura'){
+    if(mod && EST_MODULOS_QUE_DUPLICAM.has(mod)){
       estrutura.bloqueados.push({ item: it, tagNome: t.nome || '', modulo: mod,
                                   quando: new Date().toISOString().slice(0,10) });
       movidos++;
     } else ficam.push(it);
   }
-  /* A tag de outro módulo também sai da lista da Estrutura. Ela não deveria ter
-     nascido aqui — quem criou fui eu, num fluxo que espelhava categoria em tag
-     sem olhar o módulo. Deixá-la visível só oferece de novo o erro que o resto
-     do código passou a bloquear. */
-  let tagsRemovidas = 0;
-  const tagsFicam = [];
-  for(const t of (estrutura.tags || [])){
-    const mod = t ? _estModuloDaTag(t.nome) : '';
-    if(mod && mod !== 'estrutura'){ tagsRemovidas++; continue; }
-    tagsFicam.push(t);
-  }
-  if(movidos || tagsRemovidas){
-    if(movidos) estrutura.itens = ficam;
-    if(tagsRemovidas) estrutura.tags = tagsFicam;
+  /* Remover a tag foi longe demais e derrubou a tela: com as tags fora, a
+     tabela "Realizado por categoria" ficou sem chave nenhuma e sumiu inteira.
+     A tag fica; quem some do custo fixo é a despesa. */
+  if(movidos){
+    estrutura.itens = ficam;
     if(typeof estSave === 'function') estSave();
   }
   return movidos;
@@ -85994,8 +86002,18 @@ function estRenderRealizado(){
   const real = estRealizadoExtrato(y);
   const proj = estProjetadoPorCategoria(y);
 
-  const chaves = Array.from(new Set(Object.keys(proj).concat(Object.keys(real))));
-  if(!chaves.length){ wrap.innerHTML = ''; return; }
+  /* Sem chave nenhuma a tabela sumia inteira, sem dizer nada — foi o que
+     aconteceu quando um bloqueio meu levou as categorias junto. Some só quando
+     realmente não há NADA cadastrado; havendo tag, a tabela aparece com as
+     linhas zeradas, que é informação ("cadastrado e sem gasto") em vez de
+     ausência inexplicada. */
+  let chaves = Array.from(new Set(Object.keys(proj).concat(Object.keys(real))));
+  if(!chaves.length){
+    const tags = (estrutura && Array.isArray(estrutura.tags)) ? estrutura.tags : [];
+    if(!tags.length){ wrap.innerHTML = ''; return; }
+    chaves = tags.map(t => _estNormCat(t && t.nome)).filter(Boolean);
+    if(!chaves.length){ wrap.innerHTML = ''; return; }
+  }
 
   const esc = (typeof _dkbEsc === 'function') ? _dkbEsc : (x => String(x||''));
   const fmt = v => 'R$ ' + (Math.round(v*100)/100).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -86008,7 +86026,7 @@ function estRenderRealizado(){
   const mesLimite = (String(hoje.getFullYear()) === y) ? hoje.getMonth() : 11;
 
   let totReal = 0, totProj = 0;
-  const linhas = chaves.map(k => {
+  let linhas = chaves.map(k => {
     const r = real[k] || {}, p = (proj[k] && proj[k].meses) || {};
     /* Só compara o que já passou: dezembro projetado contra dezembro sem
        realizado daria uma diferença que não significa nada. */
@@ -86020,8 +86038,10 @@ function estRenderRealizado(){
     });
     totReal += sr; totProj += sp;
     return { k, nome:nomeDe(k), real:sr, proj:sp, meses:r, semLinha: !proj[k] };
-  }).filter(x => x.real > 0 || x.proj > 0)
-    .sort((a,b) => b.real - a.real);
+  });
+  const comValor = linhasTodas => linhasTodas.filter(x => x.real > 0 || x.proj > 0);
+  const linhasVis = comValor(linhas);
+  linhas = (linhasVis.length ? linhasVis : linhas).sort((a,b) => b.real - a.real);
 
   const cells = l => meses.map((ym, i) => {
     const v = l.meses[ym] || 0;
@@ -86456,7 +86476,7 @@ function renderEstRow(it, year){
   //   - Botão DIREITO → abre menu de contexto com opções (handler delegado)
   // Pill armazena tagId + itemId em data-attrs pro handler global usar.
   const _modOutro = tag ? _estModuloDaTag(tag.nome) : '';
-  const _forasteira = !!(_modOutro && _modOutro !== 'estrutura');
+  const _forasteira = !!(_modOutro && EST_MODULOS_QUE_DUPLICAM.has(_modOutro));
   const tagPill = tag
     ? `<span class="est-tag-pill${_forasteira ? ' forasteira' : ''}" data-est-tag-ws="${tag.id}" data-est-item="${it.id}"
              style="--tgc:${tag.color};--tgtx:${PES_TIPO_TXT}"
@@ -87162,7 +87182,7 @@ function renderEstTagPicker(){
      é bloqueio, porque a soma resultante parece certa e não é. */
   const tagsHtml = estrutura.tags.filter(t => {
     const mod = _estModuloDaTag(t && t.nome);
-    return !(mod && mod !== 'estrutura');
+    return !(mod && EST_MODULOS_QUE_DUPLICAM.has(mod));
   }).map(t => {
     const uses = usage.get(t.id) || 0;
     const isEditing = _estTagPickerEditing === t.id;
@@ -87306,7 +87326,7 @@ function renderEstTagManager(){
    duplicidade voltava. */
 function _estBloqueiaTagDeOutroModulo(nome){
   const mod = _estModuloDaTag(nome);
-  if(!mod || mod === 'estrutura') return false;
+  if(!mod || !EST_MODULOS_QUE_DUPLICAM.has(mod)) return false;
   const dono = _EST_NOME_MODULO[mod] || mod;
   if(typeof toast === 'function'){
     toast('⛔ "' + String(nome).trim() + '" pertence ao módulo ' + dono
