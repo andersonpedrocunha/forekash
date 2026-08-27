@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787846975"/>
+  <meta name="fk-build" content="forekash-v1787848799"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5498,7 +5498,8 @@
     .ext-baixa-modal.is-rec::before{background:linear-gradient(90deg,#10B981,#15803D)}
     .ext-baixa-modal.is-pag::before{background:linear-gradient(90deg,#F87171,#B91C1C)}
     .ext-baixa-hd{padding:22px 26px 16px;display:flex;align-items:flex-start;gap:14px}
-    .ext-baixa-hd .icobox{flex-shrink:0;width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.6rem}
+    .ext-baixa-hd .icobox{flex-shrink:0;width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.35rem}
+    .ext-baixa-hd .icobox .fkico{line-height:1}
     .ext-baixa-modal.is-rec .icobox{background:#D1FAE5;color:#065F46}
     .ext-baixa-modal.is-pag .icobox{background:#FEE2E2;color:#991B1B}
     .ext-baixa-hd .titcol{flex:1;min-width:0}
@@ -65695,6 +65696,50 @@ function cartLancDel(lancId){
 
    Proposta, nunca automático: um débito de valor igual pode ser outra coisa, e
    marcar fatura paga sozinho mexeria no realizado de vários módulos de uma vez. */
+/* Pagar fatura é TRANSFERÊNCIA: o dinheiro sai do banco e quita a dívida do
+   cartão. A despesa já aconteceu na compra — lançar o pagamento como gasto
+   contaria o mesmo dinheiro duas vezes. (No Extrato, transferência tem peso
+   zero no saldo corrido justamente por isso.)
+
+   Antes, confirmar o pagamento gravava `fat.pagamento` e parava aí: quem não
+   importa o OFX do banco ficava sem nenhum registro do dinheiro saindo. Agora
+   a transferência é criada — a menos que já exista uma, caso em que criar
+   duplicaria o que o próprio banco já trouxe. */
+function cartRegistrarTransfPagamento(fat){
+  try{
+    if(!fat || !fat.pagamento) return null;
+    const jaTem = cartAcharPagamentoNoExtrato(Object.assign({}, fat, { status: 'aberta' }));
+    if(jaTem) return null;                       /* o banco já trouxe */
+    if(typeof extratoData === 'undefined' || !extratoData) return null;
+    if(!Array.isArray(extratoData.lancamentos)) extratoData.lancamentos = [];
+    const c = (cartoes.list || []).find(x => x && x.id === fat.cartaoId);
+    const destino = (typeof fkContaDeCartao === 'function') ? fkContaDeCartao(c) : 'Cartão';
+    const p = fat.pagamento;
+    const valor = (parseFloat(p.valorPago) || 0) + (parseFloat(p.juros) || 0)
+                + (parseFloat(p.multa) || 0) - (parseFloat(p.desconto) || 0);
+    if(!valor) return null;
+    const id = 'fat_' + fat.id + '_' + Date.now();
+    extratoData.lancamentos.unshift({
+      id, tipo: 'transferencia',
+      data: p.data || fat.vencimento, dataVencimento: p.data || fat.vencimento,
+      dataPagamento: p.data || fat.vencimento,
+      valor, valorPago: valor,
+      descricao: 'Pagamento da fatura ' + destino,
+      contraparte: destino, conta: p.conta || '', status: 'pago',
+      formaPagamento: p.formaPagamento || '',
+      faturaPagaId: fat.id,
+      notas: 'Transferência automática: quitação da fatura que vence '
+             + String(fat.vencimento || '').split('-').reverse().join('/')
+             + '. A despesa já está lançada nas compras — por isso é transferência, não gasto.',
+      criadoEm: new Date().toISOString()
+    });
+    if(typeof _extSave === 'function') _extSave();
+    if(typeof renderExtrato === 'function'){ try{ renderExtrato(); }catch(_){} }
+    return id;
+  }catch(e){ console.warn('[cart] transferência da fatura:', e && e.message); return null; }
+}
+try{ window.cartRegistrarTransfPagamento = cartRegistrarTransfPagamento; }catch(_){}
+
 function cartAcharPagamentoNoExtrato(fat){
   try{
     if(!fat || fat.status === 'paga') return null;
@@ -65822,10 +65867,13 @@ function cartConfirmPagamento(faturaId){
   fat.status = 'paga';
   fat.pagamento = { data, conta, valorPago: valor, juros, multa, desconto: desc, anexo: _cartFatAnexoData || null };
   _cartFatAnexoData = null;
+  const _tid = cartRegistrarTransfPagamento(fat);
   cartSave();
   cartCloseModal();
   renderCartoes();
-  if(typeof toast === 'function') toast('✓ Fatura paga · R$ ' + cartFmtBR(valor + juros + multa - desc) + ' lançado no Extrato');
+  if(typeof toast === 'function'){
+    toast('✓ Fatura paga' + (_tid ? ' · transferência criada no Extrato' : ' · o pagamento já estava no Extrato'));
+  }
 }
 
 function cartReabrirFatura(faturaId){
@@ -77113,7 +77161,11 @@ function extBaixaOpen(id){
   const vencLbl = it.dataVencimento ? (it.dataVencimento.slice(8,10) + '/' + it.dataVencimento.slice(5,7) + '/' + it.dataVencimento.slice(0,4)) : '—';
   ov.innerHTML = '<div class="ext-baixa-modal ' + (isEntrada ? 'is-rec' : 'is-pag') + '">'
     + '<div class="ext-baixa-hd">'
-    +   '<div class="icobox">' + (isEntrada ? '💰' : '') + '</div>'
+    /* A caixa do ícone ficava VAZIA no pagamento — um quadrado rosa sem nada,
+       que lê como elemento quebrado. Aqui o ícone tem função: distingue entrada
+       de saída antes de ler o título. Usa a fonte de ícones do app (fkico), a
+       mesma do resto, em vez do emoji que estava só na entrada. */
+    +   '<div class="icobox"><span class="fkico ' + (isEntrada ? 'fkico-in' : 'fkico-out') + '"></span></div>'
     +   '<div class="titcol">'
     +     '<h3>' + (isEntrada ? 'Confirmar Recebimento' : 'Confirmar Pagamento') + '</h3>'
     +     '<div class="sub">' + sub + '</div>'
@@ -77382,6 +77434,7 @@ function extBaixaSave(){
     fat.pagamento = { data, conta, valorPago: valor, juros, multa, desconto: desc,
                       formaPagamento: forma || '',
                       anexo: (Array.isArray(_extBxCompData) && _extBxCompData.length) ? _extBxCompData.slice() : null };
+    try{ cartRegistrarTransfPagamento(fat); }catch(_){}
     if(typeof cartSave === 'function') cartSave();
     if(typeof renderCartoes === 'function'){ try{ renderCartoes(); }catch(_){} }
   } else if(id.startsWith('loan:')){
