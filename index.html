@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787848799"/>
+  <meta name="fk-build" content="forekash-v1787849200"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -65786,11 +65786,30 @@ function cartAceitarPagamentoDoExtrato(faturaId){
     formaPagamento: l.formaPagamento || '', origem: 'extrato', lancamentoId: l.id, anexo: null
   };
   l.faturaPagaId = fat.id;
+  /* Se o banco trouxe o débito como GASTO, ele contaria como saída junto com a
+     fatura — o mesmo dinheiro duas vezes. Pagar fatura é transferência por
+     definição: a despesa aconteceu na compra. Converte e diz que converteu,
+     porque é dado dele que está mudando de tipo. */
+  let _convertido = false;
+  if(l.tipo !== 'transferencia'){
+    l.tipo = 'transferencia';
+    const c2 = (cartoes.list || []).find(x => x && x.id === fat.cartaoId);
+    const nomeCartao = (typeof fkContaDeCartao === 'function') ? fkContaDeCartao(c2) : 'cartão';
+    if(!l.contraparte) l.contraparte = nomeCartao;
+    l.notas = (l.notas ? (l.notas + '\n') : '')
+      + 'Reclassificado como transferência ao dar baixa na fatura que vence '
+      + String(fat.vencimento || '').split('-').reverse().join('/')
+      + ': a despesa já está nas compras do cartão, então o pagamento move dinheiro em vez de gastar.';
+    _convertido = true;
+  }
   try{ if(typeof cartSave === 'function') cartSave(); }catch(_){}
   try{ if(typeof _extSave === 'function') _extSave(); }catch(_){}
   if(typeof renderCartoes === 'function'){ try{ renderCartoes(); }catch(_){} }
   if(typeof renderExtrato === 'function'){ try{ renderExtrato(); }catch(_){} }
-  if(typeof toast === 'function') toast('✓ Fatura baixada com o pagamento do Extrato');
+  if(typeof toast === 'function'){
+    toast('✓ Fatura baixada com o pagamento do Extrato'
+      + (_convertido ? ' · o lançamento virou transferência (era gasto e contaria em dobro)' : ''));
+  }
 }
 try{
   window.cartAcharPagamentoNoExtrato = cartAcharPagamentoNoExtrato;
