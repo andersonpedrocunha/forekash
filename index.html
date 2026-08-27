@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787845980"/>
+  <meta name="fk-build" content="forekash-v1787846329"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -9054,6 +9054,14 @@
     .est-sheet tbody td.stk{background:#fff}
     .est-sheet tbody tr:hover td.stk{background:#F8FAFF}
     .est-sheet tfoot td.stk{background:#0F172A;color:#F9FAFB}
+    /* A faixa do rodapé estava quebrando: as células sticky eram escuras e as
+       de mês herdavam o fundo da linha de cima, então a última linha da
+       planilha aparecia atravessando a barra. Rodapé é uma faixa só, escura de
+       ponta a ponta, e por cima de tudo que rola por baixo dela. */
+    .est-sheet tfoot td{background:#0F172A;color:#F9FAFB}
+    .est-sheet tfoot td.stk{z-index:6}
+    .est-sheet tfoot td.yr-tot{background:#0F172A !important;color:#60A5FA !important}
+    .est-sheet tfoot td.del{background:#0F172A}
 
     /* Input de nome com prefixo de tag clicável */
     .est-name-wrap{display:flex;align-items:center;gap:6px;padding:0 10px;height:100%;min-height:32px}
@@ -86714,8 +86722,13 @@ function _renderEstCartaoRows(year){
         +   ' onchange="setEstTipoCartaoGrupo(\'' + esc(g.chave) + '\', this.value)">' + tipoOpts + '</select>'
         + '</td>'
         + cells
-        + '<td class="yr-tot">' + fmtBR(totalLinha, 2) + '</td>'
-        + '<td></td>'
+        /* Mesma célula de total das linhas normais: fundo rosa, texto vinho e
+           fmtBRL com o "R$". Sem isso, a coluna TOTAL tinha duas aparências —
+           e o olho lê como se fossem grandezas diferentes. */
+        + '<td class="yr-tot" style="padding:0 12px;text-align:right;font-weight:700;background:#FFF5F7;color:#BE185D">'
+        +   (totalLinha ? fmtBRL(totalLinha) : '<span style="color:#D1D5DB">—</span>')
+        + '</td>'
+        + '<td class="del"></td>'
         + '</tr>');
     }
   }catch(e){ console.warn('[est] render cartão:', e && e.message); }
