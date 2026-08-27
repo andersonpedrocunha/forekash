@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787852619"/>
+  <meta name="fk-build" content="forekash-v1787853274"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5114,6 +5114,15 @@
     /* min-width:0 em toda a cadeia: um input dentro de flex se recusa a
        encolher abaixo do próprio tamanho intrínseco sem isso, e empurra o
        resto pra fora da célula. */
+    /* Vínculo do parcelamento na linha da importação. Vermelho quando falta:
+       sem contrato o pagamento não abate saldo devedor. */
+    .ext-imp-parc{margin-top:4px}
+    .ext-imp-parc select{width:100%;padding:3px 6px;border:1px solid #CBD5E1;border-radius:6px;
+      font:inherit;font-size:.7rem;background:#fff;color:#0F172A}
+    .ext-imp-parc.falta select{border-color:#FCA5A5;background:#FEF2F2;color:#B91C1C}
+    .ext-imp-parc.sem{font-size:.68rem;color:#B91C1C}
+    .ext-imp-parc.sem button{border:0;background:none;color:#B91C1C;font:inherit;
+      font-size:.68rem;font-weight:700;text-decoration:underline;cursor:pointer;padding:0}
     .ext-imp-tr-conta{display:flex;align-items:center;gap:5px;min-width:0}
     .ext-imp-tr-conta .fkc{flex:1;min-width:0}
     .ext-imp-tr-conta .fkc-inp{min-width:0}
@@ -72181,6 +72190,26 @@ function _extCategoriasDoModal(){
   if(legado && (legado.value || '').trim()) out.push(legado.value.trim());
   return out;
 }
+/* Contratos de parcelamento ativos — a mesma régua que o modal usa. Fica em
+   função própria porque agora a IMPORTAÇÃO também precisa dela: um pagamento
+   de parcelamento que entra sem contrato vinculado soma no fluxo de caixa e
+   não abate saldo devedor nenhum, e ninguém percebe até a dívida não fechar. */
+function fkParcelamentosAtivos(){
+  try{
+    return ((typeof impostos !== 'undefined' && impostos && impostos.parcelamentos) || [])
+      .filter(x => x && x.ativo !== false && x.saldoInicial > 0 && x.parcelaMensal > 0);
+  }catch(_){ return []; }
+}
+/* A categoria que o Extrato reconhece como guia de parcelamento. */
+function fkEhCategoriaParcelamento(cat){
+  const n = String(cat || '').trim().toLowerCase();
+  return n === 'parcelamento de impostos' || n === 'parcelamento de imposto';
+}
+try{
+  window.fkParcelamentosAtivos = fkParcelamentosAtivos;
+  window.fkEhCategoriaParcelamento = fkEhCategoriaParcelamento;
+}catch(_){}
+
 function _extParcContexto(){
   let hit = null;
   try{
@@ -77744,6 +77773,25 @@ let _extImpState = {
 function _extImpReset(){
   _extImpState = { format: 'ofx', filename:'', raw:'', parsed:[], errors:[], contaDefault: '' };
 }
+/* Seletor do contrato de parcelamento, só na linha que tem essa categoria. */
+function _extImpParcSel(it, i){
+  try{
+    if(!fkEhCategoriaParcelamento(it.categoria)) return '';
+    const ativos = fkParcelamentosAtivos();
+    if(!ativos.length){
+      return '<div class="ext-imp-parc sem">nenhum contrato cadastrado — '
+        + '<button type="button" onclick="impParcModal(null)">cadastrar</button></div>';
+    }
+    const atual = it.impParcId != null ? String(it.impParcId) : '';
+    const opts = '<option value="">— qual parcelamento? —</option>'
+      + ativos.map(x => '<option value="' + x.id + '"' + (String(x.id) === atual ? ' selected' : '') + '>'
+          + _extEsc(x.nome || ('Contrato ' + x.id)) + '</option>').join('');
+    return '<div class="ext-imp-parc' + (atual ? '' : ' falta') + '">'
+      + '<select onchange="extImpSet(' + i + ',&quot;impParcId&quot;,this.value)">' + opts + '</select>'
+      + '</div>';
+  }catch(_){ return ''; }
+}
+
 function _extImpFmtBR(d){
   if(!d) return '—';
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
@@ -83282,6 +83330,13 @@ function _extImpRenderResult(){
   const nSemCat = items.filter(it =>
     !it._ignorar && it.tipo !== 'transferencia' && !(it.categoria || '').trim()
     && !(dupMode === 'skip' && it._dup)).length;
+  /* Guia de parcelamento sem contrato vinculado: entra no caixa e não abate
+     saldo devedor. Mesmo peso do aviso de transferência sem conta — os dois
+     são vínculo faltando, não dado faltando. */
+  const nSemParc = items.filter(it =>
+    !it._ignorar && fkEhCategoriaParcelamento(it.categoria) && !it.impParcId
+    && !(dupMode === 'skip' && it._dup)).length;
+  _extImpState.nSemParc = nSemParc;
   _extImpState.nSusp = nSusp;
   // Soma
   let sumGanho = 0, sumGasto = 0;
@@ -83360,7 +83415,11 @@ function _extImpRenderResult(){
                      'extImpSet(' + i + ',&quot;contaDestino&quot;,this.value)', it.contaDestino ? '' : 'falta')
         + '</label></td>')
       : ('<td class="c-ct">' + fkcCampo('categoria', it.categoria, '—',
-                                        'extImpSet(' + i + ',&quot;categoria&quot;,this.value)', '', it.tipo) + '</td>'
+                                        'extImpSet(' + i + ',&quot;categoria&quot;,this.value)', '', it.tipo)
+        /* Pagamento de parcelamento precisa dizer DE QUAL contrato é. Sem o
+           vínculo ele soma no fluxo de caixa e não abate saldo devedor nenhum
+           — e o buraco só aparece quando a dívida não fecha, meses depois. */
+        + _extImpParcSel(it, i) + '</td>'
         + '<td class="c-fn">' + fkcCampo('contraparte', it.contraparte, '—',
                                         'extImpSet(' + i + ',&quot;contraparte&quot;,this.value)') + '</td>');
     rows += '<tr class="' + (skip ? 'skip ' : '') + (tr ? 'is-transf' : '') + '">'
@@ -83411,6 +83470,12 @@ function _extImpRenderResult(){
       tableHtml += '<div class="ext-imp-aviso-transf">'
         + nTransfFalta + ' transferência(s) sem as duas contas. Sem saber de onde saiu e pra onde foi, '
         + 'o saldo por conta não fecha — informe nas colunas <b>saída</b> e <b>entrada</b>.</div>';
+    }
+    if(nSemParc){
+      tableHtml += '<div class="ext-imp-aviso-transf">'
+        + nSemParc + ' pagamento(s) de <b>Parcelamento de Impostos</b> sem contrato vinculado. '
+        + 'Entram no fluxo de caixa e <b>não abatem saldo devedor</b> — escolha o parcelamento '
+        + 'logo abaixo da categoria.</div>';
     }
     if(nSemCat){
       tableHtml += '<div class="ext-imp-aviso-semcat">'
@@ -83826,6 +83891,21 @@ function extImpConfirm(){
          que o aprendizado usa pra reconhecer o mesmo lançamento na próxima
          importação. Guardar só quando mudou deixava metade dos lançamentos
          sem lastro. */
+      /* Vínculo com o contrato de parcelamento — e quantas parcelas essa guia
+         quita, deduzido do valor pago contra a parcela mensal. É o mesmo
+         cálculo do modal; sem ele o contrato recebe o dinheiro mas não sabe
+         quantas parcelas baixar. */
+      ...(function(){
+        if(!it.impParcId) return {};
+        const P = fkParcelamentosAtivos().find(x => String(x.id) === String(it.impParcId));
+        if(!P) return {};
+        const parcela = (typeof impParcPrevistoMes === 'function')
+          ? (impParcPrevistoMes(P, String(it.data || '').slice(0,7)) || (+P.parcelaMensal * (typeof IMP_FATOR_1A !== 'undefined' ? IMP_FATOR_1A : 1)))
+          : (+P.parcelaMensal || 0);
+        const v = Math.abs(parseFloat(it.valor) || 0);
+        const n = (parcela > 0.005 && v > 0) ? Math.max(1, Math.min(12, Math.floor(v / parcela + 0.02))) : 1;
+        return { impParcId: parseInt(it.impParcId, 10), impParcelas: n };
+      })(),
       descricaoOriginal: it._descOriginal || it.descricao || '',
       notas: ('No extrato: ' + (it._descOriginal || it.descricao || '')
               + (it._arquivo ? ('\nImportado de: ' + it._arquivo) : '')),
