@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787849200"/>
+  <meta name="fk-build" content="forekash-v1787850933"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -76237,9 +76237,30 @@ function catmapAdd(){
   if(!nome){ if(typeof toast === 'function') toast('⚠ Digite um nome de categoria'); inpN.focus(); return; }
   const cor = (inpC && inpC.value) || '#7C3AED';
   const tipo = (tipoEl && tipoEl.value) || 'estrutura';
-  // Dedup: nome único em catmapData (qualquer tipo)
-  const dupCm = (catmapData.categorias || []).find(c => (c.nome||'').trim().toLowerCase() === nome.toLowerCase());
-  if(dupCm){ if(typeof toast === 'function') toast('⚠ Já existe uma categoria com esse nome'); return; }
+  /* Dedup por nome EXATO não bastava: "Empréstimo" e "Empréstimos" passaram
+     as duas, e aí o mesmo gasto se divide em duas linhas do Demonstrativo sem
+     que nada acuse. A comparação ignora acento, caixa, espaço repetido e o
+     plural — que é como a duplicata nasce de verdade, digitando de novo em vez
+     de escolher da lista. */
+  const _catNorm = t => String(t || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+    /* Plural em CADA palavra, não só na última: "Tarifas Bancárias" e "Tarifa
+       Bancaria" são a mesma coisa, e foi assim que a duplicata dele nasceu. */
+    .split(' ').map(w => w.replace(/s$/, '')).join(' ');
+  const alvo = _catNorm(nome);
+  const dupCm = (catmapData.categorias || []).find(c => c && _catNorm(c.nome) === alvo);
+  if(dupCm){
+    const igual = String(dupCm.nome||'').trim().toLowerCase() === nome.toLowerCase();
+    if(typeof toast === 'function'){
+      toast(igual
+        ? '⚠ Já existe uma categoria com esse nome'
+        : ('⚠ Já existe "' + dupCm.nome + '" — use ela em vez de criar uma quase igual. '
+           + 'Duas categorias parecidas dividem o mesmo gasto em duas linhas do Demonstrativo.'), 6000);
+    }
+    inpN.focus(); inpN.select();
+    return;
+  }
   // Lê DRC/DRE do modal (já pré-preenchidos pela sugestão)
   const drcEl = document.getElementById('catmap-modal-drc');
   const dreEl = document.getElementById('catmap-modal-dre');
