@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787781906"/>
+  <meta name="fk-build" content="forekash-v1787845980"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -6060,6 +6060,11 @@
     /* O selo era absoluto no canto e caía EM CIMA do mês ("Março 2026" some
        atrás de "✓ CONCILIADA" num card de 160px). Vira a primeira linha do
        card: ocupa o espaço dela, e nada mais se sobrepõe. */
+    .cart-fat-sug{margin-top:2px;font-size:.6rem;font-weight:800;color:#065F46;
+      background:#D1FAE5;border-radius:5px;padding:2px 6px;text-align:center;cursor:help;
+      letter-spacing:.02em;line-height:1.3}
+    .cart-fat-card .actions button.primary.sug{background:#059669;border-color:#059669}
+    .cart-fat-card .actions button.primary.sug:hover{background:#047857}
     .cart-fat-card.is-conciliada::before{content:'✓ conciliada';align-self:flex-start;
                                             font-size:.58rem;color:#15803D;font-weight:800;letter-spacing:.04em;
                                             text-transform:uppercase;background:#DCFCE7;padding:1px 6px;
@@ -6200,6 +6205,7 @@
       cursor:pointer;user-select:none}
     .ext-pc-chk input{width:15px;height:15px;accent-color:#7C3AED;cursor:pointer}
     /* Botão "Detalhar" da linha da conciliação: abre o modal de sempre. */
+    .ccc-hist.memoria{background:#EEF2FF;border-color:#C7D2FE;color:#3730A3}
     .ccc-hist{align-self:flex-end;height:31px;display:inline-flex;align-items:center;padding:0 10px;
       border-radius:7px;background:#ECFDF5;border:1px solid #A7F3D0;color:#047857;
       font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;
@@ -14864,6 +14870,14 @@
     .est-cartao-desc{color:inherit;cursor:default}
     /* Quantas compras compõem aquele mês. Discreto: o número que importa é o
        valor; a contagem só avisa que a soma tem mais de uma parcela. */
+    /* Mesma despesa em dois lugares: aviso na própria linha, onde o número
+       errado está sendo formado. */
+    .est-dup-cartao{flex:none;margin-left:6px;font-size:.6rem;font-weight:800;color:#7F1D1D;
+      background:#FEE2E2;border:1px solid #FECACA;border-radius:999px;padding:1px 7px;cursor:help}
+    /* Estimativa: em itálico e apagada, pra não se confundir com valor real.
+       O usuário precisa distinguir o que aconteceu do que eu supus. */
+    .est-sheet tr.est-cartao-row td.est-cartao-estim input.est-val-input{
+      font-style:italic;color:#94A3B8}
     .est-cartao-n{margin-left:5px;font-style:normal;font-size:.58rem;font-weight:800;
       color:#6366F1;background:#EEF2FF;border-radius:999px;padding:0 5px;cursor:help;
       vertical-align:top}
@@ -64665,6 +64679,9 @@ function _cartRenderDetail(){
           valCls = 'paga';
         }
         const stLbl = (status === 'paga' ? '● Paga' : (status === 'fechada' ? '⚠ Fechada' : '○ Aberta'));
+        /* Achou o pagamento no Extrato? Propõe a baixa ali mesmo, no card em
+           que ele está olhando — e não numa tela que ele teria que procurar. */
+        const _sugPag = (status !== 'paga') ? cartAcharPagamentoNoExtrato(f) : null;
         let actionBtn = '';
         if(status === 'paga'){
           // Botão extra pra abrir anexo da fatura, se existir
@@ -64673,7 +64690,15 @@ function _cartRenderDetail(){
             + '<button onclick="event.stopPropagation();cartReabrirFatura(' + f.id + ')" title="Voltar pra Em aberto (apaga dados do pagamento)">↩</button>'
             + '<button onclick="event.stopPropagation();cartViewFatura(' + f.id + ')">Ver</button>';
         } else if(tot > 0){
-          actionBtn = '<button class="primary" onclick="event.stopPropagation();cartPagarFatura(' + f.id + ')">Pagar</button><button onclick="event.stopPropagation();cartViewFatura(' + f.id + ')">Ver</button>';
+          actionBtn = (_sugPag
+            ? ('<button class="primary sug" title="Achei no Extrato um débito de R$ '
+               + cartFmtBR(_sugPag.valor) + ' em ' + cartFmtDateBR(_sugPag.l.dataPagamento || _sugPag.l.data)
+               + (_sugPag.l.conta ? (' na conta ' + _sugPag.l.conta) : '')
+               + '. Clique pra dar baixa com esses dados."'
+               + ' onclick="event.stopPropagation();cartAceitarPagamentoDoExtrato(' + f.id + ')">Baixar</button>')
+            : '')
+            + '<button class="primary" onclick="event.stopPropagation();cartPagarFatura(' + f.id + ')">Pagar</button>'
+            + '<button onclick="event.stopPropagation();cartViewFatura(' + f.id + ')">Ver</button>';
         } else {
           actionBtn = '<button onclick="event.stopPropagation();cartViewFatura(' + f.id + ')">Ver</button>';
         }
@@ -64683,6 +64708,10 @@ function _cartRenderDetail(){
           + '<div class="venc">📅 ' + cartFmtDateBR(f.vencimento) + '</div>'
           + '<span class="st ' + status + '">' + stLbl + '</span>'
           + '<div class="val ' + valCls + '">R$ ' + cartFmtBR(valorMostra) + '</div>'
+          + (_sugPag
+              ? ('<div class="cart-fat-sug" title="Vem do Extrato Financeiro — confira antes de baixar.">'
+                 + 'pagamento encontrado no extrato</div>')
+              : '')
           + '<div class="actions">' + actionBtn + '</div>'
         + '</div>';
       }
@@ -64703,7 +64732,10 @@ function _cartRenderDetail(){
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;margin-bottom:8px;flex-wrap:wrap;gap:8px">'
       + '<h3 style="margin:0;font-size:1rem;font-weight:800;color:#0F172A">Lançamentos · ' + cartEsc(cartMesLabel(fatAtual.refY, fatAtual.refM)) + '</h3>'
       + '<div style="display:flex;gap:8px">'
-        + '<button class="cart-btn cart-btn-secondary" onclick="cartImportOFXOpen(' + c.id + ',' + fatAtual.id + ')">Importar OFX</button>'
+        /* O botão "Importar OFX" saiu: fazia o mesmo que "Importar / conciliar
+           fatura" com menos recursos e sem auditoria de leitura. Dois caminhos
+           pro mesmo ato, e o pior deles era o mais visível. A conciliação lê
+           OFX, CSV e PDF. */
         /* "Conciliar fatura" escondia que é POR AQUI que se importa o PDF da
            fatura — ele procurou "Importar fatura", não achou, e concluiu que
            não existia. O botão faz as duas coisas; o nome precisa dizer. */
@@ -65643,6 +65675,71 @@ function cartLancDel(lancId){
 }
 
 // ─── Pagar fatura ───
+/* ══ O PAGAMENTO DA FATURA JÁ ESTÁ NO EXTRATO ═════════════════════════════
+   O ciclo previsto → pago só fecha quando a fatura é marcada como paga, e isso
+   dependia dele lembrar de um passo manual. Só que o pagamento está no extrato
+   bancário: um débito no valor da fatura, perto do vencimento. Achar e propor é
+   trabalho de máquina.
+
+   Proposta, nunca automático: um débito de valor igual pode ser outra coisa, e
+   marcar fatura paga sozinho mexeria no realizado de vários módulos de uma vez. */
+function cartAcharPagamentoNoExtrato(fat){
+  try{
+    if(!fat || fat.status === 'paga') return null;
+    const total = (typeof cartFaturaTotal === 'function') ? cartFaturaTotal(fat.id) : 0;
+    if(!total) return null;
+    const venc = fat.vencimento || '';
+    if(!venc) return null;
+    const d0 = Date.parse(venc + 'T00:00:00');
+    if(isNaN(d0)) return null;
+    const lans = (typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos))
+      ? extratoData.lancamentos : [];
+    const cands = [];
+    for(const l of lans){
+      if(!l || l.tipo === 'ganho') continue;
+      if(l.faturaPagaId) continue;                       /* já usado por outra */
+      const v = Math.abs(parseFloat(l.valorPago || l.valor) || 0);
+      if(!v) continue;
+      /* Tolerância de 1% ou R$ 2 — juros e multa pequenos não podem estragar
+         o casamento, mas 5% deixaria passar fatura de outro mês. */
+      if(Math.abs(v - total) > Math.max(total * 0.01, 2)) continue;
+      const dl = Date.parse((l.dataPagamento || l.data || '') + 'T00:00:00');
+      if(isNaN(dl)) continue;
+      const dias = Math.abs(dl - d0) / 86400000;
+      if(dias > 7) continue;                             /* mesma semana do vencimento */
+      cands.push({ l, dias, dif: Math.abs(v - total), valor: v });
+    }
+    if(!cands.length) return null;
+    cands.sort((a, b) => (a.dif - b.dif) || (a.dias - b.dias));
+    return cands[0];
+  }catch(e){ console.warn('[cart] achar pagamento:', e && e.message); return null; }
+}
+/* Aceita a proposta: marca a fatura paga com os dados do lançamento encontrado
+   e carimba o lançamento, pra ele não ser oferecido de novo pra outra fatura. */
+function cartAceitarPagamentoDoExtrato(faturaId){
+  const fat = (cartoes.faturas || []).find(f => f && f.id === faturaId);
+  if(!fat) return;
+  const achado = cartAcharPagamentoNoExtrato(fat);
+  if(!achado){ if(typeof toast === 'function') toast('Não achei mais esse pagamento no Extrato'); return; }
+  const l = achado.l;
+  fat.status = 'paga';
+  fat.pagamento = {
+    data: l.dataPagamento || l.data || fat.vencimento,
+    conta: l.conta || '', valorPago: achado.valor, juros: 0, multa: 0, desconto: 0,
+    formaPagamento: l.formaPagamento || '', origem: 'extrato', lancamentoId: l.id, anexo: null
+  };
+  l.faturaPagaId = fat.id;
+  try{ if(typeof cartSave === 'function') cartSave(); }catch(_){}
+  try{ if(typeof _extSave === 'function') _extSave(); }catch(_){}
+  if(typeof renderCartoes === 'function'){ try{ renderCartoes(); }catch(_){} }
+  if(typeof renderExtrato === 'function'){ try{ renderExtrato(); }catch(_){} }
+  if(typeof toast === 'function') toast('✓ Fatura baixada com o pagamento do Extrato');
+}
+try{
+  window.cartAcharPagamentoNoExtrato = cartAcharPagamentoNoExtrato;
+  window.cartAceitarPagamentoDoExtrato = cartAceitarPagamentoDoExtrato;
+}catch(_){}
+
 function cartPagarFatura(faturaId){
   const fat = cartoes.faturas.find(f => f.id === faturaId);
   if(!fat) return;
@@ -67777,11 +67874,18 @@ function _cccLinhaNovo(m, idx){
   /* Histórico primeiro: ele sabe o que ESTA empresa faz. Regra fixa é só o
      fallback pra quando nunca se lançou nada parecido. */
   if(m.ofx._cat == null || m.ofx._forn == null){
-    let hist = null;
+    /* Cascata: a correção que ele já fez → o histórico de lançamentos → a regra
+       fixa. A decisão explícita vem primeiro porque foi ele quem tomou. */
+    let mem = null, hist = null;
+    try{ ofxMemLoad(); mem = ofxMemConsultar(m.ofx.descricao); }catch(_){}
     try{ hist = fkSugerirPeloHistorico(m.ofx.descricao); }catch(_){}
-    if(m.ofx._cat  == null) m.ofx._cat  = (hist && hist.categoria)   || _cccSugereCategoria(m.ofx.descricao);
-    if(m.ofx._forn == null) m.ofx._forn = (hist && hist.contraparte) || _cccSugereFornecedor(m.ofx.descricao, forns);
-    m.ofx._doHistorico = !!(hist && (hist.categoria || hist.contraparte));
+    const cat  = (mem && mem.categoria)   || (hist && hist.categoria)   || _cccSugereCategoria(m.ofx.descricao);
+    const forn = (mem && mem.contraparte) || (hist && hist.contraparte) || _cccSugereFornecedor(m.ofx.descricao, forns);
+    if(m.ofx._cat  == null) m.ofx._cat  = cat;
+    if(m.ofx._forn == null) m.ofx._forn = forn;
+    m.ofx._doHistorico  = !!(hist && (hist.categoria || hist.contraparte));
+    m.ofx._daMemoria    = !!(mem && (mem.categoria || mem.contraparte));
+    m.ofx._memVezes     = (mem && mem.vezes) || 0;
   }
   /* A busca por parecido roda SOZINHA, ancorada na data da compra. Perguntar
      "já está lançado?" era jogar pro usuário um trabalho que o app faz melhor:
@@ -67811,9 +67915,12 @@ function _cccLinhaNovo(m, idx){
     + ' onclick="extOpenModal(\'gasto\',\'ccc:' + idx + '\')"'
     + ' title="Abrir no modal de Lançar Gasto — centro de custo, documento, parcelamento">'
     + 'Detalhar</button>';
-  const seloHist = m.ofx._doHistorico
-    ? '<span class="ccc-hist" title="Preenchido pelo histórico: já houve lançamento parecido com esta categoria/fornecedor. Confira antes de aprovar.">pelo histórico</span>'
-    : '';
+  const seloHist = m.ofx._daMemoria
+    ? ('<span class="ccc-hist memoria" title="Você já classificou esta despesa assim '
+       + (m.ofx._memVezes || 1) + ' vez(es) em importações anteriores.">como você classificou</span>')
+    : (m.ofx._doHistorico
+      ? '<span class="ccc-hist" title="Preenchido pelo histórico: já houve lançamento parecido com esta categoria/fornecedor. Confira antes de aprovar.">pelo histórico</span>'
+      : '');
   return '<div class="ccc-novo">'
     + descHtml
     + _cccCbxHtml(idx, 'counter', m.ofx._forn)
@@ -68323,6 +68430,17 @@ function cartConcApply(){
         }catch(_){}
       }
       cartoes.lancamentos.push(lanc);
+      /* APRENDE com a correção. A memória é a mesma do OFX — decidir "IOF é
+         Despesa Financeira" na fatura tem que valer no extrato também, senão
+         ele ensina o app duas vezes. Sem isto, ele reclassificava os mesmos
+         trinta fornecedores em toda fatura, pra sempre. */
+      try{
+        if(typeof ofxMemAprender === 'function' && (lanc.categoria || forn)){
+          ofxMemLoad();
+          ofxMemAprender(m.ofx.descricao, { categoria: lanc.categoria, contraparte: forn, tipo: 'gasto' });
+          ofxMemSave();
+        }
+      }catch(e){ console.warn('[ccc] aprendizado:', e && e.message); }
       /* Parcelas que ainda vão vir. Cada uma na fatura cujo VENCIMENTO cai no
          mês seguinte — é o vencimento que amarra a compra à fatura, não a data
          da compra: uma compra de 28/12 entra na fatura que vence em janeiro. */
@@ -86425,7 +86543,37 @@ function _fkCartaoLancamentosDoModulo(year, filtro){
       g.compras++;
       if(l.tipoId) g.tipoId = l.tipoId;
     }
-    for(const g of grupos.values()) out.push(g);
+    /* ══ RECORRENTE SE PROJETA SOZINHO ═══════════════════════════════════
+       Heroku, Figma, Atlassian e RD Station vêm todo mês. O app tem essa
+       informação e mesmo assim exigia digitar mês a mês. Com três meses ou mais
+       de histórico, os meses futuros do ano nascem preenchidos com a MEDIANA
+       dos observados — mediana, não média, porque uma compra atípica (um add-on
+       comprado uma vez) puxaria a média e projetaria errado o ano inteiro.
+
+       É estimativa e a tela diz isso. Some quando a compra real chega, e some
+       também se ele digitar por cima: o que ele escreveu vale mais que o meu
+       palpite. */
+    const hojeYm = new Date().toISOString().slice(0,7);
+    for(const g of grupos.values()){
+      const obs = Object.keys(g.meses).sort();
+      if(obs.length >= 3 && String(year) === hojeYm.slice(0,4)){
+        const vals = obs.map(k => g.meses[k]).sort((a2,b2) => a2 - b2);
+        const meio = Math.floor(vals.length / 2);
+        const mediana = vals.length % 2 ? vals[meio] : (vals[meio-1] + vals[meio]) / 2;
+        /* Só o que vem DEPOIS do último mês observado, e só no futuro: passado
+           sem compra é passado sem compra, não previsão. */
+        const ultimo = obs[obs.length - 1];
+        for(let m = 0; m < 12; m++){
+          const ym = year + '-' + String(m+1).padStart(2,'0');
+          if(ym <= ultimo || ym < hojeYm) continue;
+          if(g.meses[ym]) continue;
+          g.estimados = g.estimados || {};
+          g.estimados[ym] = mediana;
+        }
+        if(g.estimados) g.recorrente = obs.length;
+      }
+      out.push(g);
+    }
     out.sort((a2, b2) => (a2.cat === b2.cat)
       ? a2.nome.localeCompare(b2.nome, 'pt')
       : a2.cat.localeCompare(b2.cat, 'pt'));
@@ -86456,6 +86604,50 @@ function setEstCartaoProj(chave, ym, valor){
 try{ window.setEstCartaoProj = setEstCartaoProj; window.estCartaoProjGet = estCartaoProjGet; }catch(_){}
 
 
+/* ══ MESMO GASTO EM DOIS LUGARES ══════════════════════════════════════════
+   "Vilaj coworking R$ 150" como linha fixa E a mesma cobrança vindo no cartão
+   soma o custo duas vezes — o mesmo defeito da folha, só que sem nada na tela
+   pra acusar. E é pior que o da folha: erro de duplicidade não aparece em
+   conferência nenhuma, só faz o custo fixo parecer maior do que é.
+
+   O casamento é por NOME, com tolerância: "Vilaj coworking" casa com "VILAJ",
+   e o mês precisa ser o mesmo — despesa fixa cadastrada em janeiro e compra de
+   cartão em março não são a mesma coisa. */
+function _estDupCartaoPorItem(year){
+  const out = new Map();
+  try{
+    const doModulo = _estCatsDoModulo();
+    const grupos = _fkCartaoLancamentosDoModulo(year, cat => doModulo.has(_estNormCat(cat)));
+    if(!grupos.length) return out;
+    const simplifica = t => _estNormCat(t).replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+    const casa = (a, b) => {
+      const x = simplifica(a), y = simplifica(b);
+      if(!x || !y) return false;
+      if(x === y) return true;
+      /* Uma palavra significativa em comum já basta: o nome do fornecedor. */
+      const px = x.split(' ').filter(w => w.length >= 5);
+      const py = y.split(' ').filter(w => w.length >= 5);
+      return px.some(w => py.includes(w));
+    };
+    for(const it of (estrutura.itens || [])){
+      if(!it || !it.nome) continue;
+      for(const g of grupos){
+        if(!casa(it.nome, g.nome)) continue;
+        const meses = [];
+        for(let m = 0; m < 12; m++){
+          const ym = year + '-' + String(m+1).padStart(2,'0');
+          const naLinha = parseFloat((it.valores || {})[ym]) || 0;
+          const noCartao = g.meses[ym] || 0;
+          if(naLinha && noCartao) meses.push({ ym, naLinha, noCartao });
+        }
+        if(meses.length) out.set(it.id, { fornecedor: g.nome, meses });
+      }
+    }
+  }catch(e){ console.warn('[est] duplicidade cartão:', e && e.message); }
+  return out;
+}
+try{ window._estDupCartaoPorItem = _estDupCartaoPorItem; }catch(_){}
+
 function _renderEstCartaoRows(year){
   const rows = [];
   try{
@@ -86475,7 +86667,11 @@ function _renderEstCartaoRows(year){
       const cells = EST_MESES.map((_, m) => {
         const ym = year + '-' + String(m+1).padStart(2,'0');
         const doCartao = g.meses[ym] || 0;
-        const proj = doCartao ? 0 : estCartaoProjGet(g.chave, ym);
+        const digitado = doCartao ? 0 : estCartaoProjGet(g.chave, ym);
+        /* Ordem de quem manda: a compra real, depois o que ele digitou, e só
+           então o meu palpite. */
+        const estimado = (!doCartao && !digitado && g.estimados) ? (g.estimados[ym] || 0) : 0;
+        const proj = digitado || estimado;
         totalLinha += doCartao + proj;
         const fechado = estMesFechado(year, m) ? ' mes-fechado' : '';
         if(doCartao){
@@ -86494,7 +86690,11 @@ function _renderEstCartaoRows(year){
         /* Mês SEM compra é editável: serve pra projetar o que ainda vem desse
            mesmo fornecedor. Quando o próximo import trouxer a compra, ela ocupa
            a célula e a projeção sai de cena — sem somar as duas. */
-        return '<td class="pes-cell est-cartao-mes est-cartao-proj' + fechado + '">'
+        return '<td class="pes-cell est-cartao-mes est-cartao-proj' + fechado
+          + (estimado ? ' est-cartao-estim' : '') + '"'
+          + (estimado ? (' title="Estimativa: este fornecedor apareceu em ' + g.recorrente
+              + ' meses. Digite por cima pra fixar outro valor — quando a compra chegar, ela manda."') : '')
+          + '>'
           + '<input type="text" class="est-val-input" value="' + (proj ? fmtBR(proj, 2) : '') + '"'
           + ' placeholder="—"'
           + ' onblur="setEstCartaoProj(\'' + esc(g.chave) + '\', \'' + ym + '\', this.value)"'
@@ -86693,9 +86893,10 @@ function renderEstSheet(){
       cartaoPorTag.get(chave).push(h);
     }
     const jaSaiu = new Set();
+    const dups = _estDupCartaoPorItem(year);
     for(let q = 0; q < sorted.length; q++){
       const it = sorted[q];
-      rows.push(renderEstRow(it, year));
+      rows.push(renderEstRow(it, year, dups.get(it.id)));
       const t = estTag(it.tagId);
       const chave = t ? _estNormCat(t.nome) : '';
       if(!chave || jaSaiu.has(chave)) continue;
@@ -86740,7 +86941,8 @@ function renderEstSheet(){
         const ym = year + '-' + String(m+1).padStart(2,'0');
         /* O que veio do cartão OU a projeção digitada — nunca os dois: a compra
            ocupa a célula e a projeção some, senão o mês contaria em dobro. */
-        const v = g.meses[ym] || estCartaoProjGet(g.chave, ym);
+        const v = g.meses[ym] || estCartaoProjGet(g.chave, ym)
+                  || ((g.estimados && g.estimados[ym]) || 0);
         if(v){ monthTotals[m] += v; grand += v; }
       }
     }
@@ -86783,7 +86985,7 @@ function estMesFechado(year, mIdx){
 }
 try{ window.estMesFechado = estMesFechado; }catch(_){}
 
-function renderEstRow(it, year){
+function renderEstRow(it, year, dupCartao){
   const tipo = estTipo(it.tipoId);
   const tag  = estTag(it.tagId);
 
@@ -86856,6 +87058,12 @@ function renderEstRow(it, year){
                value="${esc(it.nome)}" placeholder="Descrição da despesa"
                onblur="setEstNome(${it.id}, this.value)"
                onkeydown="if(event.key==='Enter') this.blur()">
+        ${dupCartao ? `<span class="est-dup-cartao" title="${esc(
+            'Esta despesa também vem no cartão como "' + dupCartao.fornecedor + '" em ' +
+            dupCartao.meses.map(x => x.ym.slice(5,7) + '/' + x.ym.slice(2,4)
+              + ' (linha ' + fmtBR(x.naLinha,2) + ' + cartão ' + fmtBR(x.noCartao,2) + ')').join(', ') +
+            '. O mesmo dinheiro está sendo contado duas vezes no custo fixo — apague a linha aqui ou tire a categoria da compra.'
+          )}">⚠ 2×</span>` : ''}
       </div>
     </td>
     <td class="stk stk-2">
@@ -86927,7 +87135,8 @@ function updateEstKpis(){
         const ym = year + '-' + String(m+1).padStart(2,'0');
         /* Só o TOTAL: a parte paga já entrou acima, por estRealizadoExtrato, que
            hoje inclui o cartão. Somar aqui de novo dobraria o valor. */
-        total += (g.meses[ym] || estCartaoProjGet(g.chave, ym));
+        total += (g.meses[ym] || estCartaoProjGet(g.chave, ym)
+                  || ((g.estimados && g.estimados[ym]) || 0));
       }
     }
   }catch(_){}
