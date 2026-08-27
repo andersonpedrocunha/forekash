@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787851552"/>
+  <meta name="fk-build" content="forekash-v1787852619"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5065,6 +5065,8 @@
       background:#fff;border:1px solid #CBD5E1;border-radius:8px;padding:4px;
       box-shadow:0 10px 28px -8px rgba(15,23,42,.28),0 2px 6px rgba(15,23,42,.06)}
     .fkc-pop.on{display:block}
+    .fkc-grupo{padding:6px 12px 3px;font-size:.62rem;font-weight:800;text-transform:uppercase;
+      letter-spacing:.06em;color:#94A3B8;background:#F8FAFC;position:sticky;top:0}
     .fkc-item{padding:6px 9px;border-radius:5px;font-size:.78rem;color:#1E293B;cursor:pointer;
       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25}
     .fkc-item.sel{background:#F1F5F9}
@@ -67747,7 +67749,12 @@ function _fkTokens(txt){
 }
 /* Texto do banco guardado nas observações — a chave mais confiável. */
 function _fkTextoBanco(notas){
-  const m = /(?:Fatura|Extrato)\s*\(banco\):\s*(.+)/i.exec(String(notas || ''));
+  /* Três formas gravadas pelo app, todas querendo dizer a mesma coisa: o texto
+     que o banco escreveu. Reconhecer as três é o que faz o aprendizado valer
+     entre fatura de cartão e extrato bancário. */
+  const t = String(notas || '');
+  const m = /(?:Fatura|Extrato)\s*\(banco\):\s*(.+)/i.exec(t)
+         || /No\s+extrato:\s*(.+)/i.exec(t);
   return m ? m[1].split('\n')[0].trim() : '';
 }
 function _fkAprIndexar(idx, texto, cat, forn){
@@ -79579,11 +79586,26 @@ function fkContrapartesDisponiveis(extras){
   }catch(_){}
   try{
     if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
-      extratoData.lancamentos.forEach(l => { if(l.contraparte) set.add(String(l.contraparte).trim()); });
+      extratoData.lancamentos.forEach(l => {
+        /* Em TRANSFERÊNCIA a contraparte é a conta de destino ("CARTAO BB",
+           "Itaú · CDB"). Colhendo daqui sem filtrar, banco e cartão entravam
+           na lista de cliente/fornecedor — e escolher "Itaú · CDB" como
+           fornecedor de uma despesa é um vínculo que não quer dizer nada. */
+        if(!l || l.tipo === 'transferencia') return;
+        if(l.contraparte) set.add(String(l.contraparte).trim());
+      });
     }
   }catch(_){}
   (extras || []).forEach(c => { if(c) set.add(String(c).trim()); });
-  return [...set].filter(Boolean).sort((a,b) => a.localeCompare(b,'pt'));
+  /* Cinto e suspensório: o que for nome de conta sai, venha de onde vier —
+     lançamento antigo já gravado, memória de importação, ou o próprio arquivo. */
+  let contas = new Set();
+  try{
+    (fkContasDisponiveis() || []).forEach(n => contas.add(String(n).trim().toLowerCase()));
+  }catch(_){}
+  return [...set].filter(Boolean)
+    .filter(n => !contas.has(String(n).trim().toLowerCase()))
+    .sort((a,b) => a.localeCompare(b,'pt'));
 }
 
 /* Todas as contas onde dinheiro pode estar, agrupadas por natureza.
@@ -80108,6 +80130,31 @@ function fkContaOptsHTML(atual, rotuloVazio){
 try{ window.fkContaOptsHTML = fkContaOptsHTML; }catch(_){}
 
 // Lista achatada — pros combos que não têm agrupamento.
+/* Mesma lista de contas, mas na ordem dos grupos — o cabeçalho de grupo só
+   funciona se os itens vierem juntos. Ordem alfabética pura intercalava cartão
+   e conta corrente e o cabeçalho repetiria a cada linha. */
+function fkContasOrdenadasPorGrupo(extras){
+  const out = [];
+  const vistos = new Set();
+  try{
+    for(const g of fkContasAgrupadas()){
+      for(const nome of (g.itens || [])){
+        const k = String(nome).trim().toLowerCase();
+        if(vistos.has(k)) continue;
+        vistos.add(k); out.push(nome);
+      }
+    }
+  }catch(_){}
+  /* Nome que só existe em lançamento antigo ou veio do arquivo entra no fim. */
+  for(const nome of (fkContasDisponiveis(extras) || [])){
+    const k = String(nome).trim().toLowerCase();
+    if(vistos.has(k)) continue;
+    vistos.add(k); out.push(nome);
+  }
+  return out;
+}
+try{ window.fkContasOrdenadasPorGrupo = fkContasOrdenadasPorGrupo; }catch(_){}
+
 function fkContasDisponiveis(extras){
   const set = new Set();
   fkContasAgrupadas().forEach(g => g.itens.forEach(n => set.add(n)));
@@ -80400,7 +80447,7 @@ const FKC_FONTES = {
   contraparte: { lista: () => fkContrapartesDisponiveis(FKC_EXTRAS.contraparte),
                  pergunta: 'papeis',  rotulo: 'cliente / fornecedor' },
   // conta não tem cadastro próprio: nome livre, só sugere o que já existe
-  conta:       { lista: () => fkContasDisponiveis(FKC_EXTRAS.conta),
+  conta:       { lista: () => fkContasOrdenadasPorGrupo(FKC_EXTRAS.conta),
                  pergunta: null,      rotulo: 'conta' }
 };
 function _fkcNorm(s){
@@ -80482,6 +80529,20 @@ function _fkcModulosOfertados(){
   const todos = (typeof CATMAP_MODULOS !== 'undefined') ? CATMAP_MODULOS : [];
   return permitidos ? todos.filter(m => permitidos.includes(m.id)) : todos;
 }
+/* Mapa nome-da-conta → grupo, só quando o campo é de CONTA. Devolve null nos
+   outros campos, e aí a lista sai corrida como antes. */
+function _fkcGrupoDeConta(){
+  try{
+    if(!FKC.inp || FKC.inp.getAttribute('data-fkc') !== 'conta') return null;
+    const mapa = new Map();
+    for(const g of (typeof fkContasAgrupadas === 'function' ? fkContasAgrupadas() : [])){
+      for(const nome of (g.itens || [])) mapa.set(String(nome).trim().toLowerCase(), g.titulo);
+    }
+    if(!mapa.size) return null;
+    return nome => mapa.get(String(nome).trim().toLowerCase()) || 'Outras';
+  }catch(_){ return null; }
+}
+
 function _fkcRender(){
   const p = _fkcPop(), inp = FKC.inp;
   if(!inp){ p.classList.remove('on'); return; }
@@ -80509,9 +80570,23 @@ function _fkcRender(){
             + '<span class="fkc-mais">+</span> criar <b>' + _extEsc(FKC.criar) + '</b></div>';
     }
     const base = FKC.criar ? 1 : 0;
-    html += FKC.opts.map((o, k) =>
-        '<div class="fkc-item' + (FKC.idx === k + base ? ' sel' : '') + '" data-fkc-i="' + k + '">' + _extEsc(o) + '</div>'
-      ).join('');
+    /* CONTA sai agrupada por natureza — Contas, Reserva e investimentos,
+       Cartões. Numa lista corrida, "BANCO C6 S.A.", "C6 Bank · CDB" e "CARTAO
+       C6" ficam lado a lado parecendo a mesma coisa, e escolher errado troca
+       o significado do lançamento (transferência pra aplicação não é o mesmo
+       que pagar cartão). O agrupamento já existia na lista de contas do app;
+       faltava aqui. */
+    const grupoDe = _fkcGrupoDeConta();
+    let ultimoGrupo = null;
+    html += FKC.opts.map((o, k) => {
+      let cab = '';
+      if(grupoDe){
+        const g = grupoDe(o) || 'Outras';
+        if(g !== ultimoGrupo){ cab = '<div class="fkc-grupo">' + _extEsc(g) + '</div>'; ultimoGrupo = g; }
+      }
+      return cab + '<div class="fkc-item' + (FKC.idx === k + base ? ' sel' : '') + '" data-fkc-i="' + k + '">'
+           + _extEsc(o) + '</div>';
+    }).join('');
     if(!html){
       const t = _fkcTipo();
       html = '<div class="fkc-vazio">' + (t === 'ganho' ? 'nenhuma categoria de receita ainda — digite pra criar'
@@ -81728,9 +81803,8 @@ function concApply(){
         descricao: (m._desc && m._desc.trim()) || m.ofx.descricao || 'Importado do OFX',
         valor: m.ofx.valor, tipo: m.ofx.tipo,
         // a descrição do extrato é a prova documental — sobrevive à reescrita
-        descricaoOriginal: (m._desc && m._desc.trim() && m._desc !== m.ofx.descricao) ? m.ofx.descricao : '',
-        notas: (m._desc && m._desc.trim() && m._desc !== m.ofx.descricao)
-                 ? ('No extrato: ' + m.ofx.descricao) : '',
+        descricaoOriginal: m.ofx.descricao || '',
+        notas: 'No extrato: ' + (m.ofx.descricao || ''),
         categoria: m._cat || (m.suggested ? m.suggested.categoria : ''),
         contraparte: m._forn || (m.suggested ? m.suggested.fornecedor : ''),
         conta, status: 'pago', dataPagamento: m.ofx.data,
@@ -83747,9 +83821,14 @@ function extImpConfirm(){
       dataPagamento: it.dataPagamento || '',
       // A descrição do extrato é a prova documental: se o usuário reescreveu,
       // a original tem que sobreviver em algum lugar consultável.
-      descricaoOriginal: (it._descOriginal && it._descOriginal !== it.descricao) ? it._descOriginal : '',
-      notas: (it._descOriginal && it._descOriginal !== it.descricao)
-               ? ('No extrato: ' + it._descOriginal) : '',
+      /* A original vai pras observações SEMPRE, não só quando ele reescreve.
+         É por ela que se confere contra o extrato do banco depois, e é a chave
+         que o aprendizado usa pra reconhecer o mesmo lançamento na próxima
+         importação. Guardar só quando mudou deixava metade dos lançamentos
+         sem lastro. */
+      descricaoOriginal: it._descOriginal || it.descricao || '',
+      notas: ('No extrato: ' + (it._descOriginal || it.descricao || '')
+              + (it._arquivo ? ('\nImportado de: ' + it._arquivo) : '')),
       criadoEm: new Date().toISOString(),
       importadoDe: _extImpState.filename || (_extImpState.format === 'ofx' ? 'OFX' : 'CSV')
     });
@@ -125118,9 +125197,7 @@ function _ofxShowPreview(lancs, fname){
   const partes = [...new Set((extratoData?.lancamentos || []).map(x => x.contraparte).filter(Boolean))].sort();
 
   document.getElementById('ofx-result').innerHTML =
-      '<datalist id="ofx-dl-cat">'  + cats.map(c => '<option value="'+_esc(c)+'">').join('')  + '</datalist>'
-    + '<datalist id="ofx-dl-forn">' + partes.map(c => '<option value="'+_esc(c)+'">').join('') + '</datalist>'
-    + '<div class="ofx-rev">'
+      '<div class="ofx-rev">'
     +   '<div class="ofx-rev-hd">'
     +     '<strong>' + lancs.length + ' lançamentos</strong>'
     +     '<span class="ofx-rev-file">' + _esc(fname) + '</span>'
@@ -125128,9 +125205,9 @@ function _ofxShowPreview(lancs, fname){
     +   '</div>'
     +   '<div class="ofx-rev-bulk">'
     +     '<span>Aplicar em todos:</span>'
-    +     '<input list="ofx-dl-cat" id="ofx-bulk-cat" placeholder="categoria">'
+    +     fkcCampo('categoria', '', 'categoria', '', 'ofx-bulk-campo', 'gasto').replace('class="fkc-inp', 'id="ofx-bulk-cat" class="fkc-inp')
     +     '<button type="button" onclick="ofxBulkAplicar(\'cat\')">aplicar</button>'
-    +     '<input list="ofx-dl-forn" id="ofx-bulk-forn" placeholder="cliente / fornecedor">'
+    +     fkcCampo('contraparte', '', 'cliente / fornecedor', '', 'ofx-bulk-campo').replace('class="fkc-inp', 'id="ofx-bulk-forn" class="fkc-inp')
     +     '<button type="button" onclick="ofxBulkAplicar(\'forn\')">aplicar</button>'
     +     '<span class="ofx-rev-sep"></span>'
     +     '<button type="button" onclick="ofxDetectarTransf()" title="Marca como transferência os pares de mesmo valor, sinais opostos e mesma data">detectar transferências</button>'
@@ -125154,6 +125231,15 @@ function _ofxShowPreview(lancs, fname){
 // desenha as linhas (chamado no boot e a cada alteração)
 function ofxRevRender(){
   const lancs = window._ofxPendingLancs || [];
+  /* Nomes que vieram do arquivo e ainda não estão cadastrados: o componente
+     precisa saber deles, senão o que ele já escolheu numa linha some da lista
+     da linha de baixo. */
+  try{
+    if(typeof fkcExtras === 'function'){
+      fkcExtras('categoria', lancs.map(l => l._cat).filter(Boolean), lancs.map(l => l._tipo));
+      fkcExtras('contraparte', lancs.map(l => l._forn).filter(Boolean));
+    }
+  }catch(_){}
   const _esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
   const fmt = v => Math.abs(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
   const TIPOS = [['ganho','Ganho'],['gasto','Gasto'],['transferencia','Transferência']];
@@ -125185,14 +125271,15 @@ function ofxRevRender(){
       + '<td class="c-tp"><select onchange="ofxRevSet(' + i + ',\'_tipo\',this.value)">'
       +   TIPOS.map(([v,t]) => '<option value="'+v+'"' + (l._tipo===v?' selected':'') + '>'+t+'</option>').join('')
       + '</select></td>'
-      + '<td class="c-ct"><div class="ofx-cria">'
-      +   '<input list="ofx-dl-cat" value="' + _esc(l._cat) + '" placeholder="—" oninput="ofxRevSet(' + i + ',\'_cat\',this.value)">'
-      +   '<button type="button" title="Cadastrar categoria — abre o modal com módulo, cor e linhas de DRC/DRE" onclick="ofxCriarCat(' + i + ')">+</button>'
-      + '</div></td>'
-      + '<td class="c-fn"><div class="ofx-cria">'
-      +   '<input list="ofx-dl-forn" value="' + _esc(l._forn) + '" placeholder="—" oninput="ofxRevSet(' + i + ',\'_forn\',this.value)">'
-      +   '<button type="button" title="Cadastrar — abre a ficha completa (CNPJ, contato, dados de pagamento)" onclick="ofxCriarForn(' + i + ')">+</button>'
-      + '</div></td>'
+      /* MESMO COMPONENTE das outras importações (fkcCampo). Aqui era
+         <input list=datalist>: sem agrupar conta por tipo, sem criar de
+         dentro da lista, e puxando nomes crus do Extrato — que traziam banco e
+         cartão pra lista de fornecedor. Três telas de importação, um
+         componente só. */
+      + '<td class="c-ct">' + fkcCampo('categoria', l._cat, '—',
+            'ofxRevSet(' + i + ',&quot;_cat&quot;,this.value)', '', l._tipo) + '</td>'
+      + '<td class="c-fn">' + fkcCampo('contraparte', l._forn, '—',
+            'ofxRevSet(' + i + ',&quot;_forn&quot;,this.value)') + '</td>'
       + '<td class="c-vl ' + (neg?'neg':'pos') + '">' + (neg?'−':'+') + ' R$ ' + fmt(l.valor)
       +   '<button type="button" class="ofx-detalhar" onclick="ofxDetalhar(' + i + ')"'
       +   ' title="Abrir no modal de Lançar Gasto/Ganho — centro de custo, documento, retenções, parcelamento">Detalhar</button>'
@@ -125248,22 +125335,6 @@ function _ofxDupHtml(l, i){
     + p.map(x => e((x.l.descricao||'sem descrição').slice(0,30)) + ' em ' + ((x.l.data||'').split('-').reverse().join('/'))).join(' · ')
     + '">talvez já lançado</span>';
 }
-function ofxCriarCat(i){
-  const l = (window._ofxPendingLancs||[])[i];
-  if(!l) return;
-  fkCriarCategoria((l._cat||'').trim() || (l._desc || l.descricao || ''), (nome) => {
-    l._cat = nome; ofxRevRender();
-  });
-}
-function ofxCriarForn(i){
-  const l = (window._ofxPendingLancs||[])[i];
-  if(!l) return;
-  const nome = (l._forn||'').trim() || (l._desc || l.descricao || '').trim();
-  if(!nome){ if(typeof toast === 'function') toast('Escreva o nome antes de cadastrar'); return; }
-  fkCriarContraparte(nome, l._tipo === 'ganho' ? 'cliente' : 'fornecedor', (nomeFinal) => {
-    l._forn = nomeFinal; ofxRevRender();
-  });
-}
 /* Detalhar abre o modal de Lançar Gasto/Ganho — o modal do projeto — com o que
    já foi preenchido na linha, e devolve pra linha o que for editado lá. */
 function ofxDetalhar(i){
@@ -125273,7 +125344,6 @@ function ofxDetalhar(i){
   extOpenModal(l._tipo === 'ganho' ? 'ganho' : 'gasto', 'ofx:' + i);
 }
 try{
-  window.ofxCriarCat = ofxCriarCat; window.ofxCriarForn = ofxCriarForn;
   window.ofxDetalhar = ofxDetalhar;
 }catch(_){}
 
