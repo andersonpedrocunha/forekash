@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787850933"/>
+  <meta name="fk-build" content="forekash-v1787851552"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -6651,6 +6651,20 @@
     .catmap-toolbar .catmap-btn-add:hover{background:#6D28D9}
     @media (max-width:980px){ .catmap-toolbar{grid-template-columns:1fr 1fr;} .catmap-toolbar .catmap-btn-add{grid-column:1 / -1} }
     .catmap-list{display:flex;flex-direction:column;gap:6px}
+    /* Categorias que sobraram só nos lançamentos. Fora da lista principal
+       porque não são cadastro — mas visíveis, porque aparecem na hora de
+       escolher e é lá que confundem. */
+    .catmap-orfas{margin-top:14px;border:1px dashed #FDE68A;border-radius:10px;
+      background:#FFFBEB;padding:12px 14px}
+    .catmap-orfas-hd{font-size:.78rem;font-weight:800;color:#78350F;margin-bottom:8px}
+    .catmap-orfas-hd small{display:block;font-weight:500;font-size:.7rem;color:#92400E;
+      margin-top:3px;line-height:1.45}
+    .catmap-orfa{display:flex;align-items:center;gap:10px;padding:6px 0;
+      border-top:1px solid #FDE68A}
+    .catmap-orfa:first-of-type{border-top:0}
+    .catmap-orfa .nm{font-weight:700;color:#0F172A;font-size:.82rem}
+    .catmap-orfa .qt{font-size:.7rem;color:#92400E}
+    .catmap-orfa button{margin-left:auto}
     .catmap-empty{padding:24px;text-align:center;color:#94A3B8;font-style:italic;background:#F8FAFC;border-radius:7px;border:1px dashed #E5E7EB}
     .catmap-row{display:grid;grid-template-columns:18px 1.4fr 1fr 1fr 1fr 160px;gap:10px;align-items:center;padding:9px 12px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:7px;transition:all .12s}
     .catmap-row:hover{background:#fff;border-color:#7C3AED}
@@ -76204,6 +76218,24 @@ function catmapRender(){
     }
     }
   }
+  /* Nomes que sobraram nos lançamentos depois de a categoria ser apagada.
+     Ficam separados e com o mesmo "mesclar", porque é isso que resolve: some
+     do cadastro mas continua na lista de escolha, e a duplicata parece viva. */
+  try{
+    const orfas = catmapOrfas();
+    if(orfas.length){
+      html += '<div class="catmap-orfas">'
+        + '<div class="catmap-orfas-hd">Categorias que só existem em lançamentos'
+        +   '<small>Foram apagadas do cadastro, mas o nome ficou gravado nos lançamentos — '
+        +   'por isso continuam aparecendo na hora de escolher. Mesclar reescreve os lançamentos.</small></div>'
+        + orfas.map(o => '<div class="catmap-orfa">'
+            + '<span class="nm">' + _extEsc(o.nome) + '</span>'
+            + '<span class="qt">' + o.usos + ' lançamento(s)</span>'
+            + '<button class="edit" onclick="catmapMesclarOrfa(' + JSON.stringify(o.nome).replace(/"/g,'&quot;') + ')">⇄ Mesclar</button>'
+          + '</div>').join('')
+        + '</div>';
+    }
+  }catch(e){ console.warn('[catmap] órfãs render:', e && e.message); }
   wrap.innerHTML = headerHtml + html;
 }
 
@@ -76635,6 +76667,71 @@ function _catmapEscolherDestino(origem, outras, refs, total){
     setTimeout(() => { try{ sel.focus(); }catch(_){} }, 30);
   });
 }
+
+/* ══ CATEGORIA ÓRFÃ ═══════════════════════════════════════════════════════
+   Apagar a categoria em Customizações não apaga o NOME que ficou gravado nos
+   lançamentos — e a lista de escolha inclui esses nomes, senão um lançamento
+   antigo apareceria sem categoria nenhuma. Resultado prático: ele apagou
+   "Empréstimo" e continuou vendo "Empréstimo" e "Empréstimos" na lista.
+
+   Aqui elas aparecem separadas, com o mesmo "mesclar" das outras — que é o que
+   resolve de verdade, porque reescreve os lançamentos em vez de só sumir com o
+   cadastro. */
+function catmapOrfas(){
+  const out = new Map();
+  try{
+    const cadastradas = new Set((catmapData.categorias || [])
+      .map(c => c && c.nome ? String(c.nome).trim().toLowerCase() : '').filter(Boolean));
+    const conta = (nome) => {
+      const n = String(nome || '').trim();
+      if(!n || cadastradas.has(n.toLowerCase())) return;
+      out.set(n, (out.get(n) || 0) + 1);
+    };
+    for(const l of (typeof extratoData !== 'undefined' && extratoData.lancamentos) || []){
+      if(l){ conta(l.categoria); for(const it of (l.itens || [])) if(it) conta(it.categoria); }
+    }
+    for(const l of (typeof cartoes !== 'undefined' && cartoes && cartoes.lancamentos) || []){
+      if(l) conta(l.categoria);
+    }
+  }catch(e){ console.warn('[catmap] órfãs:', e && e.message); }
+  return [...out.entries()].map(([nome, usos]) => ({ nome, usos }))
+    .sort((a,b) => b.usos - a.usos);
+}
+/* Mescla uma órfã numa categoria cadastrada: reescreve todos os lançamentos.
+   Não há entrada de catmap pra apagar — ela nunca existiu como cadastro. */
+async function catmapMesclarOrfa(nome){
+  const outras = (catmapData.categorias || [])
+    .filter(x => x && x.nome).sort((a,b) => (a.nome||'').localeCompare(b.nome||'','pt'));
+  if(!outras.length){
+    if(typeof toast === 'function') toast('Não há categoria cadastrada pra receber os lançamentos.');
+    return;
+  }
+  const refs = _catmapRefs(nome);
+  const total = refs.extrato.length + refs.cartoes.length + refs.estruturaItens.length;
+  const destinoNome = await _catmapEscolherDestino({ nome }, outras, refs, total);
+  if(!destinoNome) return;
+  refs.extrato.forEach(l => { l.categoria = destinoNome; });
+  refs.cartoes.forEach(l => { l.categoria = destinoNome; });
+  try{
+    for(const l of (extratoData.lancamentos || [])){
+      for(const it of (l && l.itens) || []){
+        if(it && String(it.categoria||'').trim().toLowerCase() === String(nome).trim().toLowerCase()){
+          it.categoria = destinoNome;
+        }
+      }
+    }
+  }catch(_){}
+  refs.ofxMem.forEach(k => { try{ _ofxMemoria[k].categoria = destinoNome; }catch(_){} });
+  try{ if(typeof ofxMemSave === 'function') ofxMemSave(); }catch(_){}
+  try{ if(typeof _extSave === 'function') _extSave(); }catch(_){}
+  try{ if(typeof cartoesSave === 'function') cartoesSave(); }catch(_){}
+  try{ if(typeof catmapRender === 'function') catmapRender(); }catch(_){}
+  try{ if(typeof renderExtrato === 'function') renderExtrato(); }catch(_){}
+  if(typeof toast === 'function'){
+    toast('✓ "' + nome + '" mesclada em "' + destinoNome + '" · ' + total + ' lançamento(s) reescrito(s)', 5000);
+  }
+}
+try{ window.catmapOrfas = catmapOrfas; window.catmapMesclarOrfa = catmapMesclarOrfa; }catch(_){}
 
 async function catmapMesclar(id){
   const c = catmapById(id);
@@ -80335,12 +80432,16 @@ function _fkcPop(){
   }
   return p;
 }
-function fkcAbrir(inp){
+function fkcAbrir(inp, doFoco){
   const fonte = FKC_FONTES[inp.getAttribute('data-fkc')];
   if(!fonte) return;
   FKC.inp = inp;
   FKC.passo = 'lista';
-  const termo = _fkcNorm(inp.value);
+  /* AO FOCAR, mostra a lista INTEIRA. Filtrando pelo que já estava preenchido,
+     clicar num campo com "CARTAO BB" mostrava só CARTAO BB — e parecia que os
+     outros cartões não existiam. Quem quer trocar precisa ver as opções; quem
+     quer manter não abriu a lista. Digitando, filtra normalmente. */
+  const termo = doFoco ? '' : _fkcNorm(inp.value);
   let lista = [];
   try{ lista = fonte.lista() || []; }catch(_){}
   FKC.opts = termo ? lista.filter(o => _fkcNorm(o).includes(termo)) : lista;
@@ -80553,7 +80654,7 @@ function fkcCampo(fonte, valor, placeholder, onch, extraCls, tipo){
     + '<input class="fkc-inp' + (extraCls ? ' ' + extraCls : '') + '" data-fkc="' + fonte + '"'
     +   (tipo ? ' data-fkc-tipo="' + tipo + '"' : '')
     +   ' value="' + _extEsc(valor || '') + '" placeholder="' + _extEsc(placeholder) + '"'
-    +   ' autocomplete="off" onfocus="fkcAbrir(this)" oninput="fkcAbrir(this)"'
+    +   ' autocomplete="off" onfocus="fkcAbrir(this,true);this.select()" oninput="fkcAbrir(this)"'
     +   ' onkeydown="fkcTecla(event,this)" onblur="fkcFechar()" onchange="' + onch + '">'
     + '<span class="fkc-seta">▼</span></span>';
 }
