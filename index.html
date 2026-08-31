@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788197480"/>
+  <meta name="fk-build" content="forekash-v1788197652"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -19910,6 +19910,11 @@ td.mes.do-extrato{background:#ECFDF5}
               <div class="ext-multi" id="ext-conta-filter" data-kind="conta"></div>
               <div class="ext-cc-filter" id="ext-cc-filter" data-cc-id=""></div>
             </div>
+
+            <!-- Confirmação do que acabou de ser criado. Fica na tela até ele
+                 fechar: toast some antes de ser lido, e "criei e não vi" já foi
+                 confundido com "não criou" vezes demais. -->
+            <div id="ext-criado-aviso" style="display:none"></div>
 
             <!-- KPIs do período -->
             <div class="ext-kpi-row" id="ext-kpis"></div>
@@ -74626,6 +74631,67 @@ function extDeleteCartao(){
 }
 try{ window.extDeleteCartao = extDeleteCartao; }catch(_){}
 
+/* ══ PROVA DE QUE FOI CRIADO ═══════════════════════════════════════════════
+   Depois de salvar, o app confere se o que nasceu está de fato na lista
+   renderizada e diz o que houve. Enquanto isso não existia, "criei e não
+   apareceu" e "não criou" eram a mesma tela — e o diagnóstico virava chute. */
+function extCriadoAvisoFechar(){
+  const el = document.getElementById('ext-criado-aviso');
+  if(el){ el.style.display = 'none'; el.innerHTML = ''; }
+}
+function extCriadoMostrarTudo(){
+  _extState.documentos = []; _extState.clientes = []; _extState.contas = [];
+  _extState.conta = ''; _extState.centroCustoId = '';
+  _extState.grain = 'ano';
+  const ids = window._extUltimosCriados || [];
+  const alvo = (extratoData.lancamentos || []).find(l => ids.includes(l.id));
+  const d = alvo ? (_extDateOf(alvo) || alvo.data || '') : '';
+  const y = /^(\d{4})/.exec(String(d));
+  _extState.period = { y: y ? parseInt(y[1], 10) : new Date().getFullYear() };
+  try{ ['cli','doc','conta','contraparte'].forEach(k => { try{ _extPopulateMulti(k); }catch(_){} }); }catch(_){}
+  extCriadoAvisoFechar();
+  renderExtrato();
+}
+try{ window.extCriadoAvisoFechar = extCriadoAvisoFechar; window.extCriadoMostrarTudo = extCriadoMostrarTudo; }catch(_){}
+
+function _extConfirmarCriacao(ids){
+  const el = document.getElementById('ext-criado-aviso');
+  if(!el) return;
+  window._extUltimosCriados = ids.slice();
+  const criados = (extratoData.lancamentos || []).filter(l => ids.includes(l.id));
+  const box = (cor, bg, bd, html) =>
+    '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:' + bg
+    + ';border:1px solid ' + bd + ';border-left:4px solid ' + cor
+    + ';border-radius:10px;padding:11px 14px;margin:0 0 14px;font-size:.82rem;color:#0F172A">'
+    + html + '</div>';
+  const fechar = '<button type="button" onclick="extCriadoAvisoFechar()" style="margin-left:auto;background:transparent;border:none;color:#64748B;cursor:pointer;font-size:1rem;line-height:1;padding:2px 6px">✕</button>';
+
+  if(criados.length !== ids.length){
+    // Isto seria falha real de gravação — nunca deve acontecer em silêncio.
+    el.innerHTML = box('#DC2626', '#FEF2F2', '#FCA5A5',
+      '<b>Falha ao gravar.</b> ' + criados.length + ' de ' + ids.length
+      + ' lançamentos não estão na base. Nada foi perdido do que já existia — refaça o lançamento.' + fechar);
+    el.style.display = ''; return;
+  }
+  let visiveis = criados;
+  try{ visiveis = _extFilter(criados); }catch(_){}
+  if(visiveis.length === criados.length){
+    const um = criados[0];
+    el.innerHTML = box('#16A34A', '#F0FDF4', '#86EFAC',
+      '<b>✓ ' + criados.length + (criados.length === 1 ? ' lançamento criado' : ' lançamentos criados') + '</b>'
+      + '<span style="color:#475569">' + _extEsc(um.descricao || '') + ' · '
+      + _extDateLbl(_extDateOf(um)) + (criados.length === 1 ? '' : ' e outros') + '</span>' + fechar);
+  } else {
+    el.innerHTML = box('#F59E0B', '#FFFBEB', '#FDE68A',
+      '<b>Criado, mas fora dos filtros da tela.</b> '
+      + (criados.length - visiveis.length) + ' de ' + criados.length
+      + ' não aparecem no período/filtro atual — eles existem.'
+      + '<button type="button" onclick="extCriadoMostrarTudo()" style="background:#F59E0B;border:none;color:#fff;font-family:inherit;font-weight:700;font-size:.76rem;padding:6px 12px;border-radius:7px;cursor:pointer">Mostrar</button>'
+      + fechar);
+  }
+  el.style.display = '';
+}
+
 /* Depois de criar, a tela vai até o lançamento: ajusta o período pra data dele
    e derruba os filtros de cliente/documento/conta que o esconderiam. Sem isso,
    "criei e não apareceu" é indistinguível de "não criou". */
@@ -74807,6 +74873,7 @@ function extSaveModal(tipo){
     let okCount = 0;
     let lastTarget = null;
     let lastRef = null;
+    const idsCriados = [];   // pra conferir depois se apareceram na tela
     // Para cada (data × item):
     // Cada (data × item) vira um lançamento no Extrato. Sem desvio por categoria.
     for(const di of datasGeradas){
@@ -74884,6 +74951,7 @@ function extSaveModal(tipo){
             }
           }catch(_){}
           extratoData.lancamentos.push(lanc);
+          idsCriados.push(id);
           okCount++;
           lastTarget = 'extrato';
           continue;
@@ -74922,6 +74990,9 @@ function extSaveModal(tipo){
          Quem acabou de lançar tem que ver o lançamento. */
       try{ _extIrParaLancamentoCriado(datasGeradas[0], itensList); }catch(e){ console.warn('[FK][extrato] foco pós-criação:', e && e.message); }
       renderExtrato();
+      // Confere na base + nos filtros e mostra o resultado na tela, não em toast.
+      try{ if(idsCriados.length) _extConfirmarCriacao(idsCriados); }
+      catch(e){ console.warn('[FK][extrato] confirmação pós-criação:', e && e.message); }
       if(typeof toast === 'function'){
         const lblMod = lastTarget === 'estrutura' ? 'Estrutura de Custos'
                      : lastTarget === 'extrato' ? 'Extrato Financeiro'
