@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788191809"/>
+  <meta name="fk-build" content="forekash-v1788193046"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -20438,7 +20438,7 @@ td.mes.do-extrato{background:#ECFDF5}
                 <select id="pes-reajsim-bulk-mes"></select>
               </span>
               <span class="pes-reajsim-field pct">
-                <input type="text" id="pes-reajsim-bulk-pct" placeholder="ex.: 5,50">
+                <input type="text" id="pes-reajsim-bulk-pct" placeholder="ex.: 5,5000">
               </span>
               <!-- "Simular", não "Aplicar": este botão só grava a REGRA da
                    simulação. Quem mexe no salário de verdade é o do rodapé.
@@ -107206,6 +107206,10 @@ function togglePesReaj(year, mIdx){
 }
 
 // ─── Simulação de reajuste mensal por tipo (aba = ano) ───
+/* Reajuste com 4 casas. Percentual de reajuste quase nunca é redondo: ele vem
+   de um salário-alvo (7.000 → 9.000 dá 28,5714%), e cortar em 2 casas devolve
+   um salário diferente do que foi combinado na mesa. */
+const PES_REAJ_DEC = 4;
 let pesReajSimModalYear = null;
 
 // Anos disponíveis para configurar reajuste (anos cadastrados ≥ ano atual).
@@ -107450,7 +107454,7 @@ function renderPesReajSimList(){
     const k = 'p:' + pe.id;
     const raw = rawMap[k] || null;
     const complete = !!(raw && raw.key && raw.pct);
-    const pctVal = (raw && raw.pct) ? fmtBR(raw.pct, 2) : '';
+    const pctVal = (raw && raw.pct) ? fmtBR(raw.pct, PES_REAJ_DEC) : '';
     const mesVal = (raw && raw.key) ? raw.key : '';
     const tp = (pessoas.tipos || []).find(x => x.id === pe.tipoId);
     const efet = _pesReajSimRegraEfetiva(pe, rawMap);
@@ -107466,8 +107470,8 @@ function renderPesReajSimList(){
         </select>
       </span>
       <span class="pes-reajsim-field pct">
-        <input type="text" placeholder="ex.: 5,50" value="${pctVal}"
-               onblur="setPesReajSimField('${esc(k)}','pct',this.value); this.value=(this.value && !isNaN(parseBR(this.value)))?fmtBR(parseBR(this.value),2):''"
+        <input type="text" placeholder="ex.: 5,5000" value="${pctVal}"
+               onblur="setPesReajSimField('${esc(k)}','pct',this.value); this.value=(this.value && !isNaN(parseBR(this.value)))?fmtBR(parseBR(this.value),${PES_REAJ_DEC}):''"
                onfocus="this.value=this.value.replace(/\\./g,'');this.select()"
                onkeydown="if(event.key==='Enter')this.blur()">
       </span>
@@ -107480,7 +107484,7 @@ function renderPesReajSimList(){
   const linhaTipo = (t) => {
     const raw = rawMap[t.id] || null;
     const complete = !!(raw && raw.key && raw.pct);
-    const pctVal = (raw && raw.pct) ? fmtBR(raw.pct, 2) : '';
+    const pctVal = (raw && raw.pct) ? fmtBR(raw.pct, PES_REAJ_DEC) : '';
     const mesVal = (raw && raw.key) ? raw.key : '';
     return `<div class="pes-reajsim-tipo${complete?' has-rule':''}" data-tipo="${esc(t.id)}">
       <div class="pes-reajsim-tipo-lbl">
@@ -107493,9 +107497,9 @@ function renderPesReajSimList(){
         </select>
       </span>
       <span class="pes-reajsim-field pct">
-        <input type="text" placeholder="ex.: 5,50" value="${pctVal}"
+        <input type="text" placeholder="ex.: 5,5000" value="${pctVal}"
                data-cellref="reajsim:${esc(t.id)}:${year}:pct"
-               onblur="setPesReajSimField('${esc(t.id)}','pct',this.value); this.value=(this.value && !isNaN(parseBR(this.value)))?fmtBR(parseBR(this.value),2):''"
+               onblur="setPesReajSimField('${esc(t.id)}','pct',this.value); this.value=(this.value && !isNaN(parseBR(this.value)))?fmtBR(parseBR(this.value),${PES_REAJ_DEC}):''"
                onfocus="this.value=this.value.replace(/\\./g,'');this.select()"
                onkeydown="if(event.key==='Enter')this.blur()">
       </span>
@@ -107546,7 +107550,7 @@ function renderPesReajSimList(){
     const fora = gente.filter(p => !idsTipo.has(p.tipoId));
     html += `<div class="pes-reajsim-tipo has-rule" style="grid-template-columns:1fr auto">
       <div class="pes-reajsim-tipo-lbl">
-        <span class="nm">Reajuste de ${fmtBR(geral.pct, 2)}% em ${esc(_pesReajSimMesLabel(geral.key))}
+        <span class="nm">Reajuste de ${fmtBR(geral.pct, PES_REAJ_DEC)}% em ${esc(_pesReajSimMesLabel(geral.key))}
           <small class="pes-reajsim-sub">${tipos.length} ${tipos.length === 1 ? 'tipo' : 'tipos'} · ${cobertas.length} ${cobertas.length === 1 ? 'pessoa' : 'pessoas'}</small></span>
       </div>
       <div style="text-align:right;font-weight:800;font-size:.82rem;color:#B45309;white-space:nowrap">
@@ -107579,7 +107583,7 @@ function renderPesReajSimList(){
       + '<div class="pes-reajsim-empty" style="text-align:left">'
       + comIndiv.map(p => {
           const r = rawMap['p:' + p.id];
-          return '<b>' + esc(pesRegView(p).nome || 'sem nome') + '</b> ' + fmtBR(r.pct, 2)
+          return '<b>' + esc(pesRegView(p).nome || 'sem nome') + '</b> ' + fmtBR(r.pct, PES_REAJ_DEC)
             + '% em ' + esc(_pesReajSimMesLabel(r.key));
         }).join(' · ')
       + ' — <a style="cursor:pointer;text-decoration:underline" onclick="setPesReajSimModo(\'pessoa\')">ver por pessoa</a></div>';
@@ -107609,7 +107613,7 @@ function _pesReajSimGeralAtual(year){
 
    Série 188 do Banco Central. Cacheado por 12h: é número mensal, buscar a cada
    abertura de modal seria bater no BC à toa. */
-const FK_INPC_KEY = 'forekash:inpc12m:v1';
+const FK_INPC_KEY = 'forekash:inpc12m:v2';
 async function fkInpc12m(){
   try{
     const cache = JSON.parse(localStorage.getItem(FK_INPC_KEY) || 'null');
@@ -107622,7 +107626,9 @@ async function fkInpc12m(){
     let acc = 1;
     for(const x of arr) acc *= (1 + (parseFloat(String(x.valor).replace(',','.')) || 0) / 100);
     const dado = {
-      pct: Math.round((acc - 1) * 10000) / 100,
+      // 4 casas: o acumulado de 12 meses tem precisão real além da segunda, e
+      // é esse número que vai pro campo quando ele clica em "usar".
+      pct: Math.round((acc - 1) * 1000000) / 10000,
       de: arr[0].data, ate: arr[arr.length-1].data,
       buscadoEm: Date.now()
     };
@@ -107642,13 +107648,13 @@ async function fkInpcMostrar(){
     return;
   }
   const mes = (iso) => { const p2 = String(iso).split('/'); return p2.length === 3 ? (p2[1] + '/' + p2[2]) : iso; };
-  host.innerHTML = '<b>INPC acumulado 12 meses: ' + fmtBR(d.pct, 2) + '%</b>'
+  host.innerHTML = '<b>INPC acumulado 12 meses: ' + fmtBR(d.pct, PES_REAJ_DEC) + '%</b>'
     + '<small>' + mes(d.de) + ' a ' + mes(d.ate) + ' · índice usado em reajuste salarial</small>'
     + '<button type="button" onclick="fkInpcUsar(' + d.pct + ')">usar como referência</button>';
 }
 function fkInpcUsar(pct){
   const el = document.getElementById('pes-reajsim-bulk-pct');
-  if(el){ el.value = fmtBR(pct, 2); el.focus(); }
+  if(el){ el.value = fmtBR(pct, PES_REAJ_DEC); el.focus(); }
   if(typeof toast === 'function') toast('INPC preenchido — escolha o mês e clique em Simular');
 }
 try{ window.fkInpc12m = fkInpc12m; window.fkInpcUsar = fkInpcUsar; }catch(_){}
@@ -107853,7 +107859,7 @@ function renderPesReajSimBanner(){
     const [y, mStr] = String(r.key).split('-');
     const mi = Math.max(0, Math.min(11, (parseInt(mStr,10) || 1) - 1));
     const mes = (PES_MESES[mi] || '').toUpperCase();
-    const pct = fmtBR(r.pct, 2) + '%';
+    const pct = fmtBR(r.pct, PES_REAJ_DEC) + '%';
     const nome = esc(tipoNome[r.tipoId] || r.tipoId);
     const inc  = pesReajSimIncreaseForRule(r);
     totalInc += inc;
