@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788197652"/>
+  <meta name="fk-build" content="forekash-v1788197807"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -74698,21 +74698,23 @@ function _extConfirmarCriacao(ids){
 function _extIrParaLancamentoCriado(dataISO, itens){
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dataISO || ''));
   if(!m) return;
-  const y = parseInt(m[1], 10), mo = parseInt(m[2], 10), d = parseInt(m[3], 10);
+  const y = parseInt(m[1], 10), d = parseInt(m[3], 10);
+  /* _extState.period.m é 0-INDEXADO — _extPeriodRange faz pad(p.m+1). Gravar o
+     mês 1-indexado aqui mandava a tela pro mês seguinte: lançamento de janeiro
+     com a tela em fevereiro, lista vazia, e a leitura de novo é "não criou". */
+  const mo0 = parseInt(m[2], 10) - 1;
   const p = _extState.period || {};
   const foraDoPeriodo =
       (_extState.grain === 'ano'    && p.y !== y)
-   || (_extState.grain === 'mes'    && (p.y !== y || p.m !== mo))
-   || (_extState.grain === 'dia'    && (p.y !== y || p.m !== mo || p.d !== d))
+   || (_extState.grain === 'mes'    && (p.y !== y || p.m !== mo0))
+   || (_extState.grain === 'dia'    && (p.y !== y || p.m !== mo0 || p.d !== d))
    || (_extState.grain === 'semana' && true); // semana: sempre reposiciona, o cálculo é do render
   if(foraDoPeriodo){
-    if(_extState.grain === 'semana' || _extState.grain === 'dia'){
-      _extState.grain = 'mes';
-      _extState.period = { y, m: mo };
-    } else if(_extState.grain === 'ano'){
+    if(_extState.grain === 'ano'){
       _extState.period = { y };
     } else {
-      _extState.period = { y, m: mo };
+      _extState.grain = 'mes';
+      _extState.period = { y, m: mo0 };
     }
   }
   // Filtro de cliente que não contém o que acabou de nascer esconderia a linha.
@@ -74728,7 +74730,7 @@ function _extIrParaLancamentoCriado(dataISO, itens){
   try{ if(typeof _extPopulateMulti === 'function'){ ['cli','doc','conta','contraparte'].forEach(k => { try{ _extPopulateMulti(k); }catch(_){} }); } }catch(_){}
   if((foraDoPeriodo || limpou) && typeof toast === 'function'){
     toast(foraDoPeriodo
-      ? ('Mostrando ' + String(mo).padStart(2,'0') + '/' + y + ' — período do lançamento criado')
+      ? ('Mostrando ' + String(mo0 + 1).padStart(2,'0') + '/' + y + ' — período do lançamento criado')
       : 'Filtros limpos pra mostrar o lançamento criado');
   }
 }
