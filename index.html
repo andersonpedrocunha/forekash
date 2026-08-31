@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788193245"/>
+  <meta name="fk-build" content="forekash-v1788196526"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -70696,6 +70696,38 @@ function _extPopulateMulti(kind){
       + '<div class="ext-multi-options">' + listHtml + '</div>'
     + '</div>';
 }
+/* Fecha o multi-select ao clicar fora ou apertar Esc. Um handler por kind,
+   guardado, pra não empilhar listener a cada abertura. */
+const _extMultiOffHandlers = {};
+function _extMultiFecharFora(kind){
+  const cfg = _extMultiKindCfg(kind);
+  _extMultiDesligarFora(kind);
+  const fechar = () => {
+    const w = document.getElementById(cfg.wrapId);
+    const l = document.getElementById(cfg.listId);
+    if(l) l.setAttribute('hidden','');
+    const b = w && w.querySelector('.ext-multi-btn');
+    if(b) b.classList.remove('is-open');
+    _extMultiSearch[kind] = '';
+    _extMultiDesligarFora(kind);
+  };
+  const onDown = (e) => {
+    const w = document.getElementById(cfg.wrapId);
+    if(w && w.contains(e.target)) return;
+    fechar();
+  };
+  const onKey = (e) => { if(e.key === 'Escape') fechar(); };
+  _extMultiOffHandlers[kind] = { onDown, onKey };
+  document.addEventListener('mousedown', onDown);
+  document.addEventListener('keydown', onKey);
+}
+function _extMultiDesligarFora(kind){
+  const h = _extMultiOffHandlers[kind];
+  if(!h) return;
+  document.removeEventListener('mousedown', h.onDown);
+  document.removeEventListener('keydown', h.onKey);
+  delete _extMultiOffHandlers[kind];
+}
 function _extMultiToggle(kind){
   const cfg = _extMultiKindCfg(kind);
   const wrap = document.getElementById(cfg.wrapId);
@@ -70718,20 +70750,18 @@ function _extMultiToggle(kind){
     setTimeout(() => {
       const s = document.getElementById(cfg.searchId);
       if(s) s.focus();
-      const off = (e) => {
-        if(wrap && wrap.contains(e.target)) return;
-        list.setAttribute('hidden','');
-        if(btn) btn.classList.remove('is-open');
-        // limpa busca interna ao fechar
-        _extMultiSearch[kind] = '';
-        document.removeEventListener('mousedown', off);
-      };
-      document.addEventListener('mousedown', off);
+      /* Busca os nós PELO ID na hora do clique, não pelas referências de agora.
+         Marcar um item chama _extPopulateMulti, que refaz o innerHTML do wrap:
+         o `list` capturado aqui vira nó órfão, e o handler passava a esconder um
+         elemento fora da tela enquanto o dropdown visível seguia aberto —
+         clicar fora não fechava mais nada. */
+      _extMultiFecharFora(kind);
     }, 0);
   } else {
     list.setAttribute('hidden','');
     if(btn) btn.classList.remove('is-open');
     _extMultiSearch[kind] = '';
+    _extMultiDesligarFora(kind);
   }
 }
 function _extMultiToggleVal(kind, val){
@@ -74737,12 +74767,10 @@ function extSaveModal(tipo){
     let lastTarget = null;
     let lastRef = null;
     // Para cada (data × item):
-    //  - Se categoria tem catmap entry com moduloId='extrato', cria SÓ manual em extratoData
-    //  - Senão, dispara auto-propagação (estrutura/receita)
+    // Cada (data × item) vira um lançamento no Extrato. Sem desvio por categoria.
     for(const di of datasGeradas){
       for(const it of itensList){
         const itemCatNome = it.categoria || catFinal;
-        const cmEntry = (typeof catmapFindByNome === 'function') ? catmapFindByNome(itemCatNome) : null;
         /* LANÇAMENTO FEITO NO EXTRATO NASCE NO EXTRATO — SEMPRE.
 
            Antes, só categoria com moduloId='extrato' virava lançamento aqui.
@@ -74761,10 +74789,14 @@ function extSaveModal(tipo){
            dinheiro nunca entra no Extrato, então o módulo também não vê como
            realizado — vira projeção fantasma.
 
-           Válvula de escape, sem precisar de deploy:
-             localStorage.setItem('fk_extrato_propaga','1')  → volta a propagar */
-        const _propagaLegado = (()=>{ try{ return localStorage.getItem('fk_extrato_propaga') === '1'; }catch(_){ return false; } })();
-        const isExtratoOnly = !_propagaLegado || !!(cmEntry && cmEntry.moduloId === 'extrato');
+           A válvula fk_extrato_propaga que revertia isso FOI REMOVIDA. Ela era
+           rede de transição e virou armadilha: com ela ligada num navegador,
+           este mesmo bug voltava inteiro — gasto em "Folha (Pessoas)" sumia do
+           Extrato — e ninguém tinha como saber por quê olhando a tela. Uma
+           chave de localStorage que ressuscita o pior defeito do módulo não é
+           válvula, é recaída esperando acontecer. A invariante agora é
+           incondicional. */
+        const isExtratoOnly = true;
         if(isExtratoOnly){
           // Cria manual em extratoData.lancamentos
           const id = extratoData.nextId++;
