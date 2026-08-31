@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1787853274"/>
+  <meta name="fk-build" content="forekash-v1788186408"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -14193,6 +14193,25 @@
                                   pointer-events:none;transform:translateY(-50%)}
     .pes-reajsim-field input::placeholder{color:#94A3B8;font-weight:500}
 
+    .pes-reajsim-inpc{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+      margin:0 0 10px;padding:9px 13px;border-radius:9px;background:#F0FDF4;
+      border:1px solid #BBF7D0;font-size:.8rem;color:#065F46}
+    .pes-reajsim-inpc b{font-weight:800}
+    .pes-reajsim-inpc small{color:#047857;font-size:.7rem}
+    .pes-reajsim-inpc button{margin-left:auto;padding:4px 11px;border:1px solid #10B981;
+      border-radius:7px;background:#fff;color:#047857;font:inherit;font-size:.72rem;
+      font-weight:700;cursor:pointer}
+    .pes-reajsim-inpc button:hover{background:#ECFDF5}
+    .pes-reajsim-inpc .carregando{color:#64748B}
+    .pes-reajsim-inpc .erro{color:#92400E}
+    .pes-reajsim-inpc:has(.erro){background:#FFFBEB;border-color:#FDE68A}
+    .pes-reajsim-inpc:empty{display:none}
+    .pes-reajsim-sep{margin:14px 0 6px;font-size:.72rem;font-weight:800;text-transform:uppercase;
+      letter-spacing:.05em;color:#475569;border-top:1px solid #E2E8F0;padding-top:12px}
+    .pes-reajsim-sep small{display:block;font-weight:500;text-transform:none;letter-spacing:0;
+      font-size:.7rem;color:#94A3B8;margin-top:2px}
+    .pes-reajsim-sub{display:block;font-size:.66rem;color:#94A3B8;font-weight:500;margin-top:1px}
+    .pes-reajsim-tipo.pessoa .pes-reajsim-tipo-dot{width:8px;height:8px;opacity:.7}
     .pes-reajsim-tipo{display:grid;grid-template-columns:1fr 170px 130px 36px;
                       gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--bdr);
                       border-radius:10px;margin-bottom:8px;background:#fff;
@@ -20338,6 +20357,9 @@ td.mes.do-extrato{background:#ECFDF5}
               Deixe em branco os tipos que não serão reajustados.
             </p>
             <div class="pes-reajsim-years" id="pes-reajsim-years"></div>
+            <!-- Referência de mercado, buscada na hora: sem ela o percentual é
+                 chute, e a outra parte da mesa vai chegar com o número. -->
+            <div class="pes-reajsim-inpc" id="pes-reajsim-inpc"></div>
             <div class="pes-reajsim-bulk">
               <span class="pes-reajsim-bulk-lbl">Preencher todos</span>
               <span class="pes-reajsim-field sel">
@@ -53682,9 +53704,20 @@ function pesReajSimAllRules(){
 function pesReajSimFactor(p, key){
   const sim = pessoas && pessoas.reajSim;
   if(!sim || !sim.enabled) return 1;
+  /* Regra POR PESSOA vence a do tipo. Reajuste não é sempre linear: promoção,
+     acerto pontual e negociação individual são o caso comum, e antes só dava
+     pra simular no tipo inteiro. A chave da pessoa é "p:<id>" no mesmo mapa —
+     mesma estrutura, mesmo salvamento, sem migração de dados.
+
+     Havendo regra da pessoa, a do tipo NÃO se acumula: quem define reajuste
+     individual está dizendo qual é o dele, não "o do tipo mais um extra". */
+  const chavePessoa = 'p:' + p.id;
+  const daPessoa = pesReajSimAllRules().filter(r => r.tipoId === chavePessoa);
+  const aplicaveis = daPessoa.length
+    ? daPessoa
+    : pesReajSimAllRules().filter(r => r.tipoId === p.tipoId);
   let factor = 1;
-  for(const r of pesReajSimAllRules()){
-    if(r.tipoId !== p.tipoId) continue;
+  for(const r of aplicaveis){
     if(key < r.key) continue;
     factor *= (1 + (r.pct / 100));
   }
@@ -107163,6 +107196,34 @@ function renderPesReajSimList(){
     return;
   }
   const rawMap = (pessoas.reajSim && pessoas.reajSim.rulesByYear && pessoas.reajSim.rulesByYear[year]) || {};
+  /* Linha de uma pessoa: mesma forma da linha de tipo, com a chave "p:<id>". */
+  const linhaPessoa = (pe) => {
+    const k = 'p:' + pe.id;
+    const raw = rawMap[k] || null;
+    const complete = !!(raw && raw.key && raw.pct);
+    const pctVal = (raw && raw.pct) ? fmtBR(raw.pct, 2) : '';
+    const mesVal = (raw && raw.key) ? raw.key : '';
+    const tp = (pessoas.tipos || []).find(x => x.id === pe.tipoId);
+    return `<div class="pes-reajsim-tipo pessoa${complete?' has-rule':''}" data-tipo="${esc(k)}">
+      <div class="pes-reajsim-tipo-lbl">
+        <span class="pes-reajsim-tipo-dot" style="background:${esc((tp&&tp.color)||'#E5E7EB')}"></span>
+        <span class="nm">${esc(pesRegView(pe).nome || 'sem nome')}</span>
+        <small class="pes-reajsim-sub">${esc((tp && tp.nome) || '')}</small>
+      </div>
+      <span class="pes-reajsim-field sel">
+        <select onchange="setPesReajSimField('${esc(k)}','key',this.value)">
+          ${pesReajSimMesOptionsForYear(year, mesVal)}
+        </select>
+      </span>
+      <span class="pes-reajsim-field pct">
+        <input type="text" placeholder="ex.: 5,50" value="${pctVal}"
+               onblur="setPesReajSimField('${esc(k)}','pct',this.value); this.value=(this.value && !isNaN(parseBR(this.value)))?fmtBR(parseBR(this.value),2):''"
+               onfocus="this.value=this.value.replace(/\\./g,'');this.select()"
+               onkeydown="if(event.key==='Enter')this.blur()">
+      </span>
+      <button class="pes-reajsim-clear" onclick="clearPesReajSim('${esc(k)}')" title="Limpar regra desta pessoa/ano">🗑</button>
+    </div>`;
+  };
   host.innerHTML = tipos.map(t => {
     const raw = rawMap[t.id] || null;
     const complete = !!(raw && raw.key && raw.pct);
@@ -107189,8 +107250,74 @@ function renderPesReajSimList(){
         <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>
       </button>
     </div>`;
-  }).join('');
+  }).join('')
+  /* POR PESSOA, depois dos tipos. Reajuste linear por tipo é o caso fácil;
+     promoção, acerto e negociação individual são o caso comum, e não tinham
+     onde ser simulados. Quem tem regra própria ignora a do tipo — está dizendo
+     qual é o reajuste dele, não um extra por cima. */
+  + (function(){
+      const gente = ((pessoas && pessoas.people) || []).filter(x => x && !x.sim && x.ativo !== false);
+      if(!gente.length) return '';
+      const comRegra = gente.filter(x => rawMap['p:' + x.id]);
+      const semRegra = gente.filter(x => !rawMap['p:' + x.id]);
+      const ordenada = comRegra.concat(semRegra);
+      return '<div class="pes-reajsim-sep">Por pessoa'
+        + '<small>Sobrepõe a regra do tipo — use pra promoção, acerto ou negociação individual.</small></div>'
+        + ordenada.map(linhaPessoa).join('');
+    })();
 }
+/* ══ INPC ACUMULADO 12 MESES ══════════════════════════════════════════════
+   INPC, não IPCA: é o índice que as convenções coletivas usam pra reajuste
+   salarial (mede a cesta de quem ganha de 1 a 5 salários mínimos). O IPCA é o
+   índice da meta de inflação — outro trabalho. Vale como referência mesmo pra
+   PJ, porque é o número que a outra parte da mesa vai citar.
+
+   Série 188 do Banco Central. Cacheado por 12h: é número mensal, buscar a cada
+   abertura de modal seria bater no BC à toa. */
+const FK_INPC_KEY = 'forekash:inpc12m:v1';
+async function fkInpc12m(){
+  try{
+    const cache = JSON.parse(localStorage.getItem(FK_INPC_KEY) || 'null');
+    if(cache && cache.buscadoEm && (Date.now() - cache.buscadoEm) < 12*3600*1000) return cache;
+  }catch(_){}
+  try{
+    const r = await fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.188/dados/ultimos/12?formato=json');
+    const arr = await r.json();
+    if(!Array.isArray(arr) || arr.length < 12) return null;
+    let acc = 1;
+    for(const x of arr) acc *= (1 + (parseFloat(String(x.valor).replace(',','.')) || 0) / 100);
+    const dado = {
+      pct: Math.round((acc - 1) * 10000) / 100,
+      de: arr[0].data, ate: arr[arr.length-1].data,
+      buscadoEm: Date.now()
+    };
+    try{ localStorage.setItem(FK_INPC_KEY, JSON.stringify(dado)); }catch(_){}
+    return dado;
+  }catch(e){ console.warn('[fk] INPC:', e && e.message); return null; }
+}
+/* Preenche a referência no modal — e o botão que joga o número no campo de
+   preencher-todos, que é onde ele seria digitado à mão. */
+async function fkInpcMostrar(){
+  const host = document.getElementById('pes-reajsim-inpc');
+  if(!host) return;
+  host.innerHTML = '<span class="carregando">buscando INPC…</span>';
+  const d = await fkInpc12m();
+  if(!d){
+    host.innerHTML = '<span class="erro">não consegui buscar o INPC agora — sem internet ou o Banco Central fora do ar</span>';
+    return;
+  }
+  const mes = (iso) => { const p2 = String(iso).split('/'); return p2.length === 3 ? (p2[1] + '/' + p2[2]) : iso; };
+  host.innerHTML = '<b>INPC acumulado 12 meses: ' + fmtBR(d.pct, 2) + '%</b>'
+    + '<small>' + mes(d.de) + ' a ' + mes(d.ate) + ' · índice usado em reajuste salarial</small>'
+    + '<button type="button" onclick="fkInpcUsar(' + d.pct + ')">usar como referência</button>';
+}
+function fkInpcUsar(pct){
+  const el = document.getElementById('pes-reajsim-bulk-pct');
+  if(el){ el.value = fmtBR(pct, 2); el.focus(); }
+  if(typeof toast === 'function') toast('INPC preenchido — escolha o mês e clique em Aplicar');
+}
+try{ window.fkInpc12m = fkInpc12m; window.fkInpcUsar = fkInpcUsar; }catch(_){}
+
 function openPesReajSimModal(){
   if(!pessoas.reajSim) pessoas.reajSim = { enabled: false, rulesByYear: {} };
   if(!pessoas.reajSim.rulesByYear) pessoas.reajSim.rulesByYear = {};
@@ -107206,6 +107333,7 @@ function openPesReajSimModal(){
   renderPesReajSimList();
   const ov = document.getElementById('ov-pes-reajsim');
   if(ov) ov.classList.add('open');
+  try{ fkInpcMostrar(); }catch(e){ console.warn('[pes] INPC:', e && e.message); }
 }
 function closePesReajSimModal(){
   const ov = document.getElementById('ov-pes-reajsim');
