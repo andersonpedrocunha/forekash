@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788196526"/>
+  <meta name="fk-build" content="forekash-v1788197039"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -74625,6 +74625,46 @@ function extDeleteCartao(){
 }
 try{ window.extDeleteCartao = extDeleteCartao; }catch(_){}
 
+/* Depois de criar, a tela vai até o lançamento: ajusta o período pra data dele
+   e derruba os filtros de cliente/documento/conta que o esconderiam. Sem isso,
+   "criei e não apareceu" é indistinguível de "não criou". */
+function _extIrParaLancamentoCriado(dataISO, itens){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dataISO || ''));
+  if(!m) return;
+  const y = parseInt(m[1], 10), mo = parseInt(m[2], 10), d = parseInt(m[3], 10);
+  const p = _extState.period || {};
+  const foraDoPeriodo =
+      (_extState.grain === 'ano'    && p.y !== y)
+   || (_extState.grain === 'mes'    && (p.y !== y || p.m !== mo))
+   || (_extState.grain === 'dia'    && (p.y !== y || p.m !== mo || p.d !== d))
+   || (_extState.grain === 'semana' && true); // semana: sempre reposiciona, o cálculo é do render
+  if(foraDoPeriodo){
+    if(_extState.grain === 'semana' || _extState.grain === 'dia'){
+      _extState.grain = 'mes';
+      _extState.period = { y, m: mo };
+    } else if(_extState.grain === 'ano'){
+      _extState.period = { y };
+    } else {
+      _extState.period = { y, m: mo };
+    }
+  }
+  // Filtro de cliente que não contém o que acabou de nascer esconderia a linha.
+  const nomes = new Set((itens || []).map(it => (it.contraparte || '').trim()).filter(Boolean));
+  const limpaSeEsconde = (chave) => {
+    const sel = _extState[chave];
+    if(!Array.isArray(sel) || !sel.length) return false;
+    if(chave === 'clientes' && nomes.size && sel.some(v => nomes.has(String(v).trim()))) return false;
+    _extState[chave] = [];
+    return true;
+  };
+  const limpou = [ limpaSeEsconde('clientes'), limpaSeEsconde('documentos'), limpaSeEsconde('contas') ].some(Boolean);
+  try{ if(typeof _extPopulateMulti === 'function'){ ['cli','doc','conta','contraparte'].forEach(k => { try{ _extPopulateMulti(k); }catch(_){} }); } }catch(_){}
+  if((foraDoPeriodo || limpou) && typeof toast === 'function'){
+    toast(foraDoPeriodo
+      ? ('Mostrando ' + String(mo).padStart(2,'0') + '/' + y + ' — período do lançamento criado')
+      : 'Filtros limpos pra mostrar o lançamento criado');
+  }
+}
 function extSaveModal(tipo){
   /* Compra de cartão volta pro cartão, não vira lançamento manual do Extrato —
      senão o mesmo gasto passa a existir duas vezes: na fatura e solto. */
@@ -74875,6 +74915,11 @@ function extSaveModal(tipo){
     if(okCount > 0){
       _extSave();
       extCloseModal();
+      /* Leva a tela até o que acabou de ser criado. Salvar um lançamento de
+         06/01/2026 com o Extrato em "Agosto de 2026" — ou com um cliente
+         filtrado — devolvia uma lista vazia, e a leitura óbvia é "não criou".
+         Quem acabou de lançar tem que ver o lançamento. */
+      try{ _extIrParaLancamentoCriado(datasGeradas[0], itensList); }catch(e){ console.warn('[FK][extrato] foco pós-criação:', e && e.message); }
       renderExtrato();
       if(typeof toast === 'function'){
         const lblMod = lastTarget === 'estrutura' ? 'Estrutura de Custos'
@@ -78649,13 +78694,14 @@ function ksDailySnapshot(opts){
         from: prevTier.name, to: tier.name,
         data: hojeStr, score: total
       });
-      setTimeout(() => ksTierUpShow(prevTier.name, tier.name, total), 1500);
+      // Sem modal automático de mudança de faixa — a faixa nova aparece no chip e no painel.
     }
   }
   // Whisper se mudança significativa (>10pts)
   if(prev && Math.abs(total - prev.score) >= 10){
     const w = _ksGenerateWhisper(total, prev.score, vitalsSnap, prev.vitals || prev.vetores || {});
-    if(w) setTimeout(() => ksShowWhisper(w), 3000);
+    // Sem balão automático: o whisper fica guardado e aparece quando ele abre o painel.
+    if(w) kashScoreData.ultimoWhisper = w;
   }
   kashScoreData.history.push({
     data: hojeStr, score: total, vitals: vitalsSnap, tier: tier.name,
@@ -122918,10 +122964,9 @@ function fkCfoWeeklySummaryShow(){
     `</ul></div>`;
   anaAlert({ eyebrow:'Briefing Semanal', title:'☕ Bom dia! Aqui é o MR KASH', message: msg, okText:'Ver detalhes' }, () => fkCfoOpen());
 }
-// Roda check semanal periodicamente (a cada 30min)
-setInterval(() => { try { fkCfoWeeklySummaryCheck(); } catch(_){} }, 30*60*1000);
-// E na primeira abertura
-setTimeout(() => { try { fkCfoWeeklySummaryCheck(); } catch(_){} }, 60*1000);
+/* O Briefing Semanal NÃO abre sozinho. Ele entrava como modal 60s depois do
+   boot e voltava a cada 30 min; pedido dele, 31/08/2026: "tira esses pop-ups".
+   Continua acessível pelo card do Copiloto no Início e pela paleta (⌘K). */
 
 // ─── Atualiza badges das features ──
 function fkSidebarUpdateBadges(){
