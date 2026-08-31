@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788218119"/>
+  <meta name="fk-build" content="forekash-v1788218254"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -14158,6 +14158,10 @@
     .pes-hist-lock{padding:0;width:32px;justify-content:center}
     .pes-hist-lock svg{width:14px;height:14px;stroke:currentColor;fill:none;margin:0}
     .pes-hist-lock.is-open{background:#FEF3C7;border-color:#F59E0B;color:#92400E}
+    .pes-hist-aviso{background:#FFFBEB;border:1px solid #FDE68A;border-left:3px solid #F59E0B;
+                    border-radius:8px;padding:7px 12px;margin:6px 0 10px;
+                    font-size:.75rem;color:#92400E}
+    .pes-hist-aviso a{color:#92400E}
     /* Mês passado destravado: some o cinza de "só leitura" e ganha um tracejado
        discreto, pra ficar claro qual célula saiu da proteção. */
     .pes-sheet.hist-edit td.pes-cell.mes-fechado{background:#FFFDF5}
@@ -20170,6 +20174,13 @@ td.mes.do-extrato{background:#ECFDF5}
         <div class="pes-legend">
           <div class="pes-status-filter" id="pes-status-filter"></div>
           <div class="pes-status-filter" id="pes-col-filter" style="margin-left:8px"></div>
+          <!-- Histórico travado por padrão, como ele pediu. O cadeado é a exceção
+               consciente: abre, edita o passado, fecha. Só ícone — rótulo aqui
+               seria mais uma palavra numa barra já cheia. -->
+          <button class="rec-tipo-filter-btn pes-hist-lock" id="pes-hist-lock"
+                  onclick="pesHistToggle()" style="margin-left:8px"
+                  title="Meses passados estão protegidos · clique para editar o histórico"
+                  aria-pressed="false"></button>
           <div class="pes-leg-item" style="margin-left:auto">
             <button class="rec-tipo-filter-btn solid" onclick="addPesPessoa()">
               <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
@@ -20191,13 +20202,6 @@ td.mes.do-extrato{background:#ECFDF5}
               </svg>
               Simular reajuste
             </button>
-            <!-- Histórico travado por padrão, como ele pediu. O cadeado é a
-                 exceção consciente: abre, edita o passado, fecha. Só ícone —
-                 rótulo aqui seria mais uma palavra numa barra já cheia. -->
-            <button class="rec-tipo-filter-btn pes-hist-lock" id="pes-hist-lock"
-                    onclick="pesHistToggle()" style="margin-left:8px"
-                    title="Meses passados estão protegidos · clique para editar o histórico"
-                    aria-pressed="false"></button>
             <label class="pes-sim-toggle" id="pes-sim-toggle" style="margin-left:4px"
                    title="Ligar/desligar a simulação de reajuste">
               <input type="checkbox" id="pes-sim-toggle-chk" onchange="togglePesReajSim(this.checked)">
@@ -20209,6 +20213,7 @@ td.mes.do-extrato{background:#ECFDF5}
 
         <!-- Banner de simulação de reajuste ativa -->
         <div id="pes-reajsim-banner" class="pes-sim-banner" style="display:none"></div>
+        <div id="pes-hist-aviso" class="pes-hist-aviso" style="display:none"></div>
 
         <!-- Planilha -->
         <div class="pes-sheet-wrap">
@@ -53943,6 +53948,13 @@ function pesTiposEmpatados(p){
   return ties.length > 1 ? ties.map(a => a.tipoId) : [];
 }
 function pesReajSimActive(){
+  /* Com a simulação ligada a planilha inteira é só-leitura: o número na tela é
+     o simulado, e deixar editar ali significaria gravar o valor projetado como
+     se fosse o combinado. Por isso o cadeado do histórico SUSPENDE a vista da
+     simulação enquanto está aberto — quem edita precisa ver o valor base, que é
+     o que ele vai alterar. As regras continuam guardadas; fecha o cadeado e a
+     simulação volta a aparecer. Um interruptor só manda de cada vez. */
+  if(typeof _pesHistEdit !== 'undefined' && _pesHistEdit) return false;
   return !!(pessoas && pessoas.reajSim && pessoas.reajSim.enabled);
 }
 // Retorna a primeira regra (mais antiga) que já afeta este key pra este tipo,
@@ -107535,6 +107547,18 @@ function pesHistLockRender(){
     : 'Meses passados estão protegidos · clique para editar o histórico';
   const sheet = document.getElementById('pes-sheet');
   if(sheet) sheet.classList.toggle('hist-edit', _pesHistEdit);
+  /* Estado dito, não adivinhado: com o cadeado aberto a simulação sai da vista
+     e o passado aceita edição — as duas coisas precisam estar escritas. */
+  const av = document.getElementById('pes-hist-aviso');
+  if(av){
+    const comSim = !!(pessoas && pessoas.reajSim && pessoas.reajSim.enabled);
+    av.style.display = _pesHistEdit ? '' : 'none';
+    av.innerHTML = _pesHistEdit
+      ? '<b>Editando o histórico.</b> Meses passados estão liberados'
+        + (comSim ? ' e a simulação de reajuste saiu da vista — os valores na tela são os salários base.' : '.')
+        + ' <a onclick="pesHistToggle()" style="cursor:pointer;text-decoration:underline">proteger de novo</a>'
+      : '';
+  }
 }
 try{ window.pesHistToggle = pesHistToggle; window.pesHistLockRender = pesHistLockRender; }catch(_){}
 
