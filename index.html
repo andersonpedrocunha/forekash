@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788197807"/>
+  <meta name="fk-build" content="forekash-v1788198008"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -68878,7 +68878,17 @@ let _extState = {
 let _extMultiSearch = { doc: '', cli: '', conta: '' };
 let _extSelected = new Set(); // ids selecionados pra ações em lote
 let _extExpandedFat = new Set(); // ids de faturas expandidas (cartao-fat:N)
+/* Memória à frente do disco. Quando localStorage.setItem falha (cota estourada,
+   modo privado), _extSave devolve false — mas a nuvem JÁ recebeu o lançamento.
+   Se _extLoad rodar depois disso, ele lê o localStorage velho e devolve
+   extratoData ao estado anterior: o lançamento some da tela, mesmo existindo
+   na nuvem. E renderExtrato() chama _extLoad() logo depois de salvar.
+
+   Era esse o "criei e não criou": cloud com 21 lançamentos, tela com 19.
+   Render não pode destruir dado não persistido. */
+let _extMemoriaAdiante = false;
 function _extLoad(){
+  if(_extMemoriaAdiante) return;   // o que está na memória vale mais que o disco
   try {
     const raw = localStorage.getItem(EXTRATO_KEY);
     if(raw){
@@ -69428,6 +69438,8 @@ function _extSave(){
       toast('⚠ Não consegui salvar no navegador (' + mb + ' MB). O lançamento vai pra nuvem, mas confira depois.');
     }
   }
+  /* Enquanto o disco não aceitar, a memória manda — e o _extLoad não apaga. */
+  _extMemoriaAdiante = !salvou;
   if (window.FK_MODE === 'cloud') cloudExtratoSync();
   return salvou;
 }
@@ -74659,6 +74671,17 @@ function _extConfirmarCriacao(ids){
   if(!el) return;
   window._extUltimosCriados = ids.slice();
   const criados = (extratoData.lancamentos || []).filter(l => ids.includes(l.id));
+  const fechar0 = '<button type="button" onclick="extCriadoAvisoFechar()" style="margin-left:auto;background:transparent;border:none;color:#64748B;cursor:pointer;font-size:1rem;line-height:1;padding:2px 6px">✕</button>';
+  /* Disco cheio: existe na memória e na nuvem, não no navegador. Precisa ser
+     dito — é o estado em que um F5 no lugar errado custa o lançamento. */
+  if(typeof _extMemoriaAdiante !== 'undefined' && _extMemoriaAdiante){
+    const mb = (()=>{ try{ return (JSON.stringify(extratoData).length/1048576).toFixed(1); }catch(_){ return '?'; } })();
+    el.innerHTML = '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#FFFBEB;border:1px solid #FDE68A;border-left:4px solid #F59E0B;border-radius:10px;padding:11px 14px;margin:0 0 14px;font-size:.82rem;color:#0F172A">'
+      + '<b>' + criados.length + (criados.length === 1 ? ' lançamento criado' : ' lançamentos criados') + ' — enviados pra nuvem.</b>'
+      + '<span style="color:#475569">O armazenamento deste navegador está cheio (' + mb + ' MB) e não guardou a cópia local. '
+      + 'Os dados estão salvos na nuvem; se sumirem da tela, recarregue a página.</span>' + fechar0 + '</div>';
+    el.style.display = ''; return;
+  }
   const box = (cor, bg, bd, html) =>
     '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:' + bg
     + ';border:1px solid ' + bd + ';border-left:4px solid ' + cor
