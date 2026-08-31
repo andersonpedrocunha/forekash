@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788207346"/>
+  <meta name="fk-build" content="forekash-v1788209674"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -74702,10 +74702,17 @@ function _extConfirmarCriacao(ids){
   let etapaErro = null;
   try{
     const alvo = new Set(ids.map(i => 'm:' + i));
+    /* Um lançamento pode chegar à tela como linha própria OU dentro de uma
+       linha de grupo (2+ itens). Procurar só o id solto dava "não monta a
+       linha" com a linha na tela — checar tem que cobrir os dois formatos. */
+    const contem = (x) => {
+      if(alvo.has(String(x.id).split('#')[0])) return true;
+      return Array.isArray(x.children) && x.children.some(c => c && alvo.has(String(c.id).split('#')[0]));
+    };
     const todos = _extCollect();
     const doExtrato = _extCollectReal();
-    coletados = doExtrato.filter(x => alvo.has(String(x.id).split('#')[0]));
-    if(!coletados.length && todos.filter(x => alvo.has(String(x.id).split('#')[0])).length){
+    coletados = doExtrato.filter(contem);
+    if(!coletados.length && todos.filter(contem).length){
       etapaErro = 'a lista da tela descartou por origem (sourceKind)';
     }
     visiveis = _extFilter(coletados);
