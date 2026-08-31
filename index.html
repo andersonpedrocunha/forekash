@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788191380"/>
+  <meta name="fk-build" content="forekash-v1788191556"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -20438,7 +20438,11 @@ td.mes.do-extrato{background:#ECFDF5}
               <span class="pes-reajsim-field pct">
                 <input type="text" id="pes-reajsim-bulk-pct" placeholder="ex.: 5,50">
               </span>
-              <button onclick="applyPesReajSimBulk()">Aplicar</button>
+              <!-- "Simular", não "Aplicar": este botão só grava a REGRA da
+                   simulação. Quem mexe no salário de verdade é o do rodapé.
+                   Dois "Aplicar" no mesmo modal, um simulando e outro gravando
+                   na folha, é confusão cara. -->
+              <button onclick="applyPesReajSimBulk()" title="Grava a regra da simulação — não altera os salários">Simular</button>
             </div>
             <div id="pes-reajsim-list"></div>
           </div>
@@ -107557,8 +107561,8 @@ function renderPesReajSimList(){
     const algum = tipos.some(t => rawMap[t.id] && rawMap[t.id].key && rawMap[t.id].pct);
     html += '<div class="pes-reajsim-empty">'
       + (algum
-        ? 'Os tipos estão com reajustes diferentes neste ano. Aplicar aqui substitui todos por um só — veja em <b>Por tipo</b> antes.'
-        : 'Nenhum reajuste definido para ' + esc(year) + '. Escolha o mês e o percentual acima e clique em Aplicar.')
+        ? 'Os tipos estão com reajustes diferentes neste ano. Simular aqui substitui todos por um só — veja em <b>Por tipo</b> antes.'
+        : 'Nenhum reajuste definido para ' + esc(year) + '. Escolha o mês e o percentual acima e clique em Simular.')
       + '</div>';
   }
   /* Regra individual sobrepõe a geral. Não avisar aqui é deixar o número do
@@ -107643,7 +107647,7 @@ async function fkInpcMostrar(){
 function fkInpcUsar(pct){
   const el = document.getElementById('pes-reajsim-bulk-pct');
   if(el){ el.value = fmtBR(pct, 2); el.focus(); }
-  if(typeof toast === 'function') toast('INPC preenchido — escolha o mês e clique em Aplicar');
+  if(typeof toast === 'function') toast('INPC preenchido — escolha o mês e clique em Simular');
 }
 try{ window.fkInpc12m = fkInpc12m; window.fkInpcUsar = fkInpcUsar; }catch(_){}
 
@@ -107717,14 +107721,14 @@ function clearPesReajSim(tipoId){
 async function applyPesReajSimBulk(){
   const year = pesReajSimModalYear;
   if(!year){
-    await showInfo({ title:'Sem ano selecionado', message:'Selecione um ano na aba antes de aplicar a todos.', warning:true });
+    await showInfo({ title:'Sem ano selecionado', message:'Selecione um ano na aba antes de simular.', warning:true });
     return;
   }
   const mes = (document.getElementById('pes-reajsim-bulk-mes')||{}).value || '';
   const pctRaw = (document.getElementById('pes-reajsim-bulk-pct')||{}).value || '';
   const pct = parseBR(pctRaw);
   if(!mes || !pct){
-    await showInfo({ title:'Preenchimento incompleto', message:'Selecione o mês e informe o percentual antes de aplicar a todos.', warning:true });
+    await showInfo({ title:'Preenchimento incompleto', message:'Selecione o mês e informe o percentual antes de simular.', warning:true });
     return;
   }
   if(!pessoas.reajSim) pessoas.reajSim = { enabled:false, rulesByYear:{} };
