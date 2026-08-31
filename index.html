@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788190796"/>
+  <meta name="fk-build" content="forekash-v1788191186"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -14164,7 +14164,7 @@
     .pes-sim-banner-total b{font-weight:800;margin-right:2px}
 
     /* Modal de configuração */
-    .pes-reajsim-modal{width:min(780px, 96vw);max-height:90vh;display:flex;flex-direction:column}
+    .pes-reajsim-modal{width:min(880px, 96vw);max-height:90vh;display:flex;flex-direction:column}
     .pes-reajsim-body{padding:0 22px;overflow:auto;flex:1}
     .pes-reajsim-hint{font-size:.74rem;color:var(--txm);margin:4px 0 14px;line-height:1.5}
 
@@ -14212,7 +14212,7 @@
       font-size:.7rem;color:#94A3B8;margin-top:2px}
     .pes-reajsim-sub{display:block;font-size:.66rem;color:#94A3B8;font-weight:500;margin-top:1px}
     .pes-reajsim-tipo.pessoa .pes-reajsim-tipo-dot{width:8px;height:8px;opacity:.7}
-    .pes-reajsim-tipo{display:grid;grid-template-columns:minmax(0,1fr) 170px 130px 36px;
+    .pes-reajsim-tipo{display:grid;grid-template-columns:minmax(0,1fr) 158px 118px 152px 34px;
                       gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--bdr);
                       border-radius:10px;margin-bottom:8px;background:#fff;
                       transition:border-color .12s, background .12s}
@@ -14308,9 +14308,39 @@
                         font-size:.68rem}
     .pes-reajsim-grp .ln{flex:1;height:1px;background:#E2E8F0}
 
+    /* Coluna "vai para": percentual sozinho não decide nada — o que se discute
+       é pra quanto vai o salário. Tabular-nums pra os valores alinharem. */
+    .pes-reajsim-proj{text-align:right;min-width:0;line-height:1.2;
+                      font-variant-numeric:tabular-nums;white-space:nowrap}
+    .pes-reajsim-proj .de{display:block;font-size:.68rem;font-weight:600;color:var(--txl);
+                          text-decoration:line-through}
+    .pes-reajsim-proj .pra{display:block;font-size:.83rem;font-weight:800;color:#047857}
+    .pes-reajsim-proj .hoje{display:block;font-size:.8rem;font-weight:700;color:var(--txm)}
+    .pes-reajsim-proj .lbl{display:block;font-size:.6rem;font-weight:700;color:var(--txl);
+                           text-transform:uppercase;letter-spacing:.06em}
+    .pes-reajsim-proj .fonte{display:block;font-size:.6rem;font-weight:700;color:#B45309;
+                             text-transform:uppercase;letter-spacing:.04em;
+                             white-space:normal}
+    .pes-reajsim-proj .vazio{font-size:.7rem;color:#CBD5E1;font-style:italic}
+    .pes-reajsim-colhead{display:grid;grid-template-columns:minmax(0,1fr) 158px 118px 152px 34px;
+                         gap:10px;padding:0 12px 6px;font-size:.62rem;font-weight:800;
+                         color:var(--txl);text-transform:uppercase;letter-spacing:.06em}
+    .pes-reajsim-colhead span:nth-child(2),.pes-reajsim-colhead span:nth-child(3){padding-left:2px}
+    .pes-reajsim-colhead span:nth-child(4){text-align:right}
+    /* Linha só de leitura (resumo do geral): nome + projeção, sem campos. */
+    .pes-reajsim-colhead.so-proj,.pes-reajsim-tipo.so-proj{grid-template-columns:minmax(0,1fr) 152px}
+    .pes-reajsim-colhead.so-proj span:nth-child(2){text-align:right}
+    .pes-reajsim-tipo.so-proj{padding:8px 12px;margin-bottom:6px}
+
     @media(max-width:560px){
-      .pes-reajsim-tipo{grid-template-columns:1fr 1fr 36px;grid-template-areas:'lbl lbl clr' 'mes pct pct';row-gap:8px}
+      .pes-reajsim-tipo{grid-template-columns:1fr 1fr 36px;
+        grid-template-areas:'lbl lbl clr' 'mes pct pct' 'proj proj proj';row-gap:8px}
       .pes-reajsim-tipo .pes-reajsim-tipo-lbl{grid-area:lbl}
+      .pes-reajsim-tipo .pes-reajsim-proj{grid-area:proj;text-align:left;
+        display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+      .pes-reajsim-tipo .pes-reajsim-proj span{display:inline}
+      .pes-reajsim-colhead{display:none}
+      .pes-reajsim-tipo.so-proj{grid-template-columns:1fr;grid-template-areas:'lbl' 'proj'}
       .pes-reajsim-tipo .pes-reajsim-clear{grid-area:clr}
       .pes-reajsim-bulk{grid-template-columns:1fr 1fr;grid-template-areas:'lbl lbl' 'mes pct' 'btn btn';row-gap:8px}
       .pes-reajsim-bulk .pes-reajsim-bulk-lbl{grid-area:lbl}
@@ -53743,9 +53773,12 @@ function pesReajSimAllRules(){
 }
 // Fator cumulativo: multiplica (1+pct/100) de todas as regras aplicáveis
 // (mesmo tipo, e key já ocorrida em relação ao mês consultado).
-function pesReajSimFactor(p, key){
+/* ignorarToggle: dentro do modal de simulação a prévia "vai para R$ X" precisa
+   do fator mesmo com a simulação desligada — ele está configurando justamente
+   pra decidir se liga. Fora do modal, o toggle continua mandando. */
+function pesReajSimFactor(p, key, ignorarToggle){
   const sim = pessoas && pessoas.reajSim;
-  if(!sim || !sim.enabled) return 1;
+  if(!ignorarToggle && (!sim || !sim.enabled)) return 1;
   /* Regra POR PESSOA vence a do tipo. Reajuste não é sempre linear: promoção,
      acerto pontual e negociação individual são o caso comum, e antes só dava
      pra simular no tipo inteiro. A chave da pessoa é "p:<id>" no mesmo mapa —
@@ -107270,6 +107303,66 @@ function _pesReajSimGentePorTipo(){
   }
   return grupos;
 }
+/* ══ COLUNA "VAI PARA" ═════════════════════════════════════════════════════
+   Percentual sozinho não decide nada — a pergunta na mesa é pra quanto vai o
+   salário. Cada linha mostra o valor de antes e o de depois, item por item,
+   nos três modos.
+
+   O salário do mês da regra pode estar em branco (mês ainda não preenchido na
+   planilha). Nesse caso vale o último mês preenchido antes dele: é o salário
+   que a pessoa está ganhando quando o reajuste chega. */
+function _pesSalNoMes(p, key){
+  const sal = (p && p.salarios) || {};
+  const meses = Object.keys(sal).filter(k => Number(sal[k]) > 0).sort();
+  if(!meses.length) return 0;
+  if(Number(sal[key]) > 0) return Number(sal[key]);
+  let anterior = null;
+  for(const m of meses){ if(m <= key) anterior = m; else break; }
+  return Number(sal[anterior || meses[0]]) || 0;
+}
+function _pesMesHoje(){
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+/* Regra que de fato atinge a pessoa neste ano: a dela vence a do tipo. */
+function _pesReajSimRegraEfetiva(pe, rawMap){
+  const rp = rawMap['p:' + pe.id];
+  if(rp && rp.key && rp.pct) return { r: rp, origem: 'pessoa' };
+  const rt = rawMap[pe.tipoId];
+  if(rt && rt.key && rt.pct) return { r: rt, origem: 'tipo' };
+  return null;
+}
+/* Antes → depois de UM conjunto de pessoas sob UMA regra. "Antes" já carrega
+   os reajustes de anos anteriores; o que a linha mostra é o efeito desta. */
+function _pesReajSimProjecao(gente, regra){
+  let antes = 0, depois = 0;
+  const mult = regra ? (1 + (Number(regra.pct) || 0) / 100) : 1;
+  for(const p of gente){
+    const key = regra ? regra.key : _pesMesHoje();
+    const base = _pesSalNoMes(p, key);
+    if(!base) continue;
+    const dep = regra ? (base * pesReajSimFactor(p, key, true)) : base;
+    depois += dep;
+    antes  += regra ? (dep / mult) : dep;
+  }
+  return { antes, depois, tem: depois > 0 };
+}
+function _pesReajSimCelula(gente, regra, nota){
+  const pr = _pesReajSimProjecao(gente, regra);
+  if(!pr.tem) return '<span class="pes-reajsim-proj"><span class="vazio">sem salário</span></span>';
+  if(!regra){
+    return '<span class="pes-reajsim-proj"><span class="hoje">R$ ' + fmtBR(pr.antes, 2) + '</span>'
+      + '<span class="lbl">hoje</span></span>';
+  }
+  return '<span class="pes-reajsim-proj">'
+    + '<span class="de">R$ ' + fmtBR(pr.antes, 2) + '</span>'
+    + '<span class="pra">R$ ' + fmtBR(pr.depois, 2) + '</span>'
+    + (nota ? '<span class="fonte">' + esc(nota) + '</span>' : '')
+    + '</span>';
+}
+const PES_REAJSIM_COLHEAD = '<div class="pes-reajsim-colhead">'
+  + '<span></span><span>Mês do reajuste</span><span>Reajuste</span><span>Vai para</span><span></span></div>';
+
 function renderPesReajSimModos(){
   const host = document.getElementById('pes-reajsim-modos');
   if(!host) return;
@@ -107356,6 +107449,7 @@ function renderPesReajSimList(){
     const pctVal = (raw && raw.pct) ? fmtBR(raw.pct, 2) : '';
     const mesVal = (raw && raw.key) ? raw.key : '';
     const tp = (pessoas.tipos || []).find(x => x.id === pe.tipoId);
+    const efet = _pesReajSimRegraEfetiva(pe, rawMap);
     // O tipo já está no cabeçalho do grupo — repetir em cada linha é ruído.
     return `<div class="pes-reajsim-tipo pessoa${complete?' has-rule':''}" data-tipo="${esc(k)}">
       <div class="pes-reajsim-tipo-lbl">
@@ -107373,6 +107467,7 @@ function renderPesReajSimList(){
                onfocus="this.value=this.value.replace(/\\./g,'');this.select()"
                onkeydown="if(event.key==='Enter')this.blur()">
       </span>
+      ${_pesReajSimCelula([pe], efet && efet.r, efet && efet.origem === 'tipo' ? 'pelo tipo' : '')}
       <button class="pes-reajsim-clear" onclick="clearPesReajSim('${esc(k)}')" title="Limpar regra desta pessoa/ano">
         <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>
       </button>
@@ -107383,6 +107478,16 @@ function renderPesReajSimList(){
     const complete = !!(raw && raw.key && raw.pct);
     const pctVal = (raw && raw.pct) ? fmtBR(raw.pct, 2) : '';
     const mesVal = (raw && raw.key) ? raw.key : '';
+    /* No modo tipo o item é o tipo: a coluna mostra a folha dele inteira.
+       Quem tem regra individual não é somado aqui — a regra dele sobrepõe a do
+       tipo, e contar os dois faria a folha do tipo prometer o que não vai
+       pagar. Esses aparecem no rodapé da linha. */
+    const doTipo = _pesReajSimGente().filter(p => p.tipoId === t.id);
+    const proprios = doTipo.filter(p => { const r = rawMap['p:' + p.id]; return r && r.key && r.pct; });
+    const seguem = doTipo.filter(p => proprios.indexOf(p) < 0);
+    const nota = proprios.length
+      ? (seguem.length + '/' + doTipo.length + ' seguem o tipo')
+      : (doTipo.length + (doTipo.length === 1 ? ' pessoa' : ' pessoas'));
     return `<div class="pes-reajsim-tipo${complete?' has-rule':''}" data-tipo="${esc(t.id)}">
       <div class="pes-reajsim-tipo-lbl">
         <span class="pes-reajsim-tipo-dot" style="background:${esc(t.color||'#E5E7EB')}"></span>
@@ -107400,6 +107505,7 @@ function renderPesReajSimList(){
                onfocus="this.value=this.value.replace(/\\./g,'');this.select()"
                onkeydown="if(event.key==='Enter')this.blur()">
       </span>
+      ${_pesReajSimCelula(seguem, complete ? raw : null, nota)}
       <button class="pes-reajsim-clear" onclick="clearPesReajSim('${esc(t.id)}')" title="Limpar regra deste tipo/ano">
         <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>
       </button>
@@ -107407,7 +107513,7 @@ function renderPesReajSimList(){
   };
 
   if(modo === 'tipo'){
-    host.innerHTML = tipos.map(linhaTipo).join('');
+    host.innerHTML = PES_REAJSIM_COLHEAD + tipos.map(linhaTipo).join('');
     return;
   }
 
@@ -107420,7 +107526,7 @@ function renderPesReajSimList(){
       host.innerHTML = '<div class="pes-reajsim-empty">Nenhuma pessoa ativa cadastrada.</div>';
       return;
     }
-    host.innerHTML = grupos.map(g =>
+    host.innerHTML = PES_REAJSIM_COLHEAD + grupos.map(g =>
       `<div class="pes-reajsim-grp">
          <span class="dot" style="background:${esc(g.cor)}"></span>
          <span>${esc(g.nome)}</span>
@@ -107484,6 +107590,35 @@ function renderPesReajSimList(){
             + '% em ' + esc(_pesReajSimMesLabel(r.key));
         }).join(' · ')
       + ' — <a style="cursor:pointer;text-decoration:underline" onclick="setPesReajSimModo(\'pessoa\')">ver por pessoa</a></div>';
+  }
+  /* Item por item também aqui: o total responde "quanto custa", mas a decisão
+     de mesa é pessoa por pessoa — pra quanto vai o salário de cada um. Só
+     leitura; pra mexer numa linha, é o modo por pessoa. */
+  const grupos = _pesReajSimGentePorTipo();
+  if(grupos.length){
+    html += '<div class="pes-reajsim-sep">Pessoa por pessoa'
+      + '<small>Como fica cada salário com o que está definido neste ano.</small></div>'
+      + '<div class="pes-reajsim-colhead so-proj"><span></span><span>Vai para</span></div>'
+      + grupos.map(g =>
+          `<div class="pes-reajsim-grp">
+             <span class="dot" style="background:${esc(g.cor)}"></span>
+             <span>${esc(g.nome)}</span>
+             <span class="n">${g.gente.length}</span>
+             <span class="ln"></span>
+           </div>`
+          + g.gente.map(pe => {
+              const efet = _pesReajSimRegraEfetiva(pe, rawMap);
+              const nota = efet ? (efet.origem === 'pessoa' ? 'regra própria'
+                                 : fmtBR(efet.r.pct, 2) + '% em ' + _pesReajSimMesLabel(efet.r.key)) : '';
+              return `<div class="pes-reajsim-tipo so-proj${efet ? ' has-rule' : ''}">
+                <div class="pes-reajsim-tipo-lbl">
+                  <span class="pes-reajsim-tipo-dot" style="background:${esc(g.cor)}"></span>
+                  <span class="nm">${esc(pesRegView(pe).nome || 'sem nome')}</span>
+                </div>
+                ${_pesReajSimCelula([pe], efet && efet.r, nota)}
+              </div>`;
+            }).join('')
+        ).join('');
   }
   host.innerHTML = html;
 }
