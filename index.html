@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788215126"/>
+  <meta name="fk-build" content="forekash-v1788216874"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -75356,12 +75356,11 @@ function extToggleStatus(id){
 
 // Reverte o status sem perguntar (usado após confirmação)
 function _extToggleStatusForce(id){
-  if(id.startsWith('m:')){
-    const realId = parseInt(id.replace(/^m:/, ''), 10);
-    const l = extratoData.lancamentos.find(x => x.id === realId);
-    if(!l) return;
-    l.status = 'pendente';
-    l.dataPagamento = '';
+  if(id.startsWith('m:') || id.startsWith('grp:')){
+    const alvos = _extIdsManuaisDe(id);
+    const lancs = (extratoData.lancamentos||[]).filter(x => alvos.indexOf(x.id) >= 0);
+    if(!lancs.length) return;
+    for(const l of lancs){ l.status = 'pendente'; l.dataPagamento = ''; }
     _extSave();
     renderExtrato();
     return;
@@ -77951,10 +77950,21 @@ function extBaixaSave(){
     if(typeof dkbRender === 'function'){ try { dkbRender(ctxId); } catch(_){} }
     // Atualiza a planilha do módulo de origem (Estrutura / Pessoas / Impostos)
     if(ad.onSheetReturn){ try { ad.onSheetReturn(); } catch(_){} }
-  } else if(id.startsWith('m:')){
-    const realId = parseInt(id.replace(/^m:/,''), 10);
-    const l = (extratoData.lancamentos||[]).find(x => x.id === realId);
-    if(!l) return;
+  } else if(id.startsWith('m:') || id.startsWith('grp:')){
+    /* Linha de grupo (2+ itens) não tinha branch aqui: o modal dizia "Baixa
+       registrada" e os lançamentos de dentro continuavam Em aberto. A baixa é
+       do pagamento inteiro — rateia entre os itens pelo peso de cada um. */
+    const alvos = _extIdsManuaisDe(id);
+    const lancs = (extratoData.lancamentos||[]).filter(x => alvos.indexOf(x.id) >= 0);
+    if(!lancs.length) return;
+    const somaBruta = lancs.reduce((sm,x) => sm + (parseFloat(x.valor)||0), 0) || 1;
+    for(const l of lancs){
+    const _um = (lancs.length === 1);
+    const _peso = _um ? 1 : ((parseFloat(l.valor)||0) / somaBruta);
+    const _valor = _um ? valor : (Math.round(valor * _peso * 100) / 100);
+    const _juros = _um ? juros : (Math.round(juros * _peso * 100) / 100);
+    const _multa = _um ? multa : (Math.round(multa * _peso * 100) / 100);
+    const _desc  = _um ? desc  : (Math.round(desc  * _peso * 100) / 100);
     l.status = 'pago';
     l.dataPagamento = data;
     // A conta da baixa é a conta REAL de onde o dinheiro saiu, que pode ser
@@ -77964,15 +77974,16 @@ function extBaixaSave(){
     if(conta) l.contaPagamento = conta;
     if(conta && !l.conta) l.conta = conta;
     l.formaPagamento = forma;
-    l.valorPago = valor; l.juros = juros; l.multa = multa; l.desconto = desc;
+    l.valorPago = _valor; l.juros = _juros; l.multa = _multa; l.desconto = _desc;
     // Juros e multa viram lançamento próprio — não inflam este.
-    try{ extSincronizaEncargo(l, 'unico', { juros, multa, data, conta }); }catch(_){}
+    try{ extSincronizaEncargo(l, 'unico', { juros: _juros, multa: _multa, data, conta }); }catch(_){}
     if(_fornFieldShown){
       if(fornIdNew) l.fornecedorId = fornIdNew; else delete l.fornecedorId;
     }
     // Comprovantes (multi-anexo)
     if(Array.isArray(_extBxCompData) && _extBxCompData.length > 0) l.comprovante = _extBxCompData.slice();
     else delete l.comprovante;
+    }
     _extSave();
   } else if(id.startsWith('cartao-fat:')){
     /* Pagar a fatura pelo Extrato. Antes o botão abria o modal e não fazia
@@ -84426,10 +84437,9 @@ async function extBulkBaixar(){
     try {
       // linha de baixa (id com #) já É um pagamento — dar baixa nela marcaria
       // o lançamento inteiro como quitado, apagando o parcial
-      if(id.startsWith('m:') && id.indexOf('#') < 0){
-        const realId = parseInt(id.replace(/^m:/,''),10);
-        const l = (extratoData.lancamentos||[]).find(x => x.id === realId);
-        if(l){ l.status = 'pago'; l.dataPagamento = today; count++; }
+      if((id.startsWith('m:') && id.indexOf('#') < 0) || id.startsWith('grp:')){
+        const lancs = (extratoData.lancamentos||[]).filter(x => _extIdsManuaisDe(id).indexOf(x.id) >= 0);
+        for(const l of lancs){ l.status = 'pago'; l.dataPagamento = today; count++; }
       } else if(id.startsWith('rec:')){
         // Receita não recebe baixa: quem decide o que foi recebido é o Extrato.
         pulados++;
@@ -84483,10 +84493,9 @@ async function extBulkVoltarAberto(){
   let count = 0;
   for(const id of pagos){
     try {
-      if(id.startsWith('m:') && id.indexOf('#') < 0){
-        const realId = parseInt(id.replace(/^m:/,''),10);
-        const l = (extratoData.lancamentos||[]).find(x => x.id === realId);
-        if(l){ l.status = 'pendente'; l.dataPagamento = ''; count++; }
+      if((id.startsWith('m:') && id.indexOf('#') < 0) || id.startsWith('grp:')){
+        const lancs = (extratoData.lancamentos||[]).filter(x => _extIdsManuaisDe(id).indexOf(x.id) >= 0);
+        for(const l of lancs){ l.status = 'pendente'; l.dataPagamento = ''; count++; }
       } else if(id.startsWith('rec:')){
         const parts = id.split(':');
         const y = parseInt(parts[1],10), rowId = parseInt(parts[2],10), mAbbr = parts[3];
