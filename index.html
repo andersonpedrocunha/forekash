@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788193046"/>
+  <meta name="fk-build" content="forekash-v1788193245"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -107816,8 +107816,13 @@ function pesReajSimIncreaseForRule(rule){
     if(alvoPessoa ? (String(p.id) !== alvoPessoa) : (p.tipoId !== rule.tipoId)) continue;
     const base = p.salarios && p.salarios[rule.key];
     if(!base) continue;
-    // Fator acumulado INCLUINDO esta regra (pois key === rule.key, pesReajSimFactor a aplica).
-    const fWith = pesReajSimFactor(p, rule.key);
+    /* Fator acumulado INCLUINDO esta regra (pois key === rule.key, pesReajSimFactor a aplica).
+       ignorarToggle: a pergunta aqui é "quanto ESTA regra acrescenta", e a
+       resposta não pode mudar conforme a simulação esteja ligada ou não. Com o
+       toggle desligado o fator vinha 1, e o cálculo devolvia base − base/mult
+       em vez de base×mult − base: 19.000 a 4,1667% davam R$ 760,01 no resumo e
+       R$ 791,67 no banner, para a mesma regra. */
+    const fWith = pesReajSimFactor(p, rule.key, true);
     const salAfter  = base * fWith;
     const salBefore = salAfter / mult;
     inc += (salAfter - salBefore);
