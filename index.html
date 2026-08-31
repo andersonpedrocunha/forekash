@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788187575"/>
+  <meta name="fk-build" content="forekash-v1788187737"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -107353,11 +107353,11 @@ function renderPesReajSimList(){
     const pctVal = (raw && raw.pct) ? fmtBR(raw.pct, 2) : '';
     const mesVal = (raw && raw.key) ? raw.key : '';
     const tp = (pessoas.tipos || []).find(x => x.id === pe.tipoId);
+    // O tipo já está no cabeçalho do grupo — repetir em cada linha é ruído.
     return `<div class="pes-reajsim-tipo pessoa${complete?' has-rule':''}" data-tipo="${esc(k)}">
       <div class="pes-reajsim-tipo-lbl">
         <span class="pes-reajsim-tipo-dot" style="background:${esc((tp&&tp.color)||'#E5E7EB')}"></span>
         <span class="nm">${esc(pesRegView(pe).nome || 'sem nome')}</span>
-        <small class="pes-reajsim-sub">${esc((tp && tp.nome) || '')}</small>
       </div>
       <span class="pes-reajsim-field sel">
         <select onchange="setPesReajSimField('${esc(k)}','key',this.value)">
@@ -107435,15 +107435,28 @@ function renderPesReajSimList(){
   if(geral){
     let inc = 0;
     for(const t of tipos) inc += pesReajSimIncreaseForRule({ tipoId:t.id, key:geral.key, pct:geral.pct });
+    /* A regra geral é gravada POR TIPO, então quem está sem tipo não é atingido.
+       Contar "todo mundo" aqui fazia o resumo prometer mais gente do que o
+       total ao lado entrega. */
+    const idsTipo = new Set(tipos.map(t => t.id));
+    const gente = _pesReajSimGente();
+    const cobertas = gente.filter(p => idsTipo.has(p.tipoId));
+    const fora = gente.filter(p => !idsTipo.has(p.tipoId));
     html += `<div class="pes-reajsim-tipo has-rule" style="grid-template-columns:1fr auto">
       <div class="pes-reajsim-tipo-lbl">
         <span class="nm">Reajuste de ${fmtBR(geral.pct, 2)}% em ${esc(_pesReajSimMesLabel(geral.key))}
-          <small class="pes-reajsim-sub">valendo para os ${tipos.length} tipos · ${_pesReajSimGente().length} pessoa(s)</small></span>
+          <small class="pes-reajsim-sub">${tipos.length} ${tipos.length === 1 ? 'tipo' : 'tipos'} · ${cobertas.length} ${cobertas.length === 1 ? 'pessoa' : 'pessoas'}</small></span>
       </div>
       <div style="text-align:right;font-weight:800;font-size:.82rem;color:#B45309;white-space:nowrap">
         +R$ ${fmtBR(inc, 2)}<small class="pes-reajsim-sub">por mês</small>
       </div>
     </div>`;
+    if(fora.length){
+      html += '<div class="pes-reajsim-empty" style="text-align:left;background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px 12px">'
+        + '<b>Fora do reajuste:</b> ' + fora.map(p => esc(pesRegView(p).nome || 'sem nome')).join(', ')
+        + ' — ' + (fora.length === 1 ? 'está sem tipo' : 'estão sem tipo') + ', e a regra geral vale por tipo. '
+        + 'Dê um tipo a ' + (fora.length === 1 ? 'essa pessoa' : 'essas pessoas') + ' ou use <a style="cursor:pointer;text-decoration:underline" onclick="setPesReajSimModo(\'pessoa\')">por pessoa</a>.</div>';
+    }
   } else {
     const algum = tipos.some(t => rawMap[t.id] && rawMap[t.id].key && rawMap[t.id].pct);
     html += '<div class="pes-reajsim-empty">'
