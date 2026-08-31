@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788217430"/>
+  <meta name="fk-build" content="forekash-v1788217589"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -14156,7 +14156,14 @@
                     border:1px solid #F59E0B;border-radius:8px;padding:8px 12px;
                     margin:6px 0 10px;font-size:.76rem;color:#92400E;font-weight:600;
                     flex-wrap:wrap}
-    .pes-sim-banner svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;flex:none}
+    /* viewBox com folga (-1 .. 26): o path do triângulo vai de 1.82 a 22.2 e,
+       com stroke-width 2, metade do traço caía fora da caixa e era cortada. */
+    .pes-sim-banner svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;
+                        flex:none;overflow:visible}
+    .pes-sim-banner .pes-sim-banner-ver{background:transparent;border:1px solid rgba(245,158,11,.55);
+                        color:#92400E;font-family:inherit;font-size:.72rem;font-weight:700;
+                        padding:3px 10px;border-radius:999px;cursor:pointer}
+    .pes-sim-banner .pes-sim-banner-ver:hover{background:rgba(245,158,11,.15)}
     .pes-sim-banner b{font-weight:800}
     .pes-sim-banner .sp{flex:1}
     .pes-sim-banner a{color:#92400E;text-decoration:underline;cursor:pointer}
@@ -108181,14 +108188,24 @@ function renderPesReajSimBanner(){
   }).join('<span class="pes-sim-banner-sep">•</span>');
   const totalTxt = 'R$&nbsp;' + fmtBR(totalInc, 2);
   el.innerHTML = `
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
-    <span><b>Reajuste ativo:</b></span>
-    <span class="pes-sim-banner-list">${parts}</span>
+    <svg viewBox="-1 -1 26 26" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
+    <span><b>Reajuste ativo</b>${_pesBannerAberto ? ':' : ' · ' + sorted.length + (sorted.length === 1 ? ' regra' : ' regras')}</span>
+    ${_pesBannerAberto ? '<span class="pes-sim-banner-list">' + parts + '</span>' : ''}
     <span class="pes-sim-banner-total"><b>Total:</b>&nbsp;+${totalTxt}/mês</span>
+    <button type="button" class="pes-sim-banner-ver" onclick="pesBannerToggle()">${_pesBannerAberto ? 'ocultar' : 'ver detalhes'}</button>
     <span class="sp"></span>
     <a onclick="openPesReajSimModal()">editar</a>`;
   el.style.display = '';
 }
+/* Fechada por padrão. Aberta, ela vira duas linhas de pílulas com um nome e dois
+   números cada — o que importa no dia a dia é que existe reajuste ativo e
+   quanto ele custa por mês; o detalhe é sob demanda. */
+let _pesBannerAberto = false;
+function pesBannerToggle(){
+  _pesBannerAberto = !_pesBannerAberto;
+  renderPesReajSimBanner();
+}
+try{ window.pesBannerToggle = pesBannerToggle; }catch(_){}
 
 // Aplica as regras de simulação aos salários base. Percorre todas as pessoas
 // e todos os meses com valor > 0, multiplicando pelo fator cumulativo e
