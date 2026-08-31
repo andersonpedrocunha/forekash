@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788209674"/>
+  <meta name="fk-build" content="forekash-v1788214964"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -75146,7 +75146,55 @@ function extDeleteGroup(){
   });
 }
 try { window.extDeleteGroup = extDeleteGroup; } catch(e){}
-// ── Menu 3-pontos do Extrato: Editar / Cobrança / NF ─────────────
+/* Ids dos lançamentos manuais por trás de uma linha da tela. Uma linha pode
+   ser um lançamento ('m:12') ou um grupo de 2+ itens ('grp:g:...:2026-01-06').
+   Quem só entendia 'm:' recusava excluir o grupo dizendo que não era manual —
+   sendo que os dois itens dentro dele foram digitados à mão. */
+function _extIdsManuaisDe(id){
+  const s = String(id || '');
+  if(s.startsWith('m:')){
+    const n = parseInt(s.replace(/^m:/, '').split('#')[0], 10);
+    return isFinite(n) ? [n] : [];
+  }
+  if(s.startsWith('grp:')){
+    const gp = (typeof _extParseGroupId === 'function') ? _extParseGroupId(s) : null;
+    if(!gp) return [];
+    return ((extratoData && extratoData.lancamentos) || [])
+      .filter(l => l && l.grupoId === gp.grupoId && l.data === gp.data)
+      .map(l => l.id);
+  }
+  return [];
+}
+async function extRowExcluir(id){
+  _extCloseAllMenus();
+  const alvos = _extIdsManuaisDe(id);
+  if(!alvos.length){
+    if(typeof toast === 'function') toast('Este lançamento vem de outro módulo — exclua na origem');
+    return;
+  }
+  const nome = (() => {
+    const l = ((extratoData && extratoData.lancamentos) || []).find(x => x.id === alvos[0]);
+    return l ? (l.descricao || '') : '';
+  })();
+  const ok = await _dkbConfirm({
+    icon: '',
+    title: alvos.length > 1 ? ('Excluir este lançamento (' + alvos.length + ' itens)?') : 'Excluir este lançamento?',
+    html: '<span style="color:#B91C1C;font-weight:600">\u26a0 Esta ação não pode ser desfeita.</span>'
+        + (nome ? '<br><span style="color:#475569">' + _extEsc(nome) + '</span>' : ''),
+    okText: 'Sim, excluir', cancelText: 'Cancelar'
+  });
+  if(!ok) return;
+  const set = new Set(alvos);
+  alvos.forEach(rid => { try{ extRemoveEncargosDe(rid); }catch(_){} });
+  extratoData.lancamentos = ((extratoData && extratoData.lancamentos) || []).filter(l => !set.has(l.id));
+  _extSave();
+  try{ extCriadoAvisoFechar(); }catch(_){}
+  renderExtrato();
+  if(typeof toast === 'function') toast('\u2713 ' + alvos.length + ' lançamento(s) excluído(s)');
+}
+try{ window._extIdsManuaisDe = _extIdsManuaisDe; window.extRowExcluir = extRowExcluir; }catch(e){}
+
+// ── Menu 3-pontos do Extrato: Editar / Excluir / Cobrança / NF ─────────────
 function extRowMenu(ev, id, isEntradaFlag){
   ev.preventDefault();
   ev.stopPropagation();
@@ -75167,6 +75215,10 @@ function extRowMenu(ev, id, isEntradaFlag){
       '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>' +
       '<span>Editar lançamento</span>' +
     '</button>' +
+    (_extIdsManuaisDe(id).length ? '<button class="ext-pop-item" onclick="extRowExcluir(\'' + id + '\')">' +
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>' +
+      '<span style="color:#DC2626">Excluir lançamento</span>' +
+    '</button>' : '') +
     (isReceita ? '<button class="ext-pop-item" onclick="_extCloseAllMenus();extRowGenCobranca(\'' + id + '\')">' +
       '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>' +
       '<span style="color:#0BB1E1">Emitir cobrança · PIX/Boleto</span>' +
@@ -84456,8 +84508,11 @@ async function extBulkVoltarAberto(){
   if(typeof toast === 'function') toast('✓ ' + count + ' lançamento(s) voltaram pra aberto');
 }
 async function extBulkExcluir(){
-  const ids = [..._extSelected].filter(id => id.startsWith('m:'));
-  if(ids.length === 0){ if(typeof toast === 'function') toast('Excluir só funciona pra lançamentos manuais'); return; }
+  // Aceita linha solta ('m:') E linha de grupo ('grp:') — as duas são manuais.
+  const alvos = new Set();
+  for(const sel of _extSelected){ _extIdsManuaisDe(sel).forEach(n => alvos.add(n)); }
+  const ids = [...alvos];
+  if(ids.length === 0){ if(typeof toast === 'function') toast('Nenhum lançamento manual na seleção — os demais vêm de outros módulos'); return; }
   const ok = await _dkbConfirm({
     icon: '',
     title: 'Excluir ' + ids.length + ' lançamento(s) manual(is)?',
@@ -84466,7 +84521,8 @@ async function extBulkExcluir(){
     cancelText: 'Cancelar'
   });
   if(!ok) return;
-  const targetIds = new Set(ids.map(id => parseInt(id.replace(/^m:/,''),10)));
+  const targetIds = new Set(ids);
+  ids.forEach(rid => { try{ extRemoveEncargosDe(rid); }catch(_){} });
   extratoData.lancamentos = (extratoData.lancamentos||[]).filter(l => !targetIds.has(l.id));
   _extSave();
   extBulkLimpar();
