@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788186408"/>
+  <meta name="fk-build" content="forekash-v1788187391"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -14270,6 +14270,38 @@
     .pes-reajsim-bulk button:hover{background:#1E40AF}
     .pes-reajsim-bulk button:active{transform:translateY(1px)}
 
+    /* Escolha do modo — a pergunta vem antes da tela. Reajuste linear pra todo
+       mundo, por tipo e individual são decisões diferentes; misturar as três
+       numa lista só obrigava a ler tudo pra achar a sua. */
+    .pes-reajsim-modos{display:flex;flex-direction:column;gap:10px;padding:4px 0 2px}
+    .pes-reajsim-modo{display:grid;grid-template-columns:1fr auto;align-items:center;
+                      gap:14px;text-align:left;width:100%;font-family:inherit;
+                      padding:15px 18px;border:1px solid var(--bdr);border-radius:12px;
+                      background:#fff;cursor:pointer;transition:border-color .12s, background .12s}
+    .pes-reajsim-modo:hover{border-color:var(--blue-d);background:#F8FAFF}
+    .pes-reajsim-modo b{display:block;font-size:.86rem;font-weight:800;color:var(--tx);
+                        letter-spacing:.01em}
+    .pes-reajsim-modo small{display:block;font-size:.74rem;color:var(--txm);
+                            margin-top:3px;line-height:1.45}
+    .pes-reajsim-modo .cnt{font-size:.68rem;font-weight:700;color:var(--txl);
+                           white-space:nowrap;text-align:right}
+    .pes-reajsim-modo .cnt .reg{display:block;color:#B45309;font-weight:800;margin-top:2px}
+    .pes-reajsim-voltar{font-family:inherit;font-size:.72rem;font-weight:700;color:var(--txm);
+                        background:transparent;border:1px solid var(--bdr);border-radius:7px;
+                        padding:5px 11px;cursor:pointer;transition:all .12s}
+    .pes-reajsim-voltar:hover{border-color:#94A3B8;color:var(--tx);background:#F8FAFC}
+    .pes-reajsim-head-wrap{display:flex;align-items:center;gap:10px;min-width:0}
+    /* Cabeçalho do grupo dentro do "por pessoa": as pessoas vêm agrupadas pelo
+       tipo delas e em ordem alfabética dentro do grupo. */
+    .pes-reajsim-grp{display:flex;align-items:center;gap:8px;margin:14px 0 7px;
+                     font-size:.7rem;font-weight:800;text-transform:uppercase;
+                     letter-spacing:.05em;color:#475569}
+    .pes-reajsim-grp .dot{width:9px;height:9px;border-radius:50%;flex:none;
+                          border:1px solid rgba(0,0,0,.08)}
+    .pes-reajsim-grp .n{font-weight:600;color:#94A3B8;letter-spacing:0;text-transform:none;
+                        font-size:.68rem}
+    .pes-reajsim-grp .ln{flex:1;height:1px;background:#E2E8F0}
+
     @media(max-width:560px){
       .pes-reajsim-tipo{grid-template-columns:1fr 1fr 36px;grid-template-areas:'lbl lbl clr' 'mes pct pct';row-gap:8px}
       .pes-reajsim-tipo .pes-reajsim-tipo-lbl{grid-area:lbl}
@@ -20347,21 +20379,25 @@ td.mes.do-extrato{background:#ECFDF5}
       <div class="overlay" id="ov-pes-reajsim" onclick="if(event.target.id==='ov-pes-reajsim')closePesReajSimModal()">
         <div class="modal pes-reajsim-modal">
           <div class="mod-head">
-            <h3>Simular reajuste mensal por tipo</h3>
+            <div class="pes-reajsim-head-wrap">
+              <h3 id="pes-reajsim-titulo">Simular reajuste</h3>
+              <button class="pes-reajsim-voltar" id="pes-reajsim-voltar" onclick="setPesReajSimModo(null)" style="display:none">← trocar</button>
+            </div>
             <button class="mod-close" onclick="closePesReajSimModal()">✕</button>
           </div>
-          <div class="pes-reajsim-body">
-            <p class="pes-reajsim-hint">
-              Configure o reajuste para o <b>ano selecionado</b>. Cada ano tem regras próprias e os efeitos são
-              cumulativos (se reajustar em 2026 e 2027, o salário em 2027 reflete os dois).
-              Deixe em branco os tipos que não serão reajustados.
-            </p>
+          <!-- PASSO 1: como ele quer simular. Só depois a tela do modo escolhido. -->
+          <div class="pes-reajsim-body" id="pes-reajsim-escolha">
+            <p class="pes-reajsim-hint">Como prefere simular o aumento?</p>
+            <div class="pes-reajsim-modos" id="pes-reajsim-modos"></div>
+          </div>
+          <div class="pes-reajsim-body" id="pes-reajsim-tela" style="display:none">
+            <p class="pes-reajsim-hint" id="pes-reajsim-hint"></p>
             <div class="pes-reajsim-years" id="pes-reajsim-years"></div>
             <!-- Referência de mercado, buscada na hora: sem ela o percentual é
                  chute, e a outra parte da mesa vai chegar com o número. -->
             <div class="pes-reajsim-inpc" id="pes-reajsim-inpc"></div>
-            <div class="pes-reajsim-bulk">
-              <span class="pes-reajsim-bulk-lbl">Preencher todos</span>
+            <div class="pes-reajsim-bulk" id="pes-reajsim-bulk-box">
+              <span class="pes-reajsim-bulk-lbl" id="pes-reajsim-bulk-lbl">Preencher todos</span>
               <span class="pes-reajsim-field sel">
                 <select id="pes-reajsim-bulk-mes"></select>
               </span>
@@ -20372,7 +20408,7 @@ td.mes.do-extrato{background:#ECFDF5}
             </div>
             <div id="pes-reajsim-list"></div>
           </div>
-          <div class="pes-reajsim-foot">
+          <div class="pes-reajsim-foot" id="pes-reajsim-foot">
             <button class="pes-reajsim-apply-btn" onclick="applyPesReajSimToData()" title="Gravar os valores simulados como novo salário base">
               <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
               Aplicar reajuste aos salários
@@ -107167,7 +107203,15 @@ function renderPesReajSimYearTabs(){
   host.innerHTML = years.map(y => {
     const act = (y === pesReajSimModalYear);
     const rulesMap = pesReajSimRulesForYear(y);
-    const n = Object.keys(rulesMap).filter(k => rulesMap[k] && rulesMap[k].key && rulesMap[k].pct).length;
+    // O contador da aba conta o que o modo mostra: no "por tipo", contar as
+    // regras individuais dava um número que não batia com nenhuma linha da tela.
+    const n = Object.keys(rulesMap).filter(k => {
+      if(!(rulesMap[k] && rulesMap[k].key && rulesMap[k].pct)) return false;
+      const ehPessoa = String(k).startsWith('p:');
+      if(pesReajSimModo === 'pessoa') return ehPessoa;
+      if(pesReajSimModo === 'tipo' || pesReajSimModo === 'geral') return !ehPessoa;
+      return true;
+    }).length;
     return `<button class="pes-reajsim-yr-tab${act?' active':''}" onclick="setPesReajSimYear('${y}')">
       ${y}${n ? `<span class="pes-reajsim-yr-badge">${n}</span>` : ''}
     </button>`;
@@ -107178,14 +107222,113 @@ function setPesReajSimYear(y){
   renderPesReajSimYearTabs();
   renderPesReajSimList();
 }
+/* ══ MODO DA SIMULAÇÃO ═════════════════════════════════════════════════════
+   A pergunta vem antes da tela: geral, por tipo ou por pessoa. São três
+   decisões diferentes — reajuste linear do ano, acordo de um grupo, promoção
+   individual — e estavam empilhadas numa lista só, onde achar a sua exigia
+   passar pelas outras duas. */
+let pesReajSimModo = null;
+const PES_REAJSIM_MODOS = [
+  { id:'geral',  nome:'Geral',
+    desc:'Um percentual só, na mesma data, para todo mundo.' },
+  { id:'tipo',   nome:'Por tipo',
+    desc:'Cada tipo com o seu percentual e a sua data.' },
+  { id:'pessoa', nome:'Por pessoa',
+    desc:'Promoção, acerto ou negociação individual. Sobrepõe a regra do tipo.' }
+];
+function _pesReajSimGente(){
+  return ((pessoas && pessoas.people) || []).filter(x => x && !x.sim && x.ativo !== false);
+}
+function _pesReajSimEhPessoa(id){ return String(id || '').startsWith('p:'); }
+function _pesReajSimMesLabel(key){
+  const [y, mStr] = String(key || '').split('-');
+  const mi = Math.max(0, Math.min(11, (parseInt(mStr, 10) || 1) - 1));
+  const nome = (typeof PES_MESES !== 'undefined' && PES_MESES[mi]) ? PES_MESES[mi] : String(mi + 1);
+  return String(nome).toUpperCase() + '/' + y;
+}
+/* Pessoas agrupadas pelo TIPO e, dentro do grupo, em ordem alfabética.
+   Sem tipo cai num grupo próprio no fim — some da tela é pior que aparecer. */
+function _pesReajSimGentePorTipo(){
+  const tipos = (pessoas.tipos || []);
+  const gente = _pesReajSimGente();
+  const grupos = tipos.map(t => ({
+    id: t.id, nome: t.nome || t.id, cor: t.color || '#E5E7EB',
+    gente: gente.filter(p => p.tipoId === t.id)
+  })).filter(g => g.gente.length);
+  const idsTipo = new Set(tipos.map(t => t.id));
+  const orfas = gente.filter(p => !idsTipo.has(p.tipoId));
+  if(orfas.length) grupos.push({ id:'__sem', nome:'Sem tipo', cor:'#E5E7EB', gente: orfas });
+  for(const g of grupos){
+    g.gente.sort((a, b) => String(pesRegView(a).nome || '')
+      .localeCompare(String(pesRegView(b).nome || ''), 'pt-BR', { sensitivity:'base' }));
+  }
+  return grupos;
+}
+function renderPesReajSimModos(){
+  const host = document.getElementById('pes-reajsim-modos');
+  if(!host) return;
+  const regras = pesReajSimAllRules();
+  const nPessoas = _pesReajSimGente().length;
+  const nTipos = (pessoas.tipos || []).length;
+  const nRegTipo = regras.filter(r => !_pesReajSimEhPessoa(r.tipoId)).length;
+  const nRegPessoa = regras.filter(r => _pesReajSimEhPessoa(r.tipoId)).length;
+  const meta = {
+    geral:  { cnt: nPessoas + (nPessoas === 1 ? ' pessoa' : ' pessoas'), reg: 0 },
+    tipo:   { cnt: nTipos + (nTipos === 1 ? ' tipo' : ' tipos'), reg: nRegTipo },
+    pessoa: { cnt: nPessoas + (nPessoas === 1 ? ' pessoa' : ' pessoas'), reg: nRegPessoa }
+  };
+  host.innerHTML = PES_REAJSIM_MODOS.map(m => {
+    const info = meta[m.id] || { cnt:'', reg:0 };
+    const reg = info.reg ? `<span class="reg">${info.reg} ${info.reg === 1 ? 'regra' : 'regras'}</span>` : '';
+    return `<button type="button" class="pes-reajsim-modo" onclick="setPesReajSimModo('${m.id}')">
+      <span><b>${esc(m.nome)}</b><small>${esc(m.desc)}</small></span>
+      <span class="cnt">${esc(info.cnt)}${reg}</span>
+    </button>`;
+  }).join('');
+}
+function setPesReajSimModo(modo){
+  pesReajSimModo = modo || null;
+  const escolha = document.getElementById('pes-reajsim-escolha');
+  const tela    = document.getElementById('pes-reajsim-tela');
+  const voltar  = document.getElementById('pes-reajsim-voltar');
+  const titulo  = document.getElementById('pes-reajsim-titulo');
+  const foot    = document.getElementById('pes-reajsim-foot');
+  const naEscolha = !pesReajSimModo;
+  if(escolha) escolha.style.display = naEscolha ? '' : 'none';
+  if(tela)    tela.style.display    = naEscolha ? 'none' : '';
+  if(voltar)  voltar.style.display  = naEscolha ? 'none' : '';
+  if(foot)    foot.style.display    = naEscolha ? 'none' : '';
+  const nomes = { geral:'Simular reajuste · geral', tipo:'Simular reajuste · por tipo', pessoa:'Simular reajuste · por pessoa' };
+  if(titulo) titulo.textContent = naEscolha ? 'Simular reajuste' : (nomes[pesReajSimModo] || 'Simular reajuste');
+  if(naEscolha){ renderPesReajSimModos(); return; }
+  renderPesReajSimYearTabs();
+  renderPesReajSimList();
+}
+try{ window.setPesReajSimModo = setPesReajSimModo; }catch(_){}
+
 function renderPesReajSimList(){
   const host = document.getElementById('pes-reajsim-list');
   if(!host) return;
   const year = pesReajSimModalYear;
+  const modo = pesReajSimModo || 'tipo';
   const bulkMes = document.getElementById('pes-reajsim-bulk-mes');
   if(bulkMes) bulkMes.innerHTML = pesReajSimMesOptionsForYear(year, '');
   const bulkPct = document.getElementById('pes-reajsim-bulk-pct');
   if(bulkPct) bulkPct.value = '';
+  // O bloco de preencher em massa muda de alvo conforme o modo — e no geral ele
+  // É a tela: um mês, um percentual, todo mundo.
+  const bulkLbl = document.getElementById('pes-reajsim-bulk-lbl');
+  if(bulkLbl) bulkLbl.textContent = modo === 'geral' ? 'Reajuste geral'
+                                  : modo === 'pessoa' ? 'Preencher todas as pessoas'
+                                  : 'Preencher todos os tipos';
+  const hint = document.getElementById('pes-reajsim-hint');
+  if(hint){
+    hint.innerHTML = modo === 'geral'
+      ? 'Um percentual e uma data para <b>todos os tipos</b> do ano selecionado. Cada ano tem regras próprias e os efeitos são cumulativos.'
+      : modo === 'pessoa'
+      ? 'Regra individual do <b>ano selecionado</b>. Quem tem regra própria <b>ignora a do tipo</b> — está dizendo qual é o reajuste dele, não um extra por cima.'
+      : 'Configure o reajuste para o <b>ano selecionado</b>. Cada ano tem regras próprias e os efeitos são cumulativos (se reajustar em 2026 e 2027, o salário em 2027 reflete os dois). Deixe em branco os tipos que não serão reajustados.';
+  }
   if(!year){
     host.innerHTML = '';
     return;
@@ -107221,10 +107364,12 @@ function renderPesReajSimList(){
                onfocus="this.value=this.value.replace(/\\./g,'');this.select()"
                onkeydown="if(event.key==='Enter')this.blur()">
       </span>
-      <button class="pes-reajsim-clear" onclick="clearPesReajSim('${esc(k)}')" title="Limpar regra desta pessoa/ano">🗑</button>
+      <button class="pes-reajsim-clear" onclick="clearPesReajSim('${esc(k)}')" title="Limpar regra desta pessoa/ano">
+        <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>
+      </button>
     </div>`;
   };
-  host.innerHTML = tipos.map(t => {
+  const linhaTipo = (t) => {
     const raw = rawMap[t.id] || null;
     const complete = !!(raw && raw.key && raw.pct);
     const pctVal = (raw && raw.pct) ? fmtBR(raw.pct, 2) : '';
@@ -107250,21 +107395,90 @@ function renderPesReajSimList(){
         <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>
       </button>
     </div>`;
-  }).join('')
-  /* POR PESSOA, depois dos tipos. Reajuste linear por tipo é o caso fácil;
-     promoção, acerto e negociação individual são o caso comum, e não tinham
-     onde ser simulados. Quem tem regra própria ignora a do tipo — está dizendo
-     qual é o reajuste dele, não um extra por cima. */
-  + (function(){
-      const gente = ((pessoas && pessoas.people) || []).filter(x => x && !x.sim && x.ativo !== false);
-      if(!gente.length) return '';
-      const comRegra = gente.filter(x => rawMap['p:' + x.id]);
-      const semRegra = gente.filter(x => !rawMap['p:' + x.id]);
-      const ordenada = comRegra.concat(semRegra);
-      return '<div class="pes-reajsim-sep">Por pessoa'
-        + '<small>Sobrepõe a regra do tipo — use pra promoção, acerto ou negociação individual.</small></div>'
-        + ordenada.map(linhaPessoa).join('');
-    })();
+  };
+
+  if(modo === 'tipo'){
+    host.innerHTML = tipos.map(linhaTipo).join('');
+    return;
+  }
+
+  if(modo === 'pessoa'){
+    /* Agrupada pelo tipo, alfabética dentro do grupo — pedido dele. Quem tem
+       regra própria ignora a do tipo: está dizendo qual é o reajuste dele,
+       não um extra por cima. */
+    const grupos = _pesReajSimGentePorTipo();
+    if(!grupos.length){
+      host.innerHTML = '<div class="pes-reajsim-empty">Nenhuma pessoa ativa cadastrada.</div>';
+      return;
+    }
+    host.innerHTML = grupos.map(g =>
+      `<div class="pes-reajsim-grp">
+         <span class="dot" style="background:${esc(g.cor)}"></span>
+         <span>${esc(g.nome)}</span>
+         <span class="n">${g.gente.length}</span>
+         <span class="ln"></span>
+       </div>` + g.gente.map(linhaPessoa).join('')
+    ).join('');
+    return;
+  }
+
+  /* GERAL: um mês, um percentual, todos os tipos. A tela é o bloco de cima —
+     aqui embaixo fica só o que já está valendo e quem escapa dele. */
+  const geral = _pesReajSimGeralAtual(year);
+  let html = '';
+  if(geral){
+    let inc = 0;
+    for(const t of tipos) inc += pesReajSimIncreaseForRule({ tipoId:t.id, key:geral.key, pct:geral.pct });
+    html += `<div class="pes-reajsim-tipo has-rule" style="grid-template-columns:1fr auto">
+      <div class="pes-reajsim-tipo-lbl">
+        <span class="nm">Reajuste de ${fmtBR(geral.pct, 2)}% em ${esc(_pesReajSimMesLabel(geral.key))}
+          <small class="pes-reajsim-sub">valendo para os ${tipos.length} tipos · ${_pesReajSimGente().length} pessoa(s)</small></span>
+      </div>
+      <div style="text-align:right;font-weight:800;font-size:.82rem;color:#B45309;white-space:nowrap">
+        +R$ ${fmtBR(inc, 2)}<small class="pes-reajsim-sub">por mês</small>
+      </div>
+    </div>`;
+  } else {
+    const algum = tipos.some(t => rawMap[t.id] && rawMap[t.id].key && rawMap[t.id].pct);
+    html += '<div class="pes-reajsim-empty">'
+      + (algum
+        ? 'Os tipos estão com reajustes diferentes neste ano. Aplicar aqui substitui todos por um só — veja em <b>Por tipo</b> antes.'
+        : 'Nenhum reajuste definido para ' + esc(year) + '. Escolha o mês e o percentual acima e clique em Aplicar.')
+      + '</div>';
+  }
+  /* Regra individual sobrepõe a geral. Não avisar aqui é deixar o número do
+     total mentir pra ele. */
+  const comIndiv = _pesReajSimGente().filter(p => {
+    const r = rawMap['p:' + p.id];
+    return r && r.key && r.pct;
+  });
+  if(comIndiv.length){
+    html += '<div class="pes-reajsim-sep">Não seguem o geral'
+      + '<small>Estas pessoas têm regra individual neste ano e ignoram o reajuste geral.</small></div>'
+      + '<div class="pes-reajsim-empty" style="text-align:left">'
+      + comIndiv.map(p => {
+          const r = rawMap['p:' + p.id];
+          return '<b>' + esc(pesRegView(p).nome || 'sem nome') + '</b> ' + fmtBR(r.pct, 2)
+            + '% em ' + esc(_pesReajSimMesLabel(r.key));
+        }).join(' · ')
+      + ' — <a style="cursor:pointer;text-decoration:underline" onclick="setPesReajSimModo(\'pessoa\')">ver por pessoa</a></div>';
+  }
+  host.innerHTML = html;
+}
+/* Só é "geral" se TODOS os tipos tiverem a mesma data e o mesmo percentual.
+   Um tipo fora já quebra a leitura de "todo mundo igual". */
+function _pesReajSimGeralAtual(year){
+  const map = pesReajSimRulesForYear(year) || {};
+  const tipos = (pessoas.tipos || []);
+  if(!tipos.length) return null;
+  let key = null, pct = null;
+  for(const t of tipos){
+    const r = map[t.id];
+    if(!r || !r.key || !r.pct) return null;
+    if(key === null){ key = r.key; pct = Number(r.pct); }
+    else if(r.key !== key || Number(r.pct) !== pct) return null;
+  }
+  return { key, pct };
 }
 /* ══ INPC ACUMULADO 12 MESES ══════════════════════════════════════════════
    INPC, não IPCA: é o índice que as convenções coletivas usam pra reajuste
@@ -107329,8 +107543,8 @@ function openPesReajSimModal(){
     if(Object.keys(rmap).some(k => rmap[k] && rmap[k].key && rmap[k].pct)){ initial = y; break; }
   }
   pesReajSimModalYear = initial;
-  renderPesReajSimYearTabs();
-  renderPesReajSimList();
+  // Abre SEMPRE na escolha do modo — a pergunta antes da tela.
+  setPesReajSimModo(null);
   const ov = document.getElementById('ov-pes-reajsim');
   if(ov) ov.classList.add('open');
   try{ fkInpcMostrar(); }catch(e){ console.warn('[pes] INPC:', e && e.message); }
@@ -107400,8 +107614,16 @@ async function applyPesReajSimBulk(){
   }
   if(!pessoas.reajSim) pessoas.reajSim = { enabled:false, rulesByYear:{} };
   pessoas.reajSim.rulesByYear[year] = pessoas.reajSim.rulesByYear[year] || {};
-  for(const t of (pessoas.tipos || [])){
-    pessoas.reajSim.rulesByYear[year][t.id] = { key: mes, pct: pct };
+  // O alvo do "preencher todos" é o modo em que ele está: no por-pessoa, encher
+  // os tipos não mudaria nada na tela que ele está olhando.
+  if(pesReajSimModo === 'pessoa'){
+    for(const p of _pesReajSimGente()){
+      pessoas.reajSim.rulesByYear[year]['p:' + p.id] = { key: mes, pct: pct };
+    }
+  } else {
+    for(const t of (pessoas.tipos || [])){
+      pessoas.reajSim.rulesByYear[year][t.id] = { key: mes, pct: pct };
+    }
   }
   pessoasSave();
   renderPesReajSimList();
@@ -107447,9 +107669,12 @@ function pesReajSimIncreaseForRule(rule){
   const people = (pessoas.people || []);
   let inc = 0;
   const mult = 1 + (rule.pct / 100);
+  // Regra individual ('p:<id>') atinge uma pessoa; regra de tipo, o tipo inteiro.
+  // Sem isto a regra por pessoa contava zero e o banner mostrava "+R$ 0,00/mês".
+  const alvoPessoa = String(rule.tipoId || '').startsWith('p:') ? String(rule.tipoId).slice(2) : null;
   for(const p of people){
     if(!p.ativo) continue;
-    if(p.tipoId !== rule.tipoId) continue;
+    if(alvoPessoa ? (String(p.id) !== alvoPessoa) : (p.tipoId !== rule.tipoId)) continue;
     const base = p.salarios && p.salarios[rule.key];
     if(!base) continue;
     // Fator acumulado INCLUINDO esta regra (pois key === rule.key, pesReajSimFactor a aplica).
@@ -107479,6 +107704,10 @@ function renderPesReajSimBanner(){
   // Mapa tipoId → nome (para rotular cada item)
   const tipoNome = {};
   for(const t of (pessoas.tipos || [])){ tipoNome[t.id] = t.nome || t.id; }
+  // Regra individual entra com o nome da pessoa, não com "p:1723..." na tela.
+  for(const p of (pessoas.people || [])){
+    tipoNome['p:' + p.id] = (pesRegView(p).nome || 'sem nome');
+  }
   // Ordena por data e depois por tipo
   const sorted = rules.slice().sort((a,b)=>{
     if(a.key !== b.key) return a.key < b.key ? -1 : 1;
@@ -123604,10 +123833,10 @@ function mrkProactiveStart(){
   // Idempotente: se já bootou (via _safeInit OU autoboot), ignora
   if(window._mrkProactiveBooted) return;
   window._mrkProactiveBooted = true;
-  // Roda 1ª vez após 8s do boot (firstRun=true: dispara mesmo sem sinal crítico)
-  setTimeout(() => mrkProactiveCheck(true), 8000);
-  // Depois checa a cada 30 min (e cooldown global de 30min + per-id de 6h limitam ainda mais)
-  setInterval(() => mrkProactiveCheck(false), 30 * 60 * 1000);
+  // O MR KASH não fala sozinho. Ele jogava um toast 8s depois do boot e outro a
+  // cada 30 min; pedido dele: "tira esses alerta/pop-up que aparecem na tela,
+  // polui muito". Os sinais continuam sendo calculados por mrkProactiveDetect()
+  // e aparecem quando ELE abre o MR KASH.
 }
 try{ window.mrkProactiveLoad = mrkProactiveLoad; window.mrkProactiveCheck = mrkProactiveCheck; window.mrkProactiveStart = mrkProactiveStart; window._mrkProactiveShow = _mrkProactiveShow; }catch(_){}
 
@@ -131479,7 +131708,8 @@ function fkBootApp(){
   _safeInit('snipLoad',           () => snipLoad());
   _safeInit('webpushHook',        () => { setTimeout(webpushHook, 6000); });
   _safeInit('onboardRender',      () => setTimeout(onboardRender, 800));
-  _safeInit('weeklyMaybeShow',    () => weeklyMaybeShow());
+  // Weekly Review NÃO abre sozinho — pedido dele: "tira esses alerta/pop-up que
+  // aparecem na tela, polui muito". Continua disponível no card do Início e na paleta.
   _safeInit('tfaLoad',            () => tfaLoad());
   _safeInit('accessLogPush',      () => _accessLogPush());
   _safeInit('wfLoad',             () => wfLoad());
