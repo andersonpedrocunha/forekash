@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788191556"/>
+  <meta name="fk-build" content="forekash-v1788191809"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -14117,9 +14117,11 @@
     .pes-sheet tbody tr.is-sim td{background:#FAF5FF}
     .pes-sheet tbody tr.is-sim:hover td{background:#F5F0FF}
 
-    /* Célula reajustada pela simulação (preview) */
-    .pes-sheet td.pes-cell.sim{background:#FDF6E3}
-    .pes-sheet td.pes-cell.sim input.pes-sal-input{color:#9A6D0F;font-weight:700;
+    /* Mês em que o reajuste entra em vigor. A linha toda mostra números
+       parecidos; sem uma marca forte, o ponto de virada some no meio. Daí a
+       barra âmbar à esquerda além do fundo. */
+    .pes-sheet td.pes-cell.sim{background:#FEF3C7;box-shadow:inset 3px 0 0 #F59E0B}
+    .pes-sheet td.pes-cell.sim input.pes-sal-input{color:#92400E;font-weight:800;
                                                    background:transparent;cursor:not-allowed}
     .pes-sheet td.pes-cell input.sim-ro{background:transparent;cursor:not-allowed;color:var(--txm)}
 
@@ -14312,20 +14314,20 @@
        é pra quanto vai o salário. Só no modo POR PESSOA: no por-tipo o item é o
        grupo, e um total de folha ali responde outra pergunta.
        Tabular-nums pra os valores alinharem. */
-    .pes-reajsim-tipo.com-proj{grid-template-columns:minmax(0,1fr) 158px 118px 152px 34px}
-    .pes-reajsim-proj{text-align:right;min-width:0;line-height:1.2;
-                      font-variant-numeric:tabular-nums;white-space:nowrap}
-    .pes-reajsim-proj .de{display:block;font-size:.68rem;font-weight:600;color:var(--txl);
-                          text-decoration:line-through}
-    .pes-reajsim-proj .pra{display:block;font-size:.83rem;font-weight:800;color:#047857}
-    .pes-reajsim-proj .hoje{display:block;font-size:.8rem;font-weight:700;color:var(--txm)}
-    .pes-reajsim-proj .lbl{display:block;font-size:.6rem;font-weight:700;color:var(--txl);
-                           text-transform:uppercase;letter-spacing:.06em}
+    .pes-reajsim-tipo.com-proj{grid-template-columns:minmax(0,1fr) 158px 118px 190px 34px}
+    .pes-reajsim-proj{min-width:0;line-height:1.25;font-variant-numeric:tabular-nums;
+                      display:flex;flex-direction:column;gap:1px}
+    .pes-reajsim-proj .ln{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+    .pes-reajsim-proj .ln i{font-style:normal;font-size:.6rem;font-weight:700;color:var(--txl);
+                            text-transform:uppercase;letter-spacing:.05em}
+    .pes-reajsim-proj .ln b{font-size:.78rem;font-weight:700;color:var(--txm);white-space:nowrap}
+    .pes-reajsim-proj .ln.nova i{color:#047857}
+    .pes-reajsim-proj .ln.nova b{font-size:.86rem;font-weight:800;color:#047857}
     .pes-reajsim-proj .fonte{display:block;font-size:.6rem;font-weight:700;color:#B45309;
                              text-transform:uppercase;letter-spacing:.04em;
-                             white-space:normal}
+                             white-space:normal;text-align:right}
     .pes-reajsim-proj .vazio{font-size:.7rem;color:#CBD5E1;font-style:italic}
-    .pes-reajsim-colhead{display:grid;grid-template-columns:minmax(0,1fr) 158px 118px 152px 34px;
+    .pes-reajsim-colhead{display:grid;grid-template-columns:minmax(0,1fr) 158px 118px 190px 34px;
                          gap:10px;padding:0 12px 6px;font-size:.62rem;font-weight:800;
                          color:var(--txl);text-transform:uppercase;letter-spacing:.06em}
     .pes-reajsim-colhead span:nth-child(2),.pes-reajsim-colhead span:nth-child(3){padding-left:2px}
@@ -107352,13 +107354,13 @@ function _pesReajSimProjecao(gente, regra){
 function _pesReajSimCelula(gente, regra, nota){
   const pr = _pesReajSimProjecao(gente, regra);
   if(!pr.tem) return '<span class="pes-reajsim-proj"><span class="vazio">sem salário</span></span>';
-  if(!regra){
-    return '<span class="pes-reajsim-proj"><span class="hoje">R$ ' + fmtBR(pr.antes, 2) + '</span>'
-      + '<span class="lbl">hoje</span></span>';
-  }
+  // Os dois valores rotulados, não um riscado: ele quer ver o atual E o com
+  // reajuste lado a lado — riscar o de cima lê como "cancelado".
+  const linha = (cls, rot, v) => '<span class="ln ' + cls + '"><i>' + rot + '</i><b>R$ ' + fmtBR(v, 2) + '</b></span>';
+  if(!regra) return '<span class="pes-reajsim-proj">' + linha('atual', 'atual', pr.antes) + '</span>';
   return '<span class="pes-reajsim-proj">'
-    + '<span class="de">R$ ' + fmtBR(pr.antes, 2) + '</span>'
-    + '<span class="pra">R$ ' + fmtBR(pr.depois, 2) + '</span>'
+    + linha('atual', 'atual', pr.antes)
+    + linha('nova', 'com reajuste', pr.depois)
     + (nota ? '<span class="fonte">' + esc(nota) + '</span>' : '')
     + '</span>';
 }
@@ -107704,6 +107706,18 @@ function setPesReajSimField(tipoId, field, val){
   const card = document.querySelector('.pes-reajsim-tipo[data-tipo="'+tipoId+'"]');
   if(card){
     card.classList.toggle('has-rule', hasKey && hasPct);
+    /* A coluna "vai para" tem que acompanhar o que ele acabou de digitar. Não
+       dá pra chamar renderPesReajSimList() aqui — ela recria os campos e mata o
+       foco no meio da digitação. Então só esta célula é trocada. */
+    const proj = card.querySelector('.pes-reajsim-proj');
+    if(proj && String(tipoId).indexOf('p:') === 0){
+      const pe = (pessoas.people || []).find(x => String(x.id) === String(tipoId).slice(2));
+      if(pe){
+        const efet = _pesReajSimRegraEfetiva(pe, pesReajSimRulesForYear(year) || {});
+        proj.outerHTML = _pesReajSimCelula([pe], efet && efet.r,
+          efet && efet.origem === 'tipo' ? 'pelo tipo' : '');
+      }
+    }
   }
   renderPesReajSimYearTabs();
 }
@@ -108421,10 +108435,16 @@ function renderPesPersonRow(p, year, isSim, forTipoId){
 
   // Salários por mês
   const simActive = pesReajSimActive();
-  // Meses que são ponto de partida de alguma regra de reajuste desse tipo
-  const simStartKeys = simActive
-    ? new Set(pesReajSimAllRules().filter(r => r.tipoId === p.tipoId).map(r => r.key))
-    : null;
+  /* Meses em que um reajuste entra em vigor pra ESTA pessoa. Espelha o
+     pesReajSimFactor: regra própria vence a do tipo, e não acumula com ela.
+     Antes só olhava r.tipoId === p.tipoId, então quem tinha reajuste individual
+     via o valor subir na planilha sem nenhum mês marcado. */
+  const simStartKeys = simActive ? (function(){
+    const todas = pesReajSimAllRules();
+    const daPessoa = todas.filter(r => r.tipoId === 'p:' + p.id);
+    const aplicaveis = daPessoa.length ? daPessoa : todas.filter(r => r.tipoId === p.tipoId);
+    return new Set(aplicaveis.map(r => r.key));
+  })() : null;
   const pagosMap = p.pagos || {};
   const _mR = _pesModoCol;
   const _prevR = _mR !== 'pago', _pgoR = _mR !== 'previsto';
