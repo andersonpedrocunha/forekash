@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788282070"/>
+  <meta name="fk-build" content="forekash-v1788282227"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -31094,7 +31094,15 @@ function recRealizadoPorLinha(ano, mapa){
       }
     }
   }
-  try{ if(mapa){ mapa.__alloc = out; mapa.__allocY = y; } }catch(_){}
+  /* Não-enumerável: o mapa é indexado por chave de cliente e há código que
+     percorre Object.keys(mapa). Guardar o cache como propriedade comum fazia
+     "__alloc" passar por um cliente chamado __alloc. */
+  try{
+    if(mapa){
+      Object.defineProperty(mapa, '__alloc',  { value: out, configurable: true, enumerable: false, writable: true });
+      Object.defineProperty(mapa, '__allocY', { value: y,   configurable: true, enumerable: false, writable: true });
+    }
+  }catch(_){}
   return out;
 }
 try{ window.recRealizadoPorLinha = recRealizadoPorLinha; }catch(_){}
