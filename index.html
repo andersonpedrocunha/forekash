@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788238653"/>
+  <meta name="fk-build" content="forekash-v1788272511"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5063,7 +5063,11 @@
     .fkc{position:relative;display:flex;align-items:center}
     .fkc .fkc-inp{flex:1;min-width:0}
     .fkc-seta{flex:0 0 auto;margin-left:-14px;font-size:.5rem;color:#94A3B8;pointer-events:none}
-    .fkc-pop{position:fixed;z-index:12000;display:none;max-height:252px;overflow-y:auto;
+    /* z-index acima de QUALQUER modal do app (o da Captura IA é 99999). Em
+       12000 o popup abria atrás do modal: digitar o nome do fornecedor não
+       mostrava nada, e parecia que a busca não existia. O popup é filho do
+       body e position:fixed, então subir aqui não afeta mais nada. */
+    .fkc-pop{position:fixed;z-index:100010;display:none;max-height:252px;overflow-y:auto;
       background:#fff;border:1px solid #CBD5E1;border-radius:8px;padding:4px;
       box-shadow:0 10px 28px -8px rgba(15,23,42,.28),0 2px 6px rgba(15,23,42,.06)}
     .fkc-pop.on{display:block}
@@ -82673,6 +82677,8 @@ async function _ecapHandleFile(file){
   } else {
     ECAP_STATE.fileBase64 = null;
     ECAP_STATE.semInline = true;
+    console.warn('[FK] captura: arquivo de ' + Math.round(file.size/1024/1024) +
+                 ' MB acima do limite de 4 MB — vai só a referência, sem o arquivo');
   }
   _ecapRenderProcessing();
   try {
@@ -83402,12 +83408,17 @@ function extCapturaSubmit(){
           localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData));
           coube = true;
         }catch(e){
-          if(antes === undefined) delete lan.anexo; else lan.anexo = antes;
-          console.warn('[FK] anexo não coube no navegador (' +
-            Math.round(ECAP_STATE.file.size/1024) + ' KB) — lançamento mantido sem ele');
-          if(typeof toast === 'function') toast('Lançamento criado · o PDF não coube no armazenamento e não foi anexado');
+          /* O documento CONTINUA anexado. Antes, se o cache do navegador
+             recusasse, o anexo era desfeito e o PDF se perdia — mas o dado
+             mora na nuvem, não aqui: localStorage é cache. Mantém o anexo em
+             memória, marca que a memória está à frente do disco (pra nenhum
+             render recarregar por cima) e a sincronização leva pra nuvem. */
+          if(typeof _extMemoriaAdiante !== 'undefined') _extMemoriaAdiante = true;
+          console.warn('[FK] anexo não coube no cache local (' +
+            Math.round(ECAP_STATE.file.size/1024) + ' KB) — segue anexado, indo pra nuvem');
+          if(typeof toast === 'function') toast('Lançamento criado com o documento anexado · a cópia local não coube, mas foi pra nuvem');
         }
-        if(coube) delete lan.anexoRef;
+        delete lan.anexoRef;   // tem o arquivo de verdade, não só a referência
       }
       if(typeof _extSave === 'function') _extSave();
     }
