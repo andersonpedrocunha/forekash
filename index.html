@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788276181"/>
+  <meta name="fk-build" content="forekash-v1788278630"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -90593,7 +90593,7 @@ function impForecastValor(rubricaId, year, mIdx){
 
    Agora o regime é gravado POR ANO e trocar exige confirmar. */
 function impRegimeDoAno(ano){
-  const y = String(ano || (typeof impActiveYear !== 'undefined' ? impActiveYear : new Date().getFullYear()));
+  const y = String(ano || (typeof impActiveYearCor !== 'undefined' && impActiveYearCor ? impActiveYearCor : new Date().getFullYear()));
   const mapa = (impostos && impostos.regimePorAno) || null;
   if(mapa && typeof mapa[y] === 'string') return mapa[y];
   /* Ano sem regime próprio herda o do ano anterior mais recente já definido —
@@ -90608,7 +90608,7 @@ try{ window.impRegimeDoAno = impRegimeDoAno; }catch(_){}
 
 async function setImpRegime(regime){
   const novo = regime || '';
-  const ano = String(typeof impActiveYear !== 'undefined' ? impActiveYear : new Date().getFullYear());
+  const ano = String(typeof impActiveYearCor !== 'undefined' && impActiveYearCor ? impActiveYearCor : new Date().getFullYear());
   const atual = impRegimeDoAno(ano);
   if(novo === atual) return;
 
@@ -90824,7 +90824,13 @@ async function toggleImpAliquotaUnica(){
 // Preenche a planilha de Correntes com os valores de previsão sugeridos pelo
 // regime atual — só escreve em células que o usuário ainda não digitou.
 async function fillImpForecastValues(){
-  const regime = (typeof impRegimeDoAno === 'function') ? impRegimeDoAno(impActiveYear) : impostos.regimeTributario;
+  /* impActiveYear NUNCA existiu — as variáveis são impActiveYearCor e
+     impActiveYearPar. Isto lançava ReferenceError já na primeira linha: a
+     promise era rejeitada e o clique não fazia absolutamente nada — sem erro na
+     tela, sem diálogo, sem preencher. */
+  const _anoAtivo = (typeof impActiveYearCor !== 'undefined' && impActiveYearCor)
+                    ? String(impActiveYearCor) : String(new Date().getFullYear());
+  const regime = (typeof impRegimeDoAno === 'function') ? impRegimeDoAno(_anoAtivo) : impostos.regimeTributario;
   if(!regime){
     await askConfirm({
       title: 'Escolha um regime tributário',
@@ -90835,7 +90841,7 @@ async function fillImpForecastValues(){
     });
     return;
   }
-  const year = impActiveYearCor;
+  const year = _anoAtivo;
   // Soma total previsto e quantidade de células que serão preenchidas
   let candidatas = 0;
   let somaTotal = 0;
@@ -90896,7 +90902,7 @@ async function fillImpForecastValues(){
 function renderImpRegimeBar(){
   const el = document.getElementById('imp-regime-bar');
   if(!el) return;
-  const ano = String(typeof impActiveYear !== 'undefined' ? impActiveYear : new Date().getFullYear());
+  const ano = String(typeof impActiveYearCor !== 'undefined' && impActiveYearCor ? impActiveYearCor : new Date().getFullYear());
   const regime = (typeof impRegimeDoAno === 'function') ? impRegimeDoAno(ano) : (impostos.regimeTributario || '');
   /* Deixa explícito que a escolha vale PARA ESTE ANO — sem isso a barra
      parecia um seletor global e trocar dava a impressão de reescrever o
@@ -107802,6 +107808,7 @@ function pesPagoExtrato(ano){
     const porCat  = cats.size  && cats.has(_pesNormTxt(l.categoria));
     const porNome = nomes.size && (nomes.has(_pesNormTxt(l.contraparte)) || ids.has(l.fornecedorId));
     if(!porCat && !porNome) continue;
+    // mesma regra do pesPagoPorPessoa: o que saiu da conta no ano aparece no ano
     const bs = (typeof extBaixas === 'function') ? extBaixas(l) : [];
     if(bs.length){
       bs.forEach(b => soma(b.data, parseFloat(b.valor) || 0));
@@ -107887,8 +107894,18 @@ function pesPagoPorPessoa(ano){
       }
       continue;   // nem folha por categoria, nem pago a pessoa
     }
-    const comp = l.dataEmissao || l.dataVencimento || '';
+    /* Competência manda — MAS nunca ao ponto de o dinheiro sumir da tela.
+       Salário de dezembro pago em janeiro tem competência 12; se o usuário está
+       em 2026 e a competência caiu em 2025, o valor era simplesmente descartado
+       e a folha ficava sem o pagamento que saiu da conta dele. Regime de caixa:
+       quando a competência aponta pra fora do ano aberto e o PAGAMENTO aconteceu
+       dentro dele, vale a data do pagamento. Assim o ano de competência mostra
+       pela competência, e o ano do caixa mostra o que passou pela conta —
+       nenhum dos dois fica cego. */
+    let comp = l.dataEmissao || l.dataVencimento || '';
     const semComp = !comp;
+    const _cxa = l.dataPagamento || l.data || '';
+    if(comp && String(comp).slice(0,4) !== y && String(_cxa).slice(0,4) === y) comp = _cxa;
     const bs = (typeof extBaixas === 'function') ? extBaixas(l) : [];
     if(bs.length){
       // Baixa parcial não muda a competência: um salário só, pago em duas vezes.
