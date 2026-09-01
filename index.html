@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788236621"/>
+  <meta name="fk-build" content="forekash-v1788238189"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8480,6 +8480,8 @@
                     color:#2563EB;display:flex;align-items:center;justify-content:center;
                     font-size:.62rem;font-weight:800;letter-spacing:.02em;flex:none}
     .clidet-anx-info{flex:1;min-width:0}
+    /* Opção sem dado no ano: visível, mas claramente fora de alcance. */
+    .sf-btn.is-off{opacity:.42;cursor:not-allowed}
     .clidet-anx-name{font-size:.78rem;font-weight:600;color:#0F172A;
                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     /* O nome do arquivo abre. Era só rótulo, e a única forma de ver o anexo era
@@ -108520,29 +108522,28 @@ function renderPesStatusFilter(){
      colunas vazias. */
   const alvo = document.getElementById('pes-col-filter');
   if(alvo){
-    /* Sem pagamento no ano não há colunas a comparar — some o seletor, mas o
-       cadeado fica: é justamente aí (ano sem baixa, histórico a carregar) que
-       ele mais precisa editar o passado. */
+    /* O grupo aparece SEMPRE. Antes ele sumia quando o ano não tinha pagamento
+       identificado no Extrato — e num ano de histórico, como 2025, a barra
+       ficava só com o cadeado solto, parecendo defeito. Agora as opções sem
+       dado ficam desabilitadas, com o motivo no tooltip: some a dúvida "por que
+       não aparece?" e a barra não muda de forma ao trocar de ano. */
     const temPago = (_pesPagoCtx && _pesPagoCtx.total > 0);
-    if(!temPago){
-      alvo.innerHTML = _pesHistLockHtml();
-      try{ pesHistLockRender(); }catch(_){}
-      return;
-    }
     const cur = _pesModoCol;   // efetivo, não o 'auto' interno
-    const bt = (key, label, tip) => `
-      <button class="sf-btn${cur===key?' active':''}" onclick="setPesColView('${key}')" title="${tip}">${label}</button>`;
+    const bt = (key, label, tip, off) => `
+      <button class="sf-btn${cur===key?' active':''}${off?' is-off':''}"
+              ${off ? 'disabled' : `onclick="setPesColView('${key}')"`}
+              title="${off ? 'Nenhum pagamento de folha identificado no Extrato neste ano' : tip}">${label}</button>`;
     alvo.innerHTML =
       `<span class="sf-lbl">Colunas</span>` +
-      bt('previsto', 'Previsto', 'Só o combinado — salário de contrato, mês a mês') +
-      bt('pago',     'Pago',     'Só o que saiu da conta, identificado no Extrato') +
-      bt('ambos',    'Lado a lado', 'Previsto e pago no mesmo mês, para conferência') +
+      bt('previsto', 'Previsto', 'Só o combinado — salário de contrato, mês a mês', false) +
+      bt('pago',     'Pago',     'Só o que saiu da conta, identificado no Extrato', !temPago) +
+      bt('ambos',    'Lado a lado', 'Previsto e pago no mesmo mês, para conferência', !temPago) +
       _pesHistLockHtml();
     try{ pesHistLockRender(); }catch(_){}
     /* Sem competência, o pagamento cai no mês em que o dinheiro saiu — e em
        regime de caixa isso desloca o salário de um mês pro outro. Avisar é
        melhor que exibir um número deslocado em silêncio. */
-    if(_pesPagoCtx.semCompetencia > 0){
+    if(temPago && _pesPagoCtx.semCompetencia > 0){
       const v = (typeof fmtBRL === 'function') ? fmtBRL(_pesPagoCtx.semCompetencia) : _pesPagoCtx.semCompetencia;
       alvo.innerHTML += `<span class="pes-col-aviso" title="${v} em pagamentos sem competência preenchida no Extrato. Esses caem no mês em que o dinheiro saiu da conta, que pode não ser o mês a que o salário se refere. Preencha a Competência no lançamento para alinhar.">sem competência: ${v}</span>`;
     }
