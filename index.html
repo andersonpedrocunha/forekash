@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788232871"/>
+  <meta name="fk-build" content="forekash-v1788233490"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -13930,6 +13930,8 @@
     .pcard-field.full{grid-column:1 / -1}
     .pcard-lbl{font-size:.65rem;font-weight:700;text-transform:uppercase;
                letter-spacing:.06em;color:var(--txl)}
+    .pcard-lbl-hint{font-weight:600;text-transform:none;letter-spacing:0;
+                    color:var(--txl);opacity:.85;margin-left:5px}
     .pcard-input{border:1px solid var(--bdr);border-radius:7px;padding:7px 10px;
                  font-size:.8rem;font-family:inherit;background:#fff;color:var(--tx);
                  outline:none;transition:border-color .12s}
@@ -54156,6 +54158,38 @@ function pesSetNomeCompleto(rid, val){
   try{ if(typeof renderPessoas === 'function') renderPessoas(); }catch(_){}
   try{ if(typeof _wfCadRedesenhaTudo === 'function') _wfCadRedesenhaTudo(); }catch(_){}
 }
+
+/* Apelido = o nome que aparece na planilha (r.nome). Ele já existia no modelo,
+   só era editável direto na célula da tabela — pedido dele: virar campo na ficha.
+   Editar aqui desliga o automático que copiava o nome completo; apagar religa,
+   e aí a planilha volta a mostrar o primeiro nome. */
+function pesSetApelido(rid, val){
+  const r = pesRegistry().find(x => x.id === rid);
+  if(!r) return;
+  const novo = (val || '').trim();
+  if(!novo){
+    // Sem apelido: volta ao automático e usa o primeiro nome do nome completo.
+    const base = (r.nomeCompleto || r.razaoSocial || r.nomeLegal || '').trim();
+    r.nome = base ? base.split(/\s+/)[0] : '';
+    r._nomeAuto = true;
+  } else {
+    const conflito = pesRegistry().find(x => x.id !== rid
+      && (x.nome || '').trim().toLowerCase() === novo.toLowerCase());
+    if(conflito){
+      if(typeof toast === 'function') toast('⚠ Já existe alguém com o apelido "' + novo + '"');
+      return;
+    }
+    r.nome = novo;
+    r._nomeAuto = false;   // a partir daqui quem manda é ele
+  }
+  // A planilha guarda uma cópia do nome em cada linha — propaga.
+  try{ (pessoas.people || []).forEach(p2 => { if(p2.pessoaId === rid) p2.nome = r.nome; }); }catch(_){}
+  pessoasSave();
+  if(_pesCardOpenId != null) renderPesCardBody();
+  try{ if(typeof renderPessoas === 'function') renderPessoas(); }catch(_){}
+  try{ if(typeof _wfCadRedesenhaTudo === 'function') _wfCadRedesenhaTudo(); }catch(_){}
+}
+try{ window.pesSetApelido = pesSetApelido; }catch(_){}
 
 // Edição manual de "Legal name" (Estrangeiro): independente do nomeCompleto
 // da PF, pra o usuário poder alternar entre PF e Estrangeiro sem perder texto.
@@ -106431,7 +106465,16 @@ function renderPesCardBody(){
                       ? `onblur="pesSetNomeCompleto(${regId},this.value)"`
                       : `onblur="pesSetNomeLegal(${regId},this.value)"`}
                   onkeydown="if(event.key==='Enter')this.blur()">
-           <div class="pcard-field-hint">A descrição da célula na planilha não muda — edite-a direto na tabela se precisar.</div>
+           <div class="pcard-field-hint">Nome oficial, como está no documento. Na planilha aparece o apelido.</div>
+         </div>
+         <div class="pcard-field full">
+           <label class="pcard-lbl">Apelido <span class="pcard-lbl-hint">nome na planilha</span></label>
+           <input type="text" class="pcard-input"
+                  value="${esc((reg && reg.nome) || '')}"
+                  placeholder="${esc((nomeAtual || '').trim().split(/\s+/)[0] || 'Ex.: Wagner')}"
+                  onblur="pesSetApelido(${regId},this.value)"
+                  onkeydown="if(event.key==='Enter')this.blur()">
+           <div class="pcard-field-hint">É este nome que aparece na planilha da folha, no Extrato e nos relatórios. Em branco, usa o primeiro nome.</div>
          </div>
          <div class="pcard-field full">
            <label class="pcard-lbl">${esc(labels.doc)}</label>
@@ -107349,50 +107392,12 @@ async function setPesSalario(id, key, val){
   if(pagoLimpo) renderPesSheet();
   updatePesTotals();
 
-  if(!changed) return;
-
-  // Monta lista dos próximos meses (dentro dos anos cadastrados)
-  const [yStr, mStr] = key.split('-');
-  const yNum = parseInt(yStr, 10);
-  const mIdx = parseInt(mStr, 10) - 1;
-  const yearsInt = (pessoas.years || []).map(y => parseInt(y, 10)).filter(n => !isNaN(n));
-  if(!yearsInt.length) return;
-  const maxYear = Math.max(...yearsInt);
-  const yearSet = new Set(pessoas.years);
-  const futureKeys = [];
-  for(let y = yNum; y <= maxYear; y++){
-    const yKey = String(y);
-    if(!yearSet.has(yKey)) continue;
-    const startM = (y === yNum) ? (mIdx + 1) : 0;
-    for(let m = startM; m < 12; m++){
-      futureKeys.push(pesMesKey(yKey, m));
-    }
-  }
-  if(!futureKeys.length) return;
-
-  const lastLabel = pesKeyToLabel(futureKeys[futureKeys.length - 1]);
-  const valLabel  = isEmpty ? '<em>apagar</em>' : ('<strong>' + fmtBRL(newVal) + '</strong>');
-  const message   = isEmpty
-    ? `Deseja também limpar os próximos ${futureKeys.length} meses dessa pessoa (até ${lastLabel})?`
-    : `Aplicar ${valLabel} também nos próximos ${futureKeys.length} meses dessa pessoa (até ${lastLabel})?`;
-
-  const ok = await showConfirm({
-    title: 'Replicar para os próximos meses?',
-    message,
-    confirmLabel: 'Replicar',
-    cancelLabel: 'Somente este mês'
-  });
-  if(!ok) return;
-
-  for(const k of futureKeys){
-    // Regra: não sobrescrever células travadas (com ✓ pago)
-    if(p.pagos && p.pagos[k]) continue;
-    if(isEmpty) delete p.salarios[k];
-    else p.salarios[k] = newVal;
-  }
-  pessoasSave();
-  renderPesSheet();
-  updatePesTotals();
+  /* A pergunta "Replicar para os próximos meses?" saiu daqui. Ela aparecia a
+     cada célula editada e, no fluxo real — carregar histórico mês a mês,
+     corrigir um valor solto — interrompia mais do que ajudava: pedido dele em
+     31/08/2026, "tá mais atrapalhando que ajudando". O valor digitado vale
+     para o mês digitado, e ponto. Pra repetir num intervalo existe o reajuste
+     e a edição direta das células. */
 }
 
 /* ── PAGO DE FOLHA, LIDO DO EXTRATO ─────────────────────────────────────────
