@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788289381"/>
+  <meta name="fk-build" content="forekash-v1788289534"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -108497,6 +108497,63 @@ function renderPesReajSimModos(){
       + nSnap + ` snapshot` + (nSnap === 1 ? '' : 's') + ` salvo` + (nSnap === 1 ? '' : 's') + ` \u2192</button>`;
   }
 }
+/* Lista de snapshots — passo do MESMO modal, não tela nova. Volta pela seta
+   "← trocar" do cabeçalho, igual aos modos. */
+function pesSnapAbrir(){
+  const escolha = document.getElementById('pes-reajsim-escolha');
+  const tela    = document.getElementById('pes-reajsim-tela');
+  const foot    = document.getElementById('pes-reajsim-foot');
+  const voltar  = document.getElementById('pes-reajsim-voltar');
+  const titulo  = document.getElementById('pes-reajsim-titulo');
+  if(tela) tela.style.display = 'none';
+  if(foot) foot.style.display = 'none';
+  if(voltar) voltar.style.display = '';
+  if(titulo) titulo.textContent = 'Snapshots do plano';
+  const cx = document.querySelector('.pes-reajsim-modal');
+  if(cx) cx.classList.remove('escolhendo');
+  if(!escolha) return;
+  escolha.style.display = '';
+  const arr = pesSnapshots();
+  if(!arr.length){
+    escolha.innerHTML = '<p class="pes-reajsim-hint">Nenhum snapshot salvo ainda. Monte o plano e use '
+      + '<b>Salvar snapshot</b> no rodapé — ele guarda o retrato completo, pessoa por pessoa.</p>';
+    return;
+  }
+  escolha.innerHTML = '<p class="pes-reajsim-hint">Cada snapshot guarda o plano inteiro daquele momento. '
+    + 'Salvar um novo não mexe no plano atual.</p>'
+    + arr.map(sn => {
+        const t = sn.totais || {};
+        const d = new Date(sn.criadoEm);
+        const linhas = (sn.linhas || []).filter(l => l.delta > 0.005);
+        return '<div class="pes-snap">'
+          + '<div class="pes-snap-hd"><div><b>' + esc(sn.rotulo || 'Sem nome') + '</b>'
+          +   '<small>' + esc(sn.ano) + ' \u00b7 ' + d.toLocaleDateString('pt-BR') + ' '
+          +   d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) + '</small></div>'
+          +   '<button type="button" class="pes-snap-x" onclick="pesSnapExcluir(\'' + esc(sn.id) + '\')" title="Excluir snapshot">'
+          +     '<svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>'
+          +   '</button></div>'
+          + '<div class="pes-snap-kpis">'
+          +   '<span><i>folha hoje</i><b>' + fmtBRL(t.folhaAtual || 0) + '</b></span>'
+          +   '<span><i>com o plano</i><b class="up">' + fmtBRL(t.folhaNova || 0) + '</b></span>'
+          +   '<span><i>por mês</i><b class="up">+' + fmtBRL(t.deltaMes || 0) + '</b></span>'
+          +   '<span><i>no ano</i><b class="up">+' + fmtBRL(t.deltaAno || 0) + '</b></span>'
+          +   '<span><i>na folha</i><b class="up">+' + fmtBR(t.deltaPct || 0, 2) + '%</b></span>'
+          +   '<span><i>média por pessoa</i><b>+' + fmtBR(t.pctMedio || 0, 2) + '%</b></span>'
+          + '</div>'
+          + '<details class="pes-snap-det"><summary>' + (t.comReajuste || 0) + ' de ' + (t.pessoas || 0)
+          +   ' pessoas com reajuste</summary>'
+          + '<table class="pes-snap-tab"><thead><tr><th>Pessoa</th><th>Tipo</th><th>Mês</th>'
+          +   '<th>%</th><th>Atual</th><th>Com reajuste</th><th>\u0394 mês</th></tr></thead><tbody>'
+          + linhas.map(l => '<tr><td>' + esc(l.nome) + '</td><td>' + esc(l.tipo || '') + '</td>'
+              + '<td>' + esc(l.mes ? _pesReajSimMesLabel(l.mes) : '\u2014') + '</td>'
+              + '<td>+' + fmtBR(l.pct || 0, ((l.pct || 0) % 1 ? 2 : 0)) + '%</td>'
+              + '<td>' + fmtBRL(l.atual) + '</td><td>' + fmtBRL(l.novo) + '</td>'
+              + '<td class="up">+' + fmtBRL(l.delta) + '</td></tr>').join('')
+          + '</tbody></table></details></div>';
+      }).join('');
+}
+try{ window.pesSnapAbrir = pesSnapAbrir; }catch(_){}
+
 function setPesReajSimModo(modo){
   pesReajSimModo = modo || null;
   const escolha = document.getElementById('pes-reajsim-escolha');
