@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788234445"/>
+  <meta name="fk-build" content="forekash-v1788234536"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -14181,6 +14181,9 @@
     .pes-sheet td.pes-cell.sim-on{background:#FFFBEB}
     .pes-sheet td.pes-cell.sim-on input.pes-sal-input{color:#B45309;font-weight:700;
                                                    background:transparent;cursor:not-allowed}
+    /* Aumento em relação ao mês anterior: só a escrita. Sem fundo — fundo é a
+       linguagem do reajuste simulado, e misturar as duas confundiria. */
+    .pes-sheet td.pes-cell.subiu input.pes-sal-input{color:#047857;font-weight:800}
     .pes-sheet td.pes-cell input.sim-ro{background:transparent;cursor:not-allowed;color:var(--txm)}
 
     /* Botão + toggle de simulação de reajuste */
@@ -108995,6 +108998,22 @@ function renderPesPersonRow(p, year, isSim, forTipoId){
        Sem isso, OUT aparecia destacado e NOV/DEZ — com o mesmo salário novo —
        voltavam ao normal, como se o reajuste tivesse valido por um mês só. */
     const isSimOn = !!(simActive && show && factor !== 1 && !isSimStart);
+    /* Aumento real de um mês pro outro: 11.000 → 12.000 não tinha nenhuma marca,
+       e olhando doze colunas de números parecidos o degrau passava batido.
+       Compara o valor EXIBIDO com o do mês anterior (dezembro do ano anterior,
+       quando é janeiro). Só a escrita muda — nada de fundo, que já é a
+       linguagem do reajuste simulado; e o mês de virada da simulação continua
+       mandando na cor quando os dois coincidem. */
+    const _prevKey = (i > 0)
+      ? pesMesKey(year, i - 1)
+      : ((pessoas.years || []).includes(String(parseInt(year,10) - 1))
+          ? pesMesKey(String(parseInt(year,10) - 1), 11) : null);
+    const _prevEff = _prevKey ? (pesEffVal(p, _prevKey) || 0) : 0;
+    const subiu = !!(show && _prevEff > 0 && eff > _prevEff + 0.005 && !isSimStart && !isSimOn);
+    const _subiuTip = subiu
+      ? ('Subiu ' + fmtBRL(eff - _prevEff) + ' em relação ao mês anterior ('
+         + fmtBR(((eff / _prevEff) - 1) * 100, 2) + '%)')
+      : '';
     const displayVal = show ? fmtBR(eff, 2) : '';
     /* A baixa saiu daqui: quem paga é o Extrato. A célula volta a ser só o
        combinado, sempre editável — sem ✓ e sem trava. O que foi pago de
@@ -109010,6 +109029,7 @@ function renderPesPersonRow(p, year, isSim, forTipoId){
                 + (isReaj?' reaj':'')
                 + (isSimStart?' sim':'')
                 + (isSimOn?' sim-on':'')
+                + (subiu?' subiu':'')
                 + (fechado?' mes-fechado':'')
                 + (empty?' empty':'');
     if(simActive){
@@ -109032,7 +109052,7 @@ function renderPesPersonRow(p, year, isSim, forTipoId){
     const roTitle = isSplit ? ' title="Split: ' + pctMes.toFixed(0) + '% do salário base · edite na aba principal ou pelo editor de alocação"' : '';
     const roClick = '';
     const splitCls = isSplit ? ' pes-split' : '';
-    return `<td class="${tdCls}${splitCls}">
+    return `<td class="${tdCls}${splitCls}"${_subiuTip ? ` title="${esc(_subiuTip)}"` : ''}>
       <input type="text" class="pes-sal-input${isSplit?' is-split':''}"
              value="${displayVal}"
              placeholder="—"
