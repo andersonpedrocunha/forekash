@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788282450"/>
+  <meta name="fk-build" content="forekash-v1788283131"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -32594,6 +32594,7 @@ function renderClidet(){
 }
 
 function receitaLoad(){
+  if(_recMemoriaAdiante) return;   // memória à frente do disco: não recarrega por cima
   try{
     const raw = localStorage.getItem(REC_KEY);
     if(raw) receita = JSON.parse(raw);
@@ -32731,9 +32732,27 @@ async function cloudReceitaFetch(){
 }
 window.cloudReceitaFetch = cloudReceitaFetch;
 
+let _recMemoriaAdiante = false;
 function receitaSave(){
   receita.activeYear = recActiveYear;
-  try{ localStorage.setItem(REC_KEY, JSON.stringify(receita)); }catch(e){}
+  /* Era `catch(e){}` mudo. Anexo de contrato em base64 (1,1 MB vira ~1,5 MB de
+     string) estoura a cota do navegador, a gravação falhava em silêncio e no
+     F5 seguinte o localStorage velho — sem os anexos — voltava por cima.
+     Resultado: "a cada atualização de página os anexos somem".
+     Agora: fala alto, e a memória passa a valer mais que o disco até a nuvem
+     confirmar. */
+  let salvou = false;
+  try{
+    localStorage.setItem(REC_KEY, JSON.stringify(receita));
+    salvou = true;
+  }catch(e){
+    const mb = (() => { try{ return (JSON.stringify(receita).length / 1048576).toFixed(1); }catch(_){ return '?'; } })();
+    console.error('[FK] NÃO consegui salvar a Receita no navegador:', e.name, '· tamanho:', mb + ' MB');
+    if(typeof toast === 'function'){
+      toast('⚠ O armazenamento local está cheio (' + mb + ' MB). Os dados vão pra nuvem — não feche antes de o selo dizer "salvo".', 8000);
+    }
+  }
+  _recMemoriaAdiante = !salvou;
   if (window.FK_MODE === 'cloud') cloudBlobSync('receita', () => receita);
   // Atualiza selo de salvamento geral
   const sb = document.getElementById('sb-save-ts');
@@ -115194,11 +115213,24 @@ async function cloudBlobSync(moduleName, getDataFn){
     try { data = (typeof getDataFn === 'function') ? getDataFn() : getDataFn; }
     catch(_) { data = null; }
     if (data === null || data === undefined) return;
+    /* Tamanho no log: quando um módulo para de subir, quase sempre é o blob
+       tendo crescido demais (anexo em base64 dentro do JSON). Sem o número, a
+       investigação começa às cegas. */
+    let _mb = '?';
+    try{ _mb = (JSON.stringify(data).length / 1048576).toFixed(2); }catch(_){}
     const { error } = await window.sb
       .from('module_blobs')
       .upsert({ org_id: orgId, module: moduleName, data: data }, { onConflict: 'org_id,module' });
-    if (error) { console.warn('[FK] blob sync erro:', moduleName, error.message); return; }
-    console.log('[FK] blob sync OK:', moduleName);
+    if (error) {
+      console.error('[FK] blob sync ERRO:', moduleName, '·', _mb + ' MB ·', error.message);
+      /* Falhar em silêncio aqui significa perder dado no próximo F5. O usuário
+         precisa saber ANTES de fechar a aba. */
+      if (typeof toast === 'function') {
+        toast('⚠ Não consegui salvar ' + moduleName + ' na nuvem (' + _mb + ' MB). Não feche a página — tente remover anexos grandes.', 9000);
+      }
+      return;
+    }
+    console.log('[FK] blob sync OK:', moduleName, '·', _mb + ' MB');
   } catch(e) {
     console.warn('[FK] blob sync fail:', moduleName, e.message || e);
   } finally {
