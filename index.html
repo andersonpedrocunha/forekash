@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788298724"/>
+  <meta name="fk-build" content="forekash-v1788298943"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -13273,6 +13273,14 @@
     /* Select de mês — inline, compacto */
     .flx-cashbox-mes{display:flex;align-items:center;gap:6px;flex:0 0 auto;
                      padding-left:10px;border-left:1px dashed #E2E8F0;margin-left:4px}
+    /* Nota do saldo inicial: encolhe e trunca em vez de empurrar os vizinhos. */
+    .flx-cashbox-nota{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
+                      white-space:nowrap;font-size:.66rem;font-weight:600;
+                      padding-left:10px;cursor:help}
+    .flx-cashbox-nota.herda{color:#4338CA}
+    .flx-cashbox-nota.falta{color:#B45309}
+    .flx-cashbox-nota.res{color:#7C3AED}
+    .flx-cashbox-nota.resoff{color:#94A3B8;font-weight:500}
     .flx-cashbox-mes-lbl{font-size:.58rem;font-weight:800;color:#64748B;
                          text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
     .flx-cashbox-sel{appearance:none;-webkit-appearance:none;
@@ -42627,6 +42635,10 @@ function renderFlxSheet(){
 }
 
 // Render do bloco destaque — Saldo Inicial (valor + mês) + Saldo Final (dez)
+function _flxEscAttr(t){
+  return String(t == null ? '' : t).replace(/&/g,'&amp;').replace(/"/g,'&quot;')
+         .replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 function renderFlxCashbox(){
   const el = document.getElementById('flx-cashbox');
   if(!el) return;
@@ -42681,18 +42693,22 @@ function renderFlxCashbox(){
       const _mesRot = (typeof DISPO_MESES !== 'undefined' && DISPO_MESES[siMes || 0])
         ? (DISPO_MESES[siMes || 0] + '/' + year) : (String((siMes||0)+1).padStart(2,'0') + '/' + year);
       /* Minimalista: uma linha só, e só quando ela diz algo. */
+      /* Uma nota curta, truncável, com o texto inteiro no title. Como div solta
+         num flex ela virava item e espremia o seletor de mês até sobrepor. */
+      const nota = (cls, txt, tip) =>
+        `<span class="flx-cashbox-nota ${cls}" title="${_flxEscAttr(tip)}">${txt}</span>`;
       if(_herdado){
-        bdHtml = `<div style="font-size:.66rem;color:#4338CA;margin-top:2px;font-weight:600"
-          title="Sugestão: o saldo final de ${parseInt(year,10)-1} vira o ponto de partida deste ano. Digite por cima para usar outro valor — aí o selo some.">veio do fechamento de ${parseInt(year,10)-1} · edite se precisar</div>`;
+        bdHtml = nota('herda', 'do fechamento de ' + (parseInt(year,10)-1),
+          'Sugestão: o saldo final de ' + (parseInt(year,10)-1) + ' vira o ponto de partida deste ano. Digite por cima para usar outro valor — o selo some.');
       } else if(!si && _bdSI && _bdSI.semDado){
-        bdHtml = `<div style="font-size:.66rem;color:#B45309;margin-top:2px;font-weight:600"
-          title="O saldo inicial vem do que você preenche aqui, ou das Disponibilidades: célula do mês, snapshot confirmado, ou saldo inicial da conta. Nenhum existe até ${_mesRot}.">sem saldo até ${_mesRot}</div>`;
+        bdHtml = nota('falta', 'sem saldo até ' + _mesRot,
+          'O saldo inicial vem do que você preenche aqui, ou das Disponibilidades: célula do mês, snapshot confirmado, ou saldo inicial da conta. Nenhum existe até ' + _mesRot + '.');
       } else if(_reservas > 0 && _incR){
-        bdHtml = `<div style="font-size:.66rem;color:#7C3AED;margin-top:2px;font-weight:600"
-          title="Saldo preenchido + reservas de ${_mesRot}">com reservas: ${fmtBRL(siTotal)}</div>`;
+        bdHtml = nota('res', 'com reservas: ' + fmtBRL(siTotal),
+          'Saldo preenchido + reservas de ' + _mesRot);
       } else if(_reservas > 0){
-        bdHtml = `<div style="font-size:.66rem;color:#94A3B8;margin-top:2px"
-          title="Reservas de ${_mesRot} · ligue o toggle pra somar">+ ${fmtBRL(_reservas)} em reservas</div>`;
+        bdHtml = nota('resoff', '+ ' + fmtBRL(_reservas) + ' em reservas',
+          'Reservas de ' + _mesRot + ' · marque "Incluir reservas" para somar');
       }
     }
   }catch(_){}
