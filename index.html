@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788273222"/>
+  <meta name="fk-build" content="forekash-v1788274522"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -107591,7 +107591,10 @@ try{ window.pesPagoExtrato = pesPagoExtrato; }catch(_){}
    de ser rateado no chute. Mesmo caminho já aceito no Parcelamento. */
 function pesPagoPorPessoa(ano){
   const y = String(ano || pesActiveYear || '');
-  const res = { porReg: {}, naoIdent: {}, total: 0, semCompetencia: 0 };
+  /* diag: por que um pagamento de folha do Extrato NÃO entrou no ano aberto.
+     Sem isso, "não puxou o valor pago" só dava pra investigar no console. */
+  const res = { porReg: {}, naoIdent: {}, total: 0, semCompetencia: 0,
+                foraDoAno: 0, foraDoAnoQuando: {}, semVinculo: 0 };
   let lans = [];
   try{ lans = (extratoData && extratoData.lancamentos) || []; }catch(_){ return res; }
   if(!lans.length) return res;
@@ -107620,7 +107623,14 @@ function pesPagoPorPessoa(ano){
   const soma = (regId, dataStr, valor, estimado) => {
     if(!dataStr || !valor) return;
     const ds = String(dataStr);
-    if(ds.slice(0,4) !== y) return;
+    if(ds.slice(0,4) !== y){
+      // Competência de outro ano: é o caso de salário de dezembro pago em
+      // janeiro. Não entra aqui, mas some sem explicação se ninguém contar.
+      res.foraDoAno += valor;
+      const yy = ds.slice(0,4);
+      res.foraDoAnoQuando[yy] = (res.foraDoAnoQuando[yy] || 0) + valor;
+      return;
+    }
     const ym = ds.slice(0,7);
     const alvo = regId ? (res.porReg[regId] = res.porReg[regId] || {}) : res.naoIdent;
     alvo[ym] = (alvo[ym] || 0) + valor;
@@ -107637,7 +107647,17 @@ function pesPagoPorPessoa(ano){
       const byName = idPorNome[_pesNormTxt(l.contraparte)];
       if(byName) regId = byName;
     }
-    if(!porCat && !regId) continue;   // nem folha por categoria, nem pago a pessoa
+    if(!porCat && !regId){
+      /* Gasto que PARECE folha (nome de pessoa OU categoria com "folha"/"salario")
+         mas não bateu nem por categoria de módulo nem por cadastro. É o buraco
+         que fazia o valor sumir calado. */
+      const _cat = _pesNormTxt(l.categoria);
+      const _pareceFolha = _cat.includes('folha') || _cat.includes('salario') || _cat.includes('pessoas');
+      if(_pareceFolha && l.status === 'pago'){
+        res.semVinculo += (parseFloat(l.valorPago || l.valor) || 0);
+      }
+      continue;   // nem folha por categoria, nem pago a pessoa
+    }
     const comp = l.dataEmissao || l.dataVencimento || '';
     const semComp = !comp;
     const bs = (typeof extBaixas === 'function') ? extBaixas(l) : [];
@@ -108599,6 +108619,17 @@ function renderPesStatusFilter(){
     /* Sem competência, o pagamento cai no mês em que o dinheiro saiu — e em
        regime de caixa isso desloca o salário de um mês pro outro. Avisar é
        melhor que exibir um número deslocado em silêncio. */
+    /* Pagamento de folha que existe no Extrato e NÃO entrou nesta tela: dizer
+       quanto e por quê. Some calado era o pior desfecho possível. */
+    if(_pesPagoCtx.foraDoAno > 0){
+      const v = (typeof fmtBRL === 'function') ? fmtBRL(_pesPagoCtx.foraDoAno) : _pesPagoCtx.foraDoAno;
+      const anos = Object.keys(_pesPagoCtx.foraDoAnoQuando || {}).sort().join(', ');
+      alvo.innerHTML += `<span class="pes-col-aviso" title="Esses pagamentos existem no Extrato, mas a competência deles cai em ${esc(anos)}. A folha ancora na competência — o salário de dezembro pago em janeiro conta em dezembro. Abra o ano ${esc(anos)} para vê-los.">${v} em ${esc(anos)}</span>`;
+    }
+    if(_pesPagoCtx.semVinculo > 0){
+      const v = (typeof fmtBRL === 'function') ? fmtBRL(_pesPagoCtx.semVinculo) : _pesPagoCtx.semVinculo;
+      alvo.innerHTML += `<span class="pes-col-aviso" title="Gastos pagos que parecem folha, mas não têm categoria do módulo Pessoas nem contraparte cadastrada como colaborador — por isso não entram na coluna Pago. Vincule a categoria ao módulo Pessoas, ou cadastre a contraparte como colaborador.">${v} sem vínculo</span>`;
+    }
     if(temPago && _pesPagoCtx.semCompetencia > 0){
       const v = (typeof fmtBRL === 'function') ? fmtBRL(_pesPagoCtx.semCompetencia) : _pesPagoCtx.semCompetencia;
       alvo.innerHTML += `<span class="pes-col-aviso" title="${v} em pagamentos sem competência preenchida no Extrato. Esses caem no mês em que o dinheiro saiu da conta, que pode não ser o mês a que o salário se refere. Preencha a Competência no lançamento para alinhar.">sem competência: ${v}</span>`;
