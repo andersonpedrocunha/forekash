@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788298102"/>
+  <meta name="fk-build" content="forekash-v1788298437"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -40056,8 +40056,43 @@ function flxSaldoInicialVal(year){
   if(v !== undefined && v !== '') return parseFloat(v) || 0;
   // Senão, tenta puxar de Disponibilidades automaticamente
   const auto = flxSaldoInicialDeDispo(year);
-  return auto != null ? auto : 0;
+  if(auto != null) return auto;
+  /* Herda o fechamento do ano anterior. Sem isto, abrir 2027 dava saldo zero e
+     a projeção inteira nascia errada sem avisar — o ano que começa continua de
+     onde o anterior parou. É SUGESTÃO: não grava nada, e some assim que ele
+     digitar um valor próprio. */
+  const h = flxSaldoHerdado(year);
+  return h != null ? h : 0;
 }
+/* Fechamento do ano anterior = saldo inicial daquele ano + os saldos mensais a
+   partir do mês âncora. Profundidade limitada: 2028 pode herdar de 2027, que
+   herda de 2026 — mas a cadeia para, senão um ano solto viraria recursão. */
+function flxSaldoHerdado(year, _prof){
+  const prof = _prof || 0;
+  if(prof > 5) return null;
+  const ant = String(parseInt(year, 10) - 1);
+  if(!fluxo || !fluxo.saldoInicial || fluxo.saldoInicial[ant] === undefined) return null;
+  const vAnt = fluxo.saldoInicial[ant];
+  let base = (vAnt !== undefined && vAnt !== '') ? (parseFloat(vAnt) || 0) : null;
+  if(base === null){
+    const auto = flxSaldoInicialDeDispo(ant);
+    base = (auto != null) ? auto : flxSaldoHerdado(ant, prof + 1);
+  }
+  if(base === null || base === undefined) return null;
+  const mesAnc = flxSaldoInicialMesVal(ant);
+  let sf = base;
+  for(let m = mesAnc; m < 12; m++) sf += flxSaldoMesVal(ant, m);
+  return sf;
+}
+/* Herdado = ele NÃO digitou nada e não veio de Disponibilidades. É o que decide
+   se o selo aparece. */
+function flxSaldoEhHerdado(year){
+  const v = fluxo && fluxo.saldoInicial ? fluxo.saldoInicial[year] : undefined;
+  if(v !== undefined && v !== '') return false;
+  if(flxSaldoInicialDeDispo(year) != null) return false;
+  return flxSaldoHerdado(year) != null;
+}
+try{ window.flxSaldoHerdado = flxSaldoHerdado; window.flxSaldoEhHerdado = flxSaldoEhHerdado; }catch(_){}
 // Mês em que o saldo inicial está "ancorado" (0..11). Default: jan (0).
 function flxSaldoInicialMesVal(year){
   const v = (fluxo.saldoInicialMes || {})[year];
@@ -42588,7 +42623,12 @@ function renderFlxCashbox(){
   // Saldo Final (dez) respeita a âncora: saldoInicial + soma(saldoMes) a partir do mês âncora.
   let sf = siTotal;
   for(let m=siMes; m<12; m++) sf += flxSaldoMesVal(year, m);
-  const inp = _flxInpCell(year, 0, 'SaldoInicial', fluxo.saldoInicial[year]);
+  /* Herdado entra NO CAMPO como sugestão editável — não gravado. Digitar por
+     cima vira valor próprio e o selo some. */
+  const _herdado = flxSaldoEhHerdado(year);
+  const inp = _flxInpCell(year, 0, 'SaldoInicial',
+    (fluxo.saldoInicial[year] !== undefined && fluxo.saldoInicial[year] !== '')
+      ? fluxo.saldoInicial[year] : (_herdado ? si : fluxo.saldoInicial[year]));
   /* O ✓ do Saldo Inicial FICA. Ele não é baixa de pagamento — é você
      declarando que aquele saldo de partida confere com o banco, e é ele que
      trava o mês âncora. Coisa diferente do ✓ por célula, que foi removido. */
@@ -42610,7 +42650,10 @@ function renderFlxCashbox(){
       const _mesRot = (typeof DISPO_MESES !== 'undefined' && DISPO_MESES[siMes || 0])
         ? (DISPO_MESES[siMes || 0] + '/' + year) : (String((siMes||0)+1).padStart(2,'0') + '/' + year);
       /* Minimalista: uma linha só, e só quando ela diz algo. */
-      if(!si && _bdSI && _bdSI.semDado){
+      if(_herdado){
+        bdHtml = `<div style="font-size:.66rem;color:#4338CA;margin-top:2px;font-weight:600"
+          title="Sugestão: o saldo final de ${parseInt(year,10)-1} vira o ponto de partida deste ano. Digite por cima para usar outro valor — aí o selo some.">veio do fechamento de ${parseInt(year,10)-1} · edite se precisar</div>`;
+      } else if(!si && _bdSI && _bdSI.semDado){
         bdHtml = `<div style="font-size:.66rem;color:#B45309;margin-top:2px;font-weight:600"
           title="O saldo inicial vem do que você preenche aqui, ou das Disponibilidades: célula do mês, snapshot confirmado, ou saldo inicial da conta. Nenhum existe até ${_mesRot}.">sem saldo até ${_mesRot}</div>`;
       } else if(_reservas > 0 && _incR){
