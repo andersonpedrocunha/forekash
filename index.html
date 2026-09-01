@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788289820"/>
+  <meta name="fk-build" content="forekash-v1788289905"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -20576,6 +20576,11 @@ td.mes.do-extrato{background:#ECFDF5}
             <p class="pes-reajsim-hint">Como prefere simular o aumento?</p>
             <div class="pes-reajsim-modos" id="pes-reajsim-modos"></div>
           </div>
+          <!-- Snapshots têm contêiner PRÓPRIO. Antes eles sobrescreviam o
+               innerHTML da tela de escolha, e aí #pes-reajsim-modos deixava de
+               existir: reabrir o modal caía num render silencioso e a lista de
+               snapshots ficava na tela no lugar da pergunta. -->
+          <div class="pes-reajsim-body" id="pes-reajsim-snaps" style="display:none"></div>
           <div class="pes-reajsim-body" id="pes-reajsim-tela" style="display:none">
             <p class="pes-reajsim-hint" id="pes-reajsim-hint"></p>
             <div class="pes-reajsim-years" id="pes-reajsim-years"></div>
@@ -108518,21 +108523,23 @@ function pesSnapAbrir(){
   const foot    = document.getElementById('pes-reajsim-foot');
   const voltar  = document.getElementById('pes-reajsim-voltar');
   const titulo  = document.getElementById('pes-reajsim-titulo');
+  const snaps = document.getElementById('pes-reajsim-snaps');
   if(tela) tela.style.display = 'none';
   if(foot) foot.style.display = 'none';
+  if(escolha) escolha.style.display = 'none';
   if(voltar) voltar.style.display = '';
   if(titulo) titulo.textContent = 'Snapshots do plano';
   const cx = document.querySelector('.pes-reajsim-modal');
   if(cx) cx.classList.remove('escolhendo');
-  if(!escolha) return;
-  escolha.style.display = '';
+  if(!snaps) return;
+  snaps.style.display = '';
   const arr = pesSnapshots();
   if(!arr.length){
-    escolha.innerHTML = '<p class="pes-reajsim-hint">Nenhum snapshot salvo ainda. Monte o plano e use '
+    snaps.innerHTML = '<p class="pes-reajsim-hint">Nenhum snapshot salvo ainda. Monte o plano e use '
       + '<b>Salvar snapshot</b> no rodapé — ele guarda o retrato completo, pessoa por pessoa.</p>';
     return;
   }
-  escolha.innerHTML = '<p class="pes-reajsim-hint">Cada snapshot guarda o plano inteiro daquele momento. '
+  snaps.innerHTML = '<p class="pes-reajsim-hint">Cada snapshot guarda o plano inteiro daquele momento. '
     + 'Salvar um novo não mexe no plano atual.</p>'
     + arr.map(sn => {
         const t = sn.totais || {};
@@ -108575,6 +108582,8 @@ function setPesReajSimModo(modo){
   const titulo  = document.getElementById('pes-reajsim-titulo');
   const foot    = document.getElementById('pes-reajsim-foot');
   const naEscolha = !pesReajSimModo;
+  const snaps = document.getElementById('pes-reajsim-snaps');
+  if(snaps) snaps.style.display = 'none';
   if(escolha) escolha.style.display = naEscolha ? '' : 'none';
   if(tela)    tela.style.display    = naEscolha ? 'none' : '';
   if(voltar)  voltar.style.display  = naEscolha ? 'none' : '';
