@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788278630"/>
+  <meta name="fk-build" content="forekash-v1788282070"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -31281,19 +31281,37 @@ function calcClienteLTV(cid){
                mesesAtivos:0, totalRecebido:0};
   if(!cid || !receita || !receita.years) return out;
 
+  /* "Recebido" vem do EXTRATO, não do status gravado na célula. O app parou de
+     manter cell.status quando o Extrato virou a fonte do realizado (ver
+     recCelulaEfetiva) — e este cálculo continuou exigindo status==='recebido'.
+     Resultado: totalRecebido zerava, a mensalidade média dava "—" e o LTV
+     inteiro ficava zero, mesmo com anos de contrato pago. */
   const mesesAtivosSet = new Set();
   let totalRecebido = 0;
+  const _meses = (typeof REC_MESES !== 'undefined' && REC_MESES.length)
+    ? REC_MESES : ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   for(const y of Object.keys(receita.years)){
     const d = receita.years[y] || {};
+    let mapa = null;
+    try{ mapa = (typeof recRealizadoExtrato === 'function') ? recRealizadoExtrato(y) : null; }catch(_){}
     for(const r of (d.clients || [])){
       if(r.clienteId !== cid) continue;
-      const meses = r.meses || {};
-      for(const m of Object.keys(meses)){
-        const cell = meses[m] || {};
-        const v = +cell.valor;
-        if(!v || isNaN(v) || cell.status !== 'recebido') continue;
-        totalRecebido += v;
-        mesesAtivosSet.add(`${y}-${m}`);
+      for(const m of _meses){
+        let rec = 0;
+        try{
+          if(typeof recCelulaEfetiva === 'function'){
+            rec = (recCelulaEfetiva(r, m, y, mapa) || {}).recebido || 0;
+          }
+        }catch(_){}
+        if(!rec){
+          // Sem o resolvedor (ou sem extrato no ano), respeita a baixa manual antiga.
+          const cell = (r.meses || {})[m] || {};
+          if(cell.status === 'recebido') rec = +cell.valor || 0;
+        }
+        if(rec > 0.005){
+          totalRecebido += rec;
+          mesesAtivosSet.add(`${y}-${m}`);
+        }
       }
     }
   }
@@ -31406,6 +31424,20 @@ async function addAnexosCliente(cid, files){
 }
 
 // Dispara download de um anexo criando um <a> temporário.
+/* Abrir anexo do cliente. Mesma mecânica de Pessoas e do modal de lançamento —
+   ele pediu que abrir sem baixar fosse padrão do projeto inteiro. */
+function abrirAnexoCliente(cid, anexoId){
+  const c = (receita.clientes || []).find(x => x.id === cid);
+  const a = (c && Array.isArray(c.anexos)) ? c.anexos.find(x => x.id === anexoId) : null;
+  if(!a){ if(typeof toast === 'function') toast('Anexo indisponível'); return; }
+  if(typeof _dkbOpenAttachment === 'function'){
+    _dkbOpenAttachment({ name: a.nome, type: a.tipo, size: a.tamanho, dataUrl: a.dataUrl });
+    return;
+  }
+  if(a.dataUrl) window.open(a.dataUrl, '_blank');
+}
+try{ window.abrirAnexoCliente = abrirAnexoCliente; }catch(_){}
+
 function downloadAnexoCliente(cid, anexoId){
   const c = (receita.clientes || []).find(x => x.id === cid);
   if(!c || !Array.isArray(c.anexos)) return;
@@ -32470,7 +32502,9 @@ function renderClidet(){
             <div class="clidet-anx-item">
               <div class="clidet-anx-ext" title="${esc(a.tipo||'')}">${esc(anexoIconLabel(a))}</div>
               <div class="clidet-anx-info">
-                <div class="clidet-anx-name" title="${esc(a.nome||'')}">${esc(a.nome||'arquivo')}</div>
+                <button type="button" class="clidet-anx-name clidet-anx-open"
+                        title="Abrir ${esc(a.nome||'')} numa aba nova"
+                        onclick="abrirAnexoCliente(${c.id},'${esc(a.id)}')">${esc(a.nome||'arquivo')}</button>
                 <div class="clidet-anx-meta">
                   <span>${anexoFmtSize(a.tamanho||0)}</span>
                   <span>·</span>
@@ -32478,6 +32512,10 @@ function renderClidet(){
                 </div>
               </div>
               <div class="clidet-anx-actions">
+                <button type="button" class="clidet-anx-btn" title="Abrir numa aba nova"
+                        onclick="abrirAnexoCliente(${c.id},'${esc(a.id)}')">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </button>
                 <button type="button" class="clidet-anx-btn" title="Baixar"
                         onclick="downloadAnexoCliente(${c.id},'${esc(a.id)}')">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
