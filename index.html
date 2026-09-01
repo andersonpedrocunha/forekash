@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788234536"/>
+  <meta name="fk-build" content="forekash-v1788236326"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -107665,6 +107665,29 @@ function pesHistLockRender(){
 }
 try{ window.pesHistToggle = pesHistToggle; window.pesHistLockRender = pesHistLockRender; }catch(_){}
 
+/* Mês "de borda": admissão, desligamento ou o primeiro mês com salário da
+   pessoa. Nesses o valor é proporcional aos dias trabalhados, então comparar
+   com o mês seguinte não diz nada sobre aumento. */
+function _pesMesParcial(p, key){
+  if(!p || !key) return false;
+  const r = (typeof pesRegOf === 'function') ? (pesRegOf(p) || {}) : {};
+  const ym = (d) => {
+    if(!d) return null;
+    const x = (typeof parsePesDate === 'function') ? parsePesDate(d) : null;
+    if(x && !isNaN(x)) return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2,'0');
+    const m = /^(\d{4})-(\d{2})/.exec(String(d));
+    return m ? (m[1] + '-' + m[2]) : null;
+  };
+  const datas = [ r.dataEntrada, r.dataSaida, p.dataEntrada, p.dataSaida ];
+  for(const c of (Array.isArray(r.ciclos) ? r.ciclos : [])){ datas.push(c && c.inicio, c && c.fim); }
+  for(const d of datas){ if(d && ym(d) === key) return true; }
+  /* Sem data cadastrada, o primeiro mês com valor faz o mesmo papel: é onde a
+     pessoa entrou na planilha, quase sempre proporcional. */
+  const meses = Object.keys(p.salarios || {}).filter(k => Number(p.salarios[k]) > 0).sort();
+  return meses.length > 0 && meses[0] === key;
+}
+try{ window._pesMesParcial = _pesMesParcial; }catch(_){}
+
 function pesMesFechado(year, mIdx){
   if(_pesHistEdit) return false;   // cadeado aberto: passado editável
   if(typeof estMesFechado === 'function') return estMesFechado(year, mIdx);
@@ -109009,7 +109032,13 @@ function renderPesPersonRow(p, year, isSim, forTipoId){
       : ((pessoas.years || []).includes(String(parseInt(year,10) - 1))
           ? pesMesKey(String(parseInt(year,10) - 1), 11) : null);
     const _prevEff = _prevKey ? (pesEffVal(p, _prevKey) || 0) : 0;
-    const subiu = !!(show && _prevEff > 0 && eff > _prevEff + 0.005 && !isSimStart && !isSimOn);
+    /* Mês de entrada (ou de saída) é proporcional: 3.161,29 num mês e 7.000,00
+       no seguinte é o MESMO salário, não um aumento. Marcar aquilo como
+       aumento era mentira na tela. Quando o mês anterior é de borda — admissão,
+       desligamento, ou simplesmente o primeiro mês com valor da pessoa — o
+       degrau não conta. */
+    const subiu = !!(show && _prevEff > 0 && eff > _prevEff + 0.005
+                     && !isSimStart && !isSimOn && !_pesMesParcial(p, _prevKey));
     const _subiuTip = subiu
       ? ('Subiu ' + fmtBRL(eff - _prevEff) + ' em relação ao mês anterior ('
          + fmtBR(((eff / _prevEff) - 1) * 100, 2) + '%)')
