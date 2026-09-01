@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788290688"/>
+  <meta name="fk-build" content="forekash-v1788295461"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -42592,7 +42592,7 @@ function renderFlxCashbox(){
     if(typeof _ktSaldoInicial === 'function'){
       const bd = _ktSaldoInicial({ breakdown: true });
       if(bd && (bd.reservas > 0)){
-        if(fkIncludeReservas()){
+        if(fkIncludeReservas(year)){
           bdHtml = `<div style="font-size:.66rem;color:#7C3AED;margin-top:2px;font-weight:600" title="Caixa + Reservas (toggle ON)">caixa ${fmtBRL(bd.caixa)} + reservas ${fmtBRL(bd.reservas)}</div>`;
         } else {
           bdHtml = `<div style="font-size:.66rem;color:#94A3B8;margin-top:2px" title="Reservas excluídas · ligue o toggle pra incluir">+ R$ ${(bd.reservas/1000).toFixed(0)}k em reservas (não incluídas)</div>`;
@@ -42600,7 +42600,7 @@ function renderFlxCashbox(){
       }
     }
   }catch(_){}
-  const incRes = fkIncludeReservas();
+  const incRes = fkIncludeReservas(year);
   el.innerHTML = `
     <div class="flx-cashbox-card is-start${conf?' flx-confirmed':''}">
       <div class="flx-cashbox-lbl">Saldo Inicial</div>
@@ -42612,8 +42612,8 @@ function renderFlxCashbox(){
       </div>
       ${bdHtml}
       <label style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:.7rem;color:#475569;cursor:pointer;user-select:none" title="Inclui reservas e investimentos de longo prazo no cálculo de saldo">
-        <input type="checkbox" id="flx-incres-check" onchange="fkOnIncluirReservasToggle(this.checked)" ${incRes?'checked':''} style="accent-color:#7C3AED;cursor:pointer">
-        <span>Incluir reservas</span>
+        <input type="checkbox" id="flx-incres-check" onchange="fkOnIncluirReservasToggle(this.checked, '${year}')" ${incRes?'checked':''} style="accent-color:#7C3AED;cursor:pointer">
+        <span>Incluir reservas <b style="font-weight:700;color:#7C3AED">em ${year}</b></span>
       </label>
     </div>
     <div class="flx-cashbox-arrow" aria-hidden="true">
@@ -50632,13 +50632,45 @@ function kashtrackSetTrackerRange(days, btn){
 //   3. c.saldoInicial (ponto de partida) se cYm <= mês atual
 //   4. fallback amplo: qualquer c.saldos[k] em qualquer mês
 // Preferência global · incluir reservas no saldo? (default: false · só caixa)
-function fkIncludeReservas(){
-  try{ return localStorage.getItem('forekash:flow:incluir-reservas:v1') === '1'; }catch(_){ return false; }
+/* A escolha é POR ANO. Era uma chave global: marcar "incluir reservas" pra ver
+   o fechamento de 2025 — onde a reserva é um fato do que existiu — ligava o
+   mesmo em 2027, onde reserva não é caixa operacional e infla a projeção.
+   São perguntas diferentes: ano passado é "quanto eu tinha", ano futuro é
+   "com quanto eu posso contar". */
+const FK_INCRES_KEY = 'forekash:flow:incluir-reservas:v2';
+function _fkIncResMapa(){
+  try{
+    const raw = localStorage.getItem(FK_INCRES_KEY);
+    if(raw) return JSON.parse(raw) || {};
+  }catch(_){}
+  /* Migra a chave antiga: o valor global vira a escolha do ano corrente. */
+  try{
+    if(localStorage.getItem('forekash:flow:incluir-reservas:v1') === '1'){
+      const m = {}; m[String(new Date().getFullYear())] = true;
+      localStorage.setItem(FK_INCRES_KEY, JSON.stringify(m));
+      return m;
+    }
+  }catch(_){}
+  return {};
 }
-function fkSetIncludeReservas(v){
-  try{ localStorage.setItem('forekash:flow:incluir-reservas:v1', v ? '1' : '0'); }catch(_){}
-  try{ window.dispatchEvent(new CustomEvent('forekash:incluir-reservas-changed', { detail:{ value: !!v } })); }catch(_){}
+function _fkIncResAnoAtivo(){
+  try{ if(typeof flxActiveYear !== 'undefined' && flxActiveYear) return String(flxActiveYear); }catch(_){}
+  try{ if(typeof ktActiveYear !== 'undefined' && ktActiveYear) return String(ktActiveYear); }catch(_){}
+  try{ if(typeof dispoCurYear === 'function') return String(dispoCurYear()); }catch(_){}
+  return String(new Date().getFullYear());
 }
+function fkIncludeReservas(ano){
+  const y = String(ano || _fkIncResAnoAtivo());
+  return !!_fkIncResMapa()[y];
+}
+function fkSetIncludeReservas(v, ano){
+  const y = String(ano || _fkIncResAnoAtivo());
+  const m = _fkIncResMapa();
+  if(v) m[y] = true; else delete m[y];
+  try{ localStorage.setItem(FK_INCRES_KEY, JSON.stringify(m)); }catch(_){}
+  try{ window.dispatchEvent(new CustomEvent('forekash:incluir-reservas-changed', { detail:{ value: !!v, ano: y } })); }catch(_){}
+}
+try{ window.fkIncludeReservas = fkIncludeReservas; window.fkSetIncludeReservas = fkSetIncludeReservas; }catch(_){}
 // Classifica uma conta como caixa ou reserva via tipo.liquidez
 function _fkContaIsReserva(c){
   if(!c) return false;
@@ -135641,8 +135673,8 @@ try{ window._recRetencaoAdd = _recRetencaoAdd; window._recRetencaoRemove = _recR
 // ════════════════════════════════════════════════════════════════════
 // 💰 TOGGLE INCLUIR RESERVAS · sync entre KASHtrack + Fluxo
 // ════════════════════════════════════════════════════════════════════
-function fkOnIncluirReservasToggle(checked){
-  fkSetIncludeReservas(!!checked);
+function fkOnIncluirReservasToggle(checked, ano){
+  fkSetIncludeReservas(!!checked, ano);
 }
 function _fkSyncIncluirReservasChecks(){
   const v = fkIncludeReservas();
@@ -135668,7 +135700,8 @@ window.addEventListener('forekash:incluir-reservas-changed', () => {
     if(typeof _flxRenderCashbox === 'function') _flxRenderCashbox();
   }catch(_){}
   if(typeof fkToast === 'function'){
-    fkToast(fkIncludeReservas() ? '☑ Saldo agora inclui reservas' : '☐ Saldo só do caixa operacional', 'info', 1800);
+    const _y = _fkIncResAnoAtivo();
+    fkToast(fkIncludeReservas() ? ('Saldo de ' + _y + ' agora inclui reservas') : ('Saldo de ' + _y + ' só com caixa operacional'), 'info', 2200);
   }
 });
 // Sincroniza ao mudar de módulo (caso o user troque pra KASHtrack/Fluxo)
