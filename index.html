@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788295461"/>
+  <meta name="fk-build" content="forekash-v1788295737"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -42590,7 +42590,10 @@ function renderFlxCashbox(){
   let bdHtml = '';
   try{
     if(typeof _ktSaldoInicial === 'function'){
-      const bd = _ktSaldoInicial({ breakdown: true });
+      /* Ano E mês do próprio card: o saldo inicial de Jan/2025 é o de
+         janeiro de 2025, não o de hoje. */
+      const _refYm = year + '-' + String((siMes || 0) + 1).padStart(2, '0');
+      const bd = _ktSaldoInicial({ breakdown: true, ym: _refYm, includeReservas: fkIncludeReservas(year) });
       if(bd && (bd.reservas > 0)){
         if(fkIncludeReservas(year)){
           bdHtml = `<div style="font-size:.66rem;color:#7C3AED;margin-top:2px;font-weight:600" title="Caixa + Reservas (toggle ON)">caixa ${fmtBRL(bd.caixa)} + reservas ${fmtBRL(bd.reservas)}</div>`;
@@ -50681,6 +50684,9 @@ function _fkContaIsReserva(c){
   }catch(_){ return false; }
 }
 
+/* opts.ym ('YYYY-MM') = mês de referência do saldo. Sem ele, a função ancorava
+   SEMPRE em hoje — e a aba de 2025 exibia o caixa de 2026 como saldo inicial de
+   Jan/2025. Saldo inicial de um ano é o saldo NAQUELE mês, não o de agora. */
 function _ktSaldoInicial(opts){
   const includeReservas = opts && opts.includeReservas != null ? !!opts.includeReservas : fkIncludeReservas();
   const wantBreakdown = !!(opts && opts.breakdown);
@@ -50689,8 +50695,10 @@ function _ktSaldoInicial(opts){
       return wantBreakdown ? { total:0, caixa:0, reservas:0 } : 0;
     }
     const today = new Date();
-    const curYear  = today.getFullYear();
-    const curMonth = today.getMonth(); // 0..11
+    const _refM = (opts && typeof opts.ym === 'string' && /^\d{4}-\d{2}/.test(opts.ym))
+      ? opts.ym.slice(0,7) : null;
+    const curYear  = _refM ? parseInt(_refM.slice(0,4), 10)     : today.getFullYear();
+    const curMonth = _refM ? (parseInt(_refM.slice(5,7), 10)-1) : today.getMonth(); // 0..11
     const curYm = curYear + '-' + String(curMonth+1).padStart(2,'0');
     let totalCaixa = 0, totalReservas = 0;
     for (const c of dispo.contas){
