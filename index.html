@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788274522"/>
+  <meta name="fk-build" content="forekash-v1788274720"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -31029,6 +31029,65 @@ function recRealizadoExtrato(ano){
   return out;
 }
 
+/* ══ UM RECEBIMENTO, UMA LINHA ═════════════════════════════════════════════
+   O Extrato sabe DE QUEM veio o dinheiro, não de qual linha do contrato. Como
+   o mapa de realizado é por CLIENTE, um cliente com duas linhas — contrato +
+   aditivo — via as duas puxarem o mesmo recebimento, e o total contava duas
+   vezes. Foi o caso do DOT GROUP: R$ 52.964,13 recebidos uma vez, aparecendo
+   nas duas linhas.
+
+   A distribuição é em cascata, na ordem da planilha: cada linha absorve até o
+   que ela PREVIA no mês, e o que sobra passa pra próxima. O contrato principal
+   fica com o que era dele; o aditivo só recebe se o valor passar do previsto
+   do principal. Sobra depois de todas as linhas (recebeu mais que o previsto)
+   vai pra primeira — some dinheiro nenhum.
+
+   Nada é inventado: a soma das linhas é exatamente o que entrou na conta. */
+function recRealizadoPorLinha(ano, mapa){
+  const y = String(ano || recActiveYear || '');
+  const cache = mapa && mapa.__allocY === y ? mapa.__alloc : null;
+  if(cache) return cache;
+  const out = {};
+  let rows = [];
+  try{ rows = ((receita.years || {})[y] || {}).clients || []; }catch(_){ return out; }
+  const porCliente = {};
+  for(const r of rows){
+    const chave = recNomeChave(r && (r.nome || ''));
+    if(!chave) continue;
+    (porCliente[chave] = porCliente[chave] || []).push(r);
+  }
+  const meses = (typeof REC_MESES !== 'undefined') ? REC_MESES : [];
+  for(const chave of Object.keys(porCliente)){
+    const linhas = porCliente[chave];
+    for(const m of meses){
+      let resta = (mapa && mapa[chave] && mapa[chave][m]) || 0;
+      if(!resta) continue;
+      if(linhas.length === 1){
+        (out[linhas[0].id] = out[linhas[0].id] || {})[m] = resta;
+        continue;
+      }
+      for(const r of linhas){
+        const cel = (r.meses || {})[m];
+        const prev = (cel && cel.valor !== '' && cel.valor != null) ? (parseFloat(cel.valor) || 0) : 0;
+        if(prev <= 0) continue;
+        const usa = Math.min(resta, prev);
+        if(usa > 0){
+          (out[r.id] = out[r.id] || {})[m] = (out[r.id][m] || 0) + usa;
+          resta -= usa;
+        }
+        if(resta <= 0.005) break;
+      }
+      if(resta > 0.005){
+        const r0 = linhas[0];
+        (out[r0.id] = out[r0.id] || {})[m] = (out[r0.id][m] || 0) + resta;
+      }
+    }
+  }
+  try{ if(mapa){ mapa.__alloc = out; mapa.__allocY = y; } }catch(_){}
+  return out;
+}
+try{ window.recRealizadoPorLinha = recRealizadoPorLinha; }catch(_){}
+
 /* Mês atual no formato da planilha — o corte entre "fechado" e "em curso". */
 function _recMesCorrente(){
   const h = new Date();
@@ -31049,8 +31108,10 @@ function recCelulaEfetiva(row, mes, ano, realizadoMap){
   const manual = (c.valor === '' || c.valor == null) ? 0 : (parseFloat(c.valor) || 0);
   const y = String(ano || recActiveYear || '');
   const mapa = realizadoMap || recRealizadoExtrato(y);
-  const chave = recNomeChave(row && (row.nome || ''));
-  const real = (chave && mapa[chave] && mapa[chave][mes]) ? mapa[chave][mes] : 0;
+  /* Por LINHA, não por cliente: duas linhas do mesmo cliente dividiam o mesmo
+     recebimento e o total duplicava. Ver recRealizadoPorLinha. */
+  const alloc = recRealizadoPorLinha(y, mapa);
+  const real = (row && alloc[row.id] && alloc[row.id][mes]) ? alloc[row.id][mes] : 0;
 
   /* Sem realizado no extrato, é PROJEÇÃO — e projeção nunca é "recebido".
      Recebido passou a significar uma coisa só: o dinheiro entrou na conta e
