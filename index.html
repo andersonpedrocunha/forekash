@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788298437"/>
+  <meta name="fk-build" content="forekash-v1788298724"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -40067,6 +40067,25 @@ function flxSaldoInicialVal(year){
 /* Fechamento do ano anterior = saldo inicial daquele ano + os saldos mensais a
    partir do mês âncora. Profundidade limitada: 2028 pode herdar de 2027, que
    herda de 2026 — mas a cadeia para, senão um ano solto viraria recursão. */
+/* Base ÚNICA do fluxo: o que ele preencheu (ou herdou) mais a reserva daquele
+   mês, quando o toggle do ano está ligado. Card e linha FLUXO DE CAIXA leem
+   daqui — antes cada um montava a sua e os dois números divergiam na tela. */
+function flxReservasDoAno(year){
+  try{
+    const mes = flxSaldoInicialMesVal(year);
+    const ym = year + '-' + String((mes || 0) + 1).padStart(2, '0');
+    const bd = (typeof _ktSaldoInicial === 'function')
+      ? _ktSaldoInicial({ breakdown: true, ym: ym }) : null;
+    return (bd && bd.reservas) || 0;
+  }catch(_){ return 0; }
+}
+function flxSaldoInicialEfetivo(year){
+  const base = flxSaldoInicialVal(year);
+  const inc = (typeof fkIncludeReservas === 'function') ? fkIncludeReservas(year) : false;
+  return base + (inc ? flxReservasDoAno(year) : 0);
+}
+try{ window.flxSaldoInicialEfetivo = flxSaldoInicialEfetivo; window.flxReservasDoAno = flxReservasDoAno; }catch(_){}
+
 function flxSaldoHerdado(year, _prof){
   const prof = _prof || 0;
   if(prof > 5) return null;
@@ -42241,7 +42260,8 @@ function renderFlxSheet(){
   // o saldo ainda não é declarado. A partir do mês âncora, roda como:
   //   acc_âncora = saldoInicial + saldoMes[âncora]
   //   acc_m      = acc_{m-1}    + saldoMes[m]    (m > âncora)
-  const saldoIni = flxSaldoInicialVal(year);
+  // Base efetiva: inclui reservas quando o toggle do ano está ligado.
+  const saldoIni = flxSaldoInicialEfetivo(year);
   const siMes    = flxSaldoInicialMesVal(year);
   const arrSaldoFinal = [], arrSaldoAcum = [];
   let acc = saldoIni;
@@ -42256,6 +42276,11 @@ function renderFlxSheet(){
     resAcc += arrResult[m];
     arrSaldoAcum.push(resAcc);
   }
+  /* O card SALDO FINAL passa a EXIBIR o que esta linha calculou. Ele somava por
+     conta própria com flxSaldoMesVal, que não inclui os ajustes de caixa das
+     seções personalizadas — dois números diferentes pro mesmo conceito, na
+     mesma tela. Uma conta só, um resultado só. */
+  try{ window._flxFimDeAno = { ano: String(year), valor: arrSaldoFinal[11], inicial: saldoIni }; }catch(_){}
 
   // Helpers de linha.
   // rowKey: ativa check de confirmação por célula (✓ sutil).
@@ -42619,10 +42644,16 @@ function renderFlxCashbox(){
         ? _ktSaldoInicial({ breakdown: true, ym: _refYmSI }) : null; }catch(_){}
   const _reservas = (_bdSI && _bdSI.reservas) || 0;
   const _incR = fkIncludeReservas(year);
-  const siTotal = si + ((_incR && _reservas) ? _reservas : 0);
+  const siTotal = flxSaldoInicialEfetivo(year);
   // Saldo Final (dez) respeita a âncora: saldoInicial + soma(saldoMes) a partir do mês âncora.
   let sf = siTotal;
   for(let m=siMes; m<12; m++) sf += flxSaldoMesVal(year, m);
+  /* Se a tabela já rodou neste ano, o número dela manda — é o que está escrito
+     na linha FLUXO DE CAIXA logo abaixo. */
+  try{
+    if(window._flxFimDeAno && window._flxFimDeAno.ano === String(year)
+       && window._flxFimDeAno.valor != null) sf = window._flxFimDeAno.valor;
+  }catch(_){}
   /* Herdado entra NO CAMPO como sugestão editável — não gravado. Digitar por
      cima vira valor próprio e o selo some. */
   const _herdado = flxSaldoEhHerdado(year);
