@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788283131"/>
+  <meta name="fk-build" content="forekash-v1788286532"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -14300,6 +14300,14 @@
     .pes-reajsim-field.pct::after{content:"%";position:absolute;right:11px;top:50%;
                                   font-size:.72rem;font-weight:700;color:var(--txm);
                                   pointer-events:none;transform:translateY(-50%)}
+    /* Onde a unidade é clicável, o ::after sai de cena e o botão ocupa o lugar
+       exato dele — mesma posição, mesmo tamanho, zero controle novo na tela. */
+    .pes-reajsim-field.pct.sem-sufixo::after{content:none}
+    .pes-reajsim-un{position:absolute;right:5px;top:50%;transform:translateY(-50%);
+                    background:transparent;border:none;padding:2px 5px;border-radius:5px;
+                    font-family:inherit;font-size:.72rem;font-weight:700;color:var(--txm);
+                    cursor:pointer;line-height:1}
+    .pes-reajsim-un:hover{background:#EFF6FF;color:var(--blue-d)}
     .pes-reajsim-field input::placeholder{color:#94A3B8;font-weight:500}
 
     .pes-reajsim-inpc{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
@@ -108278,6 +108286,40 @@ function _pesReajSimProjecao(gente, regra){
   }
   return { antes, depois, tem: depois > 0 };
 }
+/* Salário no mês da regra, já com os reajustes ANTERIORES aplicados, mas sem
+   a regra que está sendo editada. É a base sobre a qual o valor-alvo vira
+   percentual: quem digita "9.000" quer 9.000 na mão, não 9.000 sobre 9.000. */
+function _pesBaseAntesDaRegra(p, key, chave){
+  const base = _pesSalNoMes(p, key);
+  if(!base) return 0;
+  const todas = pesReajSimAllRules();
+  const ehPessoa = String(chave || '').indexOf('p:') === 0;
+  const aplic = ehPessoa ? todas.filter(r => r.tipoId === chave)
+                         : todas.filter(r => r.tipoId === p.tipoId);
+  let f = 1;
+  for(const r of aplic){
+    if(key < r.key) continue;
+    if(r.key === key && String(r.tipoId) === String(chave)) continue;  // a própria
+    f *= (1 + (Number(r.pct) || 0) / 100);
+  }
+  return base * f;
+}
+/* Alterna a unidade do campo entre % e R$. O rótulo que já existia à direita do
+   input virou o botão — nenhum controle novo na tela. O percentual continua
+   sendo o que fica gravado: toda a matemática cumulativa depende dele. */
+function pesReajSimTrocaUnidade(chave){
+  const year = pesReajSimModalYear;
+  if(!year) return;
+  const rby = (pessoas.reajSim && pessoas.reajSim.rulesByYear) || {};
+  const map = rby[year] = rby[year] || {};
+  const r = map[chave] = map[chave] || {};
+  r.modo = (r.modo === 'valor') ? 'pct' : 'valor';
+  pessoasSave();
+  renderPesReajSimList();
+}
+try{ window.pesReajSimTrocaUnidade = pesReajSimTrocaUnidade;
+     window._pesBaseAntesDaRegra = _pesBaseAntesDaRegra; }catch(_){}
+
 function _pesReajSimCelula(gente, regra, nota){
   const pr = _pesReajSimProjecao(gente, regra);
   if(!pr.tem) return '<span class="pes-reajsim-proj"><span class="vazio">sem salário</span></span>';
@@ -108392,12 +108434,31 @@ function renderPesReajSimList(){
           ${pesReajSimMesOptionsForYear(year, mesVal)}
         </select>
       </span>
-      <span class="pes-reajsim-field pct">
-        <input type="text" placeholder="ex.: 5,5000" value="${pctVal}"
-               onblur="setPesReajSimField('${esc(k)}','pct',this.value); this.value=(this.value && !isNaN(parseBR(this.value)))?fmtBR(parseBR(this.value),${PES_REAJ_DEC}):''"
-               onfocus="this.value=this.value.replace(/\\./g,'');this.select()"
-               onkeydown="if(event.key==='Enter')this.blur()">
-      </span>
+      ${(() => {
+        /* Uma unidade por linha. O rótulo à direita do campo — que já existia
+           como "%" — virou o botão que troca pra R$. Clicou, o campo passa a
+           receber o salário-alvo e o percentual é calculado por trás. */
+        const emValor = !!(raw && raw.modo === 'valor');
+        const baseAqui = (raw && raw.key) ? _pesBaseAntesDaRegra(pe, raw.key, k) : 0;
+        const alvoVal = emValor
+          ? ((raw && raw.alvo) ? fmtBR(raw.alvo, 2)
+             : (baseAqui && raw && raw.pct ? fmtBR(baseAqui * (1 + raw.pct/100), 2) : ''))
+          : pctVal;
+        const campo = emValor
+          ? `<input type="text" placeholder="ex.: 9.000,00" value="${alvoVal}"
+                    title="Salário que a pessoa passa a receber"
+                    onblur="setPesReajSimField('${esc(k)}','alvo',this.value); renderPesReajSimList()"
+                    onfocus="this.select()"
+                    onkeydown="if(event.key==='Enter')this.blur()">`
+          : `<input type="text" placeholder="ex.: 5,5000" value="${pctVal}"
+                    onblur="setPesReajSimField('${esc(k)}','pct',this.value); this.value=(this.value && !isNaN(parseBR(this.value)))?fmtBR(parseBR(this.value),${PES_REAJ_DEC}):''"
+                    onfocus="this.value=this.value.replace(/\\./g,'');this.select()"
+                    onkeydown="if(event.key==='Enter')this.blur()">`;
+        return `<span class="pes-reajsim-field pct sem-sufixo">${campo}
+          <button type="button" class="pes-reajsim-un" onclick="pesReajSimTrocaUnidade('${esc(k)}')"
+                  title="${emValor ? 'Digitando o salário final. Clique para voltar ao percentual.' : 'Digitando o percentual. Clique para informar o salário final em R$.'}">${emValor ? 'R$' : '%'}</button>
+        </span>`;
+      })()}
       ${_pesReajSimCelula([pe], efet && efet.r, efet && efet.origem === 'tipo' ? 'pelo tipo' : '')}
       <button class="pes-reajsim-clear" onclick="clearPesReajSim('${esc(k)}')" title="Limpar regra desta pessoa/ano">
         <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>
@@ -108620,6 +108681,24 @@ function setPesReajSimField(tipoId, field, val){
   } else if(field === 'pct'){
     const n = parseBR(val);
     rule.pct = (n === '' || n === 0) ? 0 : n;
+    delete rule.alvo;
+  } else if(field === 'alvo'){
+    /* Valor absoluto: guarda o alvo pra reabrir com o mesmo número, e converte
+       pra percentual — que é o que todo o resto do módulo consome. */
+    const alvo = parseBR(val);
+    if(alvo === '' || !alvo){ rule.pct = 0; delete rule.alvo; }
+    else {
+      rule.alvo = alvo;
+      const pid = String(tipoId).indexOf('p:') === 0 ? String(tipoId).slice(2) : null;
+      const pe = pid ? (pessoas.people || []).find(x => String(x.id) === pid) : null;
+      const base = (pe && rule.key) ? _pesBaseAntesDaRegra(pe, rule.key, tipoId) : 0;
+      if(base > 0){
+        rule.pct = Math.round(((alvo / base) - 1) * 1000000) / 10000;   // 4 casas
+        if(rule.pct < 0) rule.pct = 0;
+      } else if(typeof toast === 'function'){
+        toast('⚠ Escolha o mês primeiro — sem ele não dá pra saber o salário base');
+      }
+    }
   }
   const hasKey = !!rule.key;
   const hasPct = !!(rule.pct && rule.pct !== 0);
