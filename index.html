@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788272511"/>
+  <meta name="fk-build" content="forekash-v1788272971"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -71604,7 +71604,7 @@ function renderExtrato(){
                 : '<span class="ext-destino falta" title="Falta a conta de destino">'
                   + '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14"/><path d="M13 7l5 5-5 5"/></svg>'
                   + 'sem destino</span>')
-            : _extEsc(it.contraparte || '—'))
+            : _extEsc(_extNomeContraparte(it) || '—'))
       + '</td>'
       + '<td class="col-conta">' + _extEsc(_extContaRotulo(it.conta)) + '</td>'
       + '<td class="col-val">' + valHtml + '</td>'
@@ -71636,7 +71636,7 @@ function renderExtrato(){
           + '<td class="col-data">' + childDataLbl + '</td>'
           + '<td class="col-cat">' + childCatHtml + '</td>'
           + '<td>↳ ' + _extEsc(child.descricao || '—') + '</td>'
-          + '<td class="col-cliente">' + _extEsc(child.contraparte || '—') + '</td>'
+          + '<td class="col-cliente">' + _extEsc(_extNomeContraparte(child) || '—') + '</td>'
           + '<td class="col-conta">' + _extEsc(_extContaRotulo(child.conta)) + '</td>'
           + '<td class="col-val">' + childValHtml + '</td>'
           + '<td class="col-saldo"></td>'
@@ -72417,6 +72417,32 @@ try {
    (lançamento manual, que usa o rótulo do cadastro). O `fkResolverConta` já
    sabia unificar — a tabela é que mostrava o texto cru. */
 const _extContaCache = new Map();
+/* Nome de exibição da contraparte. O lançamento guarda a STRING do nome na
+   hora em que foi criado — se a pessoa depois ganhou apelido, ou se o nome veio
+   por extenso de um documento, a coluna continuava mostrando o texto antigo.
+   Resolve pelo cadastro (por id, senão por nome) e devolve o apelido, que é o
+   nome curto usado na planilha da folha e nos relatórios. */
+function _extNomeContraparte(it){
+  const bruto = (it && it.contraparte) ? String(it.contraparte).trim() : '';
+  if(!bruto) return bruto;
+  try{
+    const reg = (typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.registry))
+      ? pessoas.registry : [];
+    if(!reg.length) return bruto;
+    const fid = (it.fornecedorId != null) ? it.fornecedorId
+              : (it.raw && it.raw.fornecedorId != null ? it.raw.fornecedorId : null);
+    let r = (fid != null) ? reg.find(x => x && String(x.id) === String(fid)) : null;
+    if(!r){
+      const n = bruto.toLowerCase();
+      r = reg.find(x => x && [x.nome, x.nomeCompleto, x.razaoSocial, x.nomeLegal]
+            .some(v => (v || '').trim().toLowerCase() === n));
+    }
+    const apelido = r ? String(r.nome || '').trim() : '';
+    return apelido || bruto;
+  }catch(_){ return bruto; }
+}
+try{ window._extNomeContraparte = _extNomeContraparte; }catch(_){}
+
 function _extContaRotulo(txt){
   const t = String(txt || '').trim();
   if(!t) return '—';
