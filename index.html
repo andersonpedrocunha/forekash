@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788233490"/>
+  <meta name="fk-build" content="forekash-v1788234178"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8480,6 +8480,11 @@
     .clidet-anx-info{flex:1;min-width:0}
     .clidet-anx-name{font-size:.78rem;font-weight:600;color:#0F172A;
                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    /* O nome do arquivo abre. Era só rótulo, e a única forma de ver o anexo era
+       baixar — pedido dele: abrir em aba nova, sem baixar. */
+    button.clidet-anx-name{display:block;width:100%;text-align:left;background:none;
+                     border:none;padding:0;font-family:inherit;cursor:pointer}
+    button.clidet-anx-name:hover{color:var(--blue-d);text-decoration:underline}
     .clidet-anx-meta{font-size:.66rem;color:#64748B;margin-top:1px;
                      display:flex;gap:5px;align-items:center}
     .clidet-anx-actions{display:flex;gap:4px;flex:none}
@@ -54255,6 +54260,44 @@ async function addAnexosPessoa(rid, files){
   pessoasSave();
   if(_pesCardOpenId != null) renderPesCardBody();
 }
+
+/* data: URL não pode ser aberta em aba nova — o Chrome bloqueia navegação de
+   topo pra data: desde 2018. Converter pra Blob e usar um object URL é o
+   caminho que funciona e mantém o arquivo só na memória do navegador. */
+function _fkBlobDeDataUrl(dataUrl, tipo){
+  const partes = String(dataUrl || '').split(',');
+  const cab = partes[0] || '';
+  const corpo = partes.slice(1).join(',');
+  const mime = tipo || (/data:([^;]+)/.exec(cab) || [])[1] || 'application/octet-stream';
+  if(!/;base64/i.test(cab)){
+    return new Blob([decodeURIComponent(corpo)], { type: mime });
+  }
+  const bin = atob(corpo);
+  const buf = new Uint8Array(bin.length);
+  for(let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return new Blob([buf], { type: mime });
+}
+function abrirAnexoPessoa(rid, anexoId){
+  const r = pesRegistry().find(x => x.id === rid);
+  if(!r || !Array.isArray(r.anexos)) return;
+  const a = r.anexos.find(x => x.id === anexoId);
+  if(!a || !a.dataUrl){
+    if(typeof toast === 'function') toast('⚠ Este anexo não tem o arquivo guardado — só o registro do nome');
+    return;
+  }
+  let url = null;
+  try{ url = URL.createObjectURL(_fkBlobDeDataUrl(a.dataUrl, a.tipo)); }
+  catch(e){ console.warn('[FK] anexo:', e && e.message); }
+  const janela = url ? window.open(url, '_blank', 'noopener') : null;
+  if(!janela){
+    if(typeof toast === 'function') toast('⚠ O navegador bloqueou a aba — libere pop-ups para forekash.com.br');
+    if(url) URL.revokeObjectURL(url);
+    return;
+  }
+  // Solta a memória depois que a aba já carregou. Revogar na hora mata a exibição.
+  if(url) setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+try{ window.abrirAnexoPessoa = abrirAnexoPessoa; window._fkBlobDeDataUrl = _fkBlobDeDataUrl; }catch(_){}
 
 function downloadAnexoPessoa(rid, anexoId){
   const r = pesRegistry().find(x => x.id === rid);
@@ -106649,7 +106692,9 @@ function renderPesCardBody(){
              <div class="clidet-anx-item">
                <div class="clidet-anx-ext" title="${esc(a.tipo||'')}">${esc(anexoIconLabel(a))}</div>
                <div class="clidet-anx-info">
-                 <div class="clidet-anx-name" title="${esc(a.nome||'')}">${esc(a.nome||'arquivo')}</div>
+                 <button type="button" class="clidet-anx-name clidet-anx-open"
+                         title="Abrir ${esc(a.nome||'')} numa aba nova"
+                         onclick="abrirAnexoPessoa(${regId},'${esc(a.id)}')">${esc(a.nome||'arquivo')}</button>
                  <div class="clidet-anx-meta">
                    <span>${anexoFmtSize(a.tamanho||0)}</span>
                    <span>·</span>
@@ -106657,6 +106702,10 @@ function renderPesCardBody(){
                  </div>
                </div>
                <div class="clidet-anx-actions">
+                 <button type="button" class="clidet-anx-btn" title="Abrir numa aba nova"
+                         onclick="abrirAnexoPessoa(${regId},'${esc(a.id)}')">
+                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                 </button>
                  <button type="button" class="clidet-anx-btn" title="Baixar"
                          onclick="downloadAnexoPessoa(${regId},'${esc(a.id)}')">
                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
