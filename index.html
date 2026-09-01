@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788282227"/>
+  <meta name="fk-build" content="forekash-v1788282450"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8468,6 +8468,7 @@
     .clidet-ltv-op{font-family:'Menlo','Consolas',monospace;font-weight:700;color:#312E81;
                    letter-spacing:-.01em}
     .clidet-ltv-lbl{color:#64748B;font-weight:500;margin-right:4px}
+    .clidet-ltv-nota{margin-top:7px;font-size:.7rem;color:#64748B;cursor:help}
     .clidet-ltv-x{color:#A5B4FC;font-weight:700;margin:0 2px}
     /* ── Anexos de contrato ── */
     .clidet-anx-add{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;
@@ -32470,16 +32471,25 @@ function renderClidet(){
         <div class="clidet-sec-title">LTV · Lifetime Value</div>
         <div class="clidet-ltv">
           <div class="clidet-ltv-val">${ltv.ltv > 0 ? fmtShortBR(ltv.ltv) : '—'}</div>
+          <!-- A conta é mostrada em MESES, não em "12 compras/ano × N anos".
+               Com 3 meses de contrato, a retenção em anos vira 0,25 e a tela
+               arredondava pra "0,3" — aí 18.170 × 12 × 0,3 dava 65.412 e o LTV
+               exibido era 54.510. A fórmula não reproduzia o resultado, e uma
+               conta que não fecha na tela destrói a confiança no número.
+               Em contrato mensal, meses é a unidade natural: o fator 12 e a
+               divisão por 12 se cancelam. -->
           <div class="clidet-ltv-formula">
             <span class="clidet-ltv-op">${ltv.ticketMedio > 0 ? fmtShortBR(ltv.ticketMedio) : '—'}</span>
             <span class="clidet-ltv-lbl">mensalidade média</span>
             <span class="clidet-ltv-x">×</span>
-            <span class="clidet-ltv-op">12</span>
-            <span class="clidet-ltv-lbl">compras/ano</span>
-            <span class="clidet-ltv-x">×</span>
-            <span class="clidet-ltv-op">${ltv.tempoAnos > 0 ? fmtAnos(ltv.tempoAnos) : '—'}</span>
-            <span class="clidet-ltv-lbl">${ltv.tempoAnos === 1 ? 'ano de retenção' : 'anos de retenção'}</span>
+            <span class="clidet-ltv-op">${ltv.tempoMeses > 0 ? fmtBR(ltv.tempoMeses, (ltv.tempoMeses % 1 ? 1 : 0)) : '—'}</span>
+            <span class="clidet-ltv-lbl">${ltv.tempoMeses === 1 ? 'mês de contrato' : 'meses de contrato'}</span>
           </div>
+          ${ltv.ltv > 0 ? `<div class="clidet-ltv-nota" title="LTV aqui é o que este cliente rendeu ao longo do contrato — mensalidade média multiplicada pelo tempo de casa. Para cliente ativo, o número cresce a cada mês.">
+            ${ltv.tempoAnos >= 1 ? fmtAnos(ltv.tempoAnos) + (ltv.tempoAnos === 1 ? ' ano' : ' anos') + ' de casa' : 'menos de um ano de casa'} ·
+            ${ltv.mesesAtivos} ${ltv.mesesAtivos === 1 ? 'mês faturado' : 'meses faturados'} ·
+            ${fmtShortBR(ltv.totalRecebido || 0)} recebido
+          </div>` : ''}
         </div>
       </div>
 
