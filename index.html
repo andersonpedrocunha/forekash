@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788289014"/>
+  <meta name="fk-build" content="forekash-v1788289381"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -14409,6 +14409,40 @@
     .pes-reajsim-modo .cnt{margin-left:auto;font-size:.68rem;font-weight:700;color:var(--txl);
                            white-space:nowrap}
     .pes-reajsim-modo .cnt .reg{color:#B45309;font-weight:800;margin-left:7px}
+    .pes-reajsim-snap-btn{display:inline-flex;align-items:center;gap:6px;font-family:inherit;
+                          font-size:.76rem;font-weight:700;padding:9px 13px;border-radius:8px;
+                          border:1px solid var(--bdr);background:#fff;color:var(--txm);cursor:pointer}
+    .pes-reajsim-snap-btn:hover{border-color:#94A3B8;color:var(--tx)}
+    .pes-reajsim-snap-btn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2}
+    .pes-snap-link{display:block;width:100%;margin-top:10px;padding:9px;border-radius:9px;
+                   border:1px dashed var(--bdr);background:transparent;color:var(--txm);
+                   font-family:inherit;font-size:.76rem;font-weight:700;cursor:pointer}
+    .pes-snap-link:hover{border-color:var(--blue-d);color:var(--blue-d);background:#F8FAFF}
+    .pes-snap{border:1px solid var(--bdr);border-radius:11px;padding:12px 14px;margin-bottom:10px;background:#fff}
+    .pes-snap-hd{display:flex;align-items:flex-start;gap:10px;margin-bottom:9px}
+    .pes-snap-hd b{font-size:.86rem;font-weight:800;color:var(--tx)}
+    .pes-snap-hd small{display:block;font-size:.68rem;color:var(--txl);margin-top:2px;font-weight:600}
+    .pes-snap-x{margin-left:auto;background:transparent;border:none;color:var(--txl);cursor:pointer;
+                padding:4px;border-radius:6px;flex:none}
+    .pes-snap-x:hover{color:#DC2626;background:#FEE2E2}
+    .pes-snap-x svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2.2}
+    .pes-snap-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;
+                   background:#F8FAFC;border-radius:9px;padding:9px 11px}
+    .pes-snap-kpis span{display:flex;flex-direction:column;gap:1px;min-width:0}
+    .pes-snap-kpis i{font-style:normal;font-size:.6rem;font-weight:700;color:var(--txl);
+                     text-transform:uppercase;letter-spacing:.04em}
+    .pes-snap-kpis b{font-size:.8rem;font-weight:800;color:var(--tx);font-variant-numeric:tabular-nums;
+                     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .pes-snap-kpis b.up{color:#B45309}
+    .pes-snap-det{margin-top:9px}
+    .pes-snap-det summary{font-size:.74rem;font-weight:700;color:var(--txm);cursor:pointer}
+    .pes-snap-tab{width:100%;border-collapse:collapse;margin-top:8px;font-size:.72rem;
+                  font-variant-numeric:tabular-nums}
+    .pes-snap-tab th{text-align:left;font-size:.6rem;text-transform:uppercase;letter-spacing:.05em;
+                     color:var(--txl);padding:5px 6px;border-bottom:1px solid var(--bdr)}
+    .pes-snap-tab td{padding:5px 6px;border-bottom:1px solid #F1F5F9;color:var(--tx)}
+    .pes-snap-tab td.up{color:#B45309;font-weight:700}
+    .pes-snap-tab th:nth-child(n+4),.pes-snap-tab td:nth-child(n+4){text-align:right}
     .pes-reajsim-voltar{font-family:inherit;font-size:.72rem;font-weight:700;color:var(--txm);
                         background:transparent;border:1px solid var(--bdr);border-radius:7px;
                         padding:5px 11px;cursor:pointer;transition:all .12s}
@@ -20568,6 +20602,11 @@ td.mes.do-extrato{background:#ECFDF5}
             <button class="pes-reajsim-apply-btn" onclick="applyPesReajSimToData()" title="Gravar os valores simulados como novo salário base">
               <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
               Aplicar reajuste aos salários
+            </button>
+            <button class="pes-reajsim-snap-btn" onclick="pesSnapSalvar()"
+                    title="Guarda o retrato completo do plano: pessoa por pessoa, com percentuais e totais">
+              <svg viewBox="0 0 24 24"><path d="M3 7h3l2-3h8l2 3h3v13H3z"/><circle cx="12" cy="13" r="4"/></svg>
+              Salvar snapshot
             </button>
             <span class="pes-reajsim-foot-sp"></span>
             <span class="pes-reajsim-foot-hint">Alterações salvas automaticamente</span>
@@ -108320,6 +108359,91 @@ function pesReajSimTrocaUnidade(chave){
 try{ window.pesReajSimTrocaUnidade = pesReajSimTrocaUnidade;
      window._pesBaseAntesDaRegra = _pesBaseAntesDaRegra; }catch(_){}
 
+/* ══ SNAPSHOT DO PLANEJAMENTO DE AUMENTO ══════════════════════════════════
+   Retrato do plano inteiro num instante: pessoa por pessoa, com o mês, o
+   percentual, o salário de antes e o de depois — mais os números globais.
+   Serve pra levar pra reunião, comparar cenários e ter registro do que foi
+   combinado antes de aplicar. Usa as MESMAS funções que desenham a tela, então
+   o que está guardado é o que estava na tela. */
+function pesSnapshots(){
+  if(!pessoas.reajSnapshots || !Array.isArray(pessoas.reajSnapshots)) pessoas.reajSnapshots = [];
+  return pessoas.reajSnapshots;
+}
+function pesSnapMontar(ano){
+  const y = String(ano || pesReajSimModalYear || pesActiveYear || '');
+  const rawMap = pesReajSimRulesForYear(y) || {};
+  const linhas = [];
+  let folhaAtual = 0, folhaNova = 0;
+  for(const g of _pesReajSimGentePorTipo()){
+    for(const pe of g.gente){
+      const efet = _pesReajSimRegraEfetiva(pe, rawMap);
+      const pr = _pesReajSimProjecao([pe], efet && efet.r);
+      if(!pr.tem) continue;
+      folhaAtual += pr.antes;
+      folhaNova  += pr.depois;
+      linhas.push({
+        pessoaId: pe.id,
+        nome: pesRegView(pe).nome || 'sem nome',
+        tipo: g.nome,
+        mes: efet ? efet.r.key : '',
+        origem: efet ? efet.origem : '',
+        pct: efet ? (Number(efet.r.pct) || 0) : 0,
+        atual: pr.antes,
+        novo: pr.depois,
+        delta: pr.depois - pr.antes
+      });
+    }
+  }
+  const comReajuste = linhas.filter(l => l.delta > 0.005);
+  return {
+    ano: y,
+    criadoEm: new Date().toISOString(),
+    linhas,
+    totais: {
+      pessoas: linhas.length,
+      comReajuste: comReajuste.length,
+      folhaAtual, folhaNova,
+      deltaMes: folhaNova - folhaAtual,
+      deltaAno: (folhaNova - folhaAtual) * 12,
+      deltaPct: folhaAtual > 0 ? (((folhaNova / folhaAtual) - 1) * 100) : 0,
+      pctMedio: comReajuste.length
+        ? (comReajuste.reduce((sm, l) => sm + l.pct, 0) / comReajuste.length) : 0
+    }
+  };
+}
+async function pesSnapSalvar(){
+  const snap = pesSnapMontar();
+  if(!snap.totais.comReajuste){
+    if(typeof toast === 'function') toast('⚠ Nenhum reajuste definido neste ano — não há o que fotografar');
+    return;
+  }
+  const rot = await askText({
+    title: 'Salvar snapshot do plano',
+    label: 'Nome do cenário',
+    hint: `${snap.totais.comReajuste} de ${snap.totais.pessoas} pessoas com reajuste · +${fmtBRL(snap.totais.deltaMes)}/mês · +${fmtBR(snap.totais.deltaPct,2)}% na folha`,
+    placeholder: 'Ex.: proposta da diretoria · v1',
+    initialValue: 'Plano ' + snap.ano + ' · ' + new Date().toLocaleDateString('pt-BR'),
+    confirmText: 'Salvar snapshot'
+  });
+  if(rot === null) return;
+  snap.id = 'snap' + Date.now();
+  snap.rotulo = String(rot || '').trim() || ('Plano ' + snap.ano);
+  pesSnapshots().unshift(snap);
+  pessoasSave();
+  if(typeof toast === 'function') toast('✓ Snapshot salvo · ' + snap.rotulo);
+  renderPesReajSimModos();
+}
+function pesSnapExcluir(id){
+  const arr = pesSnapshots();
+  const i = arr.findIndex(x => x && x.id === id);
+  if(i < 0) return;
+  arr.splice(i, 1);
+  pessoasSave();
+  pesSnapAbrir();
+}
+try{ window.pesSnapSalvar = pesSnapSalvar; window.pesSnapExcluir = pesSnapExcluir;
+     window.pesSnapMontar = pesSnapMontar; window.pesSnapshots = pesSnapshots; }catch(_){}
+
 function _pesReajSimCelula(gente, regra, nota){
   const pr = _pesReajSimProjecao(gente, regra);
   if(!pr.tem) return '<span class="pes-reajsim-proj"><span class="vazio">sem salário</span></span>';
@@ -108365,6 +108489,13 @@ function renderPesReajSimModos(){
       <small>${esc(m.desc)}</small>
     </button>`;
   }).join('');
+  /* Entrada discreta pros snapshots: só aparece quando existe algum, e como
+     link no fim da lista — não é um quarto modo de simular. */
+  const nSnap = pesSnapshots().length;
+  if(nSnap){
+    host.innerHTML += `<button type="button" class="pes-snap-link" onclick="pesSnapAbrir()">`
+      + nSnap + ` snapshot` + (nSnap === 1 ? '' : 's') + ` salvo` + (nSnap === 1 ? '' : 's') + ` \u2192</button>`;
+  }
 }
 function setPesReajSimModo(modo){
   pesReajSimModo = modo || null;
