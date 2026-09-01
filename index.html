@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788236420"/>
+  <meta name="fk-build" content="forekash-v1788236621"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -3802,6 +3802,8 @@
     .wf-cad-table tbody tr:last-child td{border-bottom:none}
     .wf-cad-table tbody tr:hover{background:#F8FAFC}
     .wf-cad-name-cell{display:flex;align-items:center;gap:10px}
+    /* Apelido embaixo do nome oficial: é por ele que a pessoa aparece na folha. */
+    .wf-cad-apelido{display:block;font-size:.68rem;font-weight:600;color:var(--txl);margin-top:1px}
     .wf-cad-name{font-weight:600;color:#0F172A}
     .wf-cad-sub{font-size:.72rem;color:#94A3B8;margin-top:1px}
     .wf-cad-ava{width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0;border:1px solid #E5E7EB}
@@ -59641,7 +59643,12 @@ function renderWfColaboradores(){
     + '</tr></thead><tbody>';
   for(const p of list){
     if(!Array.isArray(p.tags)) p.tags = [];
-    const initials = (p.nome||'?').trim().split(/\s+/).slice(0,2).map(s => s[0]||'').join('').toUpperCase() || '?';
+    /* No CADASTRO vale o nome oficial; o apelido é o nome da planilha da folha.
+       São públicos diferentes: aqui se confere documento e contrato, lá se lê
+       uma tabela de doze colunas onde "Anderson Pedro da Cunha" não cabe. */
+    const nomeCad = (p.nomeCompleto || p.razaoSocial || p.nomeLegal || p.nome || '').trim();
+    const apelido = (p.nome || '').trim();
+    const initials = (nomeCad||'?').trim().split(/\s+/).slice(0,2).map(s => s[0]||'').join('').toUpperCase() || '?';
     const ava = p.foto
       ? '<img src="' + p.foto + '" alt="" class="wf-cad-ava">'
       : '<span class="wf-cad-ava-ini" style="background:#7C3AED">' + initials + '</span>';
@@ -59658,7 +59665,11 @@ function renderWfColaboradores(){
     }).join(' · ') || '—';
     const tagsCell = (typeof _wfFornTagsCellHtml === 'function') ? _wfFornTagsCellHtml(p) : '—';
     html += '<tr>'
-      + '<td><div class="wf-cad-name-cell">' + ava + '<div class="wf-cad-name">' + _bdEsc(p.nome||'(sem nome)') + '</div></div></td>'
+      + '<td><div class="wf-cad-name-cell">' + ava + '<div class="wf-cad-name">'
+        + _bdEsc(nomeCad || '(sem nome)')
+        + ((apelido && apelido.toLowerCase() !== nomeCad.toLowerCase())
+            ? '<small class="wf-cad-apelido">' + _bdEsc(apelido) + '</small>' : '')
+        + '</div></div></td>'
       + '<td>' + _bdEsc(tipoNomes) + '</td>'
       + '<td>' + tagsCell + '</td>'
       + '<td>' + rows.length + ' linha(s)</td>'
