@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788238515"/>
+  <meta name="fk-build" content="forekash-v1788238653"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8786,7 +8786,7 @@
                         border-bottom:1px solid #334155}
     .pes-sheet thead tr.yr th{top:0;background:#0F172A;color:#CBD5E1;font-size:.72rem;
                               padding:9px 8px;border-bottom:1px solid #1E293B}
-    .pes-sheet thead tr.mo th{top:34px;background:#1E293B;color:#94A3B8}
+    .pes-sheet thead tr.mo th{top:var(--pes-yr-h, 34px);background:#1E293B;color:#94A3B8}
     .pes-sheet thead th.stk{z-index:4;background:#0F172A}
     .pes-sheet thead tr.mo th.stk{background:#0F172A}
     .pes-sheet thead th.stk-1{left:0;min-width:220px;padding-left:14px;text-align:left}
@@ -107701,6 +107701,21 @@ function _pesMesParcial(p, key){
 }
 try{ window._pesMesParcial = _pesMesParcial; }catch(_){}
 
+function _pesAjustaTopoCabecalho(){
+  const tab = document.getElementById('pes-sheet');
+  const thead = document.getElementById('pes-thead');
+  if(!tab || !thead) return;
+  const linha1 = thead.querySelector('tr.yr');
+  if(!linha1) return;
+  // rAF: antes do layout a altura ainda é 0.
+  requestAnimationFrame(() => {
+    const h = Math.round(linha1.getBoundingClientRect().height);
+    if(h > 0) tab.style.setProperty('--pes-yr-h', h + 'px');
+  });
+}
+try{ window._pesAjustaTopoCabecalho = _pesAjustaTopoCabecalho; }catch(_){}
+try{ window.addEventListener('resize', () => { try{ _pesAjustaTopoCabecalho(); }catch(_){} }); }catch(_){}
+
 function pesMesFechado(year, mIdx){
   if(_pesHistEdit) return false;   // cadeado aberto: passado editável
   if(typeof estMesFechado === 'function') return estMesFechado(year, mIdx);
@@ -108632,6 +108647,11 @@ function renderPesSheet(){
     <th class="del"></th>
   </tr>`;
   thead.innerHTML = yrRow1 + yrRow2;
+  /* A 2ª linha do cabeçalho (meses) grudava num top fixo de 34px. Quando a 1ª
+     linha cresce — rótulo maior, texto quebrando em duas —, sobra uma fresta
+     entre as duas e as linhas da tabela aparecem por ela: números soltos numa
+     faixa branca embaixo do cabeçalho. Medir a altura real mata a classe toda. */
+  try{ _pesAjustaTopoCabecalho(); }catch(e){ console.warn('[pes] topo do cabeçalho:', e && e.message); }
 
   // ─── BODY ───
   // Ordena pessoas: primeiro por tipo (na ordem de pessoas.tipos), depois pelas sim no final
@@ -109268,11 +109288,29 @@ function updatePesTotals(){
   const mediaMensal = folha/12;
   const head = headSet.size;
 
-  // Folha do mês atual (mês real de hoje, independente do ano ativo)
+  /* Folha do mês, ancorada NO ANO ABERTO. Antes era sempre o mês real de hoje,
+     "independente do ano ativo" — e na aba de 2025 o card dizia Setembro/2026,
+     misturando dois anos no mesmo número. Só faz sentido o mês corrente quando
+     o ano aberto é o corrente; nos outros, o mês de referência é o último com
+     salário (ano passado) ou o primeiro (ano futuro). */
   const now = new Date();
   const curYear = String(now.getFullYear());
-  const curMIdx = now.getMonth();
-  const curKey  = pesMesKey(curYear, curMIdx);
+  const anoSel  = String(pesActiveYear || curYear);
+  const ehAnoCorrente = (anoSel === curYear);
+  const _mesesComValor = [];
+  if(!ehAnoCorrente){
+    for(let m = 0; m < 12; m++){
+      const k = pesMesKey(anoSel, m);
+      if(real.some(p => p.ativo && pesEffVal(p, k) > 0)) _mesesComValor.push(m);
+    }
+  }
+  const _passado = parseInt(anoSel, 10) < parseInt(curYear, 10);
+  const curMIdx = ehAnoCorrente
+    ? now.getMonth()
+    : (_mesesComValor.length
+        ? (_passado ? _mesesComValor[_mesesComValor.length - 1] : _mesesComValor[0])
+        : (_passado ? 11 : 0));
+  const curKey  = pesMesKey(anoSel, curMIdx);
   let folhaMes = 0;
   let folhaMesFatur = 0;
   let headMes  = 0;
@@ -109305,11 +109343,15 @@ function updatePesTotals(){
       const ffChip = faturTipoIds.size > 0
         ? ` <span class="kpi-ff-chip" title="${ffTip.replace(/"/g,'&quot;')}">%FF ${pctFF}%</span>`
         : '';
+      /* Fora do ano corrente, dizer POR QUE é aquele mês — senão o número
+         parece do mês de hoje e engana. */
+      const _refTxt = ehAnoCorrente ? '' :
+        (_passado ? ' · último mês com salário' : ' · primeiro mês do ano');
       q('pes-kpi-folha-mes-sub').innerHTML =
-        `${mesNome}/${curYear} • ${headMes} pessoa${headMes===1?'':'s'}${ffChip}`;
+        `${mesNome}/${anoSel}${_refTxt} • ${headMes} pessoa${headMes===1?'':'s'}${ffChip}`;
     } else {
       q('pes-kpi-folha-mes-sub').textContent =
-        `sem salários lançados em ${mesNome}/${curYear}`;
+        `sem salários lançados em ${mesNome}/${anoSel}`;
     }
   }
   if(q('pes-kpi-folha')) q('pes-kpi-folha').textContent = fmtBRL(folha);
