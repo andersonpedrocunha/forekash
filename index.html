@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788290474"/>
+  <meta name="fk-build" content="forekash-v1788290688"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -108432,6 +108432,24 @@ function pesSnapMontar(ano){
     }
   };
 }
+/* Nome único. Salvar dois cenários no mesmo dia dava dois "Plano 2026 ·
+   01/09/2026" idênticos na lista — e aí não dá pra saber qual é qual sem abrir
+   os dois. Repetiu, ganha sufixo de versão. */
+function _pesSnapNomeUnico(base, ignoraId){
+  const nome = String(base || '').trim() || 'Plano';
+  const usados = new Set(pesSnapshots()
+    .filter(x => x && x.id !== ignoraId)
+    .map(x => String(x.rotulo || '').trim().toLowerCase()));
+  if(!usados.has(nome.toLowerCase())) return nome;
+  /* Se o nome já termina em "(n)", continua a contagem em vez de empilhar. */
+  const m = /^(.*?)\s*\((\d+)\)\s*$/.exec(nome);
+  const raiz = m ? m[1].trim() : nome;
+  let n = m ? (parseInt(m[2], 10) + 1) : 2;
+  while(usados.has((raiz + ' (' + n + ')').toLowerCase())) n++;
+  return raiz + ' (' + n + ')';
+}
+try{ window._pesSnapNomeUnico = _pesSnapNomeUnico; }catch(_){}
+
 async function pesSnapSalvar(){
   const snap = pesSnapMontar();
   if(!snap.totais.comReajuste){
@@ -108443,12 +108461,18 @@ async function pesSnapSalvar(){
     label: 'Nome do cenário',
     hint: `${snap.totais.comReajuste} de ${snap.totais.pessoas} pessoas com reajuste · +${fmtBRL(snap.totais.deltaMes)}/mês · +${fmtBR(snap.totais.deltaPct,2)}% na folha`,
     placeholder: 'Ex.: proposta da diretoria · v1',
-    initialValue: 'Plano ' + snap.ano + ' · ' + new Date().toLocaleDateString('pt-BR'),
+    initialValue: _pesSnapNomeUnico('Plano ' + snap.ano + ' · ' + new Date().toLocaleDateString('pt-BR')),
     confirmText: 'Salvar snapshot'
   });
   if(rot === null) return;
   snap.id = 'snap' + Date.now();
-  snap.rotulo = String(rot || '').trim() || ('Plano ' + snap.ano);
+  /* Mesmo com a sugestão pronta, ele pode digitar um nome que já existe —
+     então garante na gravação, não só no campo. */
+  const _pedido = String(rot || '').trim() || ('Plano ' + snap.ano);
+  snap.rotulo = _pesSnapNomeUnico(_pedido);
+  if(snap.rotulo !== _pedido && typeof toast === 'function'){
+    toast('Já existia "' + _pedido + '" — salvei como "' + snap.rotulo + '"');
+  }
   pesSnapshots().unshift(snap);
   pessoasSave();
   if(typeof toast === 'function') toast('✓ Snapshot salvo · ' + snap.rotulo);
