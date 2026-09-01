@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788288902"/>
+  <meta name="fk-build" content="forekash-v1788289014"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -108701,8 +108701,12 @@ function setPesReajSimField(tipoId, field, val){
       const pe = pid ? (pessoas.people || []).find(x => String(x.id) === pid) : null;
       const base = (pe && rule.key) ? _pesBaseAntesDaRegra(pe, rule.key, tipoId) : 0;
       if(base > 0){
-        rule.pct = Math.round(((alvo / base) - 1) * 1000000) / 10000;   // 4 casas
-        if(rule.pct < 0) rule.pct = 0;
+        /* SEM arredondar. 17.000 → 18.000 é 5,882352941…%; cortado em 4 casas
+           vira 5,8824% e 17.000 × 1,058824 = 18.000,01 — o centavo que ele não
+           digitou. O percentual guarda a precisão inteira e só a EXIBIÇÃO
+           arredonda; assim o valor final bate exatamente com o combinado. */
+        rule.pct = ((alvo / base) - 1) * 100;
+        if(!isFinite(rule.pct) || rule.pct < 0) rule.pct = 0;
       } else if(typeof toast === 'function'){
         toast('⚠ Escolha o mês primeiro — sem ele não dá pra saber o salário base');
       }
