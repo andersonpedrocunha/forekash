@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788274720"/>
+  <meta name="fk-build" content="forekash-v1788275137"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8486,6 +8486,17 @@
     .clidet-anx-info{flex:1;min-width:0}
     /* Opção sem dado no ano: visível, mas claramente fora de alcance. */
     .sf-btn.is-off{opacity:.42;cursor:not-allowed}
+    /* Selo de cópia: o modal fica idêntico ao de edição, e salvar sem perceber
+       criaria uma duplicata silenciosa. O padrão de mercado é dizer na cara. */
+    .dkb-copia-tag{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;
+                   background:#FEF3C7;color:#92400E;border:1px solid #FDE68A;
+                   font-size:.6rem;font-weight:800;letter-spacing:.06em;
+                   text-transform:uppercase;vertical-align:middle}
+    .dkb-copia-faixa{display:flex;align-items:center;gap:10px;background:#FFFBEB;
+                     border:1px solid #FDE68A;border-left:3px solid #F59E0B;
+                     border-radius:10px;padding:10px 13px;margin:0 0 14px;
+                     font-size:.79rem;color:#92400E}
+    .dkb-copia-faixa svg{width:15px;height:15px;flex:none;fill:currentColor}
     .clidet-anx-name{font-size:.78rem;font-weight:600;color:#0F172A;
                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     /* O nome do arquivo abre. Era só rótulo, e a única forma de ver o anexo era
@@ -73921,7 +73932,11 @@ function _extFaturaPorVenc(cartaoId, iso){
 }
 
 function extOpenModal(tipo, editId){
-  _extEditingId = editId || null;
+  /* 'dup:<id>' — cópia. Carrega os dados do original e zera o id de edição:
+     o modal se comporta como criação, então salvar gera um registro NOVO em vez
+     de sobrescrever o de origem. */
+  const _ehCopia = (typeof editId === 'string' && editId.startsWith('dup:'));
+  _extEditingId = _ehCopia ? null : (editId || null);
   const old = document.getElementById('ext-modal-ov');
   if(old) old.remove();
   let l = null;
@@ -73958,6 +73973,32 @@ function extOpenModal(tipo, editId){
         _groupChildren = info.children;
       }
     }
+  } else if(_ehCopia){
+    const src = (_extDupPayload || []);
+    const p0 = src[0] || {};
+    l = {
+      tipo: p0.tipo || tipo || 'gasto',
+      data: p0.dataVencimento || '',
+      valor: src.reduce((sm, x) => sm + (parseFloat(x.valor) || 0), 0),
+      descricao: p0.descricao || '',
+      categoria: src.length === 1 ? (p0.categoria || '') : '',
+      contraparte: src.length === 1 ? (p0.contraparte || '') : '',
+      conta: p0.conta || '',
+      status: 'pendente',          // cópia nasce em aberto, sempre
+      dataEmissao: p0.dataEmissao || '',
+      dataVencimento: p0.dataVencimento || '',
+      dataPagamento: '',
+      notas: p0.notas || '',
+      documento: '',
+      refInterna: p0.refInterna || '',
+      centroCustoId: p0.centroCustoId != null ? p0.centroCustoId : null
+    };
+    /* Sufixo "(cópia)" na descrição — é como as duas se distinguem na lista
+       depois de salvas. Sem isso ficam duas linhas idênticas no mesmo dia. */
+    const _sufixo = (t) => /\(cópia\)\s*$/i.test(t || '') ? t : ((t || '').trim() + ' (cópia)');
+    l.descricao = _sufixo(l.descricao);
+    if(src.length){ src[0] = Object.assign({}, src[0], { descricao: _sufixo(src[0].descricao) }); }
+    if(src.length > 1) _groupChildren = src.slice();
   } else if(editId && typeof editId === 'string' && editId.startsWith('ofx:')){
     /* Linha da importação de OFX: mesmo modal, antes de existir. */
     l = _extLancDeOfx(editId);
@@ -74106,12 +74147,33 @@ function extOpenModal(tipo, editId){
       + '<div class="dkb-modal-hd">'
       +   '<div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">'
       +     '<span class="badge ' + t + '">' + tLbl + '</span>'
-      +     '<div style="min-width:0"><h3>' + (editId ? ((typeof editId === 'string' && editId.startsWith('grp:')) ? ('Editar grupo (' + (_groupChildren ? _groupChildren.length : 0) + ' itens)') : 'Editar lançamento') : ('Lançar ' + tLbl)) + '</h3>'
-      +     '<div class="dkb-modal-sub">' + (editId ? 'Atualize os dados deste lançamento' : 'Crie um lançamento novo · descrição livre · qualquer categoria') + '</div></div>'
+      +     '<div style="min-width:0"><h3>'
+      +       (_ehCopia
+                ? 'Duplicar lançamento <span class="dkb-copia-tag">cópia</span>'
+                : (editId
+                    ? ((typeof editId === 'string' && editId.startsWith('grp:'))
+                        ? ('Editar grupo (' + (_groupChildren ? _groupChildren.length : 0) + ' itens)')
+                        : 'Editar lançamento')
+                    : ('Lançar ' + tLbl)))
+      +     '</h3>'
+      +     '<div class="dkb-modal-sub">'
+      +       (_ehCopia
+                ? ('Cópia de <b>' + _extEsc((_extDupOrigem && _extDupOrigem.descricao) || 'lançamento')
+                   + '</b>' + ((_extDupOrigem && _extDupOrigem.data) ? (' · ' + _extDateLbl(_extDupOrigem.data)) : '')
+                   + ' · nada é gravado até você salvar')
+                : (editId ? 'Atualize os dados deste lançamento'
+                          : 'Crie um lançamento novo · descrição livre · qualquer categoria'))
+      +     '</div></div>'
       +   '</div>'
       +   '<button type="button" class="dkb-modal-x" onclick="extCloseModal()">✕</button>'
       + '</div>'
       + '<div class="dkb-modal-bd">'
+      +   (_ehCopia
+            ? '<div class="dkb-copia-faixa"><svg viewBox="0 0 24 24"><path d="M12 2 1 21h22L12 2Zm0 6 6.5 11h-13L12 8Zm-1 3v4h2v-4h-2Zm0 5v2h2v-2h-2Z"/></svg>'
+              + '<div>Isto é uma <b>cópia</b>, ainda não gravada. Ela nasce <b>em aberto</b>'
+              + ((_extDupOrigem && _extDupOrigem.n > 1) ? (' com os ' + _extDupOrigem.n + ' itens do original') : '')
+              + ' — confira as datas e o valor antes de salvar.</div></div>'
+            : '')
       +   '<div class="dkb-modal-info">'
       +     '<div class="info-row destaque"><span class="lbl">Vencimento</span>'
       +       '<input type="date" id="ext-fld-data" value="' + _dtVenc + '" onchange="_extSyncComp()"></div>'
@@ -74654,6 +74716,7 @@ function extAbrirOrigem(lancId){
 try{ window.extAbrirOrigem = extAbrirOrigem; }catch(_){}
 
 function extCloseModal(){
+  _extDupOrigem = null; _extDupPayload = null;
   const ov = document.getElementById('ext-modal-ov');
   if(ov) ov.remove();
   _extEditingId = null;
@@ -75460,6 +75523,48 @@ function _extIdsManuaisDe(id){
   }
   return [];
 }
+/* Duplicar: abre o MESMO modal de lançamento já preenchido, porém como
+   registro NOVO. Padrão de mercado — a cópia nasce editável e só existe depois
+   de salvar, então dá pra ajustar antes. E precisa gritar que é cópia: um
+   lançamento igualzinho ao anterior é fácil demais de salvar sem perceber. */
+let _extDupOrigem = null;
+function extRowDuplicar(id){
+  _extCloseAllMenus();
+  const alvos = _extIdsManuaisDe(id);
+  if(!alvos.length){
+    if(typeof toast === 'function') toast('Só dá pra copiar lançamento manual — este vem de outro módulo');
+    return;
+  }
+  const lancs = ((extratoData && extratoData.lancamentos) || []).filter(x => alvos.indexOf(x.id) >= 0);
+  if(!lancs.length) return;
+  const base = lancs[0];
+  _extDupOrigem = {
+    descricao: base.descricao || '',
+    data: base.dataVencimento || base.data || '',
+    valor: lancs.reduce((sm, x) => sm + (parseFloat(x.valor) || 0), 0),
+    n: lancs.length
+  };
+  /* A cópia nasce EM ABERTO. Herdar "pago" criaria uma baixa que nunca
+     aconteceu — o Extrato passaria a afirmar um dinheiro que não saiu. */
+  _extDupPayload = lancs.map(l => ({
+    descricao: (l.descricao || ''),
+    valor: parseFloat(l.valor) || 0,
+    categoria: l.categoria || '',
+    contraparte: l.contraparte || '',
+    conta: l.conta || '',
+    tipo: l.tipo || 'gasto',
+    centroCustoId: l.centroCustoId != null ? l.centroCustoId : null,
+    dataVencimento: l.dataVencimento || l.data || '',
+    dataEmissao: l.dataEmissao || '',
+    notas: l.notas || '',
+    documento: '',        // documento fiscal não se copia: é único do original
+    refInterna: l.refInterna || ''
+  }));
+  extOpenModal(base.tipo || 'gasto', 'dup:' + base.id);
+}
+try{ window.extRowDuplicar = extRowDuplicar; }catch(_){}
+let _extDupPayload = null;
+
 async function extRowExcluir(id){
   _extCloseAllMenus();
   const alvos = _extIdsManuaisDe(id);
@@ -75510,6 +75615,10 @@ function extRowMenu(ev, id, isEntradaFlag){
       '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>' +
       '<span>Editar lançamento</span>' +
     '</button>' +
+    (_extIdsManuaisDe(id).length ? '<button class="ext-pop-item" onclick="extRowDuplicar(\'' + id + '\')">' +
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
+      '<span>Duplicar lançamento</span>' +
+    '</button>' : '') +
     (_extIdsManuaisDe(id).length ? '<button class="ext-pop-item" onclick="extRowExcluir(\'' + id + '\')">' +
       '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>' +
       '<span style="color:#DC2626">Excluir lançamento</span>' +
