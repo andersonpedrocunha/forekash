@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788289534"/>
+  <meta name="fk-build" content="forekash-v1788289820"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -108379,8 +108379,15 @@ function pesSnapMontar(ano){
       const efet = _pesReajSimRegraEfetiva(pe, rawMap);
       const pr = _pesReajSimProjecao([pe], efet && efet.r);
       if(!pr.tem) continue;
-      folhaAtual += pr.antes;
-      folhaNova  += pr.depois;
+      /* ARREDONDA POR PESSOA, DEPOIS SOMA. Somando os valores crus, o total
+         divergia da soma das linhas exibidas: dez linhas de R$ 1.000,00 dando
+         R$ 9.999,98 no rodapé. Salário existe em centavos; o total tem que
+         ser exatamente a soma do que está escrito na tela. */
+      const cent = (v) => Math.round((Number(v) || 0) * 100) / 100;
+      const atual = cent(pr.antes);
+      const novo  = cent(pr.depois);
+      folhaAtual += atual;
+      folhaNova  += novo;
       linhas.push({
         pessoaId: pe.id,
         nome: pesRegView(pe).nome || 'sem nome',
@@ -108388,13 +108395,19 @@ function pesSnapMontar(ano){
         mes: efet ? efet.r.key : '',
         origem: efet ? efet.origem : '',
         pct: efet ? (Number(efet.r.pct) || 0) : 0,
-        atual: pr.antes,
-        novo: pr.depois,
-        delta: pr.depois - pr.antes
+        atual: atual,
+        novo: novo,
+        delta: cent(novo - atual)
       });
     }
   }
   const comReajuste = linhas.filter(l => l.delta > 0.005);
+  const cent2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+  /* O delta do mês é a soma dos deltas JÁ arredondados — não a diferença de
+     dois totais. Assim ele fecha com a coluna "Δ mês" linha a linha. */
+  folhaAtual = cent2(folhaAtual);
+  folhaNova  = cent2(folhaNova);
+  const deltaMes = cent2(linhas.reduce((sm, l) => sm + l.delta, 0));
   return {
     ano: y,
     criadoEm: new Date().toISOString(),
@@ -108403,8 +108416,8 @@ function pesSnapMontar(ano){
       pessoas: linhas.length,
       comReajuste: comReajuste.length,
       folhaAtual, folhaNova,
-      deltaMes: folhaNova - folhaAtual,
-      deltaAno: (folhaNova - folhaAtual) * 12,
+      deltaMes,
+      deltaAno: cent2(deltaMes * 12),
       deltaPct: folhaAtual > 0 ? (((folhaNova / folhaAtual) - 1) * 100) : 0,
       pctMedio: comReajuste.length
         ? (comReajuste.reduce((sm, l) => sm + l.pct, 0) / comReajuste.length) : 0
