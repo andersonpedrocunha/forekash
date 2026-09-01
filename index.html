@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788275594"/>
+  <meta name="fk-build" content="forekash-v1788276181"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -34966,6 +34966,9 @@ function _dkbRenderAnexosListUI(list, kind){
           + '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>'
           + 'Abrir'
         + '</button>'
+        + '<button type="button" onclick="_dkbBaixarAt(\'' + kind + '\',' + i + ')" title="Baixar arquivo" style="background:#fff;color:#475569;border:1px solid #CBD5E1;border-radius:5px;cursor:pointer;font-size:.72rem;font-weight:700;padding:5px 9px;display:inline-flex;align-items:center;gap:4px">'
+          + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
+          + 'Baixar</button>'
         + '<button type="button" onclick="' + ctx.fnRemoveAt + '(' + i + ')" title="Remover" style="background:transparent;color:#94A3B8;border:1px solid #E5E7EB;border-radius:5px;cursor:pointer;font-size:1rem;padding:3px 8px;line-height:1">×</button>'
       + '</div>';
     }
@@ -35142,8 +35145,46 @@ function _dkbAnexoRemove(){ _dkbAnexoData = []; const w = document.getElementByI
 function _dkbCompRemove(){  _dkbCompData  = []; const w = document.getElementById('dkb-comp-wrap');  if(w) w.innerHTML = _dkbRenderAnexoUI([], 'comp'); }
 function _dkbAnexoOpen(){ _dkbAnexoOpenAt(0); }
 function _dkbCompOpen(){  _dkbCompOpenAt(0);  }
+/* Baixar: o mesmo arquivo, salvo em disco. Abrir serve pra conferir; baixar é
+   pra mandar pro contador. Faltava a segunda metade. */
+function _dkbAnexosDoKind(kind){
+  try{
+    if(kind === 'comp')     return _dkbCompData;
+    if(kind === 'doc')      return _dkbAnexoData;
+    if(kind === 'rec-comp') return _recKbCompData;
+    if(kind === 'rec-doc')  return _recKbAnexoData;
+    if(kind === 'bx-comp')  return _extBxCompData;
+    if(kind === 'ecap')     return _ecapAnexos;
+  }catch(_){}
+  return [];
+}
+function _dkbBaixarAt(kind, i){
+  const arr = _dkbAnexosDoKind(kind) || [];
+  const a = arr[i];
+  if(!a){ if(typeof toast === 'function') toast('Anexo indisponível'); return; }
+  if(!a.dataUrl){
+    if(typeof toast === 'function') toast('⚠ "' + (a.name || 'arquivo') + '" tem só o registro do nome — o arquivo não foi guardado');
+    return;
+  }
+  try{
+    const el = document.createElement('a');
+    el.href = a.dataUrl;
+    el.download = a.name || 'anexo';
+    document.body.appendChild(el);
+    el.click();
+    el.remove();
+  }catch(e){ console.error(e); if(typeof toast === 'function') toast('Erro ao baixar'); }
+}
+try{ window._dkbBaixarAt = _dkbBaixarAt; window._dkbAnexosDoKind = _dkbAnexosDoKind; }catch(_){}
+
 function _dkbOpenAttachment(anexo){
-  if(!anexo || !anexo.dataUrl){ if(typeof toast === 'function') toast('Anexo indisponível'); return; }
+  if(!anexo){ if(typeof toast === 'function') toast('Anexo indisponível'); return; }
+  if(!anexo.dataUrl){
+    /* Sem dataUrl é o caso do anexo que ficou só como referência (não coube no
+       armazenamento quando foi salvo). Dizer isso é melhor que "indisponível". */
+    if(typeof toast === 'function') toast('⚠ "' + (anexo.name || 'arquivo') + '" tem só o registro do nome — o arquivo não foi guardado');
+    return;
+  }
   try {
     const m = /^data:([^;]+);base64,(.*)$/.exec(anexo.dataUrl);
     if(!m){ window.open(anexo.dataUrl, '_blank'); return; }
@@ -35170,6 +35211,16 @@ function _dkbOpenAttachment(anexo){
     document.body.appendChild(a);
     a.click();
     a.remove();
+    /* Se o clique programático não abriu nada (bloqueio de popup em alguns
+       navegadores), tenta o window.open e, falhando, avisa em vez de silenciar. */
+    setTimeout(() => {
+      try{
+        if(!document.hidden){
+          const w = window.open(url, '_blank', 'noopener');
+          if(!w && typeof toast === 'function') toast('⚠ O navegador bloqueou a aba — libere pop-ups para forekash.com.br');
+        }
+      }catch(_){}
+    }, 350);
     setTimeout(() => { try { URL.revokeObjectURL(url); } catch(_){} }, 60000);
   } catch(e){ console.error(e); if(typeof toast === 'function') toast('Erro abrindo anexo'); }
 }
@@ -71464,8 +71515,11 @@ function _extAnexosDaLinha(id){
   const realId = parseInt(s.slice(2).split('#')[0], 10);
   const l = (extratoData.lancamentos || []).find(x => x && x.id === realId);
   if(!l) return [];
-  if(Array.isArray(l.anexo)) return l.anexo;
-  return l.anexo ? [l.anexo] : [];
+  /* Documento E comprovante. O clipe só olhava `anexo`, então lançamento com
+     comprovante de pagamento anexado aparecia sem nenhuma marca na lista — e
+     não dava pra saber que tinha arquivo sem abrir. */
+  const junta = (v) => Array.isArray(v) ? v : (v ? [v] : []);
+  return junta(l.anexo).concat(junta(l.comprovante));
 }
 function _extClipeHTML(id){
   const n = _extAnexosDaLinha(id).length;
