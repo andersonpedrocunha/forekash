@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788296255"/>
+  <meta name="fk-build" content="forekash-v1788298102"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -13254,10 +13254,13 @@
     .flx-cashbox-val.flx-neg{color:#B91C1C}
     .flx-cashbox-ctl{display:flex;align-items:center;gap:4px;
                      position:relative;flex:1;min-width:0}
+    /* min-width garante o número inteiro: "R$ 277.747,70" precisa de ~118px e
+       o flex:1 espremia pra menos que isso quando o card ficava estreito. */
     .flx-cashbox-ctl .flx-inp{font-size:1rem;font-weight:800;padding:2px 4px;
                               letter-spacing:-.01em;color:var(--tx);
-                              background:transparent;border:none;flex:1;min-width:0;
+                              background:transparent;border:none;flex:1;min-width:118px;
                               text-align:right}
+    .flx-cashbox-card.is-start{min-width:300px}
     .flx-cashbox-ctl .flx-inp:focus{outline:1px solid #6366F1;border-radius:6px}
     .flx-cashbox-ctl .flx-check{flex:0 0 auto}
     .flx-cashbox-sub{display:inline-flex;align-items:center;gap:4px;
@@ -42570,8 +42573,20 @@ function renderFlxCashbox(){
   const year = flxActiveYear;
   const si = flxSaldoInicialVal(year);
   const siMes = flxSaldoInicialMesVal(year);
+  /* A reserva soma AO SALDO PREENCHIDO. Antes eram dois números independentes:
+     o campo trazia o que ele digitou e o subtítulo mostrava um caixa vindo das
+     Disponibilidades que não tinha relação nenhuma com ele — e o toggle não
+     mexia em conta nenhuma, só no texto. Agora: preenchido + reserva daquele
+     mês, quando o toggle está ligado. */
+  const _refYmSI = year + '-' + String((siMes || 0) + 1).padStart(2, '0');
+  let _bdSI = null;
+  try{ _bdSI = (typeof _ktSaldoInicial === 'function')
+        ? _ktSaldoInicial({ breakdown: true, ym: _refYmSI }) : null; }catch(_){}
+  const _reservas = (_bdSI && _bdSI.reservas) || 0;
+  const _incR = fkIncludeReservas(year);
+  const siTotal = si + ((_incR && _reservas) ? _reservas : 0);
   // Saldo Final (dez) respeita a âncora: saldoInicial + soma(saldoMes) a partir do mês âncora.
-  let sf = si;
+  let sf = siTotal;
   for(let m=siMes; m<12; m++) sf += flxSaldoMesVal(year, m);
   const inp = _flxInpCell(year, 0, 'SaldoInicial', fluxo.saldoInicial[year]);
   /* O ✓ do Saldo Inicial FICA. Ele não é baixa de pagamento — é você
@@ -42592,14 +42607,18 @@ function renderFlxCashbox(){
     if(typeof _ktSaldoInicial === 'function'){
       /* Ano E mês do próprio card: o saldo inicial de Jan/2025 é o de
          janeiro de 2025, não o de hoje. */
-      const _refYm = year + '-' + String((siMes || 0) + 1).padStart(2, '0');
-      const bd = _ktSaldoInicial({ breakdown: true, ym: _refYm, includeReservas: fkIncludeReservas(year) });
-      if(bd && (bd.reservas > 0)){
-        if(fkIncludeReservas(year)){
-          bdHtml = `<div style="font-size:.66rem;color:#7C3AED;margin-top:2px;font-weight:600" title="Caixa + Reservas (toggle ON)">caixa ${fmtBRL(bd.caixa)} + reservas ${fmtBRL(bd.reservas)}</div>`;
-        } else {
-          bdHtml = `<div style="font-size:.66rem;color:#94A3B8;margin-top:2px" title="Reservas excluídas · ligue o toggle pra incluir">+ R$ ${(bd.reservas/1000).toFixed(0)}k em reservas (não incluídas)</div>`;
-        }
+      const _mesRot = (typeof DISPO_MESES !== 'undefined' && DISPO_MESES[siMes || 0])
+        ? (DISPO_MESES[siMes || 0] + '/' + year) : (String((siMes||0)+1).padStart(2,'0') + '/' + year);
+      /* Minimalista: uma linha só, e só quando ela diz algo. */
+      if(!si && _bdSI && _bdSI.semDado){
+        bdHtml = `<div style="font-size:.66rem;color:#B45309;margin-top:2px;font-weight:600"
+          title="O saldo inicial vem do que você preenche aqui, ou das Disponibilidades: célula do mês, snapshot confirmado, ou saldo inicial da conta. Nenhum existe até ${_mesRot}.">sem saldo até ${_mesRot}</div>`;
+      } else if(_reservas > 0 && _incR){
+        bdHtml = `<div style="font-size:.66rem;color:#7C3AED;margin-top:2px;font-weight:600"
+          title="Saldo preenchido + reservas de ${_mesRot}">com reservas: ${fmtBRL(siTotal)}</div>`;
+      } else if(_reservas > 0){
+        bdHtml = `<div style="font-size:.66rem;color:#94A3B8;margin-top:2px"
+          title="Reservas de ${_mesRot} · ligue o toggle pra somar">+ ${fmtBRL(_reservas)} em reservas</div>`;
       }
     }
   }catch(_){}
@@ -50701,8 +50720,10 @@ function _ktSaldoInicial(opts){
     const curMonth = _refM ? (parseInt(_refM.slice(5,7), 10)-1) : today.getMonth(); // 0..11
     const curYm = curYear + '-' + String(curMonth+1).padStart(2,'0');
     let totalCaixa = 0, totalReservas = 0;
+    let _achouAlgum = false, _nContas = 0;
     for (const c of dispo.contas){
       if (c.ativo === false) continue;
+      _nContas++;
       const isRes = _fkContaIsReserva(c);
       const saldos = c.saldos || {};
       let lastV = null;
@@ -50747,12 +50768,18 @@ function _ktSaldoInicial(opts){
         }
       }
       if (lastV != null){
+        _achouAlgum = true;
         if (isRes) totalReservas += lastV;
         else totalCaixa += lastV;
       }
     }
     const total = includeReservas ? (totalCaixa + totalReservas) : totalCaixa;
-    return wantBreakdown ? { total, caixa: totalCaixa, reservas: totalReservas } : total;
+    /* semDado distingue "zero porque não há saldo lançado" de "zero porque a
+       conta está zerada". São coisas diferentes e a tela não separava: o card
+       mostrava 0,00 seco nos dois casos. */
+    return wantBreakdown
+      ? { total, caixa: totalCaixa, reservas: totalReservas, semDado: !_achouAlgum, contas: _nContas }
+      : total;
   } catch(e){ return wantBreakdown ? { total:0, caixa:0, reservas:0 } : 0; }
 }
 try{ window.fkIncludeReservas = fkIncludeReservas; window.fkSetIncludeReservas = fkSetIncludeReservas; }catch(_){}
