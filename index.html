@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788361072"/>
+  <meta name="fk-build" content="forekash-v1788361509"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8499,9 +8499,23 @@
                      font-size:.79rem;color:#92400E}
     .dkb-copia-faixa svg{width:15px;height:15px;flex:none;fill:currentColor}
     /* Base por cliente dentro da lista de seleção da regra. */
-    .vend-cli-opt{display:flex;align-items:center;gap:8px}
+    .vend-cli-opt{display:flex;flex-direction:column;gap:3px;align-items:stretch}
+    .vend-cli-head{display:flex;align-items:center;gap:8px}
     .vend-cli-opt .vend-cli-nm{flex:1 1 auto;min-width:0;overflow:hidden;
                                text-overflow:ellipsis;white-space:nowrap}
+    .vend-cli-apartir{flex:0 0 auto;font-size:.66rem;color:var(--txl);
+                      display:inline-flex;align-items:center;gap:4px}
+    .vend-cli-apartir select{border:1px solid #E2E8F0;border-radius:6px;padding:2px 4px;
+                             font-family:inherit;font-size:.7rem;background:#fff;cursor:pointer}
+    .vend-cli-chips{display:flex;flex-wrap:wrap;gap:4px;padding:0 0 2px 26px}
+    .vend-cli-chip{display:inline-flex;align-items:center;gap:5px;background:#FFFBEB;
+                   border:1px solid #FDE68A;border-radius:999px;padding:1px 4px 1px 8px;
+                   font-family:inherit;font-size:.66rem;color:#92400E;cursor:pointer;
+                   font-variant-numeric:tabular-nums}
+    .vend-cli-chip.on{border-color:#F59E0B;background:#FEF3C7;font-weight:700}
+    .vend-cli-chip b{font-weight:800}
+    .vend-cli-chip i{font-style:normal;padding:0 3px;border-radius:50%;color:#B45309;opacity:.6}
+    .vend-cli-chip i:hover{opacity:1;background:#FDE68A}
     .vend-cli-base{flex:0 0 106px}
     .vend-cli-base input{width:100%;box-sizing:border-box;padding:3px 7px;
                          border:1px solid #E2E8F0;border-radius:6px;
@@ -55679,6 +55693,30 @@ function _vendReceitaClientesMes(year, mIdx, tipoBase, clienteIds, base){
 // Map<clienteId, {bruto, liq, com, pct, regraIdx}>. Itera TODAS as regras
 // vigentes no mês; pra evitar duplicar, um cliente só é contado pela PRIMEIRA
 // regra cujo escopo o inclui (first-match wins).
+/* Base por cliente = valor VÁLIDO A PARTIR DE UM MÊS. Uma entrada por mudança
+   cobre todos os meses seguintes e atravessa anos sozinha — é como contrato
+   funciona, e evita preencher doze células por ano.
+
+   Formato: { '2026-01': 28800, '2026-07': 30000 }. Número solto (formato
+   antigo) é lido como "vale desde sempre". */
+function _vendBaseDoCliente(regra, clienteId, ym){
+  const m = regra && regra.clientesBase;
+  if(!m || typeof m !== 'object') return null;
+  const e = m[clienteId];
+  if(e == null || e === '') return null;
+  if(typeof e === 'number') return e > 0 ? e : null;      // formato antigo
+  if(typeof e !== 'object') { const n = parseFloat(e); return (isFinite(n) && n > 0) ? n : null; }
+  let melhor = null, chave = null;
+  for(const k of Object.keys(e)){
+    if(!/^\d{4}-\d{2}$/.test(k)) continue;
+    if(k > ym) continue;                                   // ainda não entrou em vigor
+    if(chave === null || k > chave){ chave = k; melhor = e[k]; }
+  }
+  const n = parseFloat(melhor);
+  return (isFinite(n) && n > 0) ? n : null;
+}
+try{ window._vendBaseDoCliente = _vendBaseDoCliente; }catch(_){}
+
 function _vendComissaoPorCliente(v, year, mIdx){
   const MESES_NM = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   const out = new Map();
@@ -55712,9 +55750,9 @@ function _vendComissaoPorCliente(v, year, mIdx){
          2. o bruto gravado na célula (recebimento com retenção)
          3. o valor contratado
          Nunca o valorPago, que é o líquido depois de imposto retido. */
-      const _baseCli = (r.clientesBase && typeof r.clientesBase === 'object')
-        ? parseFloat(r.clientesBase[row.clienteId]) : NaN;
-      const val = (isFinite(_baseCli) && _baseCli > 0)
+      const _ymAtual = year + '-' + String(mIdx+1).padStart(2,'0');
+      const _baseCli = _vendBaseDoCliente(r, row.clienteId, _ymAtual);
+      const val = (_baseCli != null)
         ? _baseCli
         : (parseFloat(cell.valorBruto) || parseFloat(cell.valor) || 0);
       if(val <= 0) continue;
@@ -86581,17 +86619,48 @@ function _renderVendEditor(ov){
           }
         }
       }catch(_){}
+      /* Entradas já lançadas pra este cliente, em ordem. Cada uma vale do seu
+         mês em diante — inclusive nos anos seguintes. */
+      const _mapCli = (bv && typeof bv === 'object') ? bv
+                    : (typeof bv === 'number' ? {'1900-01': bv} : {});
+      const _chaves = Object.keys(_mapCli).filter(k => /^\d{4}-\d{2}$/.test(k)).sort();
+      const _MS = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+      const _rot = (k) => k === '1900-01' ? 'sempre'
+        : (_MS[parseInt(k.slice(5,7),10)-1] + '/' + k.slice(2,4));
+      const _mesSel = _vendBaseMesSel(i, c.id);
+      const _anoSel = String((typeof recActiveYear !== 'undefined' && recActiveYear) ? recActiveYear : new Date().getFullYear());
+      const _anos = [];
+      for(let d=-1; d<=2; d++) _anos.push(String(parseInt(_anoSel,10)+d));
+      const _opts = _anos.map(y => _MS.map((mm,mi) => {
+        const k = y + '-' + String(mi+1).padStart(2,'0');
+        return `<option value="${k}"${k===_mesSel?' selected':''}>${mm}/${y.slice(2)}</option>`;
+      }).join('')).join('');
+      const _jaTem = _mapCli[_mesSel];
       return `<label class="vend-cli-opt${checked?' on':''}">
-        <input type="checkbox" ${checked?'checked':''} onchange="_vendRegraToggleCliente(${i},${c.id})">
-        <span class="vend-cli-nm">${esc(c.nome || '(sem nome)')}</span>
-        ${checked ? `<span class="vend-cli-base${temBase?' is-set':''}"
-              title="Base de cálculo deste cliente. Em branco, usa o valor da Receita${_atual?(' (hoje: ' + fmtBRL(_atual) + '/mês)'):''}.">
-          <input type="text" value="${temBase?fmtBR(bv,2):''}"
-                 placeholder="${_atual?fmtBR(_atual,2):'base R$'}"
-                 onclick="event.preventDefault();event.stopPropagation();this.focus()"
-                 onfocus="this.select()"
-                 onblur="_vendRegraBaseSet(${i},${c.id},this.value)"
-                 onkeydown="if(event.key==='Enter')this.blur()">
+        <span class="vend-cli-head">
+          <input type="checkbox" ${checked?'checked':''} onchange="_vendRegraToggleCliente(${i},${c.id})">
+          <span class="vend-cli-nm">${esc(c.nome || '(sem nome)')}</span>
+          ${checked ? `<span class="vend-cli-apartir">a partir de
+            <select onclick="event.preventDefault();event.stopPropagation()"
+                    onchange="_vendBaseMesSet(${i},${c.id},this.value)">${_opts}</select>
+          </span>
+          <span class="vend-cli-base${_jaTem?' is-set':''}"
+                title="Base de cálculo deste cliente a partir de ${_rot(_mesSel)} — vale também nos anos seguintes, até você lançar outra. Em branco, usa o valor da Receita${_atual?(' (hoje: ' + fmtBRL(_atual) + '/mês)'):''}.">
+            <input type="text" value="${_jaTem?fmtBR(_jaTem,2):''}"
+                   placeholder="${_atual?fmtBR(_atual,2):'base R$'}"
+                   onclick="event.preventDefault();event.stopPropagation();this.focus()"
+                   onfocus="this.select()"
+                   onblur="_vendRegraBaseSet(${i},${c.id},this.value,'${_mesSel}')"
+                   onkeydown="if(event.key==='Enter')this.blur()">
+          </span>` : ''}
+        </span>
+        ${(checked && _chaves.length) ? `<span class="vend-cli-chips">
+          ${_chaves.map(k => `<button type="button" class="vend-cli-chip${k===_mesSel?' on':''}"
+              onclick="event.preventDefault();event.stopPropagation();_vendBaseMesSet(${i},${c.id},'${k}')"
+              title="Vale de ${_rot(k)} em diante · clique pra editar, ✕ pra remover">
+              ${_rot(k)} <b>${fmtBR(_mapCli[k],2)}</b>
+              <i onclick="event.preventDefault();event.stopPropagation();_vendRegraBaseSet(${i},${c.id},'','${k}')">✕</i>
+            </button>`).join('')}
         </span>` : ''}
       </label>`;
     }).join('');
@@ -86901,16 +86970,38 @@ function _vendRegraSet(i, field, val){
 }
 /* Base fixa por cliente. Grava só quando há número; apagar volta pro valor da
    Receita — nada de guardar zero e o cliente sumir da comissão sem explicação. */
-function _vendRegraBaseSet(i, cid, val){
+function _vendRegraBaseSet(i, cid, val, ym){
   const st = _vendEditState; if(!st) return;
   const r = st.regras[i]; if(!r) return;
   if(!r.clientesBase || typeof r.clientesBase !== 'object') r.clientesBase = {};
+  // migra formato antigo (número solto) pra mapa por mês
+  if(typeof r.clientesBase[cid] === 'number'){
+    const antigo = r.clientesBase[cid];
+    r.clientesBase[cid] = {}; r.clientesBase[cid]['1900-01'] = antigo;
+  }
+  if(!r.clientesBase[cid] || typeof r.clientesBase[cid] !== 'object') r.clientesBase[cid] = {};
+  const chave = /^\d{4}-\d{2}$/.test(String(ym || '')) ? ym : _vendBaseMesSel(i, cid);
   const n = parseBR(val);
-  if(n === '' || !isFinite(n) || n <= 0) delete r.clientesBase[cid];
-  else r.clientesBase[cid] = n;
+  if(n === '' || !isFinite(n) || n <= 0) delete r.clientesBase[cid][chave];
+  else r.clientesBase[cid][chave] = n;
+  if(!Object.keys(r.clientesBase[cid]).length) delete r.clientesBase[cid];
   const ov = document.getElementById('ov-vend-edit');
   if(ov) _renderVendEditor(ov);
 }
+/* Mês escolhido no seletor da linha — memória por regra+cliente, só de tela. */
+const _VEND_BASE_MES = {};
+function _vendBaseMesSel(i, cid){
+  const k = i + ':' + cid;
+  if(_VEND_BASE_MES[k]) return _VEND_BASE_MES[k];
+  const y = String((typeof recActiveYear !== 'undefined' && recActiveYear) ? recActiveYear : new Date().getFullYear());
+  return y + '-01';
+}
+function _vendBaseMesSet(i, cid, ym){
+  _VEND_BASE_MES[i + ':' + cid] = ym;
+  const ov = document.getElementById('ov-vend-edit');
+  if(ov) _renderVendEditor(ov);
+}
+try{ window._vendBaseMesSet = _vendBaseMesSet; }catch(_){}
 try{ window._vendRegraBaseSet = _vendRegraBaseSet; }catch(_){}
 
 function _vendRegraToggleCliente(i, clienteId){
