@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788365376"/>
+  <meta name="fk-build" content="forekash-v1788369110"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8539,6 +8539,23 @@
              background:transparent;color:#B45309;opacity:.5;cursor:pointer;
              font-size:.68rem;line-height:1;border-radius:4px}
     .vbm-fwd:hover{opacity:1;background:#FDE68A}
+    /* Projetos do cliente, com percentual próprio */
+    .vpj{display:flex;flex-direction:column;gap:3px;padding:2px 0 4px 26px}
+    .vpj-hd{font-size:.62rem;color:var(--txl);font-weight:600}
+    .vpj-row{display:flex;align-items:center;gap:8px}
+    .vpj-nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;
+            white-space:nowrap;font-size:.72rem;color:var(--txm)}
+    .vpj-nm::before{content:'\21B3';margin-right:6px;color:#CBD5E1}
+    .vpj-pct{position:relative;flex:0 0 84px}
+    .vpj-pct input{width:100%;box-sizing:border-box;padding:3px 20px 3px 7px;
+                   border:1px solid #E2E8F0;border-radius:6px;background:#fff;
+                   font-family:inherit;font-size:.72rem;text-align:right;color:#0F172A;
+                   font-variant-numeric:tabular-nums}
+    .vpj-pct i{position:absolute;right:7px;top:50%;transform:translateY(-50%);
+               font-style:normal;font-size:.68rem;font-weight:700;color:var(--txl);
+               pointer-events:none}
+    .vpj-row.is-set .vpj-nm{color:#92400E;font-weight:600}
+    .vpj-row.is-set input{border-color:#F59E0B;background:#FFFBEB;color:#92400E;font-weight:700}
     .vend-cli-base{flex:0 0 106px}
     .vend-cli-base input{width:100%;box-sizing:border-box;padding:3px 7px;
                          border:1px solid #E2E8F0;border-radius:6px;
@@ -55735,6 +55752,26 @@ function _vendBaseDoCliente(regra, clienteId, ym){
 }
 try{ window._vendBaseDoCliente = _vendBaseDoCliente; }catch(_){}
 
+/* Soma o cliente: a parte comum na alíquota da regra + cada projeto que tem
+   taxa própria na taxa dele. O relatório continua uma linha por cliente; o %
+   exibido vira a média ponderada, que é o que ele efetivamente pagou. */
+function _vendGrava(out, claimed, cid, pc, pctBase, ri){
+  let bruto = pc.bruto, liq = pc.liq, com = pc.liq * pctBase / 100;
+  for(const p of (pc.proprios || [])){
+    bruto += p.bruto; liq += p.liq; com += p.liq * p.pct / 100;
+  }
+  const pctEfetivo = liq > 0 ? (com / liq * 100) : pctBase;
+  const ja = out.get(cid);
+  if(ja){
+    const nb = ja.bruto + bruto, nl = ja.liq + liq, nc = ja.com + com;
+    out.set(cid, { bruto:nb, liq:nl, com:nc, pct: nl > 0 ? (nc/nl*100) : pctEfetivo, regraIdx: ja.regraIdx });
+  } else {
+    out.set(cid, { bruto, liq, pct:pctEfetivo, com, regraIdx:ri });
+  }
+  for(const k of (pc.linhas || [])) claimed.add(k);
+}
+try{ window._vendGrava = _vendGrava; }catch(_){}
+
 function _vendComissaoPorCliente(v, year, mIdx){
   const MESES_NM = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   const out = new Map();
@@ -55760,7 +55797,13 @@ function _vendComissaoPorCliente(v, year, mIdx){
       if(!row) continue;
       if(base === 'clientes' && !idSet.has(row.clienteId)) continue;
       if(base === 'exceto'   &&  idSet.has(row.clienteId)) continue;
-      if(claimed.has(row.clienteId)) continue; // já atendido por regra anterior
+      /* Reserva por LINHA, não por cliente. Um cliente pode ter dois projetos
+         com percentuais diferentes — "DOT GROUP · Desenvolvimento 5%" e
+         "DOT GROUP · Aditivo 8%" —, e antes a primeira regra levava o cliente
+         inteiro. A chave é clienteId|descrição: o id da linha muda de ano pra
+         ano, a descrição do projeto não. */
+      const _chaveLinha = row.clienteId + '|' + String(row.descricao || '').trim();
+      if(claimed.has(_chaveLinha)) continue;   // linha já atendida por regra anterior
       const cell = (row.meses || {})[mKey];
       if(!cell) continue;
       /* Base da comissão = BRUTO, nesta ordem:
@@ -55776,11 +55819,23 @@ function _vendComissaoPorCliente(v, year, mIdx){
       if(val <= 0) continue;
       if(tipoBase === 'liquida' && cell.status !== 'recebido') continue;
       if(!perClienteDaRegra.has(row.clienteId)){
-        perClienteDaRegra.set(row.clienteId, {bruto:0, liq:0});
+        perClienteDaRegra.set(row.clienteId, {bruto:0, liq:0, proprios:[], linhas:[]});
       }
       const pc = perClienteDaRegra.get(row.clienteId);
-      pc.bruto += val;
-      pc.liq   += val * (1 - abaterPct/100);
+      const _liqLinha = val * (1 - abaterPct/100);
+      /* Projeto com percentual próprio sai do bolo do cliente e é calculado à
+         parte — inclusive no escalonado, onde ele não entra na base das faixas
+         (a faixa mede volume; um projeto com taxa negociada não é volume). */
+      const _pctLinha = (r.linhasPct && typeof r.linhasPct === 'object')
+        ? parseFloat(r.linhasPct[_chaveLinha]) : NaN;
+      pc.linhas.push(_chaveLinha);
+      if(isFinite(_pctLinha)){
+        pc.proprios.push({ bruto: val, liq: _liqLinha, pct: _pctLinha,
+                           desc: String(row.descricao || '').trim() });
+      } else {
+        pc.bruto += val;
+        pc.liq   += _liqLinha;
+      }
     }
     // Aplica modo pra esta regra e transfere pro out
     if(modo === 'escalonado' && Array.isArray(r.faixas) && r.faixas.length){
@@ -55805,23 +55860,16 @@ function _vendComissaoPorCliente(v, year, mIdx){
         }
         effPct = comTot/totalLiq*100;
       }
-      for(const [cid, pc] of perClienteDaRegra){
-        out.set(cid, { bruto:pc.bruto, liq:pc.liq, pct:effPct, com:pc.liq*effPct/100, regraIdx:ri });
-        claimed.add(cid);
-      }
+      for(const [cid, pc] of perClienteDaRegra) _vendGrava(out, claimed, cid, pc, effPct, ri);
     } else if(modo === 'porCliente'){
       for(const [cid, pc] of perClienteDaRegra){
         const pctRaw = pctMap[cid];
         const pct = (pctRaw !== undefined && pctRaw !== null && pctRaw !== '')
           ? (parseFloat(pctRaw) || 0) : pctPadrao;
-        out.set(cid, { bruto:pc.bruto, liq:pc.liq, pct, com:pc.liq*pct/100, regraIdx:ri });
-        claimed.add(cid);
+        _vendGrava(out, claimed, cid, pc, pct, ri);
       }
     } else {
-      for(const [cid, pc] of perClienteDaRegra){
-        out.set(cid, { bruto:pc.bruto, liq:pc.liq, pct:pctPadrao, com:pc.liq*pctPadrao/100, regraIdx:ri });
-        claimed.add(cid);
-      }
+      for(const [cid, pc] of perClienteDaRegra) _vendGrava(out, claimed, cid, pc, pctPadrao, ri);
     }
   }
   return out;
@@ -86705,6 +86753,42 @@ function _renderVendEditor(ov){
           </span>` : ''}
         </span>
         ${checked ? `<span class="vbm-grid">${_cells}</span>` : ''}
+        ${checked ? (() => {
+          /* Projetos do cliente = linhas da Receita com descrição diferente.
+             Só aparece quando há mais de uma — cliente com contrato único
+             continua uma linha simples. A chave é clienteId|descrição porque o
+             id da linha muda a cada ano; a descrição do projeto não. */
+          const _projs = [];
+          try{
+            const _yd = (receita && receita.years && receita.years[_anoB]) || {};
+            for(const row of (_yd.clients || [])){
+              if(!row || row.clienteId !== c.id) continue;
+              const d = String(row.descricao || '').trim();
+              if(!_projs.some(x => x.desc === d)) _projs.push({ desc: d });
+            }
+          }catch(_){}
+          if(_projs.length < 2) return '';
+          const _lp = (r.linhasPct && typeof r.linhasPct === 'object') ? r.linhasPct : {};
+          return `<span class="vpj">
+            <span class="vpj-hd">Projetos deste cliente — deixe em branco pra usar os ${r.pct||0}% da regra</span>
+            ${_projs.map(pj => {
+              const key = c.id + '|' + pj.desc;
+              const val = _lp[key];
+              const tem = val !== undefined && val !== '' && val !== null;
+              return `<span class="vpj-row${tem?' is-set':''}">
+                <span class="vpj-nm" title="${esc(pj.desc || 'sem descrição')}">${esc(pj.desc || '(sem descrição)')}</span>
+                <span class="vpj-pct">
+                  <input type="text" value="${tem?fmtBR(val,2):''}" placeholder="${r.pct||0}"
+                         onclick="event.preventDefault();event.stopPropagation();this.focus()"
+                         onfocus="this.select()"
+                         onblur="_vendLinhaPctSet(${i},'${_jsq(key)}',this.value)"
+                         onkeydown="if(event.key===\'Enter\')this.blur()">
+                  <i>%</i>
+                </span>
+              </span>`;
+            }).join('')}
+          </span>`;
+        })() : ''}
       </label>`;
     }).join('');
     const faixasHtml = (r.faixas || []).map((f, fi) => `
@@ -87110,6 +87194,23 @@ function _vendBaseAtualizaCelula(i, cid, ym, valor){
   }catch(_){}
 }
 try{ window._vendBaseAtualizaCelula = _vendBaseAtualizaCelula; }catch(_){}
+/* Escapa aspas simples pra chave usada dentro de onblur="...('x')". */
+function _jsq(t){ return String(t == null ? '' : t).replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+/* % específico de um projeto (linha da Receita). Vazio remove — aí o projeto
+   volta a usar o percentual da regra. */
+function _vendLinhaPctSet(i, chave, val){
+  const st = _vendEditState; if(!st) return;
+  const r = st.regras[i]; if(!r) return;
+  if(!r.linhasPct || typeof r.linhasPct !== 'object') r.linhasPct = {};
+  const n = parseBR(val);
+  if(n === '' || !isFinite(n) || n < 0) delete r.linhasPct[chave];
+  else r.linhasPct[chave] = n;
+  if(!Object.keys(r.linhasPct).length) delete r.linhasPct;
+  const ov = document.getElementById('ov-vend-edit');
+  if(ov) _renderVendEditor(ov);
+}
+try{ window._vendLinhaPctSet = _vendLinhaPctSet; window._jsq = _jsq; }catch(_){}
+
 /* Ano visível da faixa de meses — memória só de tela, por regra+cliente. */
 const _VEND_BASE_ANO = {};
 function _vendBaseAno(i, cid){
