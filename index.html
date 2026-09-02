@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788360540"/>
+  <meta name="fk-build" content="forekash-v1788361072"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8498,6 +8498,18 @@
                      border-radius:10px;padding:10px 13px;margin:0 0 14px;
                      font-size:.79rem;color:#92400E}
     .dkb-copia-faixa svg{width:15px;height:15px;flex:none;fill:currentColor}
+    /* Base por cliente dentro da lista de seleção da regra. */
+    .vend-cli-opt{display:flex;align-items:center;gap:8px}
+    .vend-cli-opt .vend-cli-nm{flex:1 1 auto;min-width:0;overflow:hidden;
+                               text-overflow:ellipsis;white-space:nowrap}
+    .vend-cli-base{flex:0 0 106px}
+    .vend-cli-base input{width:100%;box-sizing:border-box;padding:3px 7px;
+                         border:1px solid #E2E8F0;border-radius:6px;
+                         font-family:inherit;font-size:.72rem;text-align:right;
+                         font-variant-numeric:tabular-nums;background:#fff;color:#0F172A}
+    .vend-cli-base input::placeholder{color:#CBD5E1;font-weight:500}
+    .vend-cli-base.is-set input{border-color:#F59E0B;background:#FFFBEB;
+                                color:#92400E;font-weight:700}
     .clidet-anx-name{font-size:.78rem;font-weight:600;color:#0F172A;
                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     /* O nome do arquivo abre. Era só rótulo, e a única forma de ver o anexo era
@@ -55695,10 +55707,16 @@ function _vendComissaoPorCliente(v, year, mIdx){
       if(claimed.has(row.clienteId)) continue; // já atendido por regra anterior
       const cell = (row.meses || {})[mKey];
       if(!cell) continue;
-      /* Base da comissão = BRUTO. Se a célula guardou o bruto explicitamente
-         (recebimento com retenção), ele manda; senão vale o valor contratado.
+      /* Base da comissão = BRUTO, nesta ordem:
+         1. base fixa que ele definiu pra este cliente na regra (sobrescreve tudo)
+         2. o bruto gravado na célula (recebimento com retenção)
+         3. o valor contratado
          Nunca o valorPago, que é o líquido depois de imposto retido. */
-      const val = parseFloat(cell.valorBruto) || parseFloat(cell.valor) || 0;
+      const _baseCli = (r.clientesBase && typeof r.clientesBase === 'object')
+        ? parseFloat(r.clientesBase[row.clienteId]) : NaN;
+      const val = (isFinite(_baseCli) && _baseCli > 0)
+        ? _baseCli
+        : (parseFloat(cell.valorBruto) || parseFloat(cell.valor) || 0);
       if(val <= 0) continue;
       if(tipoBase === 'liquida' && cell.status !== 'recebido') continue;
       if(!perClienteDaRegra.has(row.clienteId)){
@@ -86540,10 +86558,42 @@ function _renderVendEditor(ov){
     .join('');
   const clientesList = (receita && Array.isArray(receita.clientes)) ? receita.clientes : [];
   const regrasHtml = (st.regras || []).map((r, i) => {
+    /* Base por cliente: quando marcado, aparece um campo pra sobrescrever o
+       bruto daquele cliente. Serve pro caso de a Receita estar com valor errado
+       (achatada pelo líquido, por exemplo) sem precisar mexer no outro módulo.
+       Vazio = usa o valor da Receita, que é o comportamento de sempre. */
+    const _baseMap = (r.clientesBase && typeof r.clientesBase === 'object') ? r.clientesBase : {};
     const clientesChecks = clientesList.map(c => {
       const checked = (r.clientes||[]).includes(c.id);
-      return `<label class="vend-cli-opt"><input type="checkbox" ${checked?'checked':''}
-        onchange="_vendRegraToggleCliente(${i},${c.id})"> ${esc(c.nome || '(sem nome)')}</label>`;
+      const bv = _baseMap[c.id];
+      const temBase = bv !== undefined && bv !== '' && bv !== null;
+      /* Mostra o que a Receita diz hoje, pra ele ver o que está sobrescrevendo. */
+      let _atual = 0;
+      try{
+        const _y = String((typeof recActiveYear !== 'undefined' && recActiveYear) ? recActiveYear : new Date().getFullYear());
+        const _yd = (receita && receita.years && receita.years[_y]) || {};
+        for(const row of (_yd.clients || [])){
+          if(!row || row.clienteId !== c.id) continue;
+          for(const k of Object.keys(row.meses || {})){
+            const cel = row.meses[k] || {};
+            const vv = parseFloat(cel.valorBruto) || parseFloat(cel.valor) || 0;
+            if(vv > 0){ _atual = vv; break; }
+          }
+        }
+      }catch(_){}
+      return `<label class="vend-cli-opt${checked?' on':''}">
+        <input type="checkbox" ${checked?'checked':''} onchange="_vendRegraToggleCliente(${i},${c.id})">
+        <span class="vend-cli-nm">${esc(c.nome || '(sem nome)')}</span>
+        ${checked ? `<span class="vend-cli-base${temBase?' is-set':''}"
+              title="Base de cálculo deste cliente. Em branco, usa o valor da Receita${_atual?(' (hoje: ' + fmtBRL(_atual) + '/mês)'):''}.">
+          <input type="text" value="${temBase?fmtBR(bv,2):''}"
+                 placeholder="${_atual?fmtBR(_atual,2):'base R$'}"
+                 onclick="event.preventDefault();event.stopPropagation();this.focus()"
+                 onfocus="this.select()"
+                 onblur="_vendRegraBaseSet(${i},${c.id},this.value)"
+                 onkeydown="if(event.key==='Enter')this.blur()">
+        </span>` : ''}
+      </label>`;
     }).join('');
     const faixasHtml = (r.faixas || []).map((f, fi) => `
       <div class="vend-faixa-row">
@@ -86849,6 +86899,20 @@ function _vendRegraSet(i, field, val){
     const ov = document.getElementById('ov-vend-edit'); if(ov) _renderVendEditor(ov);
   }
 }
+/* Base fixa por cliente. Grava só quando há número; apagar volta pro valor da
+   Receita — nada de guardar zero e o cliente sumir da comissão sem explicação. */
+function _vendRegraBaseSet(i, cid, val){
+  const st = _vendEditState; if(!st) return;
+  const r = st.regras[i]; if(!r) return;
+  if(!r.clientesBase || typeof r.clientesBase !== 'object') r.clientesBase = {};
+  const n = parseBR(val);
+  if(n === '' || !isFinite(n) || n <= 0) delete r.clientesBase[cid];
+  else r.clientesBase[cid] = n;
+  const ov = document.getElementById('ov-vend-edit');
+  if(ov) _renderVendEditor(ov);
+}
+try{ window._vendRegraBaseSet = _vendRegraBaseSet; }catch(_){}
+
 function _vendRegraToggleCliente(i, clienteId){
   if(!_vendEditState) return;
   const r = _vendEditState.regras[i]; if(!r) return;
