@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788369110"/>
+  <meta name="fk-build" content="forekash-v1788371168"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -55780,7 +55780,20 @@ function _vendComissaoPorCliente(v, year, mIdx){
   if(regras.length === 0) return out;
   const yData = (receita && receita.years && receita.years[year]) || {};
   const mKey  = MESES_NM[mIdx];
-  const claimed = new Set(); // clienteIds já alocados a uma regra
+  const claimed = new Set(); // linhas (cliente|projeto) já alocadas a uma regra
+  /* ESPECIFICIDADE GANHA DA ORDEM. Se uma regra POSTERIOR nomeia um projeto com
+     percentual próprio, a regra genérica anterior não pode levar esse projeto
+     junto com o resto do cliente — senão a regra específica nunca é alcançada.
+     Sem isto, "DOT GROUP 5%" seguido de "Terceiro aditivo 12%" pagava 5% nos
+     dois, e a segunda regra virava letra morta. */
+  const _reservadoDepois = (chave, riAtual) => {
+    for(let k = riAtual + 1; k < regras.length; k++){
+      const rk = regras[k];
+      if(rk && rk.linhasPct && typeof rk.linhasPct === 'object'
+         && rk.linhasPct[chave] !== undefined && rk.linhasPct[chave] !== '') return true;
+    }
+    return false;
+  };
   // Processa cada regra na ordem — first-match wins pra evitar duplicação
   for(let ri = 0; ri < regras.length; ri++){
     const r = regras[ri];
@@ -55804,6 +55817,10 @@ function _vendComissaoPorCliente(v, year, mIdx){
          ano, a descrição do projeto não. */
       const _chaveLinha = row.clienteId + '|' + String(row.descricao || '').trim();
       if(claimed.has(_chaveLinha)) continue;   // linha já atendida por regra anterior
+      const _pctAqui = (r.linhasPct && typeof r.linhasPct === 'object')
+        ? r.linhasPct[_chaveLinha] : undefined;
+      const _temPctAqui = _pctAqui !== undefined && _pctAqui !== '';
+      if(!_temPctAqui && _reservadoDepois(_chaveLinha, ri)) continue;  // regra específica adiante
       const cell = (row.meses || {})[mKey];
       if(!cell) continue;
       /* Base da comissão = BRUTO, nesta ordem:
