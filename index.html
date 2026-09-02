@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788384864"/>
+  <meta name="fk-build" content="forekash-v1788390364"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7524,36 +7524,6 @@
     .home-hero h1{font-size:1.75rem;font-weight:800;letter-spacing:-0.025em;margin:0 0 6px;
                   display:flex;align-items:center;gap:14px;flex-wrap:wrap;
                   background:linear-gradient(90deg,#fff,#CBD5E1);-webkit-background-clip:text;background-clip:text;color:transparent}
-    /* Resumo da semana — mora embaixo do painel de indicadores, com a largura
-       deles. Fica de propósito abaixo do peso visual das cotações: rótulo
-       miúdo, número em corpo pequeno e cor apagada. */
-    .home-market-col{display:flex;flex-direction:column;gap:8px;min-width:0}
-    .home-semana{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
-                 background:rgba(15,23,42,.28);border:1px solid rgba(255,255,255,.06);
-                 border-radius:12px;padding:8px 12px;backdrop-filter:blur(8px)}
-    .hs-bloco{min-width:0;padding:0 12px;border-left:1px solid rgba(148,163,184,.12)}
-    .hs-bloco:first-child{padding-left:0;border-left:0}
-    .hs-top{display:flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:0}
-    .hs-rot{display:flex;align-items:center;gap:5px;min-width:0}
-    .hs-dot{width:4px;height:4px;border-radius:50%;flex:none;background:#5A6880}
-    .hs-pagar .hs-dot{background:#B45A5A}
-    .hs-receber .hs-dot{background:#3F8F72}
-    .hs-proj .hs-dot{background:#4A73A8}
-    .hs-hd{font-size:.55rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-           color:#7C8AA6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .hs-tot{font-size:.84rem;font-weight:700;letter-spacing:-.01em;color:#C6D0E0;
-            font-variant-numeric:tabular-nums;white-space:nowrap}
-    .hs-sub{margin-top:1px;font-size:.56rem;font-weight:600;color:#6B7893;
-            font-variant-numeric:tabular-nums;white-space:nowrap}
-    .hs-sub.up{color:#5E9C82}
-    .hs-sub.down{color:#B87070}
-    .hs-sub.mudo{color:#57647E;font-style:italic}
-    @media(max-width:640px){
-      .home-semana{grid-template-columns:1fr;gap:6px}
-      .hs-bloco{padding:0;border-left:0}
-      .hs-bloco + .hs-bloco{padding-top:6px;border-top:1px solid rgba(148,163,184,.12)}
-    }
-
     .home-greet-ico{display:inline-flex;align-items:center;justify-content:center;
                     width:52px;height:52px;border-radius:14px;flex-shrink:0;
                     background:linear-gradient(135deg,rgba(255,255,255,.12),rgba(255,255,255,.04));
@@ -19767,7 +19737,6 @@ td.mes.do-extrato{background:#ECFDF5}
               <!-- Botão do Copiloto removido do Início (01/09/2026, pedido dele).
                    Ele segue acessível pela paleta (⌘K) e pelo Cockpit. -->
             </div>
-            <div class="home-market-col">
             <div class="home-market" id="home-market">
               <div class="home-market-item">
                 <span class="home-market-lbl">
@@ -19805,9 +19774,6 @@ td.mes.do-extrato{background:#ECFDF5}
                 <span class="home-market-delta" id="home-inpc-delta">12 meses</span>
                 <span class="home-market-sub" id="home-inpc-sub">carregando…</span>
               </div>
-            </div>
-            <!-- Resumo da semana, embaixo dos indicadores: mesma largura, menos peso. -->
-            <div class="home-semana" id="home-semana"></div>
             </div>
           </div>
         </div>
@@ -52540,85 +52506,10 @@ function homeGreetIcon(){
   };
 }
 
-/* ══ A SEMANA, NO LUGAR DA SAUDAÇÃO ═══════════════════════════════════════
-   "Boa tarde" ocupava a primeira linha do painel pra dizer que horas são. No
-   mesmo espaço cabem as três perguntas que abrem o dia: o que vence, o que
-   entra, e onde o caixa termina a semana. O ícone fica — ele marca a hora sem
-   gastar uma frase. */
-function homeSemanaDados(){
-  const hoje = new Date(); hoje.setHours(0,0,0,0);
-  /* A semana fecha na SEXTA, não no domingo: sábado e domingo não têm
-     movimentação bancária, então projetar caixa para o domingo é projetar
-     para um dia em que nada acontece. */
-  const fim = new Date(hoje);
-  fim.setDate(fim.getDate() + ((5 - hoje.getDay()) + 7) % 7);   // 5 = sexta
-  const k = (d) => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-  const de = k(hoje), ate = k(fim);
-  const pagar = [], receber = [];
-  try{
-    for(const l of ((extratoData && extratoData.lancamentos) || [])){
-      if(!l || l.tipo === 'transferencia') continue;
-      if(l.status === 'pago' || l.status === 'recebido') continue;
-      const d = String(l.dataVencimento || l.data || '').slice(0,10);
-      if(!d || d < de || d > ate) continue;
-      const item = { nome: (l.contraparte || l.descricao || 'sem descrição'),
-                     valor: Math.abs(parseFloat(l.valor) || 0), data: d };
-      if(!item.valor) continue;
-      (l.tipo === 'ganho' ? receber : pagar).push(item);
-    }
-  }catch(_){}
-  const soma = (a) => a.reduce((sm, x) => sm + x.valor, 0);
-  /* Projeção da semana: o que está em conta hoje, mais o que entra e menos o
-     que sai até domingo. Mesma base do KASHtrack — saldo real, não projeção
-     de planilha. */
-  let saldoHoje = 0;
-  try{ saldoHoje = (typeof _ktSaldoInicial === 'function') ? (_ktSaldoInicial() || 0) : 0; }catch(_){}
-  const totPagar = soma(pagar), totReceber = soma(receber);
-  return { de, ate, fim, pagar, receber, totPagar, totReceber,
-           saldoHoje, projetado: saldoHoje + totReceber - totPagar };
-}
-function homeRenderSemana(){
-  const host = document.getElementById('home-semana');
-  if(!host) return;
-  const d = homeSemanaDados();
-  const DS = ['dom','seg','ter','qua','qui','sex','sáb'];
-  const dia = (iso) => {
-    const p = String(iso).split('-');
-    const dt = new Date(+p[0], +p[1]-1, +p[2]);
-    return DS[dt.getDay()] + ' ' + p[2];
-  };
-  const delta = d.totReceber - d.totPagar;
-  const sinal = delta >= 0 ? 'up' : 'down';
-  /* Sem saldo em Disponibilidades não existe caixa projetado — existe o
-     movimento da semana. Chamar de caixa um número que parte de zero é mentir
-     com formatação bonita. */
-  const temSaldo = Math.abs(d.saldoHoje) > 0.005;
-  const projTitulo = (temSaldo ? 'Caixa projetado · ' : 'Saldo da semana · ') + dia(d.ate);
-  const projValor  = temSaldo ? d.projetado : delta;
-  const projSub    = !temSaldo ? 'sem saldo em Disponibilidades'
-    : (Math.abs(delta) < 0.005 ? 'semana sem movimento previsto'
-    : `${delta > 0 ? '+' : '−'}${fmtBRL(Math.abs(delta))} na semana`);
-  const linha = (cls, rot, val, rodape) =>
-      `<div class="hs-bloco ${cls}">
-         <div class="hs-top">
-           <span class="hs-rot"><i class="hs-dot"></i><span class="hs-hd">${rot}</span></span>
-           <span class="hs-tot">${val}</span>
-         </div>
-         ${rodape || ''}
-       </div>`;
-  host.innerHTML =
-      linha('hs-pagar',   'A pagar',   fmtBRL(d.totPagar),   '')
-    + linha('hs-receber', 'A receber', fmtBRL(d.totReceber), '')
-    + linha('hs-proj', projTitulo, fmtBRL(projValor),
-            `<div class="hs-sub ${temSaldo ? sinal : 'mudo'}">${projSub}</div>`);
-}
-try{ window.homeRenderSemana = homeRenderSemana; window.homeSemanaDados = homeSemanaDados; }catch(_){}
-
 function homeRenderHero(){
   const g = document.getElementById('home-greeting');
   const nome = (typeof settings !== 'undefined' && settings && settings.userName) ? settings.userName : 'Anderson';
   if(g) g.textContent = `${homeGreeting()}, ${nome}.`;
-  try{ homeRenderSemana(); }catch(e){ console.warn('[home] semana:', e && e.message); }
   const ico = document.getElementById('home-greet-ico');
   if(ico){
     const info = homeGreetIcon();
@@ -72336,11 +72227,6 @@ function renderExtrato(){
       + '<td class="col-val" style="background:#F8FAFC;color:' + (saldo>=0?'#15803D':'#B91C1C') + '">' + _extFmtBRL(saldo) + '</td>'
       + '<td colspan="3" style="background:#F8FAFC"></td></tr>';
   }
-
-  /* O Início lê os vencimentos da semana daqui. Sem isto, quem dá baixa num
-     lançamento e volta pro Início continua vendo o valor antigo até trocar
-     de módulo. */
-  try { if(document.getElementById('home-semana')) homeRenderSemana(); } catch(e){}
 }
 try { window.renderExtrato = renderExtrato; } catch(e){}
 
