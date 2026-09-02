@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788362886"/>
+  <meta name="fk-build" content="forekash-v1788363117"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -86546,12 +86546,22 @@ ${tableHtml}
   document.body.appendChild(iframe);
   const idoc = iframe.contentDocument || iframe.contentWindow.document;
   idoc.open(); idoc.write(doc); idoc.close();
+  /* NOME DO ARQUIVO. Imprimindo de um iframe, o navegador usa o title do
+     documento DE CIMA — por isso o "Salvar como" vinha com "Forekash — Seu hub
+     financeiro". Troca o título só durante a impressão e devolve depois. */
+  const _tituloApp = document.title;
+  const _limpa = (t) => String(t || '').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim();
+  const _nomeArq = _limpa('Comissoes — ' + (v.nome || 'vendedor') + ' — ' + periodoLbl);
   const triggerPrint = () => {
     try {
+      document.title = _nomeArq;
       iframe.contentWindow.focus();
       iframe.contentWindow.print();
     } catch(e){ console.warn('Print falhou:', e); }
-    setTimeout(() => { try { document.body.removeChild(iframe); } catch(e){} }, 2000);
+    setTimeout(() => {
+      try { document.title = _tituloApp; } catch(_){}
+      try { document.body.removeChild(iframe); } catch(e){}
+    }, 2000);
   };
   if(iframe.contentDocument.readyState === 'complete') setTimeout(triggerPrint, 400);
   else iframe.onload = () => setTimeout(triggerPrint, 300);
@@ -86999,9 +87009,45 @@ function _vendRegraSet(i, field, val){
 }
 /* Base fixa por cliente. Grava só quando há número; apagar volta pro valor da
    Receita — nada de guardar zero e o cliente sumir da comissão sem explicação. */
-function _vendRegraBaseSet(i, cid, val, ym){
+async function _vendRegraBaseSet(i, cid, val, ym){
   const st = _vendEditState; if(!st) return;
   const r = st.regras[i]; if(!r) return;
+  /* Mexer numa base JÁ ajustada refaz a comissão daquele mês — e se ela já foi
+     paga, o que saiu do caixa não muda sozinho. Confirmar é o mínimo: o
+     primeiro ajuste é decisão, o segundo é correção de decisão. */
+  try{
+    const _mapAtual = (r.clientesBase && r.clientesBase[cid]) || null;
+    const _antes = (_mapAtual && typeof _mapAtual === 'object') ? parseFloat(_mapAtual[ym]) : NaN;
+    const _novo = parseBR(val);
+    const _mudou = isFinite(_antes) && _antes > 0
+      && (!isFinite(_novo) || Math.abs(_antes - (_novo || 0)) > 0.005);
+    if(_mudou && typeof askConfirm === 'function'){
+      const _v = (typeof vendedores !== 'undefined' && vendedores.lista)
+        ? vendedores.lista.find(x => x.id === st.id) : null;
+      const _pago = !!(_v && _v.pagos && _v.pagos[ym]);
+      const _cli = (receita && receita.clientes || []).find(c => c.id === cid);
+      const _MSl = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+      const _rot = _MSl[parseInt(String(ym).slice(5,7),10)-1] + '/' + String(ym).slice(0,4);
+      const _paraTxt = (isFinite(_novo) && _novo > 0)
+        ? fmtBRL(_novo) : 'o valor da Receita';
+      const ok = await askConfirm({
+        title: 'Mudar a base já ajustada?',
+        message: `${esc((_cli && _cli.nome) || 'Este cliente')} · ${_rot}: de <b>${fmtBRL(_antes)}</b> para <b>${_paraTxt}</b>.`,
+        sub: 'A comissão deste mês é recalculada na hora.'
+              + (_pago ? ' <b style="color:#B91C1C">Este mês já está marcado como PAGO</b> — o valor que saiu do caixa não muda sozinho; a diferença precisa virar ajuste manual.' : '')
+              + ' Relatórios e snapshots já gerados não mudam.',
+        variant: _pago ? 'danger' : 'warn',
+        confirmLabel: 'Sim, mudar',
+        cancelLabel: 'Manter como está'
+      });
+      if(!ok){
+        // devolve o valor anterior ao campo
+        const cel = document.querySelector('.vbm-cel[data-vbm="' + i + ':' + cid + ':' + ym + '"] input');
+        if(cel) cel.value = fmtBR(_antes, 2);
+        return;
+      }
+    }
+  }catch(e){ console.warn('[vend] aviso de mudança de base:', e && e.message); }
   if(!r.clientesBase || typeof r.clientesBase !== 'object') r.clientesBase = {};
   // migra formato antigo (número solto) pra mapa por mês
   if(typeof r.clientesBase[cid] === 'number'){
