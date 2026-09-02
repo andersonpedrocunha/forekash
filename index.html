@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788390364"/>
+  <meta name="fk-build" content="forekash-v1788391102"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -4091,6 +4091,9 @@
     .fk-fl-toggle button{background:transparent;border:none;color:#94A3B8;font-size:.74rem;font-weight:800;padding:5px 9px;border-radius:5px;cursor:pointer;font-family:inherit;transition:all .15s;line-height:1;min-width:22px}
     .fk-fl-toggle button:hover:not(.active){color:#fff;background:rgba(255,255,255,.06)}
     .fk-fl-toggle button.active{background:linear-gradient(135deg,#10B981,#0F766E);color:#fff;box-shadow:0 2px 8px rgba(16,185,129,.4)}
+    .fk-fl-toggle .fk-fl-name{font-size:.6rem;font-weight:700;letter-spacing:.1em;color:#64748B;
+                              padding:0 8px 0 7px;line-height:1;white-space:nowrap}
+    @media (max-width: 980px){ .fk-fl-toggle .fk-fl-name{display:none} }
     @media (max-width: 720px){ .fk-fl-toggle{margin-right:6px} .fk-fl-toggle button{padding:4px 7px;font-size:.66rem} .fk-fl-toggle .fk-fl-prefix{display:none} }
 
     /* ═══════════════════════════════════════════════════════════════
@@ -19368,6 +19371,9 @@ td.mes.do-extrato{background:#ECFDF5}
       <button type="button" data-fl="1" onclick="fkFlightSet(1)" title="Flight Level 1 · OPERAÇÃO · visão diária (cockpit do dia)">1</button>
       <button type="button" data-fl="2" onclick="fkFlightSet(2)" title="Flight Level 2 · GESTÃO · visão mensal (DRE e fluxo do mês)">2</button>
       <button type="button" data-fl="3" onclick="fkFlightSet(3)" title="Flight Level 3 · ESTRATÉGIA · visão anual (DRE YoY, runway, top categorias)">3</button>
+      <!-- "FL1 FL2 FL3" nos três botões ocuparia a mesma largura e continuaria
+           não dizendo o que cada nível é. O nome do nível ativo diz. -->
+      <span class="fk-fl-name" id="fk-fl-name" aria-live="polite"></span>
     </div>
 
     <!-- KASH SCORE · widget no header (sparkline + tier) -->
@@ -137307,6 +137313,16 @@ const FK_FL_KEY = 'forekash:flight-level:v1';
 function fkFlightGet(){
   try{ const v = parseInt(localStorage.getItem(FK_FL_KEY)); return (v===1||v===2||v===3) ? v : 2; }catch(_){ return 2; }
 }
+const FK_FL_NOMES = { 1:'Operação', 2:'Gestão', 3:'Estratégia' };
+function _fkFlPintaToggle(n){
+  document.querySelectorAll('.fk-fl-toggle button').forEach(b => {
+    const isOn = String(b.getAttribute('data-fl')) === String(n);
+    b.classList.toggle('active', isOn);
+    b.setAttribute('aria-pressed', isOn ? 'true' : 'false');
+  });
+  const nm = document.getElementById('fk-fl-name');
+  if(nm) nm.textContent = FK_FL_NOMES[n] || '';
+}
 function fkFlightSet(n, opts){
   n = parseInt(n)||2;
   if(n<1) n=1; if(n>3) n=3;
@@ -137314,12 +137330,7 @@ function fkFlightSet(n, opts){
   // Body class
   document.body.classList.remove('fl-1','fl-2','fl-3');
   document.body.classList.add('fl-'+n);
-  // Toggle ARIA + visual active
-  document.querySelectorAll('.fk-fl-toggle button').forEach(b => {
-    const isOn = String(b.getAttribute('data-fl')) === String(n);
-    b.classList.toggle('active', isOn);
-    b.setAttribute('aria-pressed', isOn ? 'true' : 'false');
-  });
+  _fkFlPintaToggle(n);
   // Custom event pros módulos reagirem (KASHtrack, Dashboard, etc)
   try{ window.dispatchEvent(new CustomEvent('forekash:flight-changed', { detail: { level: n } })); }catch(_){}
   // Abre cockpit se não suprimido
@@ -137344,6 +137355,35 @@ function _fkFlSumExtrato(periodFilter){
     }
   }
   return { receita, despesa, lanc, pendReceitas:pendR, pendDespesas:pendD };
+}
+/* Pendências da janela, somadas pelo VENCIMENTO — é a data que diz quando o
+   dinheiro sai da conta. _fkFlSumExtrato usa l.data (emissão), que serve pro
+   realizado mas jogaria um boleto emitido em agosto e vencendo em setembro no
+   mês errado. */
+function _fkFlPendentesAte(deISO, ateISO){
+  const out = { aPagar:0, aReceber:0, nPagar:0, nReceber:0 };
+  if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return out;
+  for(const l of extratoData.lancamentos){
+    if(!l || l.tipo === 'transferencia') continue;
+    if(l.status === 'pago' || l.status === 'recebido') continue;
+    const d = String(l.dataVencimento || l.data || '').slice(0,10);
+    if(!d || d < deISO || d > ateISO) continue;
+    const v = Math.abs(parseFloat(l.valor) || 0);
+    if(!v) continue;
+    if(l.tipo === 'ganho'){ out.aReceber += v; out.nReceber++; }
+    else { out.aPagar += v; out.nPagar++; }
+  }
+  return out;
+}
+/* A semana operacional fecha na SEXTA: sábado e domingo não têm movimentação
+   bancária, então projetar caixa pro domingo é projetar pra um dia parado. */
+function _fkFlSemanaAteSexta(){
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const fim = new Date(hoje);
+  fim.setDate(fim.getDate() + ((5 - hoje.getDay()) + 7) % 7);   // 5 = sexta
+  const k = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const DS = ['dom','seg','ter','qua','qui','sex','sáb'];
+  return { de:k(hoje), ate:k(fim), rotulo: DS[fim.getDay()] + ' ' + String(fim.getDate()).padStart(2,'0') };
 }
 function _fkFlSaldoAtual(){
   // Reusa _ktSaldoInicial (já trata c.saldos + snapshot + saldoInicial)
@@ -137393,6 +137433,12 @@ function _fkFlRenderFL1(){
   const sum = _fkFlSumExtrato(d => d === today);
   const saldo = _fkFlSaldoAtual();
   const net = sum.receita - sum.despesa;
+  // O cockpit do dia não dizia nada sobre o que vem — a semana até sexta cobre isso.
+  const sem = _fkFlSemanaAteSexta();
+  const pend = _fkFlPendentesAte(sem.de, sem.ate);
+  const projSexta = saldo + pend.aReceber - pend.aPagar;
+  const deltaSem = pend.aReceber - pend.aPagar;
+  const brl0 = v => 'R$ ' + v.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
   // Vencimentos hoje (pendentes)
   let vencR=[], vencD=[];
   if(typeof extratoData !== 'undefined' && Array.isArray(extratoData.lancamentos)){
@@ -137414,6 +137460,28 @@ function _fkFlRenderFL1(){
       <div style="background:#ECFDF5;border:1px solid #BBF7D0;border-radius:10px;padding:14px"><div style="font-size:.68rem;color:#065F46;font-weight:800;letter-spacing:.06em">↑ RECEITAS HOJE</div><div style="font-size:1.5rem;font-weight:800;color:#10B981;margin-top:4px">R$ ${sum.receita.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
       <div style="background:#FEE2E2;border:1px solid #FECACA;border-radius:10px;padding:14px"><div style="font-size:.68rem;color:#991B1B;font-weight:800;letter-spacing:.06em">↓ DESPESAS HOJE</div><div style="font-size:1.5rem;font-weight:800;color:#EF4444;margin-top:4px">R$ ${sum.despesa.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
       <div style="background:${net>=0?'#EFF6FF':'#FEF3C7'};border:1px solid ${net>=0?'#BFDBFE':'#FDE68A'};border-radius:10px;padding:14px"><div style="font-size:.68rem;color:${net>=0?'#1E3A8A':'#78350F'};font-weight:800;letter-spacing:.06em">≡ NET DO DIA</div><div style="font-size:1.5rem;font-weight:800;color:${net>=0?'#3B82F6':'#F59E0B'};margin-top:4px">${net>=0?'+':''}R$ ${net.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0})}</div></div>
+    </div>
+
+    <div style="background:linear-gradient(135deg,#0F172A,#1E293B);border-radius:10px;padding:14px 16px;color:#fff;margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+        <div style="font-size:.68rem;opacity:.85;letter-spacing:.08em;font-weight:800">A SEMANA PELA FRENTE</div>
+        <div style="font-size:.66rem;opacity:.6">até ${sem.rotulo}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+        <div>
+          <div style="font-size:.66rem;opacity:.7">↓ A pagar${pend.nPagar?` <span style="opacity:.6">(${pend.nPagar})</span>`:''}</div>
+          <div style="font-size:1.25rem;font-weight:800;color:#F87171;font-variant-numeric:tabular-nums;margin-top:2px">${brl0(pend.aPagar)}</div>
+        </div>
+        <div style="border-left:1px solid rgba(255,255,255,.15);padding-left:14px">
+          <div style="font-size:.66rem;opacity:.7">↑ A receber${pend.nReceber?` <span style="opacity:.6">(${pend.nReceber})</span>`:''}</div>
+          <div style="font-size:1.25rem;font-weight:800;color:#34D399;font-variant-numeric:tabular-nums;margin-top:2px">${brl0(pend.aReceber)}</div>
+        </div>
+        <div style="border-left:1px solid rgba(255,255,255,.15);padding-left:14px">
+          <div style="font-size:.66rem;opacity:.7">≡ Caixa projetado</div>
+          <div style="font-size:1.25rem;font-weight:800;color:#93C5FD;font-variant-numeric:tabular-nums;margin-top:2px">${brl0(projSexta)}</div>
+          <div style="font-size:.64rem;font-weight:700;margin-top:1px;color:${deltaSem>=0?'#34D399':'#F87171'}">${deltaSem>=0?'+':'−'}${brl0(Math.abs(deltaSem))} na semana</div>
+        </div>
+      </div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px">
@@ -137578,11 +137646,7 @@ function _fkFlRenderFL3(){
     const n = fkFlightGet();
     document.body.classList.remove('fl-1','fl-2','fl-3');
     document.body.classList.add('fl-'+n);
-    document.querySelectorAll('.fk-fl-toggle button').forEach(b => {
-      const isOn = String(b.getAttribute('data-fl')) === String(n);
-      b.classList.toggle('active', isOn);
-      b.setAttribute('aria-pressed', isOn ? 'true' : 'false');
-    });
+    _fkFlPintaToggle(n);
   };
   // Imediato (caso DOM já pronto)
   if(document.readyState !== 'loading') setTimeout(apply, 50);
