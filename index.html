@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788359971"/>
+  <meta name="fk-build" content="forekash-v1788360540"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -55695,7 +55695,10 @@ function _vendComissaoPorCliente(v, year, mIdx){
       if(claimed.has(row.clienteId)) continue; // já atendido por regra anterior
       const cell = (row.meses || {})[mKey];
       if(!cell) continue;
-      const val = parseFloat(cell.valor) || 0;
+      /* Base da comissão = BRUTO. Se a célula guardou o bruto explicitamente
+         (recebimento com retenção), ele manda; senão vale o valor contratado.
+         Nunca o valorPago, que é o líquido depois de imposto retido. */
+      const val = parseFloat(cell.valorBruto) || parseFloat(cell.valor) || 0;
       if(val <= 0) continue;
       if(tipoBase === 'liquida' && cell.status !== 'recebido') continue;
       if(!perClienteDaRegra.has(row.clienteId)){
@@ -75183,12 +75186,33 @@ function _extAutoPropagate(payload){
         if(!row.meses) row.meses = {};
         const mAbbr = (typeof REC_MESES !== 'undefined') ? REC_MESES[mIdx] : ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][mIdx];
         const cell = row.meses[mAbbr] || {};
-        cell.valor = payload.valor;
+        /* A CÉLULA GUARDA O BRUTO — o contratado. O que entrou na conta vai pra
+           valorPago, separado.
+
+           Antes `cell.valor = payload.valor` gravava o LÍQUIDO por cima do
+           contratado: recebendo com retenção (IR, ISS, tarifa), o valor da
+           Receita encolhia e a comissão do vendedor — que é calculada sobre o
+           bruto — caía junto. O recebimento é informação sobre o pagamento, não
+           uma correção do contrato. */
+        const _bruto    = parseFloat(payload.valorBruto) || 0;
+        const _recebido = parseFloat(payload.valor) || 0;
+        const _jaTinha  = parseFloat(cell.valor) || 0;
+        if(_bruto > 0){
+          cell.valor = _bruto;            // o lançamento sabe o bruto (tinha retenção)
+          cell.valorBruto = _bruto;
+        } else if(_jaTinha > 0){
+          cell.valor = _jaTinha;          // preserva o que você contratou
+        } else {
+          cell.valor = _recebido;         // célula vazia: o recebido vira a base
+        }
         cell.dataVencimento = payload.data;
         if(payload.status === 'pago' || payload.status === 'recebido'){
           cell.status = 'recebido';
           cell.dataRecebimento = payload.dataPagamento || payload.data;
-          cell.valorPago = payload.valor;
+          cell.valorPago = _recebido;     // líquido: o que efetivamente entrou
+          if(_bruto > 0 && _recebido > 0 && _bruto - _recebido > 0.005){
+            cell.retido = Math.round((_bruto - _recebido) * 100) / 100;
+          }
         } else {
           cell.status = 'aberto';
         }
