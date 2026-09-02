@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788362492"/>
+  <meta name="fk-build" content="forekash-v1788362886"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -86662,7 +86662,7 @@ function _renderVendEditor(ov){
         const k = _anoB + '-' + String(mi+1).padStart(2,'0');
         const v = _mapCli[k];
         const tem = v !== undefined && v !== '' && v !== null;
-        return `<div class="vbm-cel${tem?' is-set':''}">
+        return `<div class="vbm-cel${tem?' is-set':''}" data-vbm="${i}:${c.id}:${k}">
           <span class="vbm-top">
             <span class="vbm-mes">${mm}</span>
             ${tem ? `<button type="button" class="vbm-fwd" title="Repetir ${fmtBR(v,2)} nos meses seguintes"
@@ -87015,9 +87015,49 @@ function _vendRegraBaseSet(i, cid, val, ym){
   if(n === '' || !isFinite(n) || n <= 0) delete r.clientesBase[cid][chave];
   else r.clientesBase[cid][chave] = n;
   if(!Object.keys(r.clientesBase[cid]).length) delete r.clientesBase[cid];
-  const ov = document.getElementById('ov-vend-edit');
-  if(ov) _renderVendEditor(ov);
+  /* NÃO redesenha o modal. Cada dígito digitado disparava um re-render inteiro:
+     o campo perdia o foco e a rolagem voltava pro topo, tornando impossível
+     preencher doze meses seguidos. Atualiza só o que mudou. */
+  _vendBaseAtualizaCelula(i, cid, chave, isFinite(n) && n > 0 ? n : null);
 }
+/* Retoque cirúrgico: a classe da célula, o botão de repetir e o contador n/12. */
+function _vendBaseAtualizaCelula(i, cid, ym, valor){
+  const cel = document.querySelector('.vbm-cel[data-vbm="' + i + ':' + cid + ':' + ym + '"]');
+  if(cel){
+    cel.classList.toggle('is-set', valor != null);
+    const top = cel.querySelector('.vbm-top');
+    const jaTem = cel.querySelector('.vbm-fwd');
+    if(valor != null && !jaTem && top){
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'vbm-fwd';
+      b.title = 'Repetir ' + fmtBR(valor, 2) + ' nos meses seguintes';
+      b.textContent = '\u21e5';
+      b.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); _vendBaseRepetir(i, cid, ym); };
+      top.appendChild(b);
+    } else if(valor == null && jaTem){
+      jaTem.remove();
+    } else if(valor != null && jaTem){
+      jaTem.title = 'Repetir ' + fmtBR(valor, 2) + ' nos meses seguintes';
+    }
+    const inp = cel.querySelector('input');
+    if(inp && document.activeElement !== inp) inp.value = (valor != null) ? fmtBR(valor, 2) : '';
+  }
+  // contador do ano
+  try{
+    const st = _vendEditState; const r = st && st.regras[i];
+    const mapa = (r && r.clientesBase && r.clientesBase[cid]) || {};
+    const ano = String(ym).slice(0,4);
+    const n = Object.keys(mapa).filter(k => k.slice(0,4) === ano).length;
+    const box = cel && cel.closest('.vend-cli-opt');
+    const badge = box && box.querySelector('.vbm-ano em');
+    if(badge){ badge.textContent = n + '/12'; badge.style.display = n ? '' : 'none'; }
+    else if(box && n){
+      const nav = box.querySelector('.vbm-ano');
+      if(nav){ const em = document.createElement('em'); em.textContent = n + '/12'; nav.appendChild(em); }
+    }
+  }catch(_){}
+}
+try{ window._vendBaseAtualizaCelula = _vendBaseAtualizaCelula; }catch(_){}
 /* Ano visível da faixa de meses — memória só de tela, por regra+cliente. */
 const _VEND_BASE_ANO = {};
 function _vendBaseAno(i, cid){
