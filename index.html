@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788363117"/>
+  <meta name="fk-build" content="forekash-v1788364373"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -88268,7 +88268,25 @@ function setVendOverride(vendId, ym, rawVal){
   } else {
     const n = parseBR(raw);
     if(n === '' || isNaN(n)) return;
-    v.overrides[ym] = +n;
+    /* SÓ É OVERRIDE SE FOR DIFERENTE DO CÁLCULO.
+       O onblur da célula dispara com o valor que está escrito nela — que é o
+       valor CALCULADO pela regra. Bastava clicar numa célula e sair pra gravar
+       um override congelando aquele número, sem alterar nada. Depois o
+       relatório mostrava "Ajustes / Overrides" para quem nunca ajustou nada,
+       e a diferença de arredondamento virava um resíduo solto. */
+    const antes = v.overrides[ym];
+    delete v.overrides[ym];
+    let calc = 0;
+    try{
+      const y = String(ym).slice(0,4), mi = parseInt(String(ym).slice(5,7), 10) - 1;
+      calc = comissaoVendedorMes(v, y, mi) || 0;
+    }catch(_){ calc = NaN; }
+    if(isFinite(calc) && Math.abs(n - calc) < 0.005){
+      // igual ao que a regra calcula: não é ajuste, é a própria conta
+      if(antes === undefined) { /* nada a fazer */ }
+    } else {
+      v.overrides[ym] = +n;
+    }
   }
   vendedoresSave();
   try { histCommit('comissão override ' + (v.nome||'') + ' ' + ym); } catch(e){}
