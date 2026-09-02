@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788362281"/>
+  <meta name="fk-build" content="forekash-v1788362492"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8513,28 +8513,31 @@
     .vbm-ano em{font-style:normal;font-size:.62rem;font-weight:700;color:#B45309;
                 background:#FEF3C7;border-radius:999px;padding:1px 6px;margin-left:2px}
     /* Faixa de 12 meses: grade regular, sem barra de rolagem, cabe no modal. */
-    .vbm-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;
+    /* 4 colunas: com 6 o campo ficava com ~67px úteis e "72.000,00" era cortado.
+       Três linhas de quatro cabem no modal e mostram o número inteiro. */
+    .vbm-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px 8px;
               padding:7px 0 3px 26px}
     .vbm-cel{position:relative;display:flex;flex-direction:column;gap:1px;min-width:0}
+    .vbm-top{display:flex;align-items:center;gap:4px;padding:0 2px}
     .vbm-cel .vbm-mes{font-size:.56rem;font-weight:800;text-transform:uppercase;
-                      letter-spacing:.05em;color:var(--txl);padding-left:2px}
+                      letter-spacing:.05em;color:var(--txl)}
     /* O número inteiro tem que caber: valor de 6 dígitos com centavos ocupa
        ~62px nesta fonte. Nada de cortar em "72.000,C". */
     .vbm-cel input{width:100%;box-sizing:border-box;padding:4px 6px;min-width:0;
                    border:1px solid #E2E8F0;border-radius:6px;background:#fff;
                    font-family:inherit;font-size:.72rem;text-align:right;color:#0F172A;
                    font-variant-numeric:tabular-nums;letter-spacing:-.01em}
-    /* Espaço pro ⇥ só quando ele existe — senão o número perderia largura à toa. */
-    .vbm-cel.is-set input{padding-right:19px}
+
     .vbm-cel input:hover{border-color:#CBD5E1}
     .vbm-cel input:focus{outline:none;border-color:var(--blue);background:#F8FBFF}
     /* Valor da Receita em transparência — o número que está lá hoje. */
     .vbm-cel input::placeholder{color:#0F172A;opacity:.28;font-weight:500}
-    .vbm-cel.is-set input{border-color:#F59E0B;background:#FFFBEB;color:#92400E;font-weight:700;
-                          padding-right:19px}
-    .vbm-fwd{position:absolute;right:2px;bottom:3px;width:16px;height:16px;padding:0;
-             border:none;background:transparent;color:#B45309;opacity:.45;cursor:pointer;
-             font-size:.66rem;line-height:1;border-radius:4px}
+    .vbm-cel.is-set input{border-color:#F59E0B;background:#FFFBEB;color:#92400E;font-weight:700}
+    /* Fora do campo: no cabeçalho da célula, ao lado do mês. Dentro do input
+       ele roubava largura do número. */
+    .vbm-fwd{margin-left:auto;width:15px;height:15px;padding:0;border:none;
+             background:transparent;color:#B45309;opacity:.5;cursor:pointer;
+             font-size:.68rem;line-height:1;border-radius:4px}
     .vbm-fwd:hover{opacity:1;background:#FDE68A}
     .vend-cli-base{flex:0 0 106px}
     .vend-cli-base input{width:100%;box-sizing:border-box;padding:3px 7px;
@@ -86660,7 +86663,11 @@ function _renderVendEditor(ov){
         const v = _mapCli[k];
         const tem = v !== undefined && v !== '' && v !== null;
         return `<div class="vbm-cel${tem?' is-set':''}">
-          <span class="vbm-mes">${mm}</span>
+          <span class="vbm-top">
+            <span class="vbm-mes">${mm}</span>
+            ${tem ? `<button type="button" class="vbm-fwd" title="Repetir ${fmtBR(v,2)} nos meses seguintes"
+                onclick="event.preventDefault();event.stopPropagation();_vendBaseRepetir(${i},${c.id},'${k}')">\u21e5</button>` : ''}
+          </span>
           <input type="text" value="${tem?fmtBR(v,2):''}"
                  placeholder="${_rec[mi] ? fmtBR(_rec[mi],2) : '—'}"
                  title="${_rec[mi] ? ('Receita hoje: ' + fmtBRL(_rec[mi])) : 'Sem receita lançada neste mês'}"
@@ -86668,8 +86675,6 @@ function _renderVendEditor(ov){
                  onfocus="this.select()"
                  onblur="_vendRegraBaseSet(${i},${c.id},this.value,'${k}')"
                  onkeydown="if(event.key===\'Enter\')this.blur()">
-          ${tem ? `<button type="button" class="vbm-fwd" title="Repetir ${fmtBR(v,2)} nos meses seguintes"
-              onclick="event.preventDefault();event.stopPropagation();_vendBaseRepetir(${i},${c.id},'${k}')">\u21e5</button>` : ''}
         </div>`;
       }).join('');
       return `<label class="vend-cli-opt${checked?' on':''}">
