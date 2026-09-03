@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788458440"/>
+  <meta name="fk-build" content="forekash-v1788459208"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7583,9 +7583,22 @@
     .nec-prazo-barra i{display:block;height:100%;background:var(--nec-cor,#0EA5E9);border-radius:3px}
     .nec-prazo-txt{margin-top:6px;font-size:.76rem;color:#475569;font-variant-numeric:tabular-nums}
     .nec-prazo-txt b{color:#0F172A}
+    .nec-prazo-txt i{color:#94A3B8;font-style:normal}
 
     /* Filtros: uma linha só, acima do gráfico */
-    .nec-filtros{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+    .nec-filtros{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;align-items:center}
+    .nec-ano-sel{border:1px solid #E2E8F0;background:#F1F5F9;border-radius:9px;padding:6px 10px;
+                 font-family:inherit;font-size:.75rem;font-weight:700;color:#0F172A;cursor:pointer}
+    .nec-eng{display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid #E2E8F0;
+             border-radius:9px;padding:6px 12px;cursor:pointer;font-family:inherit;font-size:.75rem;
+             font-weight:700;color:#64748B;transition:all .14s}
+    .nec-eng:hover{color:#0F172A;border-color:#CBD5E1}
+    .nec-eng.on{background:#0F172A;border-color:#0F172A;color:#fff}
+    .nec-eng svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;
+                 stroke-linecap:round;stroke-linejoin:round}
+    /* modo do gráfico mora no cabeçalho do gráfico — é dele que fala */
+    .nec-gr-esq{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    .nec-seg-gr button{font-size:.72rem;padding:4px 10px}
     .nec-seg{display:inline-flex;background:#F1F5F9;border:1px solid #E2E8F0;border-radius:9px;padding:3px;gap:2px}
     .nec-seg button{background:transparent;border:none;border-radius:6px;padding:5px 12px;cursor:pointer;
                     font-family:inherit;font-size:.75rem;font-weight:700;color:#64748B;transition:all .14s}
@@ -7608,7 +7621,7 @@
     .nec-gr-tit{font-size:.72rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#64748B}
     .nec-gr-tot{font-size:.86rem;font-weight:800;color:#0F172A;font-variant-numeric:tabular-nums}
     .nec-gr-tot i{color:#64748B;font-style:normal;font-weight:600}
-    .nec-gr-svg{width:100%;height:190px;display:block;overflow:visible}
+    .nec-gr-svg{width:100%;height:auto;display:block;overflow:visible}
     .nec-gr-grid{stroke:#EEF2F7;stroke-width:1}
     .nec-gr-base{stroke:#CBD5E1;stroke-width:1}
     .nec-gr-zero{stroke:#CBD5E1;stroke-width:2;stroke-linecap:round}
@@ -7623,14 +7636,14 @@
     .nec-gr-bar.cob.meio {fill:#F59E0B}
     .nec-gr-bar.cob.vazio{fill:#EF4444}
     .nec-gr-alvo{stroke:#94A3B8;stroke-width:1;stroke-dasharray:3 3}
-    .nec-gr-alvo-txt{font-size:9px;font-weight:700;fill:#94A3B8;text-anchor:end;text-transform:uppercase;
+    .nec-gr-alvo-txt{font-size:11px;font-weight:700;fill:#94A3B8;text-anchor:end;text-transform:uppercase;
                      letter-spacing:.06em}
     .nec-gr-val.zero{fill:#CBD5E1;font-weight:700}
     .nec-gr-val.atual{fill:#0F172A}
     .nec-gr-hit{cursor:default}
-    .nec-gr-val{font-size:11px;font-weight:800;fill:#0F172A;text-anchor:middle;
+    .nec-gr-val{font-size:13px;font-weight:800;fill:#0F172A;text-anchor:middle;
                 font-variant-numeric:tabular-nums}
-    .nec-gr-mes{font-size:10px;font-weight:700;fill:#94A3B8;text-anchor:middle;text-transform:uppercase;
+    .nec-gr-mes{font-size:12px;font-weight:700;fill:#94A3B8;text-anchor:middle;text-transform:uppercase;
                 letter-spacing:.06em}
     .nec-gr-mes.atual{fill:#0F172A}
     .nec-gr-vazio{padding:26px 10px;text-align:center;color:#64748B;font-size:.84rem}
@@ -22687,10 +22700,12 @@ td.mes.do-extrato{background:#ECFDF5}
         </div>
 
         <div id="com-tab-nec" class="tab-pane" style="display:none">
-          <div class="nec-cfg">
+          <div class="nec-cfg" id="nec-cfg" style="display:none">
             <div class="nec-cfg-campo">
-              <label>Ano</label>
-              <select id="nec-ano" onchange="necSetAno(this.value)"></select>
+              <label>Ciclo de venda (dias)</label>
+              <input type="text" id="nec-ciclo" inputmode="numeric" placeholder="0"
+                     onblur="necSetCiclo(this.value)"
+                     title="Quanto tempo leva, em média, entre o primeiro contato e o fechamento. O prazo da meta desconta esse ciclo.">
             </div>
             <div class="nec-cfg-campo">
               <label>Margem mínima</label>
@@ -22723,15 +22738,17 @@ td.mes.do-extrato{background:#ECFDF5}
             </div>
           </div>
           <div class="nec-filtros">
+            <select id="nec-ano" class="nec-ano-sel" onchange="necSetAno(this.value)"></select>
             <div class="nec-seg" role="group" aria-label="Período">
               <button type="button" id="nec-f-proj" onclick="necSetProjecao(true)">Só projeção</button>
               <button type="button" id="nec-f-ano"  onclick="necSetProjecao(false)">Ano inteiro</button>
             </div>
-            <div class="nec-seg" role="group" aria-label="Modo do gráfico">
-              <button type="button" id="nec-f-mes" onclick="necSetGrafico('mensal')">Mensal</button>
-              <button type="button" id="nec-f-acu" onclick="necSetGrafico('acumulado')">Acumulado</button>
-              <button type="button" id="nec-f-cob" onclick="necSetGrafico('cobertura')">% coberto</button>
-            </div>
+            <div style="flex:1"></div>
+            <button type="button" class="nec-eng" id="nec-eng-btn" onclick="necToggleCfg()"
+                    title="Parâmetros do cálculo" aria-expanded="false">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H3a2 2 0 110-4h.1a1.6 1.6 0 001.5-1 1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V3a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1H21a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z"/></svg>
+              Parâmetros
+            </button>
           </div>
           <div id="nec-destaque"></div>
           <div id="nec-meses"></div>
@@ -119985,7 +120002,8 @@ const NEC_NIVEL = {
   apertado:  { cor:'#F59E0B', fundo:'rgba(245,158,11,.10)', borda:'rgba(245,158,11,.32)', rot:'Apertado' },
   critico:   { cor:'#EF4444', fundo:'rgba(239,68,68,.10)',  borda:'rgba(239,68,68,.34)',  rot:'Reta final' },
   futuro:    { cor:'#64748B', fundo:'rgba(100,116,139,.08)',borda:'rgba(100,116,139,.25)',rot:'A vencer' },
-  perdido:   { cor:'#94A3B8', fundo:'rgba(148,163,184,.08)',borda:'rgba(148,163,184,.22)',rot:'Mês fechado' }
+  perdido:   { cor:'#94A3B8', fundo:'rgba(148,163,184,.08)',borda:'rgba(148,163,184,.22)',rot:'Mês fechado' },
+  estourado: { cor:'#B91C1C', fundo:'rgba(185,28,28,.10)',  borda:'rgba(185,28,28,.34)',  rot:'Fora do ciclo' }
 };
 function necAnoAtivo(){
   if(NEC.ano) return String(NEC.ano);
@@ -120017,6 +120035,14 @@ function necSetAliq(txt){
   necSave(); renderNec();
 }
 function necSetMargem(txt){ NEC.margem = _necNum(txt); necSave(); renderNec(); }
+function necSetCiclo(txt){ NEC.ciclo = Math.max(0, Math.round(_necNum(txt))); necSave(); renderNec(); }
+function necToggleCfg(){
+  const c = document.getElementById('nec-cfg'), b = document.getElementById('nec-eng-btn');
+  if(!c) return;
+  const abrir = c.style.display === 'none';
+  c.style.display = abrir ? '' : 'none';
+  if(b){ b.classList.toggle('on', abrir); b.setAttribute('aria-expanded', abrir ? 'true' : 'false'); }
+}
 function necSetAno(v){ NEC.ano = v || null; necSave(); renderNec(); }
 function necSetProjecao(v){ NEC.soProjecao = !!v; necSave(); renderNec(); }
 function necSetGrafico(v){
@@ -120044,6 +120070,7 @@ try{
   window.necSetUnidadeLabel = necSetUnidadeLabel; window.necSetAliq = necSetAliq;
   window.necSetMargem = necSetMargem; window.necSetAno = necSetAno;
   window.necSetProjecao = necSetProjecao; window.necSetGrafico = necSetGrafico;
+  window.necSetCiclo = necSetCiclo; window.necToggleCfg = necToggleCfg;
   window.necCobertura = necCobertura;
 }catch(_){}
 
@@ -120085,10 +120112,13 @@ function necGraficoSVG(year, mCur, m0){
   }
 
   const n = serie.length;
-  const W = 780, H = 210, padT = 30, padB = 30, padL = 10, padR = 10;
+  /* Proporção honesta: com preserveAspectRatio="none" o SVG era esticado até
+     a largura do container e as barras saíam achatadas. Agora a caixa tem
+     proporção própria e escala inteira. */
+  const W = 900, H = 300, padT = 38, padB = 38, padL = 16, padR = 16;
   const plotH = H - padT - padB;
   const slot  = (W - padL - padR) / n;
-  const bw    = Math.min(46, slot * 0.58);
+  const bw    = Math.min(54, slot * 0.52);
   const y0    = padT + plotH;
 
   let grid = '';
@@ -120119,16 +120149,16 @@ function necGraficoSVG(year, mCur, m0){
              +  `Q${x.toFixed(1)},${y.toFixed(1)} ${(x+r).toFixed(1)},${y.toFixed(1)} `
              +  `L${(x+bw-r).toFixed(1)},${y.toFixed(1)} Q${(x+bw).toFixed(1)},${y.toFixed(1)} ${(x+bw).toFixed(1)},${(y+r).toFixed(1)} `
              +  `L${(x+bw).toFixed(1)},${y0} Z"/>`;
-      rotulos += `<text x="${cx.toFixed(1)}" y="${(y-8).toFixed(1)}" class="nec-gr-val${atual?' atual':''}">`
+      rotulos += `<text x="${cx.toFixed(1)}" y="${(y-11).toFixed(1)}" class="nec-gr-val${atual?' atual':''}">`
              +  `${pct.toLocaleString('pt-BR',{maximumFractionDigits:0})}%</text>`;
-      rotulos += `<text x="${cx.toFixed(1)}" y="${H - 11}" class="nec-gr-mes${atual ? ' atual' : ''}">${NEC_MESES[it.m]}</text>`;
+      rotulos += `<text x="${cx.toFixed(1)}" y="${H - 14}" class="nec-gr-mes${atual ? ' atual' : ''}">${NEC_MESES[it.m]}</text>`;
       hits += `<rect x="${(cx - slot/2).toFixed(1)}" y="${padT}" width="${slot.toFixed(1)}" height="${plotH}" `
            +  `fill="transparent" class="nec-gr-hit" data-m="${it.m}" data-ac="" data-cob="${pct.toFixed(1)}"/>`;
       return;
     }
     if(it.valor <= 0){
       barras += `<line x1="${(cx-9).toFixed(1)}" y1="${y0-1}" x2="${(cx+9).toFixed(1)}" y2="${y0-1}" class="nec-gr-zero"/>`;
-      rotulos += `<text x="${cx.toFixed(1)}" y="${(y0-9).toFixed(1)}" class="nec-gr-val zero">—</text>`;
+      rotulos += `<text x="${cx.toFixed(1)}" y="${(y0-11).toFixed(1)}" class="nec-gr-val zero">—</text>`;
     } else {
       const h = Math.max(3, (it.valor / max) * plotH);
       const y = y0 - h;
@@ -120139,13 +120169,13 @@ function necGraficoSVG(year, mCur, m0){
              +  `L${(x+bw-r).toFixed(1)},${y.toFixed(1)} Q${(x+bw).toFixed(1)},${y.toFixed(1)} ${(x+bw).toFixed(1)},${(y+r).toFixed(1)} `
              +  `L${(x+bw).toFixed(1)},${y0} Z"/>`;
       // ele pediu todos os valores visíveis — cabe porque são no máximo 12 e o rótulo é curto
-      rotulos += `<text x="${cx.toFixed(1)}" y="${(y-8).toFixed(1)}" class="nec-gr-val${atual?' atual':''}">${_necCurto(it.valor)}</text>`;
+      rotulos += `<text x="${cx.toFixed(1)}" y="${(y-11).toFixed(1)}" class="nec-gr-val${atual?' atual':''}">${_necCurto(it.valor)}</text>`;
     }
-    rotulos += `<text x="${cx.toFixed(1)}" y="${H - 11}" class="nec-gr-mes${atual ? ' atual' : ''}">${NEC_MESES[it.m]}</text>`;
+    rotulos += `<text x="${cx.toFixed(1)}" y="${H - 14}" class="nec-gr-mes${atual ? ' atual' : ''}">${NEC_MESES[it.m]}</text>`;
     hits += `<rect x="${(cx - slot/2).toFixed(1)}" y="${padT}" width="${slot.toFixed(1)}" height="${plotH}" `
          +  `fill="transparent" class="nec-gr-hit" data-m="${it.m}" data-ac="${modo === 'acumulado' ? it.valor.toFixed(2) : ''}" data-cob=""/>`;
   });
-  return `<svg viewBox="0 0 ${W} ${H}" class="nec-gr-svg" preserveAspectRatio="none" `
+  return `<svg viewBox="0 0 ${W} ${H}" class="nec-gr-svg" `
        + `onmousemove="necGrHover(event)" onmouseleave="necGrOut()">${grid}${barras}${rotulos}${hits}</svg>`;
 }
 function _necCurto(v){
@@ -120202,6 +120232,8 @@ function renderNec(){
     $('nec-aliq').value = NEC.aliqOverride != null ? String(NEC.aliqOverride).replace('.',',') + '%' : '';
   if($('nec-margem') && document.activeElement !== $('nec-margem'))
     $('nec-margem').value = +NEC.margem > 0 ? String(NEC.margem).replace('.',',') + '%' : '';
+  if($('nec-ciclo') && document.activeElement !== $('nec-ciclo'))
+    $('nec-ciclo').value = +NEC.ciclo > 0 ? String(NEC.ciclo) : '';
   const anos = necAnosDisponiveis();
   if($('nec-ano')){
     $('nec-ano').innerHTML = anos.map(a2 => `<option value="${a2}">${a2}</option>`).join('');
@@ -120209,9 +120241,7 @@ function renderNec(){
   }
   const seg = (id, on) => { const e = $(id); if(e) e.classList.toggle('on', on); };
   seg('nec-f-proj', NEC.soProjecao); seg('nec-f-ano', !NEC.soProjecao);
-  seg('nec-f-mes', NEC.grafico === 'mensal');
-  seg('nec-f-acu', NEC.grafico === 'acumulado');
-  seg('nec-f-cob', NEC.grafico === 'cobertura');
+  // os botões do gráfico nascem só no innerHTML lá embaixo — marcados no fim
 
   const year = necAnoAtivo();
   const hoje = new Date();
@@ -120253,14 +120283,21 @@ function renderNec(){
         <div class="nec-hero-num">${fmtBRL(d.bruto)}</div>
         <div class="nec-hero-linha">
           <span>${d.margem > 0 ? 'Resultado alvo' : 'Falta no caixa'} <b>${fmtBRL(d.falta)}</b></span>
-          <span class="nec-imp-destaque">+ imposto da venda <b>${fmtBRL(d.imposto)}</b> <i>(${aliqTxt})</i></span>
+          <span class="nec-imp-destaque">+ imposto da venda <b>${fmtBRL(d.imposto)}</b> <i>(${aliqTxt} · ${necAliqFonte(year)})</i></span>
         </div>
         ${d.unidade != null ? `<div class="nec-hero-unid">${_necUnidadeTxt(d)}</div>` : ''}
         <div class="nec-prazo">
           <div class="nec-prazo-barra"><i style="width:${barra}%"></i></div>
           <div class="nec-prazo-txt">
-            <b>${d.uteis}</b> ${d.uteis === 1 ? 'dia útil' : 'dias úteis'} até o fim do mês ·
-            <b>${fmtBRL(d.porDia)}</b> por dia
+            ${d.cicloDias > 0
+              ? (d.foraDoPrazo
+                  ? `<b>Fora da janela</b> — o ciclo de ${d.cicloDias} dias é maior que os ${d.uteis} dias úteis que sobram.
+                     O que for prospectado agora fecha no mês seguinte.`
+                  : `<b>${d.uteisVenda}</b> ${d.uteisVenda === 1 ? 'dia útil' : 'dias úteis'} para prospectar
+                     <i>(${d.uteis} até o fim do mês − ${d.cicloUteis} do ciclo)</i> ·
+                     <b>${fmtBRL(d.porDia)}</b> por dia`)
+              : `<b>${d.uteis}</b> ${d.uteis === 1 ? 'dia útil' : 'dias úteis'} até o fim do mês ·
+                 <b>${fmtBRL(d.porDia)}</b> por dia`}
           </div>
         </div>
       </div>`;
@@ -120276,8 +120313,15 @@ function renderNec(){
 
   let html = `<div class="nec-gr-wrap">
       <div class="nec-gr-topo">
-        <span class="nec-gr-tit">Necessidade de venda · ${year}${NEC.soProjecao && !anoPassado ? ' · projeção' : ''}${NEC.grafico === 'acumulado' ? ' · acumulado' : (NEC.grafico === 'cobertura' ? ' · cobertura' : '')}</span>
-        <span class="nec-gr-tot">${fmtBRL(totalAno)}${horasAno > 0 ? ' <i>· ' + Math.round(horasAno).toLocaleString('pt-BR') + (NEC.modo === 'hora' ? ' horas' : ' ' + NEC.unidadeLabel) + '</i>' : ''}</span>
+        <div class="nec-gr-esq">
+          <span class="nec-gr-tit">Necessidade de venda · ${year}${NEC.soProjecao && !anoPassado ? ' · projeção' : ''}</span>
+          <div class="nec-seg nec-seg-gr" role="group" aria-label="Modo do gráfico">
+            <button type="button" id="nec-f-mes" onclick="necSetGrafico('mensal')">Mensal</button>
+            <button type="button" id="nec-f-acu" onclick="necSetGrafico('acumulado')">Acumulado</button>
+            <button type="button" id="nec-f-cob" onclick="necSetGrafico('cobertura')">% coberto</button>
+          </div>
+        </div>
+        <span class="nec-gr-tot">${NEC.grafico === 'cobertura' ? '' : fmtBRL(totalAno) + (horasAno > 0 ? ' <i>· ' + Math.round(horasAno).toLocaleString('pt-BR') + (NEC.modo === 'hora' ? ' horas' : ' ' + NEC.unidadeLabel) + '</i>' : '')}</span>
       </div>
       ${necGraficoSVG(year, mCur, m0)}
       <div class="nec-gr-tip" id="nec-gr-tip"></div>
@@ -120342,6 +120386,11 @@ function renderNec(){
     </div>`;
 
   grade.innerHTML = html;
+  /* Só agora os botões do modo existem no DOM: marcar antes não pegava nada e
+     o segmento aparecia sem nenhuma opção selecionada. */
+  seg('nec-f-mes', NEC.grafico === 'mensal');
+  seg('nec-f-acu', NEC.grafico === 'acumulado');
+  seg('nec-f-cob', NEC.grafico === 'cobertura');
 }
 try{ window.renderNec = renderNec; }catch(_){}
 
@@ -120359,7 +120408,7 @@ try{ window.renderNec = renderNec; }catch(_){}
      valor/hora, o mesmo número vira "preciso vender X horas". */
 const NEC_KEY = 'forekash:necessidade:v1';
 let NEC = { modo:'hora', valorHora:0, valorUnidade:0, unidadeLabel:'unidades', aliqOverride:null,
-            margem:0, ano:null, soProjecao:true, grafico:'mensal' };
+            margem:0, ano:null, soProjecao:true, grafico:'mensal', ciclo:0 };
 function necLoad(){
   try{ const raw = localStorage.getItem(NEC_KEY); if(raw) NEC = Object.assign(NEC, JSON.parse(raw)); }catch(_){}
 }
@@ -120399,22 +120448,52 @@ try{ window.necComposicao = necComposicao; }catch(_){}
    sobe com uma venda a mais. */
 function necAliquota(year){
   if(NEC.aliqOverride != null && isFinite(NEC.aliqOverride)) return Math.max(0, Math.min(0.9, NEC.aliqOverride/100));
+  /* Alíquota MÉDIA observada, não a do regime declarado. Duas razões: o campo
+     de regime pode estar desatualizado (e estava — cadastrado como Simples 6%
+     numa empresa no Lucro Real), e no Presumido/Real não existe "a alíquota",
+     existe a soma de PIS, COFINS, ISS, IRPJ, CSLL sobre a receita. Dividir o
+     imposto que o Fluxo projeta pela receita que ele projeta dá a carga real
+     do negócio, em qualquer regime. */
   try{
+    let imposto = 0, receita = 0;
+    for(let m = 0; m < 12; m++){
+      const r = (typeof flxReceitaMes === 'function') ? (flxReceitaMes(year, m) || 0) : 0;
+      const i = (typeof flxImpostoMes === 'function') ? (flxImpostoMes(year, m) || 0) : 0;
+      receita += r; imposto += i;
+    }
+    if(receita > 0 && imposto > 0) return Math.max(0, Math.min(0.9, imposto / receita));
+
+    /* Sem imposto lançado no ano ainda: cai no que o cadastro disser. É o caso
+       de quem acabou de começar o ano — melhor uma estimativa do regime que
+       assumir imposto zero numa meta de venda. */
     const regime = (typeof impRegimeDoAno === 'function') ? impRegimeDoAno(year) : (impostos && impostos.regimeTributario);
     if(!regime || regime === 'mei') return 0;
     if(regime === 'simples') return Math.max(0, (+impostos.simplesAliquota || 0) / 100);
-    let imposto = 0, receita = 0;
+    let prev = 0;
     for(let m = 0; m < 12; m++){
-      receita += (typeof flxReceitaMes === 'function') ? (flxReceitaMes(year, m) || 0) : 0;
       for(const r of (impostos.rubricas || [])){
         const v = impForecastValor(r.id, year, m);
-        if(isFinite(v) && v > 0) imposto += v;
+        if(isFinite(v) && v > 0) prev += v;
       }
     }
-    if(receita <= 0) return 0;
-    return Math.max(0, Math.min(0.9, imposto / receita));
+    return receita > 0 ? Math.max(0, Math.min(0.9, prev / receita)) : 0;
   }catch(e){ return 0; }
 }
+
+/* De onde veio a alíquota — pra ninguém ter que adivinhar o número. */
+function necAliqFonte(year){
+  if(NEC.aliqOverride != null && isFinite(NEC.aliqOverride)) return 'informada por você';
+  try{
+    let imposto = 0, receita = 0;
+    for(let m = 0; m < 12; m++){
+      receita += (flxReceitaMes(year, m) || 0);
+      imposto += (flxImpostoMes(year, m) || 0);
+    }
+    if(receita > 0 && imposto > 0) return 'média do ano no Fluxo';
+  }catch(_){}
+  return 'estimada pelo regime cadastrado';
+}
+try{ window.necAliqFonte = necAliqFonte; }catch(_){}
 
 /* Dias úteis que ainda dá pra vender. Feriado não entra na conta — o ganho de
    precisão não paga uma tabela de feriados que precisa ser mantida à mão. */
@@ -120469,16 +120548,26 @@ function necDados(year, mIdx){
   const doMesCorrente = (parseInt(year,10) === hoje.getFullYear() && mIdx === hoje.getMonth());
   const passou = (parseInt(year,10) < hoje.getFullYear()) ||
                  (parseInt(year,10) === hoje.getFullYear() && mIdx < hoje.getMonth());
-  const porDia = uteis > 0 ? bruto / uteis : bruto;
+  /* Ciclo de venda: em mercado de venda complexa, o que eu começar hoje não
+     fecha hoje. O prazo real pra PROSPECTAR é o que sobra do mês menos o ciclo
+     — passou disso, o negócio até fecha, mas o dinheiro cai no mês seguinte.
+     O ciclo é informado em dias corridos (é assim que o time fala); vira dias
+     úteis na proporção de 5 pra 7. */
+  const cicloDias  = Math.max(0, +NEC.ciclo || 0);
+  const cicloUteis = Math.round(cicloDias * 5 / 7);
+  const uteisVenda = Math.max(0, uteis - cicloUteis);
+  const foraDoPrazo = cicloDias > 0 && uteisVenda <= 0 && bruto > 0;
+  const porDia = uteisVenda > 0 ? bruto / uteisVenda : (uteis > 0 ? bruto / uteis : bruto);
   const unidade = (NEC.modo === 'hora')
     ? (+NEC.valorHora  > 0 ? bruto / +NEC.valorHora  : null)
     : (+NEC.valorUnidade > 0 ? bruto / +NEC.valorUnidade : null);
   /* Urgência pela fração do mês que sobrou, não por dias soltos: 5 dias num mês
      de 20 é o mesmo aperto que 6 num de 23. */
-  const restante = totalUteis > 0 ? uteis / totalUteis : 1;
+  const restante = totalUteis > 0 ? uteisVenda / totalUteis : 1;
   let nivel = 'ok';
   if(bruto > 0){
     if(passou) nivel = 'perdido';
+    else if(foraDoPrazo && doMesCorrente) nivel = 'estourado';
     else if(!doMesCorrente) nivel = 'futuro';
     else if(restante <= 0.25) nivel = 'critico';
     else if(restante <= 0.5)  nivel = 'apertado';
@@ -120486,7 +120575,7 @@ function necDados(year, mIdx){
   }
   return { year, mIdx, saldo, falta, bruto, aliq, uteis, totalUteis, porDia,
            unidade, nivel, doMesCorrente, passou, imposto: bruto - falta,
-           margem: m, receita, impossivel };
+           margem: m, receita, impossivel, cicloDias, cicloUteis, uteisVenda, foraDoPrazo };
 }
 try{ window.necDados = necDados; window.necAliquota = necAliquota; window.necSaldoMes = necSaldoMes; }catch(_){}
 
