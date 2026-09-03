@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788460876"/>
+  <meta name="fk-build" content="forekash-v1788462640"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7550,8 +7550,15 @@
     /* ── Necessidade de Venda ─────────────────────────────────────────
        O número é grande de propósito: é uma meta, tem que doer de ler. A cor
        vem do tempo que sobra, não do tamanho do valor. */
-    .nec-cfg{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;margin-bottom:16px;
-             background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px}
+    /* Sete campos em fila viravam uma parede. Agrupados por assunto, com o
+       título quebrando a linha, viram três blocos que dá pra ler. */
+    .nec-cfg{display:flex;flex-wrap:wrap;gap:12px 16px;align-items:flex-end;margin-bottom:16px;
+             background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:14px}
+    .nec-cfg-grupo{flex:0 0 100%;font-size:.64rem;font-weight:800;letter-spacing:.09em;
+                   text-transform:uppercase;color:#94A3B8;margin-top:4px}
+    .nec-cfg-grupo:first-child{margin-top:0}
+    .nec-sep{width:1px;height:22px;background:#E2E8F0}
+    .nec-seg-base button{font-weight:800}
     .nec-cfg-campo{display:flex;flex-direction:column;gap:4px;min-width:150px}
     .nec-cfg-campo label{font-size:.68rem;font-weight:700;color:#64748B;letter-spacing:.03em}
     .nec-cfg-campo input[type=text],.nec-cfg-campo select{
@@ -7565,6 +7572,8 @@
     .nec-hero.coberto{--nec-cor:#10B981;--nec-fundo:rgba(16,185,129,.08);--nec-borda:rgba(16,185,129,.3)}
     .nec-hero-topo{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
     .nec-hero-tag{font-size:.7rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#64748B}
+    .nec-tag-base{color:#0369A1;background:rgba(3,105,161,.09);border-radius:999px;padding:2px 8px;
+                  margin-left:6px;letter-spacing:.04em}
     .nec-hero-nivel{font-size:.68rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
                     color:var(--nec-cor);background:#fff;border:1px solid var(--nec-borda);
                     border-radius:999px;padding:3px 10px}
@@ -22714,6 +22723,7 @@ td.mes.do-extrato{background:#ECFDF5}
 
         <div id="com-tab-nec" class="tab-pane" style="display:none">
           <div class="nec-cfg" id="nec-cfg" style="display:none">
+            <div class="nec-cfg-grupo">Como você vende</div>
             <div class="nec-cfg-campo">
               <label>Prazo de recebimento (dias)</label>
               <input type="text" id="nec-prazo" inputmode="numeric" placeholder="0"
@@ -22726,6 +22736,7 @@ td.mes.do-extrato{background:#ECFDF5}
                      onblur="necSetCiclo(this.value)"
                      title="Quanto tempo leva, em média, entre o primeiro contato e o fechamento. O prazo da meta desconta esse ciclo.">
             </div>
+            <div class="nec-cfg-grupo">Conversão e meta</div>
             <div class="nec-cfg-campo">
               <label>Margem mínima</label>
               <input type="text" id="nec-margem" inputmode="decimal" placeholder="0%"
@@ -22750,6 +22761,7 @@ td.mes.do-extrato{background:#ECFDF5}
               <input type="text" id="nec-valor-unid" inputmode="decimal" placeholder="R$ 0,00"
                      onblur="necSetValor('unidade', this.value)">
             </div>
+            <div class="nec-cfg-grupo">Imposto</div>
             <div class="nec-cfg-campo">
               <label>Base do imposto</label>
               <select id="nec-base" onchange="necSetBase(this.value)">
@@ -22770,6 +22782,13 @@ td.mes.do-extrato{background:#ECFDF5}
             </div>
           </div>
           <div class="nec-filtros">
+            <div class="nec-seg nec-seg-base" role="group" aria-label="Base da meta">
+              <button type="button" id="nec-b-res" onclick="necSetBaseMeta('resultado')"
+                      title="Fechar o mês no zero: a meta cobre o saldo do próprio mês">Saldo do mês</button>
+              <button type="button" id="nec-b-cx" onclick="necSetBaseMeta('caixa')"
+                      title="Não furar o caixa: o saldo em conta absorve o mês ruim, e a meta é só o que falta pro caixa não ficar negativo">Fluxo de caixa</button>
+            </div>
+            <span class="nec-sep"></span>
             <select id="nec-ano" class="nec-ano-sel" onchange="necSetAno(this.value)"></select>
             <div class="nec-seg" role="group" aria-label="Período">
               <button type="button" id="nec-f-proj" onclick="necSetProjecao(true)">Só projeção</button>
@@ -120076,6 +120095,7 @@ function necSetBase(v){
 }
 function necSetIss(txt){ NEC.iss = Math.max(0, Math.min(10, _necNum(txt))); necSave(); renderNec(); }
 function necSetPrazo(txt){ NEC.prazoReceb = Math.max(0, Math.round(_necNum(txt))); necSave(); renderNec(); }
+function necSetBaseMeta(v){ NEC.base = (v === 'caixa') ? 'caixa' : 'resultado'; necSave(); renderNec(); }
 function necToggleCfg(){
   const c = document.getElementById('nec-cfg'), b = document.getElementById('nec-eng-btn');
   if(!c) return;
@@ -120112,6 +120132,7 @@ try{
   window.necSetProjecao = necSetProjecao; window.necSetGrafico = necSetGrafico;
   window.necSetCiclo = necSetCiclo; window.necToggleCfg = necToggleCfg;
   window.necSetBase = necSetBase; window.necSetIss = necSetIss; window.necSetPrazo = necSetPrazo;
+  window.necSetBaseMeta = necSetBaseMeta;
   window.necCobertura = necCobertura;
 }catch(_){}
 
@@ -120336,6 +120357,7 @@ function renderNec(){
   }
   const seg = (id, on) => { const e = $(id); if(e) e.classList.toggle('on', on); };
   seg('nec-f-proj', NEC.soProjecao); seg('nec-f-ano', !NEC.soProjecao);
+  seg('nec-b-res', NEC.base !== 'caixa'); seg('nec-b-cx', NEC.base === 'caixa');
   // os botões do gráfico nascem só no innerHTML lá embaixo — marcados no fim
 
   const year = necAnoAtivo();
@@ -120366,14 +120388,16 @@ function renderNec(){
   if(d.bruto <= 0){
     destaque.innerHTML = `<div class="nec-hero coberto">
         <div class="nec-hero-tag">${NEC_MESES[mCur]}/${year}</div>
-        <div class="nec-hero-num">Mês coberto</div>
-        <div class="nec-hero-sub">O previsto já fecha o mês com ${fmtBRL(d.saldo)} de sobra. Toda venda daqui é resultado.</div>
+        <div class="nec-hero-num">${NEC.base === 'caixa' ? 'Caixa aguenta' : 'Mês coberto'}</div>
+        <div class="nec-hero-sub">${NEC.base === 'caixa'
+          ? `O caixa projetado fecha ${NEC_MESES[mCur]} em ${fmtBRL(d.saldo)}. Não precisa vender para sobreviver ao mês — só para crescer.`
+          : `O previsto já fecha o mês com ${fmtBRL(d.saldo)} de sobra. Toda venda daqui é resultado.`}</div>
       </div>`;
   } else {
     const barra = d.totalUteis > 0 ? Math.round((1 - d.uteis / d.totalUteis) * 100) : 100;
     destaque.innerHTML = `<div class="nec-hero" style="--nec-cor:${cfg.cor};--nec-fundo:${cfg.fundo};--nec-borda:${cfg.borda}">
         <div class="nec-hero-topo">
-          <div class="nec-hero-tag">${NEC_MESES[mCur]}/${year} · precisa vender</div>
+          <div class="nec-hero-tag">${NEC_MESES[mCur]}/${year} · precisa vender${NEC.base === 'caixa' ? ' <span class="nec-tag-base">para o caixa não furar</span>' : ''}</div>
           <div class="nec-hero-selos">
             ${d.margem > 0 ? `<span class="nec-selo-margem">com margem de ${(d.margem*100).toLocaleString('pt-BR',{maximumFractionDigits:2})}%</span>` : ''}
             <span class="nec-hero-nivel">${cfg.rot}</span>
@@ -120381,7 +120405,7 @@ function renderNec(){
         </div>
         <div class="nec-hero-num">${fmtBRL(d.bruto)}</div>
         <div class="nec-hero-linha">
-          <span>${d.margem > 0 ? 'Resultado alvo' : 'Falta no caixa'} <b>${fmtBRL(d.falta)}</b></span>
+          <span>${d.margem > 0 ? 'Resultado alvo' : (NEC.base === 'caixa' ? 'Falta pro caixa fechar em zero' : 'Falta no caixa')} <b>${fmtBRL(d.falta)}</b></span>
           <span class="nec-imp-destaque">+ imposto da venda <b>${fmtBRL(d.imposto)}</b> <i>(${aliqTxt} · ${necAliqFonte(year)})</i></span>
         </div>
         ${d.unidade != null ? `<div class="nec-hero-unid">${_necUnidadeTxt(d)}</div>` : ''}
@@ -120478,7 +120502,7 @@ function renderNec(){
       </div>
       <div class="nec-tab-scroll"><table class="nec-tab">
         <thead><tr>
-          <th class="l">Mês</th><th>Receita prevista</th><th>Custo total</th><th>Saldo do mês</th>
+          <th class="l">Mês</th><th>Receita prevista</th><th>Custo total</th><th>${NEC.base === 'caixa' ? 'Caixa acumulado' : 'Saldo do mês'}</th>
           <th>% coberto</th><th class="imp">Imposto da venda</th><th class="meta">Meta de venda</th>
         </tr></thead><tbody>`;
   let tR=0,tC=0,tS=0,tM=0,tI=0;
@@ -120535,7 +120559,7 @@ try{ window.renderNec = renderNec; }catch(_){}
 const NEC_KEY = 'forekash:necessidade:v1';
 let NEC = { modo:'hora', valorHora:0, valorUnidade:0, unidadeLabel:'unidades', aliqOverride:null,
             margem:0, ano:null, soProjecao:true, grafico:'mensal', ciclo:0,
-            baseAliq:'auto', iss:5, prazoReceb:0 };
+            baseAliq:'auto', iss:5, prazoReceb:0, base:'resultado' };
 function necLoad(){
   try{ const raw = localStorage.getItem(NEC_KEY); if(raw) NEC = Object.assign(NEC, JSON.parse(raw)); }catch(_){}
 }
@@ -120551,6 +120575,35 @@ function necSaldoMes(year, mIdx){
      repetir a soma aqui garante que os dois números nunca divirjam. */
   try{ return flxSaldoMesVal(year, mIdx); }catch(e){ return 0; }
 }
+
+/* Caixa acumulado — a linha FLUXO DE CAIXA: saldo inicial mais tudo que o ano
+   somou até o mês. É a base de quem está olhando sobrevivência, não resultado:
+   um mês pode fechar no vermelho sem problema nenhum se o caixa aguenta, e a
+   pergunta vira "quanto preciso vender pra NÃO furar o caixa".
+
+   Reconstruo a soma aqui porque a linha do Fluxo é calculada dentro do render
+   dele. Uma diferença conhecida: ajustes de caixa de seções personalizadas
+   entram lá e não entram aqui. */
+function necCaixaAcum(year, mIdx){
+  try{
+    const ini    = flxSaldoInicialEfetivo(year) || 0;
+    const ancora = flxSaldoInicialMesVal(year) || 0;
+    if(mIdx < ancora) return null;
+    let acc = ini;
+    for(let m = ancora; m <= mIdx; m++) acc += (flxSaldoMesVal(year, m) || 0);
+    return acc;
+  }catch(e){ return null; }
+}
+
+/* A base da meta: fechar o mês (resultado) ou não furar o caixa (acumulado). */
+function necBaseValor(year, mIdx){
+  if(NEC.base === 'caixa'){
+    const c = necCaixaAcum(year, mIdx);
+    return c == null ? necSaldoMes(year, mIdx) : c;
+  }
+  return necSaldoMes(year, mIdx);
+}
+try{ window.necCaixaAcum = necCaixaAcum; window.necBaseValor = necBaseValor; }catch(_){}
 
 /* As partes que formam o saldo, pro time de vendas ver de onde sai a meta —
    um número solto vira alvo arbitrário; com a conta aberta, vira acordo. */
@@ -120703,7 +120756,7 @@ function necDiasUteis(year, mIdx, apartirDeHoje){
 }
 
 function necDados(year, mIdx){
-  const saldo = necSaldoMes(year, mIdx);
+  const saldo = necBaseValor(year, mIdx);
   const aliq  = necAliquota(year);
   const m     = Math.max(0, Math.min(0.95, (+NEC.margem || 0) / 100));
 
