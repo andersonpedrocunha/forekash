@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788465110"/>
+  <meta name="fk-build" content="forekash-v1788465517"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7587,6 +7587,28 @@
     .nec-hero-unid{margin-top:8px;display:inline-block;font-size:.92rem;font-weight:800;color:#0F172A;
                    background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:6px 12px;
                    font-variant-numeric:tabular-nums}
+    .nec-plano-cta{margin-top:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+                   padding:9px 12px;background:rgba(255,255,255,.6);border:1px dashed #CBD5E1;
+                   border-radius:8px;font-size:.76rem;color:#475569}
+    .nec-plano-cta b{color:#0F172A}
+    .nec-btn-fixar{background:#0F172A;border:none;color:#fff;border-radius:7px;padding:6px 12px;
+                   cursor:pointer;font-family:inherit;font-size:.74rem;font-weight:700;white-space:nowrap}
+    .nec-btn-fixar:hover{background:#1E293B}
+    .nec-plano{margin-top:12px;padding:10px 12px;background:rgba(255,255,255,.7);
+               border:1px solid #E2E8F0;border-radius:8px}
+    .nec-plano-topo{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+    .nec-plano-tit{font-size:.74rem;color:#475569;font-variant-numeric:tabular-nums}
+    .nec-plano-tit b{color:#0F172A;font-weight:800}
+    .nec-btn-soltar{background:none;border:none;color:#94A3B8;cursor:pointer;font-family:inherit;
+                    font-size:.7rem;font-weight:700;text-decoration:underline;padding:0}
+    .nec-plano-barra{height:7px;border-radius:4px;background:rgba(148,163,184,.22);overflow:hidden;margin:8px 0 6px}
+    .nec-plano-barra i{display:block;height:100%;background:#10B981;border-radius:4px}
+    .nec-plano-txt{font-size:.74rem;color:#475569;font-variant-numeric:tabular-nums}
+    .nec-plano-txt b{color:#0F172A}
+    .nec-plano-dif{margin-top:6px;font-size:.7rem;font-weight:700}
+    .nec-plano-dif.sobe{color:#B45309}
+    .nec-plano-dif.desce{color:#0F766E}
+
     .nec-combinado{margin-top:12px;padding:8px 12px;background:rgba(15,23,42,.05);
                    border-left:3px solid var(--nec-cor,#0EA5E9);border-radius:0 8px 8px 0;
                    font-size:.78rem;color:#334155;font-variant-numeric:tabular-nums}
@@ -120418,6 +120440,35 @@ function renderNec(){
         </div>
         ${d.unidade != null ? `<div class="nec-hero-unid">${_necUnidadeTxt(d)}</div>` : ''}
         ${(function(){
+          /* Meta fixada: o progresso é contra o combinado, não contra a
+             projeção de hoje. E se o alvo mudou desde então, a tela diz
+             quanto — replanejar é legítimo, esconder que replanejou não. */
+          const pl = necPlano(year, mCur);
+          if(!pl) return `<div class="nec-plano-cta">
+              <span>A meta muda junto com a projeção. <b>Fixe</b> o cenário para medir o realizado contra o combinado.</span>
+              <button type="button" class="nec-btn-fixar" onclick="necFixarPlano('${year}',${mCur})">Fixar meta de ${NEC_MESES[mCur]}</button>
+            </div>`;
+          const rz = necRealizado(year, mCur);
+          const dif = d.bruto - pl.meta;
+          const pct = rz ? rz.pct : 0;
+          return `<div class="nec-plano">
+              <div class="nec-plano-topo">
+                <span class="nec-plano-tit">Meta fixada em ${_necDataBR(pl.fixadoEm)} · <b>${fmtBRL(pl.meta)}</b></span>
+                <button type="button" class="nec-btn-soltar" onclick="necSoltarPlano('${year}',${mCur})" title="Voltar a acompanhar a projeção viva">soltar</button>
+              </div>
+              ${rz ? `<div class="nec-plano-barra"><i style="width:${Math.min(100,pct).toFixed(1)}%"></i></div>
+                     <div class="nec-plano-txt">
+                       <b>${fmtBRL(rz.acima)}</b> vendidos acima do previsto ·
+                       <b>${pct.toLocaleString('pt-BR',{maximumFractionDigits:0})}%</b> da meta ·
+                       faltam <b>${fmtBRL(Math.max(0, pl.meta - rz.acima))}</b>
+                     </div>`
+                   : `<div class="nec-plano-txt">Sem receita realizada no Extrato ainda para ${NEC_MESES[mCur]}.</div>`}
+              ${Math.abs(dif) > 0.5 ? `<div class="nec-plano-dif ${dif > 0 ? 'sobe' : 'desce'}">
+                  A projeção de hoje pede ${fmtBRL(d.bruto)} — ${dif > 0 ? 'subiu' : 'caiu'} ${fmtBRL(Math.abs(dif))} desde que a meta foi fixada.
+                </div>` : ''}
+            </div>`;
+        })()}
+        ${(function(){
           /* Os dias de cada meta são os MESMOS dias. A janela de novembro cabe
              inteira dentro da de dezembro: são 42 dos mesmos 64 dias úteis, o
              mesmo time. Cada cartão está certo sozinho e o conjunto engana —
@@ -120578,7 +120629,7 @@ try{ window.renderNec = renderNec; }catch(_){}
 const NEC_KEY = 'forekash:necessidade:v1';
 let NEC = { modo:'hora', valorHora:0, valorUnidade:0, unidadeLabel:'unidades', aliqOverride:null,
             margem:0, ano:null, soProjecao:true, grafico:'mensal', ciclo:0,
-            baseAliq:'auto', iss:5, prazoReceb:0, base:'resultado' };
+            baseAliq:'auto', iss:5, prazoReceb:0, base:'resultado', planos:{} };
 function necLoad(){
   try{ const raw = localStorage.getItem(NEC_KEY); if(raw) NEC = Object.assign(NEC, JSON.parse(raw)); }catch(_){}
 }
@@ -120725,6 +120776,53 @@ function necAliquota(year){
     return receita > 0 ? Math.max(0, Math.min(0.9, prev / receita)) : 0;
   }catch(e){ return 0; }
 }
+
+/* ═══ PLANO FIXADO ═══════════════════════════════════════════════════
+   Projeção muda toda semana — e é bom que mude. O problema é medir contra
+   ela: comparar o realizado com a projeção de hoje não mede nada, porque o
+   alvo se move junto. Quem gastou menos "bateu a meta" sem vender nada.
+
+   Por isso a meta é congelada quando o cenário está fechado: guarda o número,
+   a receita prevista daquele momento e os parâmetros usados. A partir daí a
+   pergunta fica honesta — o que entrou, contra o que foi combinado. E a
+   projeção viva continua ao lado, mostrando quanto o alvo mudou e por quê. */
+function _necYm(year, mIdx){ return String(year) + '-' + String(mIdx+1).padStart(2,'0'); }
+
+function necPlano(year, mIdx){
+  return (NEC.planos && NEC.planos[_necYm(year, mIdx)]) || null;
+}
+function necFixarPlano(year, mIdx){
+  const d = necDados(year, mIdx);
+  if(!NEC.planos) NEC.planos = {};
+  NEC.planos[_necYm(year, mIdx)] = {
+    meta: d.bruto, receitaPrev: d.receita, saldoPrev: d.saldo,
+    base: NEC.base, aliq: d.aliq, margem: d.margem,
+    fixadoEm: new Date().toISOString().slice(0,10)
+  };
+  necSave(); renderNec();
+}
+function necSoltarPlano(year, mIdx){
+  if(NEC.planos) delete NEC.planos[_necYm(year, mIdx)];
+  necSave(); renderNec();
+}
+
+/* O realizado da meta é a venda ACIMA do que já estava previsto quando ela foi
+   fixada — a receita do Extrato menos a receita que o plano já contava. Somar
+   a receita inteira mediria o mês, não o esforço que a meta pediu. */
+function necRealizado(year, mIdx){
+  const plano = necPlano(year, mIdx);
+  if(!plano) return null;
+  let receitaReal = null;
+  try{ receitaReal = flxRealizadoExtrato(year, 'receita', mIdx); }catch(_){}
+  if(receitaReal == null) return null;
+  const acima = receitaReal - (plano.receitaPrev || 0);
+  const pct = plano.meta > 0 ? Math.max(0, (acima / plano.meta) * 100) : (acima >= 0 ? 100 : 0);
+  return { receitaReal, acima, pct: Math.min(999, pct), plano };
+}
+try{
+  window.necPlano = necPlano; window.necFixarPlano = necFixarPlano;
+  window.necSoltarPlano = necSoltarPlano; window.necRealizado = necRealizado;
+}catch(_){}
 
 /* De onde veio a alíquota — pra ninguém ter que adivinhar o número. */
 function necAliqFonte(year){
