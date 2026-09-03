@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788459805"/>
+  <meta name="fk-build" content="forekash-v1788460040"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7630,7 +7630,11 @@
     .nec-gr-bar.atual.apertado{fill:#F59E0B}
     .nec-gr-bar.atual.critico {fill:#EF4444}
     .nec-gr-bar.atual.futuro  {fill:#64748B}
-    .nec-gr-bar.acum{fill:#1D4ED8}
+    .nec-gr-area{fill:url(#necGrad);stroke:none}
+    .nec-gr-linha{fill:none;stroke:#2563EB;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+    .nec-gr-pt{fill:#fff;stroke:#2563EB;stroke-width:2}
+    .nec-gr-pt.atual{fill:#2563EB;stroke:#fff;stroke-width:2.5}
+    .nec-gr-cross{stroke:#94A3B8;stroke-width:1;stroke-dasharray:3 3}
     .nec-gr-bar.cob.cheio{fill:#10B981}
     .nec-gr-bar.cob.quase{fill:#0EA5E9}
     .nec-gr-bar.cob.meio {fill:#F59E0B}
@@ -120157,6 +120161,39 @@ function necGraficoSVG(year, mCur, m0, larguraPx){
   }
 
   let barras = '', rotulos = '', hits = '';
+
+  /* Acumulado é área, não barra: a quantidade não recomeça a cada mês, ela
+     se soma. Barra separada sugere blocos independentes; a área mostra a
+     curva subindo até o total do período. */
+  if(modo === 'acumulado'){
+    const pt = i => ({ x: padL + slot * i + slot / 2,
+                       y: y0 - (serie[i].valor / max) * plotH });
+    const pts = serie.map((_, i) => pt(i));
+    const linha = pts.map((p, i) => (i ? 'L' : 'M') + p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ');
+    const area  = linha + ` L${pts[pts.length-1].x.toFixed(1)},${y0} L${pts[0].x.toFixed(1)},${y0} Z`;
+    barras += `<defs><linearGradient id="necGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#2563EB" stop-opacity=".28"/>
+        <stop offset="100%" stop-color="#2563EB" stop-opacity=".02"/>
+      </linearGradient></defs>`;
+    barras += `<path class="nec-gr-area" d="${area}"/>`;
+    barras += `<path class="nec-gr-linha" d="${linha}"/>`;
+    barras += `<line class="nec-gr-cross" id="nec-gr-cross" x1="0" y1="${padT}" x2="0" y2="${y0}" style="display:none"/>`;
+    serie.forEach((it, i) => {
+      const p = pts[i];
+      const atual = (it.m === mCur);
+      barras += `<circle class="nec-gr-pt${atual ? ' atual' : ''}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${atual ? 5 : 4}"/>`;
+      if(it.valor > 0){
+        rotulos += `<text x="${p.x.toFixed(1)}" y="${(p.y - 12).toFixed(1)}" class="nec-gr-val${atual?' atual':''}">${_necCurto(it.valor)}</text>`;
+      }
+      rotulos += `<text x="${p.x.toFixed(1)}" y="${H - 11}" class="nec-gr-mes${atual ? ' atual' : ''}">${NEC_MESES[it.m]}</text>`;
+      hits += `<rect x="${(p.x - slot/2).toFixed(1)}" y="${padT}" width="${slot.toFixed(1)}" height="${plotH}" `
+           +  `fill="transparent" class="nec-gr-hit" data-m="${it.m}" data-ac="${it.valor.toFixed(2)}" data-cob="" `
+           +  `data-x="${p.x.toFixed(1)}"/>`;
+    });
+    return `<svg viewBox="0 0 ${W} ${H}" class="nec-gr-svg" `
+         + `onmousemove="necGrHover(event)" onmouseleave="necGrOut()">${grid}${barras}${rotulos}${hits}</svg>`;
+  }
+
   serie.forEach((it, i) => {
     const cx = padL + slot * i + slot / 2;
     const x  = cx - bw / 2;
@@ -120233,11 +120270,20 @@ function necGrHover(ev){
   }
   tip.innerHTML = linhas.join('<br>');
   tip.style.display = 'block';
+  const cross = document.getElementById('nec-gr-cross');
+  if(cross){
+    const cxAttr = alvo.getAttribute('data-x');
+    if(cxAttr){ cross.setAttribute('x1', cxAttr); cross.setAttribute('x2', cxAttr); cross.style.display = ''; }
+    else cross.style.display = 'none';
+  }
   const cx = ev.currentTarget.getBoundingClientRect();
   const px = ev.clientX - cx.left;
   tip.style.left = Math.max(4, Math.min(cx.width - tip.offsetWidth - 4, px - tip.offsetWidth/2)) + 'px';
 }
-function necGrOut(){ const t = document.getElementById('nec-gr-tip'); if(t) t.style.display = 'none'; }
+function necGrOut(){
+  const t = document.getElementById('nec-gr-tip'); if(t) t.style.display = 'none';
+  const c = document.getElementById('nec-gr-cross'); if(c) c.style.display = 'none';
+}
 try{ window.necGrHover = necGrHover; window.necGrOut = necGrOut; }catch(_){}
 
 function renderNec(){
