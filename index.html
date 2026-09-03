@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788468370"/>
+  <meta name="fk-build" content="forekash-v1788468802"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7778,6 +7778,8 @@
                    font-variant-numeric:tabular-nums}
     .nec-metas-inp:disabled{background:#F8FAFC;color:#94A3B8}
     .nec-metas-inp[readonly]{background:#F8FAFC;color:#475569;border-color:#E2E8F0;cursor:default}
+    .nec-metas-inp.vazia{border-style:dashed;background:#fff;color:#0F172A}
+    .nec-metas-inp.vazia::placeholder{color:#CBD5E1;font-style:italic}
     .nec-fix-wrap{display:inline-flex;align-items:center;gap:6px}
     .nec-cad{background:none;border:none;cursor:pointer;font-size:.82rem;line-height:1;padding:2px;
              opacity:.45;filter:grayscale(1)}
@@ -121401,7 +121403,10 @@ function necMetasRender(){
                            onclick="necDestravarMeta('${year}','${it.chave}')"
                            title="${_NEC_DESTRAVADO[it.chave] ? 'Aberto para edição — clique para travar' : 'Meta travada — clique para liberar a edição'}">
                            ${_NEC_DESTRAVADO[it.chave] ? '🔓' : '🔒'}</button>`}
-                  </span>` : '<span class="vazio">—</span>'}
+                  </span>`
+             : `<input type="text" class="nec-metas-inp vazia" placeholder="${it.bruto > 0 ? fmtBRL(it.bruto) : 'definir'}"
+                    onblur="necDefinirMeta('${year}','${it.chave}', this.value)"
+                    title="Digite o valor combinado com o time — ou use Fixar para adotar o que a projeção pede">`}
         </td>
         <td>${pl ? _necDataBR(pl.fixadoEm) : ''}</td>
         <td>${rz ? fmtBRL(rz.acima) : '—'}</td>
@@ -121428,8 +121433,8 @@ function necMetasRender(){
       </div>
       <div class="nec-metas-corpo">
         <p class="nec-metas-sub">Fixar congela o alvo: a partir daí o realizado é medido contra ele,
-          e não contra a projeção — que continua mudando. Dá para digitar outro valor se o time
-          combinou diferente.</p>
+          e não contra a projeção — que continua mudando. <b>Fixar</b> adota o valor que a projeção pede;
+          digitar no campo define o valor que o time combinou. Meta fixada fica travada — o cadeado libera.</p>
         <table class="nec-metas-tab">
           <thead><tr><th class="l">${NEC.agr === 'tri' ? 'Trimestre' : 'Mês'}</th><th>Projeção pede</th>
             <th>Meta fixada</th><th>Fixada em</th><th>Realizado</th><th>%</th><th>Δ hoje</th><th></th></tr></thead>
@@ -121485,6 +121490,25 @@ async function necRefixarComAviso(year, chave){
   if(ok){ necFixarPlano(year, null, chave); necMetasRender(); }
 }
 try{ window.necDestravarMeta = necDestravarMeta; window.necRefixarComAviso = necRefixarComAviso; }catch(_){}
+
+/* Digitar o valor direto, sem fixar antes. O caminho anterior era fixar pela
+   projeção, abrir o cadeado e só então escrever — três passos para informar um
+   número que já estava decidido na reunião. */
+function necDefinirMeta(year, chave, txt){
+  const v = _necNum(txt);
+  if(!(v > 0)) return;
+  const it = _necItemPorChave(year, chave);
+  if(!it) return;
+  if(!NEC.planos) NEC.planos = {};
+  NEC.planos[chave] = {
+    meta: v, receitaPrev: it.receita, saldoPrev: it.saldo,
+    base: NEC.base, aliq: it.aliq, margem: it.margem,
+    fixadoEm: new Date().toISOString().slice(0,10),
+    manual: true, historico: []
+  };
+  necSave(); necMetasRender(); renderNec();
+}
+try{ window.necDefinirMeta = necDefinirMeta; }catch(_){}
 
 function necMetaValor(chave, txt){
   const v = _necNum(txt);
