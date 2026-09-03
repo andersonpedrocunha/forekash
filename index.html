@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788447138"/>
+  <meta name="fk-build" content="forekash-v1788449451"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -38213,7 +38213,11 @@ try {
 
 // ─── Notas timeline + anexos ───
 let _recKbNewAnexo = null;
-const _REC_KB_ANEXO_MAX = 1 * 1024 * 1024; // 1 MB
+/* Era 1 MB: um boleto ou NF escaneada passa disso fácil, e o arquivo é
+   justamente o comprovante. Mesmo valor de FK_ANEXO_MAX_B64 — não dá pra
+   referenciar a constante aqui: ela é declarada bem depois no arquivo e, no
+   topo do script, isso é ReferenceError (TDZ). */
+const _REC_KB_ANEXO_MAX = 4 * 1024 * 1024;
 
 function _recKbNormalizeNotas(cell){
   if(!cell) return [];
@@ -38298,7 +38302,9 @@ function recKbNotaAttachFile(input){
   const file = input && input.files && input.files[0];
   if(!file) return;
   if(file.size > _REC_KB_ANEXO_MAX){
-    if(typeof toast === 'function') toast('⚠ Arquivo grande demais (máx 1 MB)');
+    if(typeof toast === 'function') toast('⚠ "' + file.name + '" tem '
+      + Math.round(file.size/1048576*10)/10 + ' MB — o limite é '
+      + Math.round(_REC_KB_ANEXO_MAX/1048576) + ' MB');
     return;
   }
   const reader = new FileReader();
@@ -57680,8 +57686,10 @@ function viagAnexarClick(despId){
 function viagAnexarFile(despId, input){
   const file = input.files && input.files[0];
   if(!file) return;
-  if(file.size > 2 * 1024 * 1024){
-    if(typeof toast === 'function') toast('⚠ Arquivo grande demais (máx 2 MB)');
+  if(file.size > FK_ANEXO_MAX_B64){
+    if(typeof toast === 'function') toast('⚠ "' + file.name + '" tem '
+      + Math.round(file.size/1048576*10)/10 + ' MB — o limite é '
+      + Math.round(FK_ANEXO_MAX_B64/1048576) + ' MB');
     return;
   }
   const reader = new FileReader();
