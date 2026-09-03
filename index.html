@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788459208"/>
+  <meta name="fk-build" content="forekash-v1788459805"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7621,7 +7621,7 @@
     .nec-gr-tit{font-size:.72rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#64748B}
     .nec-gr-tot{font-size:.86rem;font-weight:800;color:#0F172A;font-variant-numeric:tabular-nums}
     .nec-gr-tot i{color:#64748B;font-style:normal;font-weight:600}
-    .nec-gr-svg{width:100%;height:auto;display:block;overflow:visible}
+    .nec-gr-svg{width:100%;height:190px;display:block;overflow:visible}
     .nec-gr-grid{stroke:#EEF2F7;stroke-width:1}
     .nec-gr-base{stroke:#CBD5E1;stroke-width:1}
     .nec-gr-zero{stroke:#CBD5E1;stroke-width:2;stroke-linecap:round}
@@ -7636,14 +7636,14 @@
     .nec-gr-bar.cob.meio {fill:#F59E0B}
     .nec-gr-bar.cob.vazio{fill:#EF4444}
     .nec-gr-alvo{stroke:#94A3B8;stroke-width:1;stroke-dasharray:3 3}
-    .nec-gr-alvo-txt{font-size:11px;font-weight:700;fill:#94A3B8;text-anchor:end;text-transform:uppercase;
+    .nec-gr-alvo-txt{font-size:9.5px;font-weight:700;fill:#94A3B8;text-anchor:end;text-transform:uppercase;
                      letter-spacing:.06em}
     .nec-gr-val.zero{fill:#CBD5E1;font-weight:700}
     .nec-gr-val.atual{fill:#0F172A}
     .nec-gr-hit{cursor:default}
-    .nec-gr-val{font-size:13px;font-weight:800;fill:#0F172A;text-anchor:middle;
+    .nec-gr-val{font-size:11.5px;font-weight:800;fill:#0F172A;text-anchor:middle;
                 font-variant-numeric:tabular-nums}
-    .nec-gr-mes{font-size:12px;font-weight:700;fill:#94A3B8;text-anchor:middle;text-transform:uppercase;
+    .nec-gr-mes{font-size:10.5px;font-weight:700;fill:#94A3B8;text-anchor:middle;text-transform:uppercase;
                 letter-spacing:.06em}
     .nec-gr-mes.atual{fill:#0F172A}
     .nec-gr-vazio{padding:26px 10px;text-align:center;color:#64748B;font-size:.84rem}
@@ -7686,6 +7686,9 @@
     .nec-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:10px}
     .nec-card-unid{font-size:.74rem;font-weight:700;color:#334155;margin-top:2px;
                    font-variant-numeric:tabular-nums}
+    .nec-card-alerta{margin-top:5px;font-size:.66rem;font-weight:700;color:#1D4ED8;
+                     background:rgba(37,99,235,.08);border-radius:6px;padding:3px 7px;display:inline-block}
+    .nec-card-alerta.fora{color:#B91C1C;background:rgba(185,28,28,.09)}
     .nec-card{background:#fff;border:1px solid #E2E8F0;border-top:3px solid var(--nec-cor,#CBD5E1);
               border-radius:10px;padding:10px 12px}
     .nec-card.atual{box-shadow:0 0 0 2px var(--nec-borda)}
@@ -22732,9 +22735,22 @@ td.mes.do-extrato{background:#ECFDF5}
                      onblur="necSetValor('unidade', this.value)">
             </div>
             <div class="nec-cfg-campo">
+              <label>Base do imposto</label>
+              <select id="nec-base" onchange="necSetBase(this.value)">
+                <option value="auto">Média do Fluxo</option>
+                <option value="real">Lucro Real · serviços</option>
+                <option value="manual">Informar %</option>
+              </select>
+            </div>
+            <div class="nec-cfg-campo" id="nec-campo-iss" style="display:none">
+              <label>ISS do município</label>
+              <input type="text" id="nec-iss" inputmode="decimal" placeholder="5%"
+                     onblur="necSetIss(this.value)" title="Entre 2% e 5% conforme o município e a atividade">
+            </div>
+            <div class="nec-cfg-campo" id="nec-campo-aliq" style="display:none">
               <label>Imposto sobre a venda</label>
-              <input type="text" id="nec-aliq" inputmode="decimal" placeholder="automático"
-                     onblur="necSetAliq(this.value)" title="Em branco = calculado pelo regime e pelas rubricas do módulo Impostos">
+              <input type="text" id="nec-aliq" inputmode="decimal" placeholder="0%"
+                     onblur="necSetAliq(this.value)">
             </div>
           </div>
           <div class="nec-filtros">
@@ -120036,6 +120052,12 @@ function necSetAliq(txt){
 }
 function necSetMargem(txt){ NEC.margem = _necNum(txt); necSave(); renderNec(); }
 function necSetCiclo(txt){ NEC.ciclo = Math.max(0, Math.round(_necNum(txt))); necSave(); renderNec(); }
+function necSetBase(v){
+  NEC.baseAliq = (v === 'real' || v === 'manual') ? v : 'auto';
+  if(NEC.baseAliq !== 'manual') NEC.aliqOverride = null;   // sai do manual, volta a calcular
+  necSave(); renderNec();
+}
+function necSetIss(txt){ NEC.iss = Math.max(0, Math.min(10, _necNum(txt))); necSave(); renderNec(); }
 function necToggleCfg(){
   const c = document.getElementById('nec-cfg'), b = document.getElementById('nec-eng-btn');
   if(!c) return;
@@ -120071,6 +120093,7 @@ try{
   window.necSetMargem = necSetMargem; window.necSetAno = necSetAno;
   window.necSetProjecao = necSetProjecao; window.necSetGrafico = necSetGrafico;
   window.necSetCiclo = necSetCiclo; window.necToggleCfg = necToggleCfg;
+  window.necSetBase = necSetBase; window.necSetIss = necSetIss;
   window.necCobertura = necCobertura;
 }catch(_){}
 
@@ -120086,7 +120109,7 @@ function _necUnidadeTxt(d){
    Valor e horas na mesma barra porque não são duas medidas: hora é o valor
    dividido pelo valor/hora, a mesma quantidade em outra unidade. Por isso não
    existe segundo eixo aqui — dois eixos y seria mentir sobre a escala. */
-function necGraficoSVG(year, mCur, m0){
+function necGraficoSVG(year, mCur, m0, larguraPx){
   const dados = [];
   for(let m = 0; m < 12; m++) dados.push(necDados(year, m));
   const meses = [];
@@ -120112,13 +120135,14 @@ function necGraficoSVG(year, mCur, m0){
   }
 
   const n = serie.length;
-  /* Proporção honesta: com preserveAspectRatio="none" o SVG era esticado até
-     a largura do container e as barras saíam achatadas. Agora a caixa tem
-     proporção própria e escala inteira. */
-  const W = 900, H = 300, padT = 38, padB = 38, padL = 16, padR = 16;
+  /* O viewBox usa a largura REAL do container em pixels, então 1 unidade = 1px
+     e a altura é exatamente a pedida. Antes eu fixava 900×300 e deixava o SVG
+     escalar: numa tela larga isso virava um gráfico de 500px de altura. */
+  const W = Math.max(420, Math.round(larguraPx || 900));
+  const H = 190, padT = 30, padB = 30, padL = 14, padR = 14;
   const plotH = H - padT - padB;
   const slot  = (W - padL - padR) / n;
-  const bw    = Math.min(54, slot * 0.52);
+  const bw    = Math.min(44, slot * 0.46);
   const y0    = padT + plotH;
 
   let grid = '';
@@ -120149,9 +120173,9 @@ function necGraficoSVG(year, mCur, m0){
              +  `Q${x.toFixed(1)},${y.toFixed(1)} ${(x+r).toFixed(1)},${y.toFixed(1)} `
              +  `L${(x+bw-r).toFixed(1)},${y.toFixed(1)} Q${(x+bw).toFixed(1)},${y.toFixed(1)} ${(x+bw).toFixed(1)},${(y+r).toFixed(1)} `
              +  `L${(x+bw).toFixed(1)},${y0} Z"/>`;
-      rotulos += `<text x="${cx.toFixed(1)}" y="${(y-11).toFixed(1)}" class="nec-gr-val${atual?' atual':''}">`
+      rotulos += `<text x="${cx.toFixed(1)}" y="${(y-8).toFixed(1)}" class="nec-gr-val${atual?' atual':''}">`
              +  `${pct.toLocaleString('pt-BR',{maximumFractionDigits:0})}%</text>`;
-      rotulos += `<text x="${cx.toFixed(1)}" y="${H - 14}" class="nec-gr-mes${atual ? ' atual' : ''}">${NEC_MESES[it.m]}</text>`;
+      rotulos += `<text x="${cx.toFixed(1)}" y="${H - 11}" class="nec-gr-mes${atual ? ' atual' : ''}">${NEC_MESES[it.m]}</text>`;
       hits += `<rect x="${(cx - slot/2).toFixed(1)}" y="${padT}" width="${slot.toFixed(1)}" height="${plotH}" `
            +  `fill="transparent" class="nec-gr-hit" data-m="${it.m}" data-ac="" data-cob="${pct.toFixed(1)}"/>`;
       return;
@@ -120169,14 +120193,18 @@ function necGraficoSVG(year, mCur, m0){
              +  `L${(x+bw-r).toFixed(1)},${y.toFixed(1)} Q${(x+bw).toFixed(1)},${y.toFixed(1)} ${(x+bw).toFixed(1)},${(y+r).toFixed(1)} `
              +  `L${(x+bw).toFixed(1)},${y0} Z"/>`;
       // ele pediu todos os valores visíveis — cabe porque são no máximo 12 e o rótulo é curto
-      rotulos += `<text x="${cx.toFixed(1)}" y="${(y-11).toFixed(1)}" class="nec-gr-val${atual?' atual':''}">${_necCurto(it.valor)}</text>`;
+      rotulos += `<text x="${cx.toFixed(1)}" y="${(y-8).toFixed(1)}" class="nec-gr-val${atual?' atual':''}">${_necCurto(it.valor)}</text>`;
     }
-    rotulos += `<text x="${cx.toFixed(1)}" y="${H - 14}" class="nec-gr-mes${atual ? ' atual' : ''}">${NEC_MESES[it.m]}</text>`;
+    rotulos += `<text x="${cx.toFixed(1)}" y="${H - 11}" class="nec-gr-mes${atual ? ' atual' : ''}">${NEC_MESES[it.m]}</text>`;
     hits += `<rect x="${(cx - slot/2).toFixed(1)}" y="${padT}" width="${slot.toFixed(1)}" height="${plotH}" `
          +  `fill="transparent" class="nec-gr-hit" data-m="${it.m}" data-ac="${modo === 'acumulado' ? it.valor.toFixed(2) : ''}" data-cob=""/>`;
   });
   return `<svg viewBox="0 0 ${W} ${H}" class="nec-gr-svg" `
        + `onmousemove="necGrHover(event)" onmouseleave="necGrOut()">${grid}${barras}${rotulos}${hits}</svg>`;
+}
+function _necDataBR(iso){
+  const p = String(iso || '').split('-');
+  return p.length === 3 ? (p[2] + '/' + p[1]) : '—';
 }
 function _necCurto(v){
   if(v >= 1000000) return 'R$ ' + (v/1000000).toFixed(1).replace('.',',') + ' mi';
@@ -120228,6 +120256,11 @@ function renderNec(){
     $('nec-valor-unid').value = +NEC.valorUnidade > 0 ? fmtBRL(+NEC.valorUnidade) : '';
   if($('nec-unid-label') && document.activeElement !== $('nec-unid-label'))
     $('nec-unid-label').value = NEC.unidadeLabel || '';
+  if($('nec-base') && document.activeElement !== $('nec-base')) $('nec-base').value = NEC.baseAliq || 'auto';
+  if($('nec-campo-iss'))  $('nec-campo-iss').style.display  = NEC.baseAliq === 'real'   ? '' : 'none';
+  if($('nec-campo-aliq')) $('nec-campo-aliq').style.display = NEC.baseAliq === 'manual' ? '' : 'none';
+  if($('nec-iss') && document.activeElement !== $('nec-iss'))
+    $('nec-iss').value = (+NEC.iss || 0) > 0 ? String(NEC.iss).replace('.',',') + '%' : '';
   if($('nec-aliq') && document.activeElement !== $('nec-aliq'))
     $('nec-aliq').value = NEC.aliqOverride != null ? String(NEC.aliqOverride).replace('.',',') + '%' : '';
   if($('nec-margem') && document.activeElement !== $('nec-margem'))
@@ -120291,10 +120324,10 @@ function renderNec(){
           <div class="nec-prazo-txt">
             ${d.cicloDias > 0
               ? (d.foraDoPrazo
-                  ? `<b>Fora da janela</b> — o ciclo de ${d.cicloDias} dias é maior que os ${d.uteis} dias úteis que sobram.
-                     O que for prospectado agora fecha no mês seguinte.`
-                  : `<b>${d.uteisVenda}</b> ${d.uteisVenda === 1 ? 'dia útil' : 'dias úteis'} para prospectar
-                     <i>(${d.uteis} até o fim do mês − ${d.cicloUteis} do ciclo)</i> ·
+                  ? `<b>Fora da janela</b> — com ciclo de ${d.cicloDias} dias, o prazo para prospectar
+                     ${NEC_MESES[d.mIdx]} venceu em ${_necDataBR(d.limiteISO)}. O que entrar agora fecha depois.`
+                  : `<b>${d.uteisVenda}</b> ${d.uteisVenda === 1 ? 'dia útil' : 'dias úteis'} para prospectar ·
+                     prazo até <b>${_necDataBR(d.limiteISO)}</b> <i>(ciclo de ${d.cicloDias} dias)</i> ·
                      <b>${fmtBRL(d.porDia)}</b> por dia`)
               : `<b>${d.uteis}</b> ${d.uteis === 1 ? 'dia útil' : 'dias úteis'} até o fim do mês ·
                  <b>${fmtBRL(d.porDia)}</b> por dia`}
@@ -120323,7 +120356,7 @@ function renderNec(){
         </div>
         <span class="nec-gr-tot">${NEC.grafico === 'cobertura' ? '' : fmtBRL(totalAno) + (horasAno > 0 ? ' <i>· ' + Math.round(horasAno).toLocaleString('pt-BR') + (NEC.modo === 'hora' ? ' horas' : ' ' + NEC.unidadeLabel) + '</i>' : '')}</span>
       </div>
-      ${necGraficoSVG(year, mCur, m0)}
+      ${necGraficoSVG(year, mCur, m0, (grade.clientWidth || 900) - 34)}
       <div class="nec-gr-tip" id="nec-gr-tip"></div>
     </div>`;
 
@@ -120337,7 +120370,12 @@ function renderNec(){
         <div class="nec-card-num${zerado ? ' zero' : ''}">${zerado ? '—' : fmtBRL(dd.bruto)}</div>
         ${zerado ? '<div class="nec-card-sub">coberto</div>'
                  : `${dd.unidade != null ? `<div class="nec-card-unid">${_necUnidadeTxt(dd)}</div>` : ''}
-                    <div class="nec-card-sub">${fmtBRL(dd.porDia)}/dia · ${dd.uteis}d</div>`}
+                    <div class="nec-card-sub">${fmtBRL(dd.porDia)}/dia · ${dd.uteisVenda}d úteis</div>
+                    ${dd.cicloDias > 0
+                       ? (dd.foraDoPrazo
+                            ? `<div class="nec-card-alerta fora">prazo venceu em ${_necDataBR(dd.limiteISO)}</div>`
+                            : `<div class="nec-card-alerta">vender até ${_necDataBR(dd.limiteISO)}</div>`)
+                       : ''}`}
       </div>`;
   }
   html += '</div>';
@@ -120408,7 +120446,8 @@ try{ window.renderNec = renderNec; }catch(_){}
      valor/hora, o mesmo número vira "preciso vender X horas". */
 const NEC_KEY = 'forekash:necessidade:v1';
 let NEC = { modo:'hora', valorHora:0, valorUnidade:0, unidadeLabel:'unidades', aliqOverride:null,
-            margem:0, ano:null, soProjecao:true, grafico:'mensal', ciclo:0 };
+            margem:0, ano:null, soProjecao:true, grafico:'mensal', ciclo:0,
+            baseAliq:'auto', iss:5 };
 function necLoad(){
   try{ const raw = localStorage.getItem(NEC_KEY); if(raw) NEC = Object.assign(NEC, JSON.parse(raw)); }catch(_){}
 }
@@ -120446,8 +120485,25 @@ try{ window.necComposicao = necComposicao; }catch(_){}
    as rubricas de imposto realmente preveem no ano e divide pela receita. No
    Simples usa a alíquota cadastrada; no MEI é zero, porque o DAS é fixo e não
    sobe com uma venda a mais. */
+/* Lucro Real, sobre a RECEITA: PIS 1,65% + COFINS 7,6% (não-cumulativo) mais o
+   ISS do município, que vai de 2% a 5%. Dá a faixa de 13–17% que o mercado
+   pratica em serviços.
+
+   IRPJ (15% + 10% de adicional) e CSLL (9%) ficam de fora desta conta de
+   propósito: eles incidem sobre o LUCRO, não sobre o faturamento. Numa meta
+   que existe para zerar o mês, o lucro adicional é zero e eles não aparecem.
+   Quando existe margem configurada, aí sim entram — é o que FK_REAL_LUCRO faz
+   na fórmula da margem. */
+const FK_REAL_PIS_COFINS = 0.0925;
+const FK_REAL_LUCRO      = 0.34;    // IRPJ 25% (com adicional) + CSLL 9%
+function necAliqLucroReal(){
+  const iss = Math.max(0, Math.min(10, +NEC.iss || 0)) / 100;
+  return FK_REAL_PIS_COFINS + iss;
+}
+
 function necAliquota(year){
   if(NEC.aliqOverride != null && isFinite(NEC.aliqOverride)) return Math.max(0, Math.min(0.9, NEC.aliqOverride/100));
+  if(NEC.baseAliq === 'real') return necAliqLucroReal();
   /* Alíquota MÉDIA observada, não a do regime declarado. Duas razões: o campo
      de regime pode estar desatualizado (e estava — cadastrado como Simples 6%
      numa empresa no Lucro Real), e no Presumido/Real não existe "a alíquota",
@@ -120483,6 +120539,7 @@ function necAliquota(year){
 /* De onde veio a alíquota — pra ninguém ter que adivinhar o número. */
 function necAliqFonte(year){
   if(NEC.aliqOverride != null && isFinite(NEC.aliqOverride)) return 'informada por você';
+  if(NEC.baseAliq === 'real') return `Lucro Real · PIS/COFINS 9,25% + ISS ${(+NEC.iss||0).toLocaleString('pt-BR')}%`;
   try{
     let imposto = 0, receita = 0;
     for(let m = 0; m < 12; m++){
@@ -120497,6 +120554,35 @@ try{ window.necAliqFonte = necAliqFonte; }catch(_){}
 
 /* Dias úteis que ainda dá pra vender. Feriado não entra na conta — o ganho de
    precisão não paga uma tabela de feriados que precisa ser mantida à mão. */
+/* Dias úteis entre duas datas (inclusive). */
+function _necUteisEntre(ini, fim){
+  if(fim < ini) return 0;
+  let n = 0;
+  const d = new Date(ini.getFullYear(), ini.getMonth(), ini.getDate());
+  while(d <= fim){
+    const dow = d.getDay();
+    if(dow !== 0 && dow !== 6) n++;
+    d.setDate(d.getDate() + 1);
+  }
+  return n;
+}
+
+/* A janela para PROSPECTAR o mês. Com ciclo de venda, o prazo não é "dias
+   dentro do mês": para o dinheiro entrar em novembro, o negócio precisa
+   começar antes — a data limite é o fim do mês menos o ciclo. Vale para
+   qualquer mês, inclusive os futuros. */
+function necJanela(year, mIdx, cicloDias){
+  const y = parseInt(year, 10);
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const fimMes = new Date(y, mIdx + 1, 0);
+  const limite = new Date(fimMes);
+  limite.setDate(limite.getDate() - Math.max(0, cicloDias || 0));
+  const inicio = hoje > new Date(y, mIdx, 1) ? hoje : new Date(y, mIdx, 1);
+  const partida = (cicloDias > 0) ? hoje : inicio;   // com ciclo, dá pra começar antes do mês
+  const uteis = _necUteisEntre(partida, limite);
+  return { limite, fimMes, uteis, fora: limite < hoje };
+}
+
 function necDiasUteis(year, mIdx, apartirDeHoje){
   const y = parseInt(year, 10);
   const ultimo = new Date(y, mIdx + 1, 0).getDate();
@@ -120527,14 +120613,17 @@ function necDados(year, mIdx){
          V = (m·receita − saldo) / (1 − t − m)
      Com m = 0 a fórmula devolve exatamente a anterior. */
   const receita = (function(){ try{ return flxReceitaMes(year, mIdx) || 0; }catch(_){ return 0; } })();
-  const denom = 1 - aliq - m;
+  /* No Lucro Real a margem que sobra ainda paga IRPJ + CSLL. Para entregar m
+     de margem LÍQUIDA, a venda precisa gerar m/(1−34%) de margem antes deles. */
+  const mBruta = (NEC.baseAliq === 'real' && m > 0) ? Math.min(0.95, m / (1 - FK_REAL_LUCRO)) : m;
+  const denom = 1 - aliq - mBruta;
   let bruto = 0, falta = 0, impossivel = false;
   if(m > 0){
     if(denom <= 0){
       impossivel = true;                       // margem + imposto comem a venda inteira
       bruto = 0;
     } else {
-      const alvo = m * receita - saldo;        // quanto de resultado ainda falta
+      const alvo = mBruta * receita - saldo;   // quanto de resultado ainda falta
       bruto = alvo > 0 ? alvo / denom : 0;
       falta = bruto * (1 - aliq);              // o que sobra da venda depois do imposto
     }
@@ -120554,28 +120643,30 @@ function necDados(year, mIdx){
      O ciclo é informado em dias corridos (é assim que o time fala); vira dias
      úteis na proporção de 5 pra 7. */
   const cicloDias  = Math.max(0, +NEC.ciclo || 0);
-  const cicloUteis = Math.round(cicloDias * 5 / 7);
-  const uteisVenda = Math.max(0, uteis - cicloUteis);
-  const foraDoPrazo = cicloDias > 0 && uteisVenda <= 0 && bruto > 0;
-  const porDia = uteisVenda > 0 ? bruto / uteisVenda : (uteis > 0 ? bruto / uteis : bruto);
+  const janela     = necJanela(year, mIdx, cicloDias);
+  const uteisVenda = janela.uteis;
+  const limiteISO  = janela.limite.getFullYear() + '-' + String(janela.limite.getMonth()+1).padStart(2,'0')
+                   + '-' + String(janela.limite.getDate()).padStart(2,'0');
+  const foraDoPrazo = cicloDias > 0 && janela.fora && bruto > 0;
+  const porDia = uteisVenda > 0 ? bruto / uteisVenda : bruto;
   const unidade = (NEC.modo === 'hora')
     ? (+NEC.valorHora  > 0 ? bruto / +NEC.valorHora  : null)
     : (+NEC.valorUnidade > 0 ? bruto / +NEC.valorUnidade : null);
   /* Urgência pela fração do mês que sobrou, não por dias soltos: 5 dias num mês
      de 20 é o mesmo aperto que 6 num de 23. */
-  const restante = totalUteis > 0 ? uteisVenda / totalUteis : 1;
+  const restante = totalUteis > 0 ? Math.min(1, uteisVenda / totalUteis) : 1;
   let nivel = 'ok';
   if(bruto > 0){
     if(passou) nivel = 'perdido';
-    else if(foraDoPrazo && doMesCorrente) nivel = 'estourado';
-    else if(!doMesCorrente) nivel = 'futuro';
+    else if(foraDoPrazo) nivel = 'estourado';
+    else if(!doMesCorrente && restante > 0.5) nivel = 'futuro';
     else if(restante <= 0.25) nivel = 'critico';
     else if(restante <= 0.5)  nivel = 'apertado';
     else nivel = 'atencao';
   }
   return { year, mIdx, saldo, falta, bruto, aliq, uteis, totalUteis, porDia,
            unidade, nivel, doMesCorrente, passou, imposto: bruto - falta,
-           margem: m, receita, impossivel, cicloDias, cicloUteis, uteisVenda, foraDoPrazo };
+           margem: m, receita, impossivel, cicloDias, uteisVenda, foraDoPrazo, limiteISO };
 }
 try{ window.necDados = necDados; window.necAliquota = necAliquota; window.necSaldoMes = necSaldoMes; }catch(_){}
 
