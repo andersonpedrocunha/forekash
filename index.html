@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788391102"/>
+  <meta name="fk-build" content="forekash-v1788447138"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -25750,6 +25750,7 @@ async function cloudLoansSync(){
     console.log('[FK] loans sync OK:', (loans || []).length, 'rows');
   } catch(e) {
     console.warn('[FK] loans sync fail:', e.message || e);
+    _fkAvisaSyncFalhou('Empréstimos', e);
   } finally {
     _loansCloudSyncInFlight = false;
     if (_loansCloudSyncPending) {
@@ -25904,6 +25905,7 @@ async function cloudLoanModalidadesSync(){
     console.log('[FK] LM sync OK:', customLocal.length, 'custom modalidades');
   } catch(e) {
     console.warn('[FK] LM sync fail:', e.message || e);
+    _fkAvisaSyncFalhou('Lançamentos', e);
   } finally {
     _lmCloudSyncInFlight = false;
     if (_lmCloudSyncPending) {
@@ -35290,23 +35292,18 @@ function _dkbAnexoIngest(inp, callback){
   if(!files.length) return;
   let pending = files.length;
   const out = [];
-  files.forEach((f, idx) => {
-    /* 1 MB era apertado demais: boleto e NF escaneados passam disso com
-       facilidade, e o arquivo é justamente o comprovante. 4 MB — o base64
-       cresce ~33%, então o teto real no armazenamento fica perto de 5,3 MB. */
-    if(f.size > 4 * 1024 * 1024){
-      if(typeof toast === 'function') toast('"' + f.name + '" tem ' + Math.round(f.size/1048576*10)/10 + ' MB — o limite é 4 MB');
-      pending--;
-      if(pending === 0 && out.length > 0) callback(out);
-      return;
+  /* Sobe pro Storage quando houver bucket; senão cai no base64 de sempre.
+     fkAnexoIngest resolve os dois casos e já aplica o teto de cada um. */
+  files.forEach(async (f) => {
+    try{
+      const anexo = await fkAnexoIngest(f, 'comprovante');
+      if(anexo) out.push(anexo);
+    }catch(err){
+      if(typeof toast === 'function') toast((err && err.message) || ('não consegui anexar "' + f.name + '"'));
+      console.warn('[FK] anexo ingest:', err && err.message);
     }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      out.push({ name: f.name, type: f.type, size: f.size, dataUrl: e.target.result });
-      pending--;
-      if(pending === 0) callback(out);
-    };
-    reader.readAsDataURL(f);
+    pending--;
+    if(pending === 0 && out.length > 0) callback(out);
   });
   // limpa o input pra permitir re-selecionar o mesmo arquivo
   try { inp.value = ''; } catch(_){}
@@ -39641,6 +39638,7 @@ async function cloudFluxoSync(){
     console.log('[FK] fluxo sync OK:', localYears.length, 'anos');
   } catch(e) {
     console.warn('[FK] fluxo sync fail:', e.message || e);
+    _fkAvisaSyncFalhou('Fluxo de Caixa', e);
   } finally {
     _flxCloudSyncInFlight = false;
     if (_flxCloudSyncPending) {
@@ -43128,6 +43126,7 @@ async function cloudOrcamentoSync(){
     console.log('[FK] orc sync OK:', localYears.length, 'anos');
   } catch(e) {
     console.warn('[FK] orc sync fail:', e.message || e);
+    _fkAvisaSyncFalhou('Orçamento', e);
   } finally {
     _orcCloudSyncInFlight = false;
     if (_orcCloudSyncPending) {
@@ -55683,6 +55682,7 @@ async function cloudVendedoresSync(){
     console.log('[FK] vend sync OK:', (vendedores.lista || []).length, 'vendedores');
   } catch(e) {
     console.warn('[FK] vend sync fail:', e.message || e);
+    _fkAvisaSyncFalhou('Comissões', e);
   } finally {
     _vendCloudSyncInFlight = false;
     if (_vendCloudSyncPending) {
@@ -65227,6 +65227,7 @@ async function cloudCartoesSync(){
                 (cartoes.faturas||[]).length, 'faturas /', (cartoes.lancamentos||[]).length, 'lançamentos');
   } catch(e) {
     console.warn('[FK] cartões sync fail:', e.message || e);
+    _fkAvisaSyncFalhou('Cartões', e);
   } finally {
     _cartCloudSyncInFlight = false;
     if (_cartCloudSyncPending) {
@@ -65237,6 +65238,110 @@ async function cloudCartoesSync(){
 }
 
 // Helper genérico: sincroniza uma tabela (upsert local + delete dos sumiu)
+/* ═══ ANEXOS NA NUVEM ═════════════════════════════════════════════════
+   O anexo virava base64 e ia dentro do metadata (jsonb) da própria linha do
+   lançamento. Duas consequências: o upsert em lote carregava megabytes por
+   requisição — e quando o servidor recusava, o catch do sync só escrevia no
+   console, então o lançamento inteiro deixava de subir sem ninguém saber; e o
+   cache do navegador estourava a quota com o mesmo base64.
+
+   Agora o arquivo vai pro Storage do Supabase e o registro guarda só o
+   ponteiro. Enquanto o bucket não existir, o base64 continua funcionando
+   igual — ninguém fica sem anexar. */
+const FK_ANEXO_BUCKET = 'anexos';
+const FK_ANEXO_MAX_BYTES = 25 * 1024 * 1024;   // teto do arquivo no Storage
+const FK_ANEXO_MAX_B64   = 4 * 1024 * 1024;    // teto do fallback em base64
+let _fkStorageOk = null;                        // null = ainda não testado
+
+async function fkStorageDisponivel(){
+  if(_fkStorageOk !== null) return _fkStorageOk;
+  if(window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER){ _fkStorageOk = false; return false; }
+  try{
+    const { error } = await window.sb.storage.from(FK_ANEXO_BUCKET).list('', { limit: 1 });
+    _fkStorageOk = !error;
+    if(error) console.warn('[FK] storage de anexos indisponível:', error.message);
+  }catch(e){ _fkStorageOk = false; console.warn('[FK] storage:', e && e.message); }
+  return _fkStorageOk;
+}
+
+function _fkAnexoSlug(nome){
+  return String(nome || 'arquivo')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-+/g, '-').slice(-80);
+}
+
+/* Sobe o arquivo e devolve o ponteiro que fica gravado no registro.
+   Sem storage, devolve o objeto base64 de sempre. */
+async function fkAnexoIngest(file, escopo){
+  if(!file) return null;
+  const usaStorage = await fkStorageDisponivel();
+  const teto = usaStorage ? FK_ANEXO_MAX_BYTES : FK_ANEXO_MAX_B64;
+  if(file.size > teto){
+    const mb = Math.round(file.size/1048576*10)/10;
+    const err = new Error('"' + file.name + '" tem ' + mb + ' MB — o limite é '
+      + Math.round(teto/1048576) + ' MB' + (usaStorage ? '' : ' enquanto o bucket de anexos não estiver criado'));
+    err.fkTamanho = true;
+    throw err;
+  }
+  if(usaStorage){
+    const org = (typeof fkcOrgId === 'function') ? fkcOrgId() : 'sem-org';
+    const path = org + '/' + (escopo || 'geral') + '/' + Date.now() + '-'
+               + Math.random().toString(36).slice(2,8) + '-' + _fkAnexoSlug(file.name);
+    const { error } = await window.sb.storage.from(FK_ANEXO_BUCKET)
+      .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
+    if(error) throw error;
+    return { path, name:file.name, type:file.type, size:file.size, storage:'sb' };
+  }
+  const dataUrl = await new Promise((ok, fail) => {
+    const r = new FileReader();
+    r.onload = e => ok(e.target.result);
+    r.onerror = () => fail(new Error('não consegui ler "' + file.name + '"'));
+    r.readAsDataURL(file);
+  });
+  return { name:file.name, type:file.type, size:file.size, dataUrl };
+}
+
+/* URL pra abrir/baixar. Anexo legado já traz o próprio conteúdo. */
+async function fkAnexoUrl(a){
+  if(!a) return null;
+  if(a.dataUrl) return a.dataUrl;
+  if(!a.path) return null;
+  const { data, error } = await window.sb.storage.from(FK_ANEXO_BUCKET)
+    .createSignedUrl(a.path, 3600);
+  if(error){ console.warn('[FK] anexo url:', error.message); return null; }
+  return data && data.signedUrl;
+}
+
+async function fkAnexoRemover(a){
+  if(!a || !a.path) return true;   // base64 morre junto com o registro
+  const { error } = await window.sb.storage.from(FK_ANEXO_BUCKET).remove([a.path]);
+  if(error){ console.warn('[FK] anexo remover:', error.message); return false; }
+  return true;
+}
+try{
+  window.fkAnexoIngest = fkAnexoIngest; window.fkAnexoUrl = fkAnexoUrl;
+  window.fkAnexoRemover = fkAnexoRemover; window.fkStorageDisponivel = fkStorageDisponivel;
+}catch(_){}
+
+/* Sync que falha calado é pior que sync que não existe: a tela mostra o dado,
+   a nuvem não tem, e ninguém descobre até precisar. Um aviso por minuto,
+   por módulo — não vira enxurrada de toast. */
+let _fkSyncAvisoEm = {};
+function _fkAvisaSyncFalhou(modulo, err){
+  try{
+    const agora = Date.now();
+    if(_fkSyncAvisoEm[modulo] && agora - _fkSyncAvisoEm[modulo] < 60000) return;
+    _fkSyncAvisoEm[modulo] = agora;
+    const msg = (err && (err.message || err.error_description)) || 'erro desconhecido';
+    const grande = /payload|too large|413|entity/i.test(msg);
+    if(typeof toast === 'function'){
+      toast('⚠ ' + modulo + ' não subiu pra nuvem: ' + msg.slice(0,90)
+        + (grande ? ' — provável anexo pesado demais' : ''));
+    }
+  }catch(_){}
+}
+try{ window._fkAvisaSyncFalhou = _fkAvisaSyncFalhou; }catch(_){}
+
 async function _cloudSyncTable(tableName, localRows, toRowFn, orgId){
   const { data: cloudRows, error: fetchErr } = await window.sb
     .from(tableName).select('id, local_id').eq('org_id', orgId);
@@ -65244,8 +65349,21 @@ async function _cloudSyncTable(tableName, localRows, toRowFn, orgId){
 
   if (localRows.length > 0) {
     const toUpsert = localRows.map(r => toRowFn(r, orgId));
-    for (let i = 0; i < toUpsert.length; i += 500) {
-      const batch = toUpsert.slice(i, i + 500);
+    /* Lote por TAMANHO, não por contagem. 500 linhas magras cabem numa
+       requisição; 500 linhas com um comprovante em base64 cada viram um POST
+       de centenas de MB, que o servidor recusa — e aí o módulo inteiro parava
+       de sincronizar por causa de um anexo. */
+    const LIMITE_LOTE = 3 * 1024 * 1024;
+    let i = 0;
+    while (i < toUpsert.length) {
+      const batch = []; let bytes = 0;
+      while (i < toUpsert.length && batch.length < 500) {
+        const row = toUpsert[i];
+        let sz = 0;
+        try { sz = JSON.stringify(row).length; } catch(_) { sz = LIMITE_LOTE; }
+        if (batch.length && bytes + sz > LIMITE_LOTE) break;   // fecha o lote
+        batch.push(row); bytes += sz; i++;
+      }
       const { error: upErr } = await window.sb
         .from(tableName).upsert(batch, { onConflict: 'org_id,local_id' });
       if (upErr) throw upErr;
@@ -70445,6 +70563,7 @@ async function cloudExtratoSync(){
       + (extratoData.ignorados || []).length + ' ignorados');
   } catch(e) {
     console.warn('[FK] extrato sync fail:', e.message || e);
+    _fkAvisaSyncFalhou('Extrato', e);
   } finally {
     _extCloudSyncInFlight = false;
     if (_extCloudSyncPending) {
@@ -76668,6 +76787,7 @@ async function cloudCCSync(){
     console.log('[FK] CC sync OK:', centrosCusto.length, 'rows');
   } catch(e) {
     console.warn('[FK] CC sync fail:', e.message || e);
+    _fkAvisaSyncFalhou('Centro de Custo', e);
   } finally {
     _ccCloudSyncInFlight = false;
     if (_ccCloudSyncPending) {
@@ -77354,6 +77474,7 @@ async function cloudCatmapSync(){
     console.log('[FK] catmap sync OK:', (catmapData.categorias || []).length, 'rows');
   } catch(e) {
     console.warn('[FK] catmap sync fail:', e.message || e);
+    _fkAvisaSyncFalhou('Categorias', e);
   } finally {
     _catmapCloudSyncInFlight = false;
     if (_catmapCloudSyncPending) {
@@ -116203,6 +116324,7 @@ async function cloudBlobSync(moduleName, getDataFn){
     console.log('[FK] blob sync OK:', moduleName, '·', _mb + ' MB');
   } catch(e) {
     console.warn('[FK] blob sync fail:', moduleName, e.message || e);
+    _fkAvisaSyncFalhou(moduleName, e);
   } finally {
     _FK_BLOB_FLAGS[flagK] = false;
     if (_FK_BLOB_FLAGS[pendK]) {
@@ -135886,7 +136008,7 @@ try {
 } catch(_){}
 
 // ════════════════════════════════════════════════════════════════════
-// 🕰 TIME TRAVEL · snapshots diários + visualizador (#5)
+// 🕰 TIME TRAVEL · snapshots semanais + visualizador (#5)
 // ════════════════════════════════════════════════════════════════════
 const FK_TIME_KEY = 'forekash:timetravel:v1';
 function fkTimeState(){ try{ return JSON.parse(localStorage.getItem(FK_TIME_KEY)||'{"snapshots":[]}'); }catch(_){ return {snapshots:[]}; } }
@@ -135936,13 +136058,30 @@ function _fkTimeCapture(){
   };
   return snap;
 }
-// Snapshot diário · 1× por dia · roda no boot
-function fkTimeTakeDailySnap(){
+/* Semana ISO (segunda a domingo) como chave do automático: "2026-W36". Data
+   crua não serve — dois snapshots em dias diferentes da mesma semana passariam
+   os dois. */
+function _fkSemanaChave(d){
+  const dt = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diaISO = (dt.getDay() + 6) % 7;               // segunda = 0
+  dt.setDate(dt.getDate() - diaISO + 3);              // quinta da mesma semana
+  const primeiraQui = new Date(dt.getFullYear(), 0, 4);
+  const off = (primeiraQui.getDay() + 6) % 7;
+  primeiraQui.setDate(primeiraQui.getDate() - off + 3);
+  const semana = 1 + Math.round((dt - primeiraQui) / (7 * 86400000));
+  return dt.getFullYear() + '-W' + String(semana).padStart(2, '0');
+}
+/* Automático 1× POR SEMANA. Era diário: 365 cópias do estado inteiro por ano,
+   e o que muda de um dia pro outro raramente justifica uma. O manual ("Snap
+   agora") continua sem limite de frequência. */
+function fkTimeTakeWeeklySnap(){
   const state = fkTimeState();
-  const today = new Date().toISOString().slice(0,10);
+  const semanaAgora = _fkSemanaChave(new Date());
   const last = (state.snapshots||[]).slice(-1)[0];
-  if(last && last.date === today) return;
+  if(last && (last.semana || (last.date ? _fkSemanaChave(new Date(last.date + 'T12:00:00')) : null)) === semanaAgora) return;
   const snap = _fkTimeCapture();
+  snap.semana = semanaAgora;
+  snap.auto = true;
   state.snapshots = state.snapshots || [];
   state.snapshots.push(snap);
   /* No navegador ficam só os 60 mais recentes. O histórico completo vive na
@@ -135952,6 +136091,8 @@ function fkTimeTakeDailySnap(){
   if(state.snapshots.length > 60) state.snapshots = state.snapshots.slice(-60);
   fkTimeSave(state);
 }
+// Nome antigo mantido: havia chamada agendada no boot apontando pra ele.
+function fkTimeTakeDailySnap(){ return fkTimeTakeWeeklySnap(); }
 // Resumo de um snapshot (números que o user vai querer ver)
 function _fkTimeSnapSummary(snap){
   let receitaT = 0, despesaT = 0;
@@ -135976,7 +136117,7 @@ function _fkTimeSnapSummary(snap){
   return { receita: receitaT, despesa: despesaT, saldo: saldoDispo, lancCount };
 }
 function fkTimeOpen(){
-  fkTimeTakeDailySnap(); // garante um snap de hoje
+  fkTimeTakeWeeklySnap(); // garante o snap da semana
   const state = fkTimeState();
   const snaps = (state.snapshots||[]).slice().sort((a,b) => b.ts - a.ts);
   let ov = document.getElementById('fk-time-ov');
@@ -136011,7 +136152,7 @@ function fkTimeOpen(){
         </div>
       </div>
       <div style="padding:18px 24px;flex:1;overflow:auto">
-        <p style="margin:0 0 14px;color:#475569;font-size:.84rem;line-height:1.5">Snapshots automáticos do estado da empresa, capturados <b>1× por dia</b>. Use pra ver "como estava em 15/abr", comparar 2 datas ou auditar mudanças.</p>
+        <p style="margin:0 0 14px;color:#475569;font-size:.84rem;line-height:1.5">Snapshots automáticos do estado da empresa, capturados <b>1× por semana</b>. Use pra ver "como estava em 15/abr", comparar 2 datas ou auditar mudanças. O botão <b>Snap agora</b> grava um fora dessa rotina.</p>
         <table style="width:100%;border-collapse:collapse;background:#fff;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden">
           <thead style="background:#F1F5F9"><tr><th style="padding:8px 10px;text-align:left;font-size:.7rem;color:#64748B;font-weight:800">DATA</th><th style="padding:8px 10px;text-align:left;font-size:.7rem;color:#64748B;font-weight:800">CAPTURADO</th><th style="padding:8px 10px;text-align:right;font-size:.7rem;color:#64748B;font-weight:800">RECEITA</th><th style="padding:8px 10px;text-align:right;font-size:.7rem;color:#64748B;font-weight:800">DESPESA</th><th style="padding:8px 10px;text-align:right;font-size:.7rem;color:#64748B;font-weight:800">SALDO</th><th style="padding:8px 10px;text-align:center;font-size:.7rem;color:#64748B;font-weight:800">AÇÃO</th></tr></thead>
           <tbody>${rows}</tbody>
@@ -136024,7 +136165,10 @@ function fkTimeClose(){ const ov = document.getElementById('fk-time-ov'); if(ov)
 function _fkTimeSnapNow(){
   const state = fkTimeState();
   state.snapshots = state.snapshots || [];
-  state.snapshots.push(_fkTimeCapture());
+  const snap = _fkTimeCapture();
+  snap.semana = _fkSemanaChave(new Date());
+  snap.auto = false;
+  state.snapshots.push(snap);
   if(state.snapshots.length > 365) state.snapshots = state.snapshots.slice(-365);
   fkTimeSave(state);
   if(typeof fkToast === 'function') fkToast('Snapshot criado', 'ok', 1500);
@@ -136109,9 +136253,10 @@ try {
   window.fkTimeOpen = fkTimeOpen; window.fkTimeClose = fkTimeClose;
   window.fkTimeView = fkTimeView; window.fkTimeDiff = fkTimeDiff;
   window._fkTimeSnapNow = _fkTimeSnapNow;
+  window.fkTimeTakeWeeklySnap = fkTimeTakeWeeklySnap; window._fkSemanaChave = _fkSemanaChave;
 } catch(_){}
 // Snap diário automático no boot
-setTimeout(() => { try{ fkTimeTakeDailySnap(); }catch(_){} }, 3500);
+setTimeout(() => { try{ fkTimeTakeWeeklySnap(); }catch(_){} }, 3500);
 
 // ════════════════════════════════════════════════════════════════════
 // 💸 RETENÇÕES no modal de RECEITA · mesma lógica do Extrato adaptada
