@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788466043"/>
+  <meta name="fk-build" content="forekash-v1788466801"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7740,6 +7740,15 @@
                     display:flex;gap:6px;flex-wrap:wrap;font-variant-numeric:tabular-nums}
     .nec-card-plano i{color:#0F766E;font-style:normal}
     .nec-card-plano.fechado{color:#64748B;font-weight:600}
+    button.nec-card-plano{border:none;cursor:pointer;align-items:center;width:100%;text-align:left}
+    button.nec-card-plano:hover{background:rgba(15,23,42,.09)}
+    .nec-card-plano u{text-decoration:none;color:#94A3B8;font-size:.6rem}
+    .nec-pin{width:11px;height:11px;fill:currentColor;flex:none;opacity:.75}
+    .nec-card-fixar{display:inline-flex;align-items:center;gap:5px}
+    .nec-plano-acoes{display:inline-flex;gap:10px}
+    .nec-plano-hist{margin-top:6px;font-size:.68rem;color:#64748B;font-variant-numeric:tabular-nums}
+    .nec-plano-hist i{font-style:normal;color:#94A3B8}
+    .nec-plano-hist b{color:#0F172A}
     .nec-card{background:#fff;border:1px solid #E2E8F0;border-top:3px solid var(--nec-cor,#CBD5E1);
               border-radius:10px;padding:10px 12px}
     .nec-card.atual{box-shadow:0 0 0 2px var(--nec-borda)}
@@ -22819,6 +22828,12 @@ td.mes.do-extrato{background:#ECFDF5}
                       title="Fechar o mês no zero: a meta cobre o saldo do próprio mês">Saldo do mês</button>
               <button type="button" id="nec-b-cx" onclick="necSetBaseMeta('caixa')"
                       title="Não furar o caixa: o saldo em conta absorve o mês ruim, e a meta é só o que falta pro caixa não ficar negativo">Fluxo de caixa</button>
+            </div>
+            <span class="nec-sep"></span>
+            <div class="nec-seg" role="group" aria-label="Agregação">
+              <button type="button" id="nec-a-mes" onclick="necSetAgr('mes')">Mensal</button>
+              <button type="button" id="nec-a-tri" onclick="necSetAgr('tri')"
+                      title="Venda irregular: um mês bom compensa o outro. No trimestre a conta é feita sobre o saldo do período inteiro.">Trimestral</button>
             </div>
             <span class="nec-sep"></span>
             <select id="nec-ano" class="nec-ano-sel" onchange="necSetAno(this.value)"></select>
@@ -120437,46 +120452,106 @@ function necExportCSV(){
 function necExportPDF(){
   const d = _necExportDados();
   const esc = t => String(t == null ? '' : t).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-  const params = _necCabecalho().map(([k,v]) => `<div><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join('');
-  const linhas = d.linhas.map(l => `<tr${l.meta > 0 ? '' : ' class="zero"'}>
+  const temPlano = d.linhas.some(l => l.metaFixada != null);
+  const temUnid  = d.linhas.some(l => l.unidade != null);
+  const unidLbl  = NEC.modo === 'hora' ? 'Horas' : NEC.unidadeLabel;
+
+  // Parâmetros em duas colunas, rótulo acima do valor — a fila corrida virava um bloco de texto.
+  const params = _necCabecalho().filter(([k]) => k !== 'Necessidade de Venda')
+    .map(([k,v]) => `<div class="p"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
+
+  let tR=0,tC=0,tI=0,tM=0;
+  const linhas = d.linhas.map(l => {
+    tR+=l.receita; tC+=l.custo; tI+=l.imposto; tM+=l.meta;
+    const zero = l.meta <= 0;
+    return `<tr${zero ? ' class="zero"' : ''}>
       <td class="l">${esc(l.mes)}</td>
-      <td>${fmtBRL(l.receita)}</td><td>${fmtBRL(l.custo)}</td>
-      <td class="${l.saldo < 0 ? 'neg' : ''}">${fmtBRL(l.saldo)}</td>
-      <td>${l.cobertura.toLocaleString('pt-BR',{maximumFractionDigits:0})}%</td>
-      <td>${l.imposto > 0 ? fmtBRL(l.imposto) : '—'}</td>
-      <td class="meta">${l.meta > 0 ? fmtBRL(l.meta) : '—'}</td>
-      <td>${l.metaFixada != null ? fmtBRL(l.metaFixada) : '—'}</td>
-      <td>${l.realizado != null ? fmtBRL(l.realizado) : '—'}</td>
-    </tr>`).join('');
-  const html = `<!doctype html><html><head><meta charset="utf-8">
+      <td>${fmtBRL(l.receita)}</td>
+      <td>${fmtBRL(l.custo)}</td>
+      <td class="${l.saldo < 0 ? 'neg' : 'pos'}">${fmtBRL(l.saldo)}</td>
+      <td class="cob">${l.cobertura.toLocaleString('pt-BR',{maximumFractionDigits:0})}%</td>
+      <td class="imp">${l.imposto > 0 ? fmtBRL(l.imposto) : '·'}</td>
+      <td class="meta">${zero ? 'coberto' : fmtBRL(l.meta)}</td>
+      ${temUnid  ? `<td>${l.unidade != null && !zero ? l.unidade.toLocaleString('pt-BR',{maximumFractionDigits:0}) : '·'}</td>` : ''}
+      ${temPlano ? `<td>${l.metaFixada != null ? fmtBRL(l.metaFixada) : '·'}</td>
+                    <td>${l.realizado != null ? fmtBRL(l.realizado) : '·'}</td>` : ''}
+    </tr>`;
+  }).join('');
+
+  const colsExtra = (temUnid ? 1 : 0) + (temPlano ? 2 : 0);
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
     <title>Necessidade de Venda ${esc(d.year)}</title><style>
-      body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#0F172A;margin:26px}
-      h1{font-size:18px;margin:0 0 2px} .sub{color:#64748B;font-size:12px;margin-bottom:16px}
-      .par{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:11px;color:#475569;margin-bottom:18px;
-           border:1px solid #E2E8F0;border-radius:8px;padding:10px 12px}
-      .par div{display:flex;gap:6px} .par b{color:#94A3B8;font-weight:700;text-transform:uppercase;font-size:10px}
-      table{width:100%;border-collapse:collapse;font-size:11px}
-      th{text-align:right;padding:6px 8px;border-bottom:1.5px solid #0F172A;font-size:10px;
-         text-transform:uppercase;color:#475569}
-      th.l,td.l{text-align:left;text-transform:uppercase;font-weight:700}
-      td{text-align:right;padding:6px 8px;border-bottom:1px solid #F1F5F9}
-      tr.zero td{color:#94A3B8} td.neg{color:#B91C1C} td.meta{font-weight:800}
-      .rod{margin-top:14px;font-size:10px;color:#94A3B8}
-      @media print{ body{margin:12mm} }
+      *{box-sizing:border-box}
+      body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+           color:#111827;margin:0;padding:32px 34px;background:#fff;-webkit-print-color-adjust:exact;
+           print-color-adjust:exact}
+      .cap{font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#9CA3AF}
+      h1{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:3px 0 4px;color:#111827}
+      .sub{color:#6B7280;font-size:12px;margin:0 0 22px;max-width:62ch;line-height:1.5}
+      .params{display:grid;grid-template-columns:repeat(4,1fr);gap:12px 18px;
+              border-top:1px solid #E5E7EB;border-bottom:1px solid #E5E7EB;padding:14px 0;margin-bottom:24px}
+      .p{display:flex;flex-direction:column;gap:2px;min-width:0}
+      .p span{font-size:9px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#9CA3AF}
+      .p b{font-size:11.5px;font-weight:600;color:#374151}
+      table{width:100%;border-collapse:collapse;font-size:11px;
+            font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+      thead th{text-align:right;padding:0 10px 8px;font-size:9px;font-weight:700;letter-spacing:.07em;
+               text-transform:uppercase;color:#6B7280;border-bottom:1.5px solid #111827;white-space:nowrap}
+      thead th.l,tbody td.l,tfoot td.l{text-align:left}
+      tbody td{text-align:right;padding:9px 10px;border-bottom:1px solid #F3F4F6;color:#374151}
+      tbody td.l{font-weight:700;color:#111827;text-transform:uppercase;font-size:10px;letter-spacing:.05em}
+      tbody tr.zero td{color:#9CA3AF}
+      tbody tr.zero td.l{color:#9CA3AF}
+      td.pos{color:#047857}
+      td.neg{color:#B91C1C;font-weight:600}
+      td.cob{color:#6B7280}
+      th.imp,td.imp{color:#6D28D9;background:#FAF8FF}
+      th.meta,td.meta{background:#F5F8FF;font-weight:800;color:#1D4ED8;border-left:1px solid #E5E7EB}
+      tbody tr.zero td.meta{color:#9CA3AF;font-weight:600}
+      tfoot td{padding:11px 10px;border-top:1.5px solid #111827;font-weight:800;color:#111827}
+      .nota{margin-top:16px;font-size:10px;color:#6B7280;line-height:1.6;max-width:76ch}
+      .nota b{color:#374151}
+      .rod{margin-top:20px;padding-top:10px;border-top:1px solid #F3F4F6;
+           font-size:9px;color:#9CA3AF;display:flex;justify-content:space-between}
+      @page{margin:14mm}
+      @media print{ body{padding:0} thead{display:table-header-group} tr{break-inside:avoid} }
     </style></head><body>
+      <div class="cap">Forekash · Negócios</div>
       <h1>Necessidade de Venda · ${esc(d.year)}</h1>
-      <div class="sub">Quanto o comercial precisa vender para fechar cada mês, com o imposto da venda embutido.</div>
-      <div class="par">${params}</div>
-      <table><thead><tr><th class="l">Mês</th><th>Receita prevista</th><th>Custo total</th>
-        <th>${NEC.base === 'caixa' ? 'Caixa acumulado' : 'Saldo do mês'}</th><th>% coberto</th>
-        <th>Imposto da venda</th><th>Meta</th><th>Meta fixada</th><th>Realizado</th></tr></thead>
-        <tbody>${linhas}</tbody></table>
-      <div class="rod">Forekash · gerado em ${new Date().toLocaleString('pt-BR')}</div>
-      <script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script>
+      <p class="sub">Quanto o comercial precisa vender para fechar cada mês, já com o imposto
+        da própria venda embutido. ${NEC.base === 'caixa'
+          ? 'A base é o caixa acumulado: a meta cobre o que falta para o caixa não ficar negativo.'
+          : 'A base é o saldo do mês: a meta cobre o que falta para o mês fechar no zero.'}</p>
+      <div class="params">${params}</div>
+      <table>
+        <thead><tr>
+          <th class="l">Mês</th><th>Receita prevista</th><th>Custo total</th>
+          <th>${NEC.base === 'caixa' ? 'Caixa acumulado' : 'Saldo do mês'}</th>
+          <th>% coberto</th><th class="imp">Imposto da venda</th><th class="meta">Meta de venda</th>
+          ${temUnid  ? `<th>${esc(unidLbl)}</th>` : ''}
+          ${temPlano ? '<th>Meta fixada</th><th>Realizado</th>' : ''}
+        </tr></thead>
+        <tbody>${linhas}</tbody>
+        <tfoot><tr>
+          <td class="l">${NEC.soProjecao && !d.anoPassado ? 'Restante' : 'Ano'}</td>
+          <td>${fmtBRL(tR)}</td><td>${fmtBRL(tC)}</td><td></td><td></td>
+          <td class="imp">${fmtBRL(tI)}</td>
+          <td class="meta">${fmtBRL(tM)}</td>
+          ${'<td></td>'.repeat(colsExtra)}
+        </tr></tfoot>
+      </table>
+      <p class="nota">Custo total soma folha, despesas, empréstimos e impostos do mês, como no Fluxo de Caixa.
+        A <b>meta</b> é o que falta no período mais o imposto que a própria venda gera — por isso ela é maior
+        que o buraco do mês.${(+NEC.ciclo > 0 || +NEC.prazoReceb > 0)
+          ? ` O prazo para prospectar desconta o ciclo de venda${+NEC.prazoReceb > 0 ? ' e o prazo de recebimento' : ''}:
+              a meta é de caixa, e o dinheiro precisa estar na conta dentro do mês.` : ''}</p>
+      <div class="rod"><span>Forekash</span><span>${new Date().toLocaleString('pt-BR')}</span></div>
+      <script>window.onload=function(){setTimeout(function(){window.print();},350);};<\/script>
     </body></html>`;
   const w = window.open('', '_blank');
   if(!w){ if(typeof toast === 'function') toast('⚠ O navegador bloqueou a janela — libere pop-ups para imprimir'); return; }
   w.document.write(html); w.document.close();
+  try{ window._necPdfHtml = html; }catch(_){}   // usado só pra conferir o layout
 }
 try{ window.necExportCSV = necExportCSV; window.necExportPDF = necExportPDF; }catch(_){}
 
@@ -120517,6 +120592,7 @@ function renderNec(){
   const seg = (id, on) => { const e = $(id); if(e) e.classList.toggle('on', on); };
   seg('nec-f-proj', NEC.soProjecao); seg('nec-f-ano', !NEC.soProjecao);
   seg('nec-b-res', NEC.base !== 'caixa'); seg('nec-b-cx', NEC.base === 'caixa');
+  seg('nec-a-mes', NEC.agr !== 'tri');    seg('nec-a-tri', NEC.agr === 'tri');
   // os botões do gráfico nascem só no innerHTML lá embaixo — marcados no fim
 
   const year = necAnoAtivo();
@@ -120559,7 +120635,10 @@ function renderNec(){
             <div class="nec-plano-topo">
               <span class="nec-plano-tit">Meta fixada em ${_necDataBR(plCob.fixadoEm)} · <b>${fmtBRL(plCob.meta)}</b></span>
               ${plCob.fechado ? '<span class="nec-plano-tit">mês fechado</span>'
-                              : `<button type="button" class="nec-btn-soltar" onclick="necSoltarPlano('${year}',${mCur})">soltar</button>`}
+                              : `<span class="nec-plano-acoes">
+                                   <button type="button" class="nec-btn-soltar" onclick="necEditarPlano('${year}',${mCur})">reabrir</button>
+                                   <button type="button" class="nec-btn-soltar" onclick="necSoltarPlano('${year}',${mCur})">soltar</button>
+                                 </span>`}
             </div>
             ${rzCob ? `<div class="nec-plano-barra"><i style="width:${Math.min(100,rzCob.pct).toFixed(1)}%"></i></div>
                        <div class="nec-plano-txt"><b>${fmtBRL(rzCob.acima)}</b> vendidos acima do previsto ·
@@ -120602,7 +120681,10 @@ function renderNec(){
           return `<div class="nec-plano">
               <div class="nec-plano-topo">
                 <span class="nec-plano-tit">Meta fixada em ${_necDataBR(pl.fixadoEm)} · <b>${fmtBRL(pl.meta)}</b></span>
-                <button type="button" class="nec-btn-soltar" onclick="necSoltarPlano('${year}',${mCur})" title="Voltar a acompanhar a projeção viva">soltar</button>
+                <span class="nec-plano-acoes">
+                  <button type="button" class="nec-btn-soltar" onclick="necEditarPlano('${year}',${mCur})" title="Refixar com a projeção de hoje">reabrir</button>
+                  <button type="button" class="nec-btn-soltar" onclick="necSoltarPlano('${year}',${mCur})" title="Voltar a acompanhar a projeção viva">soltar</button>
+                </span>
               </div>
               ${rz ? `<div class="nec-plano-barra"><i style="width:${Math.min(100,pct).toFixed(1)}%"></i></div>
                      <div class="nec-plano-txt">
@@ -120611,6 +120693,11 @@ function renderNec(){
                        faltam <b>${fmtBRL(Math.max(0, pl.meta - rz.acima))}</b>
                      </div>`
                    : `<div class="nec-plano-txt">Sem receita realizada no Extrato ainda para ${NEC_MESES[mCur]}.</div>`}
+              ${(pl.historico || []).length ? `<div class="nec-plano-hist">
+                  ${pl.historico.length} ${pl.historico.length === 1 ? 'revisão' : 'revisões'}:
+                  ${pl.historico.map(h => `${fmtBRL(h.meta)} <i>(${_necDataBR(h.fixadoEm)})</i>`).join(' → ')}
+                  → <b>${fmtBRL(pl.meta)}</b> atual
+                </div>` : ''}
               ${Math.abs(dif) > 0.5 ? `<div class="nec-plano-dif ${dif > 0 ? 'sobe' : 'desce'}">
                   A projeção de hoje pede ${fmtBRL(d.bruto)} — ${dif > 0 ? 'subiu' : 'caiu'} ${fmtBRL(Math.abs(dif))} desde que a meta foi fixada.
                 </div>` : ''}
@@ -120677,7 +120764,22 @@ function renderNec(){
       <div class="nec-gr-tip" id="nec-gr-tip"></div>
     </div>`;
 
+  const tris = necPeriodos(year, m0);
   html += '<div class="nec-grade">';
+  if(tris){
+    for(const dd of tris){
+      const c = NEC_NIVEL[dd.nivel] || NEC_NIVEL.ok;
+      const zerado = dd.bruto <= 0;
+      html += `<div class="nec-card${dd.meses.indexOf(mCur) >= 0 ? ' atual' : ''}" style="--nec-cor:${c.cor};--nec-borda:${c.borda}">
+          <div class="nec-card-mes">${dd.label} <small>${dd.meses.map(x=>NEC_MESES[x]).join('·')}</small></div>
+          <div class="nec-card-num${zerado ? ' zero' : ''}">${zerado ? '—' : fmtBRL(dd.bruto)}</div>
+          ${zerado ? '<div class="nec-card-sub">coberto</div>'
+                   : `${dd.unidade != null ? `<div class="nec-card-unid">${_necUnidadeTxt(dd)}</div>` : ''}
+                      <div class="nec-card-sub">${fmtBRL(dd.porDia)}/dia · ${dd.uteisVenda}d úteis</div>`}
+        </div>`;
+    }
+    html += '</div>';
+  } else {
   for(let m = m0; m < 12; m++){
     const dd = anual[m];
     const c = NEC_NIVEL[dd.nivel] || NEC_NIVEL.ok;
@@ -120693,13 +120795,16 @@ function renderNec(){
                        if(pl && pl.fechado) return `<div class="nec-card-plano fechado">fechado · meta era ${fmtBRL(pl.meta)}</div>`;
                        if(pl){
                          const rz = necRealizado(year, m);
-                         return `<div class="nec-card-plano">
-                             <span>fixada ${fmtBRL(pl.meta)}</span>
-                             ${rz ? `<i>${rz.pct.toLocaleString('pt-BR',{maximumFractionDigits:0})}% feito</i>` : ''}
-                           </div>`;
+                         const nRev = (pl.historico || []).length;
+                         return `<button type="button" class="nec-card-plano" onclick="necEditarPlano('${year}',${m})"
+                                   title="Meta fixada em ${_necDataBR(pl.fixadoEm)}${nRev ? ' · ' + nRev + ' revisão(ões)' : ''} — clique para reabrir">
+                             <svg viewBox="0 0 24 24" class="nec-pin"><path d="M15 4l5 5-3 1-3.5 3.5L13 17l-1.5 1.5L9 16l-4 4 4-4-2.5-2.5L8 12l3.5-.5L15 8l1-3z"/></svg><span>${fmtBRL(pl.meta)}</span>
+                             ${rz ? `<i>${rz.pct.toLocaleString('pt-BR',{maximumFractionDigits:0})}%</i>` : ''}
+                             ${nRev ? `<u>${nRev}ª</u>` : ''}
+                           </button>`;
                        }
                        return `<button type="button" class="nec-card-fixar" onclick="necFixarPlano('${year}',${m})"
-                                 title="Congela esta meta para medir o realizado contra ela">fixar meta</button>`;
+                                 title="Congela esta meta para medir o realizado contra ela"><svg viewBox="0 0 24 24" class="nec-pin"><path d="M15 4l5 5-3 1-3.5 3.5L13 17l-1.5 1.5L9 16l-4 4 4-4-2.5-2.5L8 12l3.5-.5L15 8l1-3z"/></svg>fixar meta</button>`;
                      })()}
                     ${(dd.cicloDias > 0 || dd.prazoDias > 0)
                        ? (dd.semSaida
@@ -120711,6 +120816,7 @@ function renderNec(){
       </div>`;
   }
   html += '</div>';
+  }
 
   /* De onde vem a meta. O time de vendas recebe um número; sem ver a conta, ele
      é só um número. Aqui está o mês de referência inteiro: o que entra, o que
@@ -120766,6 +120872,41 @@ function renderNec(){
         com o <b>imposto da própria venda</b> por cima — por isso ela é maior que o buraco do mês.</div>
     </div>`;
 
+  /* Onde o realizado fica registrado: aqui. Cada meta fixada vira uma linha
+     com o alvo, o que entrou, o percentual e as revisões pelas quais passou.
+     Sem isto o histórico existia só dentro do JSON — e "onde isso fica
+     guardado?" é uma pergunta que ninguém deveria precisar fazer. */
+  const fixados = [];
+  for(let m = 0; m < 12; m++){
+    const pl = necPlano(year, m);
+    if(pl) fixados.push({ m, pl, rz: necRealizado(year, m) });
+  }
+  if(fixados.length){
+    html += `<div class="nec-tab-wrap">
+        <div class="nec-tab-topo">
+          <span class="nec-gr-tit">Metas fixadas · ${year}</span>
+          <span class="nec-tab-leg">o combinado, e o que entrou contra ele</span>
+        </div>
+        <div class="nec-tab-scroll"><table class="nec-tab">
+          <thead><tr><th class="l">Mês</th><th>Meta fixada</th><th>Fixada em</th>
+            <th>Realizado</th><th>% da meta</th><th>Revisões</th><th class="l">Status</th></tr></thead><tbody>`;
+    for(const f of fixados){
+      const rev = (f.pl.historico || []).length;
+      const pct = f.rz ? f.rz.pct : null;
+      html += `<tr class="${f.m === mCur ? 'atual' : ''}">
+          <td class="l">${NEC_MESES[f.m]}</td>
+          <td>${fmtBRL(f.pl.meta)}</td>
+          <td>${_necDataBR(f.pl.fixadoEm)}</td>
+          <td>${f.rz && f.rz.acima != null ? fmtBRL(f.rz.acima) : '—'}</td>
+          <td class="${pct == null ? '' : (pct >= 100 ? 'cob cheio' : (pct >= 60 ? 'cob quase' : 'cob vazio'))}">
+            ${pct == null ? '—' : pct.toLocaleString('pt-BR',{maximumFractionDigits:0}) + '%'}</td>
+          <td>${rev ? rev + '×' : '—'}</td>
+          <td class="l">${f.pl.fechado ? 'fechado em ' + _necDataBR(f.pl.fechado.em) : 'em aberto'}</td>
+        </tr>`;
+    }
+    html += '</tbody></table></div></div>';
+  }
+
   grade.innerHTML = html;
   /* Só agora os botões do modo existem no DOM: marcar antes não pegava nada e
      o segmento aparecia sem nenhuma opção selecionada. */
@@ -120790,7 +120931,7 @@ try{ window.renderNec = renderNec; }catch(_){}
 const NEC_KEY = 'forekash:necessidade:v1';
 let NEC = { modo:'hora', valorHora:0, valorUnidade:0, unidadeLabel:'unidades', aliqOverride:null,
             margem:0, ano:null, soProjecao:true, grafico:'mensal', ciclo:0,
-            baseAliq:'auto', iss:5, prazoReceb:0, base:'resultado', planos:{} };
+            baseAliq:'auto', iss:5, prazoReceb:0, base:'resultado', planos:{}, agr:'mes' };
 function necLoad(){
   try{ const raw = localStorage.getItem(NEC_KEY); if(raw) NEC = Object.assign(NEC, JSON.parse(raw)); }catch(_){}
 }
@@ -120938,7 +121079,67 @@ function necAliquota(year){
   }catch(e){ return 0; }
 }
 
-/* ═══ PLANO FIXADO ═══════════════════════════════════════════════════
+/* ═══ TRIMESTRE ══════════════════════════════════════════════════════
+   Venda de serviço é irregular: um mês fecha grande, o seguinte não fecha
+   nada. Cobrar a meta mês a mês transforma essa variação natural em crise
+   mensal — e a soma das metas mensais exagera, porque o mês bom não compensa
+   o ruim: ele simplesmente não gera meta.
+
+   No trimestre a conta é feita sobre o saldo AGREGADO do período. Out +48k,
+   nov −57k e dez −125k viram um trimestre de −133k, não 195k de metas
+   mensais somadas. É a mesma empresa; o que muda é a régua. */
+const NEC_TRIS = [{lbl:'1º tri', meses:[0,1,2]}, {lbl:'2º tri', meses:[3,4,5]},
+                  {lbl:'3º tri', meses:[6,7,8]}, {lbl:'4º tri', meses:[9,10,11]}];
+
+function necDadosTri(year, q, m0){
+  const t = NEC_TRIS[q];
+  const meses = t.meses.filter(m => m >= (m0 || 0));
+  if(!meses.length) return null;
+  const ultimo = meses[meses.length - 1];
+  const base = necDados(year, ultimo);          // herda alíquota, ciclo, prazo, janela
+  let saldo = 0, receita = 0;
+  for(const m of meses){
+    receita += (function(){ try{ return flxReceitaMes(year, m) || 0; }catch(_){ return 0; } })();
+    saldo   += necSaldoMes(year, m);
+  }
+  /* Na base caixa o saldo do trimestre não soma: o acumulado do último mês já
+     contém os anteriores. */
+  if(NEC.base === 'caixa'){
+    const c = necCaixaAcum(year, ultimo);
+    if(c != null) saldo = c;
+  }
+  const aliq = base.aliq, m = base.margem;
+  const mBruta = (NEC.baseAliq === 'real' && m > 0) ? Math.min(0.95, m / (1 - FK_REAL_LUCRO)) : m;
+  const denom = 1 - aliq - mBruta;
+  let bruto = 0, falta = 0, impossivel = false;
+  if(m > 0){
+    if(denom <= 0){ impossivel = true; }
+    else { const alvo = mBruta * receita - saldo; bruto = alvo > 0 ? alvo / denom : 0; falta = bruto * (1 - aliq); }
+  } else {
+    falta = saldo < 0 ? -saldo : 0;
+    bruto = aliq < 1 ? falta / (1 - aliq) : falta;
+  }
+  const unidade = (NEC.modo === 'hora')
+    ? (+NEC.valorHora  > 0 ? bruto / +NEC.valorHora  : null)
+    : (+NEC.valorUnidade > 0 ? bruto / +NEC.valorUnidade : null);
+  const porDia = base.uteisVenda > 0 ? bruto / base.uteisVenda : bruto;
+  return Object.assign({}, base, { tri:q, label:t.lbl, meses, saldo, receita, falta, bruto,
+                                   unidade, porDia, impossivel,
+                                   imposto: bruto - falta, mIdx: ultimo });
+}
+function necPeriodos(year, m0){
+  if(NEC.agr !== 'tri') return null;
+  const out = [];
+  for(let q = 0; q < 4; q++){
+    const d = necDadosTri(year, q, m0);
+    if(d) out.push(d);
+  }
+  return out;
+}
+function necSetAgr(v){ NEC.agr = (v === 'tri') ? 'tri' : 'mes'; necSave(); renderNec(); }
+try{ window.necDadosTri = necDadosTri; window.necSetAgr = necSetAgr; window.necPeriodos = necPeriodos; }catch(_){}
+
+/* ═══ PLANO FIXADO ══════════════════════════════════════════════════
    Projeção muda toda semana — e é bom que mude. O problema é medir contra
    ela: comparar o realizado com a projeção de hoje não mede nada, porque o
    alvo se move junto. Quem gastou menos "bateu a meta" sem vender nada.
@@ -120984,13 +121185,53 @@ try{ window.necArquivarPassados = necArquivarPassados; }catch(_){}
 function necFixarPlano(year, mIdx){
   const d = necDados(year, mIdx);
   if(!NEC.planos) NEC.planos = {};
-  NEC.planos[_necYm(year, mIdx)] = {
+  const k = _necYm(year, mIdx);
+  const antigo = NEC.planos[k];
+  /* Refixar não apaga: a meta anterior vai pro histórico. Quem trabalhou
+     perseguindo o alvo antigo tem direito a ele estar registrado. */
+  const historico = (antigo && Array.isArray(antigo.historico)) ? antigo.historico.slice() : [];
+  if(antigo){
+    historico.push({ meta: antigo.meta, receitaPrev: antigo.receitaPrev,
+                     fixadoEm: antigo.fixadoEm, aliq: antigo.aliq, margem: antigo.margem,
+                     base: antigo.base, substituidoEm: new Date().toISOString().slice(0,10) });
+  }
+  NEC.planos[k] = {
     meta: d.bruto, receitaPrev: d.receita, saldoPrev: d.saldo,
     base: NEC.base, aliq: d.aliq, margem: d.margem,
-    fixadoEm: new Date().toISOString().slice(0,10)
+    fixadoEm: new Date().toISOString().slice(0,10),
+    historico: historico
   };
   necSave(); renderNec();
 }
+
+/* Reabrir uma meta fixada é decisão, não clique. O alerta diz o que muda —
+   e o histórico guarda o alvo antigo de qualquer forma. */
+async function necEditarPlano(year, mIdx){
+  const pl = necPlano(year, mIdx);
+  if(!pl) return;
+  if(pl.fechado){
+    if(typeof toast === 'function') toast('Mês fechado — a meta de ' + NEC_MESES[mIdx] + ' virou histórico e não muda mais');
+    return;
+  }
+  const d = necDados(year, mIdx);
+  const dif = d.bruto - pl.meta;
+  const nRev = (pl.historico || []).length;
+  const ok = await askConfirm({
+    title: 'Reabrir a meta de ' + NEC_MESES[mIdx] + '?',
+    message: 'A meta fixada é ' + fmtBRL(pl.meta) + ', de ' + _necDataBR(pl.fixadoEm) + '. '
+           + 'A projeção de hoje pede ' + fmtBRL(d.bruto) + ' — '
+           + (Math.abs(dif) < 0.5 ? 'igual ao que está fixado.'
+              : (dif > 0 ? 'subiu ' : 'caiu ') + fmtBRL(Math.abs(dif)) + '.')
+           + '\n\nRefixar troca o alvo que o time está perseguindo e zera o progresso medido contra o valor antigo. '
+           + 'A versão atual vai para o histórico'
+           + (nRev ? ' (já são ' + nRev + (nRev === 1 ? ' revisão' : ' revisões') + ').' : '.'),
+    variant: 'warn',
+    confirmLabel: 'Refixar em ' + fmtBRL(d.bruto),
+    cancelLabel: 'Manter como está'
+  });
+  if(ok) necFixarPlano(year, mIdx);
+}
+try{ window.necEditarPlano = necEditarPlano; }catch(_){}
 function necSoltarPlano(year, mIdx){
   if(NEC.planos) delete NEC.planos[_necYm(year, mIdx)];
   necSave(); renderNec();
