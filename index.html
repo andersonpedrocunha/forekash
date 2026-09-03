@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788465517"/>
+  <meta name="fk-build" content="forekash-v1788466043"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7731,6 +7731,15 @@
                      background:rgba(37,99,235,.08);border-radius:6px;padding:3px 7px;display:inline-block}
     .nec-card-alerta.fora{color:#B91C1C;background:rgba(185,28,28,.09)}
     .nec-card-alerta.curto{color:#B45309;background:rgba(180,83,9,.10)}
+    .nec-card-fixar{margin-top:6px;background:none;border:1px dashed #CBD5E1;border-radius:6px;
+                    padding:3px 8px;cursor:pointer;font-family:inherit;font-size:.64rem;
+                    font-weight:700;color:#64748B}
+    .nec-card-fixar:hover{border-color:#94A3B8;color:#0F172A}
+    .nec-card-plano{margin-top:6px;font-size:.64rem;font-weight:700;color:#0F172A;
+                    background:rgba(15,23,42,.05);border-radius:6px;padding:3px 8px;
+                    display:flex;gap:6px;flex-wrap:wrap;font-variant-numeric:tabular-nums}
+    .nec-card-plano i{color:#0F766E;font-style:normal}
+    .nec-card-plano.fechado{color:#64748B;font-weight:600}
     .nec-card{background:#fff;border:1px solid #E2E8F0;border-top:3px solid var(--nec-cor,#CBD5E1);
               border-radius:10px;padding:10px 12px}
     .nec-card.atual{box-shadow:0 0 0 2px var(--nec-borda)}
@@ -22818,6 +22827,8 @@ td.mes.do-extrato{background:#ECFDF5}
               <button type="button" id="nec-f-ano"  onclick="necSetProjecao(false)">Ano inteiro</button>
             </div>
             <div style="flex:1"></div>
+            <button type="button" class="nec-eng" onclick="necExportCSV()" title="Baixar a tabela em CSV">CSV</button>
+            <button type="button" class="nec-eng" onclick="necExportPDF()" title="Gerar PDF pela impressão do navegador">PDF</button>
             <button type="button" class="nec-eng" id="nec-eng-btn" onclick="necToggleCfg()"
                     title="Parâmetros do cálculo" aria-expanded="false">
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H3a2 2 0 110-4h.1a1.6 1.6 0 001.5-1 1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V3a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1H21a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z"/></svg>
@@ -120350,6 +120361,125 @@ function necGrOut(){
 }
 try{ window.necGrHover = necGrHover; window.necGrOut = necGrOut; }catch(_){}
 
+/* Export — mesma tabela que está na tela, com os parâmetros que a geraram no
+   cabeçalho. Sem isso o arquivo vira uma coluna de números sem contexto: quem
+   abrir semana que vem não sabe qual alíquota, ciclo ou base produziu aquilo. */
+function _necCsvEsc(v){
+  const t = String(v == null ? '' : v);
+  return /[";\n\r]/.test(t) ? '"' + t.replace(/"/g,'""') + '"' : t;
+}
+function _necCsvNum(v){
+  return (typeof v === 'number' && isFinite(v)) ? v.toFixed(2).replace('.', ',') : '';
+}
+function _necExportDados(){
+  const year = necAnoAtivo();
+  const hoje = new Date();
+  const mCur = (parseInt(year,10) === hoje.getFullYear()) ? hoje.getMonth() : 0;
+  const anoPassado = parseInt(year,10) < hoje.getFullYear();
+  const m0 = (NEC.soProjecao && !anoPassado) ? mCur : 0;
+  const linhas = [];
+  for(let m = m0; m < 12; m++){
+    const c = necComposicao(year, m), d = necDados(year, m), pl = necPlano(year, m);
+    const rz = pl ? necRealizado(year, m) : null;
+    linhas.push({ mes: NEC_MESES[m], receita: c.receita, custo: c.custoTotal, saldo: d.saldo,
+                  cobertura: necCobertura(d), imposto: d.imposto, meta: d.bruto,
+                  unidade: d.unidade, prazo: d.limiteISO,
+                  metaFixada: pl ? pl.meta : null, fixadaEm: pl ? pl.fixadoEm : null,
+                  realizado: rz ? rz.acima : null, pctFeito: rz ? rz.pct : null,
+                  fechado: (pl && pl.fechado) ? 'sim' : '' });
+  }
+  return { year, m0, mCur, anoPassado, linhas };
+}
+function _necCabecalho(){
+  const year = necAnoAtivo();
+  return [
+    ['Necessidade de Venda', year],
+    ['Base da meta', NEC.base === 'caixa' ? 'Fluxo de caixa (acumulado)' : 'Saldo do mês'],
+    ['Período', NEC.soProjecao ? 'Só projeção' : 'Ano inteiro'],
+    ['Imposto sobre a venda', (necAliquota(year)*100).toFixed(2).replace('.',',') + '% · ' + necAliqFonte(year)],
+    ['Margem mínima', (+NEC.margem || 0) + '%'],
+    ['Ciclo de venda', (+NEC.ciclo || 0) + ' dias'],
+    ['Prazo de recebimento', (+NEC.prazoReceb || 0) + ' dias'],
+    ['Conversão', NEC.modo === 'hora'
+        ? ('R$ ' + (+NEC.valorHora || 0).toLocaleString('pt-BR') + ' / hora')
+        : ('R$ ' + (+NEC.valorUnidade || 0).toLocaleString('pt-BR') + ' / ' + NEC.unidadeLabel)],
+    ['Gerado em', new Date().toLocaleString('pt-BR')]
+  ];
+}
+function necExportCSV(){
+  const d = _necExportDados();
+  const L = [];
+  for(const [k,v] of _necCabecalho()) L.push([k, v].map(_necCsvEsc).join(';'));
+  L.push('');
+  L.push(['Mês','Receita prevista','Custo total', NEC.base === 'caixa' ? 'Caixa acumulado' : 'Saldo do mês',
+          '% coberto','Imposto da venda','Meta de venda',
+          NEC.modo === 'hora' ? 'Horas' : NEC.unidadeLabel,
+          'Vender até','Meta fixada','Fixada em','Realizado acima do previsto','% da meta','Mês fechado']
+         .map(_necCsvEsc).join(';'));
+  for(const l of d.linhas){
+    L.push([l.mes, _necCsvNum(l.receita), _necCsvNum(l.custo), _necCsvNum(l.saldo),
+            _necCsvNum(l.cobertura), _necCsvNum(l.imposto), _necCsvNum(l.meta),
+            l.unidade != null ? _necCsvNum(l.unidade) : '',
+            l.meta > 0 ? _necDataBR(l.prazo) : '',
+            _necCsvNum(l.metaFixada), l.fixadaEm ? _necDataBR(l.fixadaEm) : '',
+            _necCsvNum(l.realizado), _necCsvNum(l.pctFeito), l.fechado].map(_necCsvEsc).join(';'));
+  }
+  const csv = '\uFEFF' + L.join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'necessidade-de-venda-' + d.year + (NEC.soProjecao ? '-projecao' : '') + '.csv';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 120);
+  try{ if(typeof toast === 'function') toast('⬇️ CSV gerado — ' + a.download); }catch(_){}
+}
+function necExportPDF(){
+  const d = _necExportDados();
+  const esc = t => String(t == null ? '' : t).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const params = _necCabecalho().map(([k,v]) => `<div><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join('');
+  const linhas = d.linhas.map(l => `<tr${l.meta > 0 ? '' : ' class="zero"'}>
+      <td class="l">${esc(l.mes)}</td>
+      <td>${fmtBRL(l.receita)}</td><td>${fmtBRL(l.custo)}</td>
+      <td class="${l.saldo < 0 ? 'neg' : ''}">${fmtBRL(l.saldo)}</td>
+      <td>${l.cobertura.toLocaleString('pt-BR',{maximumFractionDigits:0})}%</td>
+      <td>${l.imposto > 0 ? fmtBRL(l.imposto) : '—'}</td>
+      <td class="meta">${l.meta > 0 ? fmtBRL(l.meta) : '—'}</td>
+      <td>${l.metaFixada != null ? fmtBRL(l.metaFixada) : '—'}</td>
+      <td>${l.realizado != null ? fmtBRL(l.realizado) : '—'}</td>
+    </tr>`).join('');
+  const html = `<!doctype html><html><head><meta charset="utf-8">
+    <title>Necessidade de Venda ${esc(d.year)}</title><style>
+      body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#0F172A;margin:26px}
+      h1{font-size:18px;margin:0 0 2px} .sub{color:#64748B;font-size:12px;margin-bottom:16px}
+      .par{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:11px;color:#475569;margin-bottom:18px;
+           border:1px solid #E2E8F0;border-radius:8px;padding:10px 12px}
+      .par div{display:flex;gap:6px} .par b{color:#94A3B8;font-weight:700;text-transform:uppercase;font-size:10px}
+      table{width:100%;border-collapse:collapse;font-size:11px}
+      th{text-align:right;padding:6px 8px;border-bottom:1.5px solid #0F172A;font-size:10px;
+         text-transform:uppercase;color:#475569}
+      th.l,td.l{text-align:left;text-transform:uppercase;font-weight:700}
+      td{text-align:right;padding:6px 8px;border-bottom:1px solid #F1F5F9}
+      tr.zero td{color:#94A3B8} td.neg{color:#B91C1C} td.meta{font-weight:800}
+      .rod{margin-top:14px;font-size:10px;color:#94A3B8}
+      @media print{ body{margin:12mm} }
+    </style></head><body>
+      <h1>Necessidade de Venda · ${esc(d.year)}</h1>
+      <div class="sub">Quanto o comercial precisa vender para fechar cada mês, com o imposto da venda embutido.</div>
+      <div class="par">${params}</div>
+      <table><thead><tr><th class="l">Mês</th><th>Receita prevista</th><th>Custo total</th>
+        <th>${NEC.base === 'caixa' ? 'Caixa acumulado' : 'Saldo do mês'}</th><th>% coberto</th>
+        <th>Imposto da venda</th><th>Meta</th><th>Meta fixada</th><th>Realizado</th></tr></thead>
+        <tbody>${linhas}</tbody></table>
+      <div class="rod">Forekash · gerado em ${new Date().toLocaleString('pt-BR')}</div>
+      <script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script>
+    </body></html>`;
+  const w = window.open('', '_blank');
+  if(!w){ if(typeof toast === 'function') toast('⚠ O navegador bloqueou a janela — libere pop-ups para imprimir'); return; }
+  w.document.write(html); w.document.close();
+}
+try{ window.necExportCSV = necExportCSV; window.necExportPDF = necExportPDF; }catch(_){}
+
 function renderNec(){
   const destaque = document.getElementById('nec-destaque');
   const grade    = document.getElementById('nec-meses');
@@ -120391,6 +120521,7 @@ function renderNec(){
 
   const year = necAnoAtivo();
   try{ _necLinhaFluxo(year, true); }catch(_){}   // linha do Fluxo fresca a cada abertura
+  try{ necArquivarPassados(year); }catch(_){}    // fecha o que já passou, uma vez
   const hoje = new Date();
   const mCur = (parseInt(year,10) === hoje.getFullYear()) ? hoje.getMonth() : 0;
   /* Só projeção é o padrão: mês que já fechou não é meta de ninguém. Em ano
@@ -120416,12 +120547,29 @@ function renderNec(){
     return;
   }
   if(d.bruto <= 0){
+    const plCob = necPlano(year, mCur);
+    const rzCob = plCob ? necRealizado(year, mCur) : null;
     destaque.innerHTML = `<div class="nec-hero coberto">
         <div class="nec-hero-tag">${NEC_MESES[mCur]}/${year}</div>
         <div class="nec-hero-num">${NEC.base === 'caixa' ? 'Caixa aguenta' : 'Mês coberto'}</div>
         <div class="nec-hero-sub">${NEC.base === 'caixa'
           ? `O caixa projetado fecha ${NEC_MESES[mCur]} em ${fmtBRL(d.saldo)} — o mês está garantido. Daqui em diante, cada venda vira resultado.`
           : `O previsto já fecha o mês com ${fmtBRL(d.saldo)} de sobra. Daqui em diante, cada venda vira resultado.`}</div>
+        ${plCob ? `<div class="nec-plano">
+            <div class="nec-plano-topo">
+              <span class="nec-plano-tit">Meta fixada em ${_necDataBR(plCob.fixadoEm)} · <b>${fmtBRL(plCob.meta)}</b></span>
+              ${plCob.fechado ? '<span class="nec-plano-tit">mês fechado</span>'
+                              : `<button type="button" class="nec-btn-soltar" onclick="necSoltarPlano('${year}',${mCur})">soltar</button>`}
+            </div>
+            ${rzCob ? `<div class="nec-plano-barra"><i style="width:${Math.min(100,rzCob.pct).toFixed(1)}%"></i></div>
+                       <div class="nec-plano-txt"><b>${fmtBRL(rzCob.acima)}</b> vendidos acima do previsto ·
+                         <b>${rzCob.pct.toLocaleString('pt-BR',{maximumFractionDigits:0})}%</b> da meta</div>`
+                    : '<div class="nec-plano-txt">Sem receita realizada no Extrato ainda para este mês.</div>'}
+          </div>`
+        : `<div class="nec-plano-cta">
+            <span>O cenário mudou desde que você planejou? <b>Fixe</b> a meta para medir contra o combinado.</span>
+            <button type="button" class="nec-btn-fixar" onclick="necFixarPlano('${year}',${mCur})">Fixar meta de ${NEC_MESES[mCur]}</button>
+          </div>`}
       </div>`;
   } else {
     const barra = d.totalUteis > 0 ? Math.round((1 - d.uteis / d.totalUteis) * 100) : 100;
@@ -120540,6 +120688,19 @@ function renderNec(){
         ${zerado ? '<div class="nec-card-sub">coberto</div>'
                  : `${dd.unidade != null ? `<div class="nec-card-unid">${_necUnidadeTxt(dd)}</div>` : ''}
                     <div class="nec-card-sub">${fmtBRL(dd.porDia)}/dia · ${dd.uteisVenda}d úteis</div>
+                    ${(function(){
+                       const pl = necPlano(year, m);
+                       if(pl && pl.fechado) return `<div class="nec-card-plano fechado">fechado · meta era ${fmtBRL(pl.meta)}</div>`;
+                       if(pl){
+                         const rz = necRealizado(year, m);
+                         return `<div class="nec-card-plano">
+                             <span>fixada ${fmtBRL(pl.meta)}</span>
+                             ${rz ? `<i>${rz.pct.toLocaleString('pt-BR',{maximumFractionDigits:0})}% feito</i>` : ''}
+                           </div>`;
+                       }
+                       return `<button type="button" class="nec-card-fixar" onclick="necFixarPlano('${year}',${m})"
+                                 title="Congela esta meta para medir o realizado contra ela">fixar meta</button>`;
+                     })()}
                     ${(dd.cicloDias > 0 || dd.prazoDias > 0)
                        ? (dd.semSaida
                             ? `<div class="nec-card-alerta fora">fora do prazo</div>`
@@ -120791,6 +120952,35 @@ function _necYm(year, mIdx){ return String(year) + '-' + String(mIdx+1).padStart
 function necPlano(year, mIdx){
   return (NEC.planos && NEC.planos[_necYm(year, mIdx)]) || null;
 }
+
+/* Mês que já passou não se recalcula. A meta de agosto foi a que valeu em
+   agosto — recalcular com a projeção de hoje reescreve a história e apaga o
+   que o time viu quando trabalhou aquele mês. Ao virar o mês, o fechamento é
+   gravado uma vez; a partir daí a leitura é do arquivo. */
+function necArquivarPassados(year){
+  const hoje = new Date();
+  const yAtual = hoje.getFullYear(), mAtual = hoje.getMonth();
+  const y = parseInt(year, 10);
+  if(!NEC.planos) NEC.planos = {};
+  let mudou = false;
+  for(let m = 0; m < 12; m++){
+    const passou = (y < yAtual) || (y === yAtual && m < mAtual);
+    if(!passou) continue;
+    const k = _necYm(year, m);
+    const pl = NEC.planos[k];
+    if(!pl || pl.fechado) continue;              // sem plano fixado, nada a arquivar
+    let receitaReal = null;
+    try{ receitaReal = flxRealizadoExtrato(year, 'receita', m); }catch(_){}
+    pl.fechado = {
+      em: new Date().toISOString().slice(0,10),
+      receitaReal: receitaReal,
+      acima: receitaReal == null ? null : (receitaReal - (pl.receitaPrev || 0))
+    };
+    mudou = true;
+  }
+  if(mudou) necSave();
+}
+try{ window.necArquivarPassados = necArquivarPassados; }catch(_){}
 function necFixarPlano(year, mIdx){
   const d = necDados(year, mIdx);
   if(!NEC.planos) NEC.planos = {};
@@ -120813,7 +121003,11 @@ function necRealizado(year, mIdx){
   const plano = necPlano(year, mIdx);
   if(!plano) return null;
   let receitaReal = null;
-  try{ receitaReal = flxRealizadoExtrato(year, 'receita', mIdx); }catch(_){}
+  if(plano.fechado){                                  // mês arquivado: vale o que ficou
+    receitaReal = plano.fechado.receitaReal;
+  } else {
+    try{ receitaReal = flxRealizadoExtrato(year, 'receita', mIdx); }catch(_){}
+  }
   if(receitaReal == null) return null;
   const acima = receitaReal - (plano.receitaPrev || 0);
   const pct = plano.meta > 0 ? Math.max(0, (acima / plano.meta) * 100) : (acima >= 0 ? 100 : 0);
