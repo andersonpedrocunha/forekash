@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788470914"/>
+  <meta name="fk-build" content="forekash-v1788471597"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7687,6 +7687,30 @@
                 letter-spacing:.06em}
     .nec-gr-mes.atual{fill:#0F172A}
     .nec-gr-vazio{padding:26px 10px;text-align:center;color:#64748B;font-size:.84rem}
+    /* velocímetro: leitura única do período */
+    .nec-ga-svg{width:100%;height:210px;display:block;overflow:visible}
+    .nec-ga-fundo{fill:none;stroke:#EEF2F7;stroke-linecap:round}
+    .nec-ga-arco{fill:none;stroke-linecap:round;transition:stroke-dasharray .3s}
+    .nec-ga-arco.vazio{stroke:#EF4444}
+    .nec-ga-arco.meio {stroke:#F59E0B}
+    .nec-ga-arco.quase{stroke:#0EA5E9}
+    .nec-ga-arco.cheio{stroke:#10B981}
+    .nec-ga-tick{stroke:#CBD5E1;stroke-width:1.5}
+    .nec-ga-tick-lbl{font-size:9.5px;font-weight:700;fill:#94A3B8;text-anchor:middle}
+    .nec-ga-pont{stroke:#0F172A;stroke-width:3;stroke-linecap:round}
+    .nec-ga-eixo{fill:#0F172A}
+    .nec-ga-num{font-size:34px;font-weight:800;text-anchor:middle;letter-spacing:-.02em}
+    .nec-ga-num.vazio{fill:#EF4444} .nec-ga-num.meio{fill:#B45309}
+    .nec-ga-num.quase{fill:#0369A1} .nec-ga-num.cheio{fill:#047857}
+    .nec-ga-cap{font-size:10.5px;font-weight:700;fill:#94A3B8;text-anchor:middle;
+                text-transform:uppercase;letter-spacing:.09em}
+    .nec-ga-legenda{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 18px;
+                    margin-top:6px;padding-top:12px;border-top:1px solid #F1F5F9}
+    .nec-ga-legenda div{display:flex;flex-direction:column;gap:2px;min-width:0}
+    .nec-ga-legenda span{font-size:.62rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#94A3B8}
+    .nec-ga-legenda b{font-size:.94rem;font-weight:800;color:#0F172A;font-variant-numeric:tabular-nums}
+    .nec-ga-legenda b.neg{color:#1D4ED8}
+    .nec-ga-legenda b.pos{color:#0F766E}
     .nec-gr-tip{position:absolute;top:34px;display:none;background:#0F172A;color:#fff;border-radius:8px;
                 padding:8px 11px;font-size:.72rem;line-height:1.5;pointer-events:none;z-index:5;
                 box-shadow:0 8px 24px rgba(15,23,42,.22);max-width:230px;font-variant-numeric:tabular-nums}
@@ -120236,7 +120260,7 @@ function necToggleCfg(){
 function necSetAno(v){ NEC.ano = v || null; necSave(); renderNec(); }
 function necSetProjecao(v){ NEC.soProjecao = !!v; necSave(); renderNec(); }
 function necSetGrafico(v){
-  NEC.grafico = (v === 'acumulado' || v === 'cobertura') ? v : 'mensal';
+  NEC.grafico = (v === 'acumulado' || v === 'cobertura' || v === 'gauge') ? v : 'mensal';
   necSave(); renderNec();
 }
 /* Quanto do mês a receita prevista já cobre. 100% = fecha sem venda nova.
@@ -120278,7 +120302,66 @@ function _necUnidadeTxt(d){
    Valor e horas na mesma barra porque não são duas medidas: hora é o valor
    dividido pelo valor/hora, a mesma quantidade em outra unidade. Por isso não
    existe segundo eixo aqui — dois eixos y seria mentir sobre a escala. */
+/* Velocímetro do período: uma leitura só, grande, pra quem passa os olhos.
+   O ponteiro é a COBERTURA — quanto da receita necessária o previsto já cobre.
+   100% quer dizer que o período fecha sem venda nova; 60% quer dizer que
+   quatro décimos do que o período precisa ainda dependem do comercial. */
+function necGaugeSVG(year, m0, larguraPx){
+  const itens = necLista(year, m0);
+  if(!itens.length) return '<div class="nec-gr-vazio">Nada a projetar — o ano já passou.</div>';
+  let receita = 0, falta = 0, meta = 0, feito = 0;
+  for(const d of itens){
+    receita += d.receita; falta += d.falta; meta += d.bruto;
+    const rz = necRealizadoItem(year, d);
+    if(rz) feito += Math.max(0, rz.acima);
+  }
+  const precisa = receita + falta;
+  const pct = precisa > 0 ? Math.max(0, Math.min(100, (receita / precisa) * 100)) : 100;
+
+  const W = Math.max(360, Math.round(larguraPx || 760));
+  /* Número embaixo do eixo, não no meio do arco: o ponteiro cruzava o texto
+     em qualquer ângulo entre 60% e 90%. */
+  const H = 210, cx = W / 2, cy = 138, R = 104, esp = 20;
+  const pol = (ang, raio) => {
+    const a = (180 - ang) * Math.PI / 180;
+    return [cx + raio * Math.cos(a), cy - raio * Math.sin(a)];
+  };
+  const arco = (de, ate, raio) => {
+    const [x1,y1] = pol(de, raio), [x2,y2] = pol(ate, raio);
+    return `M${x1.toFixed(1)},${y1.toFixed(1)} A${raio},${raio} 0 ${(ate-de) > 180 ? 1 : 0} 1 ${x2.toFixed(1)},${y2.toFixed(1)}`;
+  };
+  const angPct = p => (p / 100) * 180;
+  const faixa = pct >= 100 ? 'cheio' : (pct >= 85 ? 'quase' : (pct >= 60 ? 'meio' : 'vazio'));
+
+  let ticks = '';
+  for(const t of [0, 25, 50, 75, 100]){
+    const [xa,ya] = pol(angPct(t), R + esp/2 + 3);
+    const [xb,yb] = pol(angPct(t), R + esp/2 + 8);
+    ticks += `<line x1="${xa.toFixed(1)}" y1="${ya.toFixed(1)}" x2="${xb.toFixed(1)}" y2="${yb.toFixed(1)}" class="nec-ga-tick"/>`;
+    const [xt,yt] = pol(angPct(t), R + esp/2 + 20);
+    ticks += `<text x="${xt.toFixed(1)}" y="${(yt+4).toFixed(1)}" class="nec-ga-tick-lbl">${t}%</text>`;
+  }
+  const [px, py] = pol(angPct(pct), R - esp/2 - 12);
+
+  return `<svg viewBox="0 0 ${W} ${H}" class="nec-ga-svg">
+      <path d="${arco(0, 180, R)}" class="nec-ga-fundo" stroke-width="${esp}"/>
+      <path d="${arco(0, Math.max(0.6, angPct(pct)), R)}" class="nec-ga-arco ${faixa}" stroke-width="${esp}"/>
+      ${ticks}
+      <line x1="${cx}" y1="${cy}" x2="${px.toFixed(1)}" y2="${py.toFixed(1)}" class="nec-ga-pont"/>
+      <circle cx="${cx}" cy="${cy}" r="7" class="nec-ga-eixo"/>
+      <text x="${cx}" y="${cy + 36}" class="nec-ga-num ${faixa}">${pct.toLocaleString('pt-BR',{maximumFractionDigits:0})}%</text>
+      <text x="${cx}" y="${cy + 55}" class="nec-ga-cap">do período coberto</text>
+    </svg>
+    <div class="nec-ga-legenda">
+      <div><span>Receita prevista</span><b>${fmtBRL(receita)}</b></div>
+      <div><span>Falta vender</span><b class="${meta > 0 ? 'neg' : ''}">${fmtBRL(meta)}</b></div>
+      ${feito > 0 ? `<div><span>Já vendido</span><b class="pos">${fmtBRL(feito)}</b></div>` : ''}
+      <div><span>Necessário no período</span><b>${fmtBRL(precisa)}</b></div>
+    </div>`;
+}
+
 function necGraficoSVG(year, mCur, m0, larguraPx){
+  if((NEC.grafico || 'mensal') === 'gauge') return necGaugeSVG(year, m0, larguraPx);
   const itens = necLista(year, m0);
   if(!itens.length) return '<div class="nec-gr-vazio">Nada a projetar — o ano já passou.</div>';
 
@@ -120842,6 +120925,7 @@ function renderNec(){
             <button type="button" id="nec-f-mes" onclick="necSetGrafico('mensal')">Mensal</button>
             <button type="button" id="nec-f-acu" onclick="necSetGrafico('acumulado')">Acumulado</button>
             <button type="button" id="nec-f-cob" onclick="necSetGrafico('cobertura')">% coberto</button>
+            <button type="button" id="nec-f-gau" onclick="necSetGrafico('gauge')">Velocímetro</button>
           </div>
         </div>
         <span class="nec-gr-tot">${NEC.grafico === 'cobertura' ? '' : fmtBRL(totalAno) + (horasAno > 0 ? ' <i>· ' + Math.round(horasAno).toLocaleString('pt-BR') + (NEC.modo === 'hora' ? ' horas' : ' ' + NEC.unidadeLabel) + '</i>' : '')}</span>
@@ -120992,6 +121076,7 @@ function renderNec(){
   seg('nec-f-mes', NEC.grafico === 'mensal');
   seg('nec-f-acu', NEC.grafico === 'acumulado');
   seg('nec-f-cob', NEC.grafico === 'cobertura');
+  seg('nec-f-gau', NEC.grafico === 'gauge');
 }
 try{ window.renderNec = renderNec; }catch(_){}
 
