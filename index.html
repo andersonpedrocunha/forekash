@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788449451"/>
+  <meta name="fk-build" content="forekash-v1788455119"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -116001,7 +116001,11 @@ function _fkHashRapido(str){
   for (let i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
   return String(h) + ':' + str.length;
 }
-const FK_BACKUP_PREFIXES = ['taller_', 'forekash_', 'forekash:', 'home_market_', 'home_news_', 'home_quote_'];
+/* 'reg_' e 'flx_' entraram em 03/09/2026: reg_efetivados_v1 (quais meses do
+   Registro foram efetivados, com data) e flx_struct_v1 (rótulos renomeados e
+   linhas customizadas do DRC/DRE) são trabalho do usuário e ficavam de fora do
+   backup só porque o nome da chave não tinha o prefixo certo. */
+const FK_BACKUP_PREFIXES = ['taller_', 'forekash_', 'forekash:', 'home_market_', 'home_news_', 'home_quote_', 'reg_', 'flx_'];
 
 let _fkBackupTimer = null;
 let _fkBackupLastHash = null;
@@ -116046,7 +116050,20 @@ async function fkcBackupNow(opts){
      prefixo — mas o tamanho mudava, então TODO save virava backup novo de
      ~5 MB. Deu 20 backups num dia só, 101 MB. Hash sobre o conteúdo inteiro
      (djb2, rápido) só grava quando algo realmente mudou. */
-  const hash = _fkHashRapido(json);
+  /* O hash ignora o que muda sozinho. Cotação de dólar, manchete e log de
+     acesso se atualizam por conta própria a cada poucos minutos: o payload
+     mudava, o hash mudava, e saía um backup de 3,8 MB do estado inteiro a
+     cada 15 minutos — 20 snapshots cobrindo menos de dois dias. Elas
+     continuam DENTRO do backup; só não servem mais de gatilho. */
+  const VOLATEIS = ['home_market_', 'home_news_', 'home_quote_',
+                    'forekash:access-log:v1', 'forekash:backup:last_at',
+                    'forekash:backup:pesados_em'];
+  const estavel = {};
+  for (const k of Object.keys(payload)) {
+    if (VOLATEIS.some(v => k.startsWith(v))) continue;
+    estavel[k] = payload[k];
+  }
+  const hash = _fkHashRapido(JSON.stringify(estavel));
   if (!opts.force && hash === _fkBackupLastHash) return { ok:true, skipped:true };
 
   /* Piso de tempo entre backups. Sem isto, uma sessão de trabalho normal
