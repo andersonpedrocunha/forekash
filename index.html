@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788460040"/>
+  <meta name="fk-build" content="forekash-v1788460876"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7578,6 +7578,11 @@
     .nec-hero-unid{margin-top:8px;display:inline-block;font-size:.92rem;font-weight:800;color:#0F172A;
                    background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:6px 12px;
                    font-variant-numeric:tabular-nums}
+    .nec-combinado{margin-top:12px;padding:8px 12px;background:rgba(15,23,42,.05);
+                   border-left:3px solid var(--nec-cor,#0EA5E9);border-radius:0 8px 8px 0;
+                   font-size:.78rem;color:#334155;font-variant-numeric:tabular-nums}
+    .nec-combinado b{color:#0F172A;font-weight:800}
+    .nec-combinado i{color:#64748B;font-style:normal}
     .nec-prazo{margin-top:14px}
     .nec-prazo-barra{height:5px;border-radius:3px;background:rgba(148,163,184,.25);overflow:hidden}
     .nec-prazo-barra i{display:block;height:100%;background:var(--nec-cor,#0EA5E9);border-radius:3px}
@@ -7693,6 +7698,7 @@
     .nec-card-alerta{margin-top:5px;font-size:.66rem;font-weight:700;color:#1D4ED8;
                      background:rgba(37,99,235,.08);border-radius:6px;padding:3px 7px;display:inline-block}
     .nec-card-alerta.fora{color:#B91C1C;background:rgba(185,28,28,.09)}
+    .nec-card-alerta.curto{color:#B45309;background:rgba(180,83,9,.10)}
     .nec-card{background:#fff;border:1px solid #E2E8F0;border-top:3px solid var(--nec-cor,#CBD5E1);
               border-radius:10px;padding:10px 12px}
     .nec-card.atual{box-shadow:0 0 0 2px var(--nec-borda)}
@@ -22708,6 +22714,12 @@ td.mes.do-extrato{background:#ECFDF5}
 
         <div id="com-tab-nec" class="tab-pane" style="display:none">
           <div class="nec-cfg" id="nec-cfg" style="display:none">
+            <div class="nec-cfg-campo">
+              <label>Prazo de recebimento (dias)</label>
+              <input type="text" id="nec-prazo" inputmode="numeric" placeholder="0"
+                     onblur="necSetPrazo(this.value)"
+                     title="Dias entre o fechamento e o dinheiro na conta. A meta é de caixa: o que fecha hoje e paga em 30 dias não resolve este mês.">
+            </div>
             <div class="nec-cfg-campo">
               <label>Ciclo de venda (dias)</label>
               <input type="text" id="nec-ciclo" inputmode="numeric" placeholder="0"
@@ -120023,7 +120035,8 @@ const NEC_NIVEL = {
   critico:   { cor:'#EF4444', fundo:'rgba(239,68,68,.10)',  borda:'rgba(239,68,68,.34)',  rot:'Reta final' },
   futuro:    { cor:'#64748B', fundo:'rgba(100,116,139,.08)',borda:'rgba(100,116,139,.25)',rot:'A vencer' },
   perdido:   { cor:'#94A3B8', fundo:'rgba(148,163,184,.08)',borda:'rgba(148,163,184,.22)',rot:'Mês fechado' },
-  estourado: { cor:'#B91C1C', fundo:'rgba(185,28,28,.10)',  borda:'rgba(185,28,28,.34)',  rot:'Fora do ciclo' }
+  estourado: { cor:'#B45309', fundo:'rgba(180,83,9,.10)',   borda:'rgba(180,83,9,.32)',  rot:'Só à vista' },
+  travado:   { cor:'#B91C1C', fundo:'rgba(185,28,28,.10)',  borda:'rgba(185,28,28,.34)', rot:'Fora do prazo' }
 };
 function necAnoAtivo(){
   if(NEC.ano) return String(NEC.ano);
@@ -120062,6 +120075,7 @@ function necSetBase(v){
   necSave(); renderNec();
 }
 function necSetIss(txt){ NEC.iss = Math.max(0, Math.min(10, _necNum(txt))); necSave(); renderNec(); }
+function necSetPrazo(txt){ NEC.prazoReceb = Math.max(0, Math.round(_necNum(txt))); necSave(); renderNec(); }
 function necToggleCfg(){
   const c = document.getElementById('nec-cfg'), b = document.getElementById('nec-eng-btn');
   if(!c) return;
@@ -120097,7 +120111,7 @@ try{
   window.necSetMargem = necSetMargem; window.necSetAno = necSetAno;
   window.necSetProjecao = necSetProjecao; window.necSetGrafico = necSetGrafico;
   window.necSetCiclo = necSetCiclo; window.necToggleCfg = necToggleCfg;
-  window.necSetBase = necSetBase; window.necSetIss = necSetIss;
+  window.necSetBase = necSetBase; window.necSetIss = necSetIss; window.necSetPrazo = necSetPrazo;
   window.necCobertura = necCobertura;
 }catch(_){}
 
@@ -120313,6 +120327,8 @@ function renderNec(){
     $('nec-margem').value = +NEC.margem > 0 ? String(NEC.margem).replace('.',',') + '%' : '';
   if($('nec-ciclo') && document.activeElement !== $('nec-ciclo'))
     $('nec-ciclo').value = +NEC.ciclo > 0 ? String(NEC.ciclo) : '';
+  if($('nec-prazo') && document.activeElement !== $('nec-prazo'))
+    $('nec-prazo').value = +NEC.prazoReceb > 0 ? String(NEC.prazoReceb) : '';
   const anos = necAnosDisponiveis();
   if($('nec-ano')){
     $('nec-ano').innerHTML = anos.map(a2 => `<option value="${a2}">${a2}</option>`).join('');
@@ -120329,7 +120345,11 @@ function renderNec(){
      passado não sobra projeção, então mostra o ano todo. */
   const anoPassado = parseInt(year,10) < hoje.getFullYear();
   const m0 = (NEC.soProjecao && !anoPassado) ? mCur : 0;
-  const d = necDados(year, mCur);
+  /* Calculado aqui em cima porque o aviso de esforço combinado, dentro do
+     hero, precisa de todos os meses — e não só dos cartões lá embaixo. */
+  const anual = [];
+  for(let m = 0; m < 12; m++) anual.push(necDados(year, m));
+  const d = anual[mCur];
   const cfg = NEC_NIVEL[d.nivel] || NEC_NIVEL.ok;
   const aliqTxt = (d.aliq * 100).toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 }) + '%';
 
@@ -120365,16 +120385,38 @@ function renderNec(){
           <span class="nec-imp-destaque">+ imposto da venda <b>${fmtBRL(d.imposto)}</b> <i>(${aliqTxt} · ${necAliqFonte(year)})</i></span>
         </div>
         ${d.unidade != null ? `<div class="nec-hero-unid">${_necUnidadeTxt(d)}</div>` : ''}
+        ${(function(){
+          /* Os dias de cada meta são os MESMOS dias. A janela de novembro cabe
+             inteira dentro da de dezembro: são 42 dos mesmos 64 dias úteis, o
+             mesmo time. Cada cartão está certo sozinho e o conjunto engana —
+             por isso o esforço combinado aparece aqui. */
+          let soma = 0, nMetas = 0;
+          for(let mm = m0; mm < 12; mm++){
+            const dm = anual[mm];
+            if(dm.bruto > 0 && dm.uteisVenda > 0 && !dm.semSaida){ soma += dm.porDia; nMetas++; }
+          }
+          if(nMetas < 2) return '';
+          return `<div class="nec-combinado">
+              <b>${fmtBRL(soma)}</b> por dia útil somando as ${nMetas} metas em aberto
+              <i>— as janelas se sobrepõem: são os mesmos dias e o mesmo time</i>
+            </div>`;
+        })()}
         <div class="nec-prazo">
           <div class="nec-prazo-barra"><i style="width:${barra}%"></i></div>
           <div class="nec-prazo-txt">
-            ${d.cicloDias > 0
-              ? (d.foraDoPrazo
-                  ? `<b>Fora da janela</b> — com ciclo de ${d.cicloDias} dias, o prazo para prospectar
-                     ${NEC_MESES[d.mIdx]} venceu em ${_necDataBR(d.limiteISO)}. O que entrar agora fecha depois.`
-                  : `<b>${d.uteisVenda}</b> ${d.uteisVenda === 1 ? 'dia útil' : 'dias úteis'} para prospectar ·
-                     prazo até <b>${_necDataBR(d.limiteISO)}</b> <i>(ciclo de ${d.cicloDias} dias)</i> ·
-                     <b>${fmtBRL(d.porDia)}</b> por dia`)
+            ${(d.cicloDias > 0 || d.prazoDias > 0)
+              ? (d.semSaida
+                  ? `<b>Fora do prazo</b> — mesmo fechando hoje, o ciclo de ${d.cicloDias} dias joga o
+                     recebimento para depois do fim de ${NEC_MESES[d.mIdx]}. Venda nova não resolve este mês:
+                     o caminho é antecipar recebível ou empurrar despesa.`
+                  : d.foraDoPrazo
+                    ? `<b>Só com prazo curto</b> — para o dinheiro entrar em ${NEC_MESES[d.mIdx]}, o recebimento
+                       precisa ser em <b>até ${d.prazoMax} ${d.prazoMax === 1 ? 'dia' : 'dias'}</b>
+                       <i>(seu padrão é ${d.prazoDias})</i>. À vista, com entrada, ou prazo menor.`
+                    : `<b>${d.uteisVenda}</b> ${d.uteisVenda === 1 ? 'dia útil' : 'dias úteis'} para prospectar ·
+                       prazo até <b>${_necDataBR(d.limiteISO)}</b>
+                       <i>(ciclo ${d.cicloDias}d${d.prazoDias > 0 ? ' + recebimento ' + d.prazoDias + 'd' : ''})</i> ·
+                       <b>${fmtBRL(d.porDia)}</b> por dia`)
               : `<b>${d.uteis}</b> ${d.uteis === 1 ? 'dia útil' : 'dias úteis'} até o fim do mês ·
                  <b>${fmtBRL(d.porDia)}</b> por dia`}
           </div>
@@ -120384,8 +120426,6 @@ function renderNec(){
 
   // Ano inteiro em barras + os meses em cartão, com valor e horas lado a lado
   _necAnoGr = year;
-  const anual = [];
-  for(let m = 0; m < 12; m++) anual.push(necDados(year, m));
   const visiveis = anual.filter(x => x.mIdx >= m0);
   const totalAno = visiveis.reduce((sm, x) => sm + x.bruto, 0);
   const horasAno = visiveis.reduce((sm, x) => sm + (x.unidade || 0), 0);
@@ -120417,10 +120457,12 @@ function renderNec(){
         ${zerado ? '<div class="nec-card-sub">coberto</div>'
                  : `${dd.unidade != null ? `<div class="nec-card-unid">${_necUnidadeTxt(dd)}</div>` : ''}
                     <div class="nec-card-sub">${fmtBRL(dd.porDia)}/dia · ${dd.uteisVenda}d úteis</div>
-                    ${dd.cicloDias > 0
-                       ? (dd.foraDoPrazo
-                            ? `<div class="nec-card-alerta fora">prazo venceu em ${_necDataBR(dd.limiteISO)}</div>`
-                            : `<div class="nec-card-alerta">vender até ${_necDataBR(dd.limiteISO)}</div>`)
+                    ${(dd.cicloDias > 0 || dd.prazoDias > 0)
+                       ? (dd.semSaida
+                            ? `<div class="nec-card-alerta fora">fora do prazo</div>`
+                            : dd.foraDoPrazo
+                              ? `<div class="nec-card-alerta curto">receber em até ${dd.prazoMax}d</div>`
+                              : `<div class="nec-card-alerta">vender até ${_necDataBR(dd.limiteISO)}</div>`)
                        : ''}`}
       </div>`;
   }
@@ -120493,7 +120535,7 @@ try{ window.renderNec = renderNec; }catch(_){}
 const NEC_KEY = 'forekash:necessidade:v1';
 let NEC = { modo:'hora', valorHora:0, valorUnidade:0, unidadeLabel:'unidades', aliqOverride:null,
             margem:0, ano:null, soProjecao:true, grafico:'mensal', ciclo:0,
-            baseAliq:'auto', iss:5 };
+            baseAliq:'auto', iss:5, prazoReceb:0 };
 function necLoad(){
   try{ const raw = localStorage.getItem(NEC_KEY); if(raw) NEC = Object.assign(NEC, JSON.parse(raw)); }catch(_){}
 }
@@ -120613,20 +120655,37 @@ function _necUteisEntre(ini, fim){
   return n;
 }
 
-/* A janela para PROSPECTAR o mês. Com ciclo de venda, o prazo não é "dias
-   dentro do mês": para o dinheiro entrar em novembro, o negócio precisa
-   começar antes — a data limite é o fim do mês menos o ciclo. Vale para
-   qualquer mês, inclusive os futuros. */
-function necJanela(year, mIdx, cicloDias){
+/* A janela para PROSPECTAR o mês.
+
+   A necessidade é de CAIXA: o dinheiro tem que estar na conta dentro do mês.
+   Só que entre a prospecção e o dinheiro existem duas esperas, não uma — o
+   ciclo até o cliente assinar, e o prazo até ele pagar. As duas contam:
+
+       limite = fim do mês − ciclo de venda − prazo de recebimento
+
+   Com ciclo de 30 e faturamento a 30, dezembro não fecha vendendo em 01/12:
+   fecha vendendo até 01/11. Ignorar o prazo de recebimento fazia a tela
+   prometer um mês que o caixa não ia ver. */
+function necJanela(year, mIdx, cicloDias, prazoDias){
   const y = parseInt(year, 10);
   const hoje = new Date(); hoje.setHours(0,0,0,0);
   const fimMes = new Date(y, mIdx + 1, 0);
+  const espera = Math.max(0, cicloDias || 0) + Math.max(0, prazoDias || 0);
   const limite = new Date(fimMes);
-  limite.setDate(limite.getDate() - Math.max(0, cicloDias || 0));
+  limite.setDate(limite.getDate() - espera);
   const inicio = hoje > new Date(y, mIdx, 1) ? hoje : new Date(y, mIdx, 1);
-  const partida = (cicloDias > 0) ? hoje : inicio;   // com ciclo, dá pra começar antes do mês
+  const partida = (espera > 0) ? hoje : inicio;
   const uteis = _necUteisEntre(partida, limite);
-  return { limite, fimMes, uteis, fora: limite < hoje };
+
+  /* Quando o prazo já venceu, a pergunta muda: não é "quanto vender", é "com
+     que condição". O recebimento máximo que ainda cabe é o que sobra do mês
+     depois de descontar o ciclo — vender à vista, com entrada, ou em 15 dias
+     em vez de 30. Se nem zero couber, o assunto deixa de ser comercial. */
+  const depoisDoCiclo = new Date(hoje);
+  depoisDoCiclo.setDate(depoisDoCiclo.getDate() + Math.max(0, cicloDias || 0));
+  const prazoMax = Math.floor((fimMes - depoisDoCiclo) / 86400000);
+  return { limite, fimMes, uteis, fora: limite < hoje, prazoMax,
+           semSaida: prazoMax < 0 };
 }
 
 function necDiasUteis(year, mIdx, apartirDeHoje){
@@ -120689,7 +120748,8 @@ function necDados(year, mIdx){
      O ciclo é informado em dias corridos (é assim que o time fala); vira dias
      úteis na proporção de 5 pra 7. */
   const cicloDias  = Math.max(0, +NEC.ciclo || 0);
-  const janela     = necJanela(year, mIdx, cicloDias);
+  const prazoDias  = Math.max(0, +NEC.prazoReceb || 0);
+  const janela     = necJanela(year, mIdx, cicloDias, prazoDias);
   const uteisVenda = janela.uteis;
   const limiteISO  = janela.limite.getFullYear() + '-' + String(janela.limite.getMonth()+1).padStart(2,'0')
                    + '-' + String(janela.limite.getDate()).padStart(2,'0');
@@ -120704,6 +120764,7 @@ function necDados(year, mIdx){
   let nivel = 'ok';
   if(bruto > 0){
     if(passou) nivel = 'perdido';
+    else if(janela.semSaida) nivel = 'travado';
     else if(foraDoPrazo) nivel = 'estourado';
     else if(!doMesCorrente && restante > 0.5) nivel = 'futuro';
     else if(restante <= 0.25) nivel = 'critico';
@@ -120712,7 +120773,8 @@ function necDados(year, mIdx){
   }
   return { year, mIdx, saldo, falta, bruto, aliq, uteis, totalUteis, porDia,
            unidade, nivel, doMesCorrente, passou, imposto: bruto - falta,
-           margem: m, receita, impossivel, cicloDias, uteisVenda, foraDoPrazo, limiteISO };
+           margem: m, receita, impossivel, cicloDias, prazoDias, uteisVenda, foraDoPrazo, limiteISO,
+           prazoMax: janela.prazoMax, semSaida: janela.semSaida };
 }
 try{ window.necDados = necDados; window.necAliquota = necAliquota; window.necSaldoMes = necSaldoMes; }catch(_){}
 
