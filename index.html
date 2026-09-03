@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788455119"/>
+  <meta name="fk-build" content="forekash-v1788455909"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -31513,8 +31513,14 @@ function fmtAnos(a){
 // Armazenados como data URL no próprio cliente (localStorage). Suporta múltiplos
 // arquivos por cliente, com nome, tamanho, tipo MIME e data de anexo.
 
-// Limite individual de 5 MB por arquivo — localStorage tem um teto de ~5-10MB.
-const ANEXO_MAX_BYTES = 5 * 1024 * 1024;
+/* Contrato de banco e de fornecedor passa de 5 MB com facilidade. Com o bucket
+   ativo o teto é o do Storage (25 MB); sem ele cai no base64, e aí o limite
+   volta a ser o do navegador. Por isso o teto é perguntado na hora. */
+const ANEXO_MAX_BYTES = 5 * 1024 * 1024;   // fallback base64
+async function anexoTetoAtual(){
+  try{ return (await fkStorageDisponivel()) ? FK_ANEXO_MAX_BYTES : ANEXO_MAX_BYTES; }
+  catch(_){ return ANEXO_MAX_BYTES; }
+}
 
 function anexoNewId(){
   return 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
@@ -31547,15 +31553,16 @@ async function addAnexosCliente(cid, files){
   const arr = Array.from(files || []);
   if(arr.length === 0) return;
 
-  const grandes = arr.filter(f => f.size > ANEXO_MAX_BYTES);
-  const ok      = arr.filter(f => f.size <= ANEXO_MAX_BYTES);
+  const teto    = await anexoTetoAtual();
+  const grandes = arr.filter(f => f.size > teto);
+  const ok      = arr.filter(f => f.size <= teto);
 
   if(grandes.length){
     await askConfirm({
       title: 'Arquivo muito grande',
       message: grandes.length === 1
-        ? `"${grandes[0].name}" tem ${anexoFmtSize(grandes[0].size)} — o limite é ${anexoFmtSize(ANEXO_MAX_BYTES)} por arquivo.`
-        : `${grandes.length} arquivos excedem o limite de ${anexoFmtSize(ANEXO_MAX_BYTES)} por arquivo e foram ignorados.`,
+        ? `"${grandes[0].name}" tem ${anexoFmtSize(grandes[0].size)} — o limite é ${anexoFmtSize(teto)} por arquivo.`
+        : `${grandes.length} arquivos excedem o limite de ${anexoFmtSize(teto)} por arquivo e foram ignorados.`,
       variant: 'warn',
       confirmLabel: 'Entendi',
       cancelLabel: ''
@@ -31564,13 +31571,14 @@ async function addAnexosCliente(cid, files){
 
   for(const f of ok){
     try{
-      const url = await anexoReadFile(f);
+      const at = await fkAnexoIngest(f, 'contrato-cliente');
       c.anexos.push({
         id: anexoNewId(),
-        nome: f.name || 'arquivo',
-        tipo: f.type || '',
-        tamanho: f.size || 0,
-        dataUrl: url,
+        nome: at.name || f.name || 'arquivo',
+        tipo: at.type || f.type || '',
+        tamanho: at.size || f.size || 0,
+        path: at.path || null,          // no Storage
+        dataUrl: at.dataUrl || null,    // ou base64, quando não há bucket
         dataAnexo: new Date().toISOString()
       });
     }catch(e){
@@ -31589,7 +31597,7 @@ function abrirAnexoCliente(cid, anexoId){
   const a = (c && Array.isArray(c.anexos)) ? c.anexos.find(x => x.id === anexoId) : null;
   if(!a){ if(typeof toast === 'function') toast('Anexo indisponível'); return; }
   if(typeof _dkbOpenAttachment === 'function'){
-    _dkbOpenAttachment({ name: a.nome, type: a.tipo, size: a.tamanho, dataUrl: a.dataUrl });
+    _dkbOpenAttachment({ name: a.nome, type: a.tipo, size: a.tamanho, dataUrl: a.dataUrl, path: a.path });
     return;
   }
   if(a.dataUrl) window.open(a.dataUrl, '_blank');
@@ -31600,14 +31608,27 @@ function downloadAnexoCliente(cid, anexoId){
   const c = (receita.clientes || []).find(x => x.id === cid);
   if(!c || !Array.isArray(c.anexos)) return;
   const a = c.anexos.find(x => x.id === anexoId);
-  if(!a || !a.dataUrl) return;
+  if(!a) return;
+  _anexoBaixar(a);
+}
+
+/* Baixar serve pros dois casos: base64 vai direto, Storage passa por uma URL
+   assinada. Um lugar só, porque cliente e pessoa usam o mesmo botão. */
+async function _anexoBaixar(a){
+  if(!a){ if(typeof toast === 'function') toast('Anexo indisponível'); return; }
+  let href = a.dataUrl;
+  if(!href && a.path){
+    try{ href = await fkAnexoUrl(a); }catch(e){ console.warn('[FK] baixar anexo:', e && e.message); }
+  }
+  if(!href){ if(typeof toast === 'function') toast('⚠ "' + (a.nome || 'arquivo') + '" não está disponível para download'); return; }
   const el = document.createElement('a');
-  el.href = a.dataUrl;
+  el.href = href;
   el.download = a.nome || 'anexo';
   document.body.appendChild(el);
   el.click();
   setTimeout(() => el.remove(), 0);
 }
+try{ window._anexoBaixar = _anexoBaixar; }catch(_){}
 
 // Remove um anexo após confirmação.
 async function removeAnexoCliente(cid, anexoId){
@@ -31624,6 +31645,9 @@ async function removeAnexoCliente(cid, anexoId){
     cancelLabel: 'Cancelar'
   });
   if(!ok) return;
+  /* O registro sai da lista; o arquivo tem que sair do bucket junto, senão
+     vira lixo pago que ninguém mais alcança. */
+  try{ await fkAnexoRemover(a); }catch(e){ console.warn('[FK] remover anexo:', e && e.message); }
   c.anexos.splice(idx, 1);
   receitaSave();
   if(clidetCtx && clidetCtx.cid === cid) renderClidet();
@@ -35396,8 +35420,23 @@ function _dkbBaixarAt(kind, i){
 }
 try{ window._dkbBaixarAt = _dkbBaixarAt; window._dkbAnexosDoKind = _dkbAnexosDoKind; }catch(_){}
 
-function _dkbOpenAttachment(anexo){
+async function _dkbOpenAttachment(anexo){
   if(!anexo){ if(typeof toast === 'function') toast('Anexo indisponível'); return; }
+  /* Anexo no Storage: o registro guarda só o ponteiro. Pede uma URL assinada
+     (1h) e abre — mesmo caminho de sempre pra quem olha a tela. */
+  if(!anexo.dataUrl && anexo.path){
+    let url = null;
+    try{ url = await fkAnexoUrl(anexo); }catch(e){ console.warn('[FK] anexo url:', e && e.message); }
+    if(!url){
+      if(typeof toast === 'function') toast('⚠ Não consegui abrir "' + (anexo.name || anexo.nome || 'arquivo') + '" — está na nuvem, mas o acesso falhou');
+      return;
+    }
+    const el = document.createElement('a');
+    el.href = url; el.target = '_blank'; el.rel = 'noopener';
+    document.body.appendChild(el); el.click();
+    setTimeout(() => el.remove(), 0);
+    return;
+  }
   if(!anexo.dataUrl){
     /* Sem dataUrl é o caso do anexo que ficou só como referência (não coube no
        armazenamento quando foi salvo). Dizer isso é melhor que "indisponível". */
@@ -38217,7 +38256,7 @@ let _recKbNewAnexo = null;
    justamente o comprovante. Mesmo valor de FK_ANEXO_MAX_B64 — não dá pra
    referenciar a constante aqui: ela é declarada bem depois no arquivo e, no
    topo do script, isso é ReferenceError (TDZ). */
-const _REC_KB_ANEXO_MAX = 4 * 1024 * 1024;
+const _REC_KB_ANEXO_MAX = 5 * 1024 * 1024;
 
 function _recKbNormalizeNotas(cell){
   if(!cell) return [];
@@ -54743,15 +54782,16 @@ async function addAnexosPessoa(rid, files){
   const arr = Array.from(files || []);
   if(arr.length === 0) return;
 
-  const grandes = arr.filter(f => f.size > ANEXO_MAX_BYTES);
-  const ok      = arr.filter(f => f.size <= ANEXO_MAX_BYTES);
+  const teto    = await anexoTetoAtual();
+  const grandes = arr.filter(f => f.size > teto);
+  const ok      = arr.filter(f => f.size <= teto);
 
   if(grandes.length){
     await askConfirm({
       title: 'Arquivo muito grande',
       message: grandes.length === 1
-        ? `"${grandes[0].name}" tem ${anexoFmtSize(grandes[0].size)} — o limite é ${anexoFmtSize(ANEXO_MAX_BYTES)} por arquivo.`
-        : `${grandes.length} arquivos excedem o limite de ${anexoFmtSize(ANEXO_MAX_BYTES)} por arquivo e foram ignorados.`,
+        ? `"${grandes[0].name}" tem ${anexoFmtSize(grandes[0].size)} — o limite é ${anexoFmtSize(teto)} por arquivo.`
+        : `${grandes.length} arquivos excedem o limite de ${anexoFmtSize(teto)} por arquivo e foram ignorados.`,
       variant: 'warn',
       confirmLabel: 'Entendi',
       cancelLabel: ''
@@ -54760,16 +54800,18 @@ async function addAnexosPessoa(rid, files){
 
   for(const f of ok){
     try{
-      const url = await anexoReadFile(f);
+      const at = await fkAnexoIngest(f, 'documento-pessoa');
       r.anexos.push({
         id: anexoNewId(),
-        nome: f.name || 'arquivo',
-        tipo: f.type || '',
-        tamanho: f.size || 0,
-        dataUrl: url,
+        nome: at.name || f.name || 'arquivo',
+        tipo: at.type || f.type || '',
+        tamanho: at.size || f.size || 0,
+        path: at.path || null,
+        dataUrl: at.dataUrl || null,
         dataAnexo: new Date().toISOString()
       });
     }catch(e){
+      if(typeof toast === 'function') toast((e && e.message) || ('Falha ao anexar "' + (f && f.name) + '"'));
       console.warn('Falha ao anexar', f && f.name, e);
     }
   }
@@ -54797,6 +54839,11 @@ function abrirAnexoPessoa(rid, anexoId){
   const r = pesRegistry().find(x => x.id === rid);
   if(!r || !Array.isArray(r.anexos)) return;
   const a = r.anexos.find(x => x.id === anexoId);
+  if(a && !a.dataUrl && a.path){
+    // no Storage: o visualizador comum resolve a URL assinada
+    _dkbOpenAttachment({ name: a.nome, type: a.tipo, size: a.tamanho, path: a.path });
+    return;
+  }
   if(!a || !a.dataUrl){
     if(typeof toast === 'function') toast('⚠ Este anexo não tem o arquivo guardado — só o registro do nome');
     return;
@@ -54819,13 +54866,8 @@ function downloadAnexoPessoa(rid, anexoId){
   const r = pesRegistry().find(x => x.id === rid);
   if(!r || !Array.isArray(r.anexos)) return;
   const a = r.anexos.find(x => x.id === anexoId);
-  if(!a || !a.dataUrl) return;
-  const el = document.createElement('a');
-  el.href = a.dataUrl;
-  el.download = a.nome || 'anexo';
-  document.body.appendChild(el);
-  el.click();
-  setTimeout(() => el.remove(), 0);
+  if(!a) return;
+  _anexoBaixar(a);
 }
 
 async function removeAnexoPessoa(rid, anexoId){
@@ -54842,6 +54884,7 @@ async function removeAnexoPessoa(rid, anexoId){
     cancelLabel: 'Cancelar'
   });
   if(!ok) return;
+  try{ await fkAnexoRemover(a); }catch(e){ console.warn('[FK] remover anexo:', e && e.message); }
   r.anexos.splice(idx, 1);
   pessoasSave();
   if(_pesCardOpenId != null) renderPesCardBody();
@@ -65258,7 +65301,7 @@ async function cloudCartoesSync(){
    igual — ninguém fica sem anexar. */
 const FK_ANEXO_BUCKET = 'anexos';
 const FK_ANEXO_MAX_BYTES = 25 * 1024 * 1024;   // teto do arquivo no Storage
-const FK_ANEXO_MAX_B64   = 4 * 1024 * 1024;    // teto do fallback em base64
+const FK_ANEXO_MAX_B64   = 5 * 1024 * 1024;    // teto do fallback em base64
 let _fkStorageOk = null;                        // null = ainda não testado
 
 async function fkStorageDisponivel(){
@@ -65287,7 +65330,9 @@ async function fkAnexoIngest(file, escopo){
   if(file.size > teto){
     const mb = Math.round(file.size/1048576*10)/10;
     const err = new Error('"' + file.name + '" tem ' + mb + ' MB — o limite é '
-      + Math.round(teto/1048576) + ' MB' + (usaStorage ? '' : ' enquanto o bucket de anexos não estiver criado'));
+      + Math.round(teto/1048576) + ' MB' + (usaStorage ? '' :
+        ' neste modo (o arquivo fica no navegador). Com o anexo na nuvem o limite é '
+        + Math.round(FK_ANEXO_MAX_BYTES/1048576) + ' MB'));
     err.fkTamanho = true;
     throw err;
   }
@@ -83528,10 +83573,10 @@ async function _ecapHandleFile(file){
   ECAP_STATE.file = file;
   /* Acima deste tamanho o arquivo não vira anexo — só os dados lidos entram.
      Era 2 MB e, pior, em silêncio: o boleto era processado, o lançamento
-     criado e o anexo não estava lá, sem nenhum aviso. Sobe pro mesmo limite
-     dos outros anexos (4 MB) e o aviso aparece na tela de revisão. */
+     criado e o anexo não estava lá, sem nenhum aviso. Segue o mesmo teto dos
+     outros anexos e o aviso aparece na tela de revisão. */
   ECAP_STATE.semInline = false;
-  if(file.size <= 4 * 1024 * 1024){
+  if(file.size <= FK_ANEXO_MAX_B64){
     try { ECAP_STATE.fileBase64 = await _ecapFileToBase64(file); }
     catch(e){ ECAP_STATE.fileBase64 = null; ECAP_STATE.semInline = true; }
   } else {
