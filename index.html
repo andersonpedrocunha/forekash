@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788467895"/>
+  <meta name="fk-build" content="forekash-v1788468370"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7777,6 +7777,13 @@
                    padding:5px 8px;font-family:inherit;font-size:.8rem;color:#0F172A;
                    font-variant-numeric:tabular-nums}
     .nec-metas-inp:disabled{background:#F8FAFC;color:#94A3B8}
+    .nec-metas-inp[readonly]{background:#F8FAFC;color:#475569;border-color:#E2E8F0;cursor:default}
+    .nec-fix-wrap{display:inline-flex;align-items:center;gap:6px}
+    .nec-cad{background:none;border:none;cursor:pointer;font-size:.82rem;line-height:1;padding:2px;
+             opacity:.45;filter:grayscale(1)}
+    .nec-cad:hover{opacity:.9}
+    .nec-cad.aberto{opacity:1;filter:none}
+    .nec-cad.fechado{cursor:default;opacity:.3}
     .nec-mini{background:#fff;border:1px solid #CBD5E1;border-radius:6px;padding:4px 9px;cursor:pointer;
               font-family:inherit;font-size:.68rem;font-weight:700;color:#475569;margin-left:5px}
     .nec-mini:hover{border-color:#94A3B8;color:#0F172A}
@@ -121177,21 +121184,34 @@ function necLista(year, m0){
 
 /* Realizado do período: no trimestre, soma o que entrou acima do previsto em
    cada mês dele. */
+/* Progresso da meta = quanto a receita do mês subiu depois que a meta foi
+   fixada.
+
+   Antes eu lia só o realizado do Extrato — dinheiro na conta. Para o mês
+   corrente até funcionava; para novembro, não: uma venda fechada hoje para
+   novembro entra como receita prevista de novembro e só vira caixa depois.
+   O time vendeu, e a tela mostrava zero.
+
+   flxReceitaMes resolve os dois casos com uma chamada: em mês já realizado
+   ele devolve o que o Extrato registrou, em mês futuro devolve a previsão.
+   Comparado com a receita que o plano tinha na hora de fixar, a diferença é
+   exatamente a venda nova. */
 function necRealizadoItem(year, item){
   if(!item) return null;
   const pl = (NEC.planos || {})[item.chave];
   if(!pl) return null;
-  let real = 0, achou = false;
+  let receitaHoje = 0, achou = false;
   for(const m of item.meses){
     let v = null;
     if(pl.fechado && pl.fechado.receitaReal != null && item.meses.length === 1) v = pl.fechado.receitaReal;
-    else { try{ v = flxRealizadoExtrato(year, 'receita', m); }catch(_){} }
-    if(v != null){ real += v; achou = true; }
+    else { try{ v = flxReceitaMes(year, m); }catch(_){} }
+    if(v != null && isFinite(v)){ receitaHoje += v; achou = true; }
   }
   if(!achou) return null;
-  const acima = real - (pl.receitaPrev || 0);
+  const acima = receitaHoje - (pl.receitaPrev || 0);
+  if(Math.abs(acima) < 0.005) return { receitaReal: receitaHoje, acima: 0, pct: 0, plano: pl };
   const pct = pl.meta > 0 ? Math.max(0, (acima / pl.meta) * 100) : (acima >= 0 ? 100 : 0);
-  return { receitaReal: real, acima, pct: Math.min(999, pct), plano: pl };
+  return { receitaReal: receitaHoje, acima, pct: Math.min(999, pct), plano: pl };
 }
 try{ window.necLista = necLista; window.necRealizadoItem = necRealizadoItem; }catch(_){}
 
@@ -121243,7 +121263,7 @@ function necArquivarPassados(year){
     const pl = NEC.planos[k];
     if(!pl || pl.fechado) continue;              // sem plano fixado, nada a arquivar
     let receitaReal = null;
-    try{ receitaReal = flxRealizadoExtrato(year, 'receita', m); }catch(_){}
+    try{ receitaReal = flxReceitaMes(year, m); }catch(_){}
     pl.fechado = {
       em: new Date().toISOString().slice(0,10),
       receitaReal: receitaReal,
@@ -121348,7 +121368,10 @@ function necMetasAbrir(){
   document.body.appendChild(ov);
   necMetasRender();
 }
-function necMetasFechar(){ const o = document.getElementById('nec-metas-ov'); if(o) o.remove(); }
+function necMetasFechar(){
+  for(const k of Object.keys(_NEC_DESTRAVADO)) delete _NEC_DESTRAVADO[k];
+  const o = document.getElementById('nec-metas-ov'); if(o) o.remove();
+}
 function necMetasRender(){
   const ov = document.getElementById('nec-metas-ov');
   if(!ov) return;
@@ -121367,9 +121390,18 @@ function necMetasRender(){
         <td class="l">${it.label}</td>
         <td class="proj">${it.bruto > 0 ? fmtBRL(it.bruto) : '<span class="cob">coberto</span>'}</td>
         <td class="fix">
-          ${pl ? `<input type="text" value="${fmtBRL(pl.meta)}" class="nec-metas-inp"
-                     onblur="necMetaValor('${it.chave}', this.value)"
-                     ${pl.fechado ? 'disabled' : ''}>` : '<span class="vazio">—</span>'}
+          ${pl ? `<span class="nec-fix-wrap">
+                    <input type="text" value="${fmtBRL(pl.meta)}" class="nec-metas-inp"
+                       id="nec-inp-${it.chave}"
+                       onblur="necMetaValor('${it.chave}', this.value)"
+                       ${(pl.fechado || !_NEC_DESTRAVADO[it.chave]) ? 'readonly' : ''}>
+                    ${pl.fechado
+                      ? '<span class="nec-cad fechado" title="Mês fechado — vira histórico">🔒</span>'
+                      : `<button type="button" class="nec-cad${_NEC_DESTRAVADO[it.chave] ? ' aberto' : ''}"
+                           onclick="necDestravarMeta('${year}','${it.chave}')"
+                           title="${_NEC_DESTRAVADO[it.chave] ? 'Aberto para edição — clique para travar' : 'Meta travada — clique para liberar a edição'}">
+                           ${_NEC_DESTRAVADO[it.chave] ? '🔓' : '🔒'}</button>`}
+                  </span>` : '<span class="vazio">—</span>'}
         </td>
         <td>${pl ? _necDataBR(pl.fixadoEm) : ''}</td>
         <td>${rz ? fmtBRL(rz.acima) : '—'}</td>
@@ -121379,7 +121411,7 @@ function necMetasRender(){
             ? `<span class="${dif > 0 ? 'sobe' : 'desce'}">${dif > 0 ? '+' : '−'}${fmtBRL(Math.abs(dif))}</span>` : ''}</td>
         <td class="acao">
           ${pl && pl.fechado ? '<span class="vazio">fechado</span>'
-            : pl ? `<button type="button" class="nec-mini" onclick="necFixarPlano('${year}',null,'${it.chave}')" title="Atualizar para a projeção de hoje">refixar</button>
+            : pl ? `<button type="button" class="nec-mini" onclick="necRefixarComAviso('${year}','${it.chave}')" title="Atualizar para a projeção de hoje">refixar</button>
                     <button type="button" class="nec-mini alt" onclick="necSoltarChave('${it.chave}')">soltar</button>`
                  : `<button type="button" class="nec-mini forte" onclick="necFixarPlano('${year}',null,'${it.chave}')"
                       ${it.bruto > 0 ? '' : 'disabled'}>fixar</button>`}
@@ -121406,10 +121438,62 @@ function necMetasRender(){
       </div>
     </div>`;
 }
+/* Meta fixada nasce travada. O alvo é um acordo com o time — mudar por
+   engano num campo de texto é fácil demais. Destravar é por linha e só nesta
+   sessão: fechou o modal, tranca de novo. */
+const _NEC_DESTRAVADO = {};
+async function necDestravarMeta(year, chave){
+  if(_NEC_DESTRAVADO[chave]){ delete _NEC_DESTRAVADO[chave]; necMetasRender(); return; }
+  const pl = (NEC.planos || {})[chave];
+  if(!pl) return;
+  const it = _necItemPorChave(year, chave);
+  const dif = it ? (it.bruto - pl.meta) : 0;
+  const nRev = (pl.historico || []).length;
+  const ok = await askConfirm({
+    title: 'Liberar a meta de ' + (it ? it.label : chave) + '?',
+    message: 'A meta fixada é ' + fmtBRL(pl.meta) + ', de ' + _necDataBR(pl.fixadoEm) + '. '
+           + (it ? 'A projeção de hoje pede ' + fmtBRL(it.bruto)
+                 + (Math.abs(dif) < 0.5 ? ' — igual ao que está fixado.'
+                    : (dif > 0 ? ' — subiu ' : ' — caiu ') + fmtBRL(Math.abs(dif)) + '.') : '')
+           + '\n\nMudar o valor troca o alvo que o time está perseguindo e altera o percentual já '
+           + 'medido contra ele. A versão atual vai para o histórico'
+           + (nRev ? ' (já são ' + nRev + (nRev === 1 ? ' revisão' : ' revisões') + ').' : '.'),
+    variant: 'warn',
+    confirmLabel: 'Liberar edição',
+    cancelLabel: 'Manter travada'
+  });
+  if(!ok) return;
+  _NEC_DESTRAVADO[chave] = true;
+  necMetasRender();
+  const inp = document.getElementById('nec-inp-' + chave);
+  if(inp){ inp.focus(); inp.select(); }
+}
+async function necRefixarComAviso(year, chave){
+  const pl = (NEC.planos || {})[chave];
+  const it = _necItemPorChave(year, chave);
+  if(!pl || !it) return;
+  const dif = it.bruto - pl.meta;
+  const ok = await askConfirm({
+    title: 'Refixar ' + it.label + ' em ' + fmtBRL(it.bruto) + '?',
+    message: 'A meta atual é ' + fmtBRL(pl.meta) + '. '
+           + (Math.abs(dif) < 0.5 ? 'A projeção de hoje pede o mesmo valor.'
+              : 'A projeção de hoje pede ' + fmtBRL(it.bruto) + ' — '
+                + (dif > 0 ? 'subiu ' : 'caiu ') + fmtBRL(Math.abs(dif)) + '.')
+           + '\n\nO progresso medido contra o valor antigo muda de percentual. A versão atual vai para o histórico.',
+    variant: 'warn', confirmLabel: 'Refixar', cancelLabel: 'Cancelar'
+  });
+  if(ok){ necFixarPlano(year, null, chave); necMetasRender(); }
+}
+try{ window.necDestravarMeta = necDestravarMeta; window.necRefixarComAviso = necRefixarComAviso; }catch(_){}
+
 function necMetaValor(chave, txt){
   const v = _necNum(txt);
   const pl = (NEC.planos || {})[chave];
   if(!pl || pl.fechado) return;
+  /* A trava vive aqui, não no atributo readonly do campo: readonly impede
+     digitar, mas não impede um autofill, uma extensão ou um script de mudar o
+     value e disparar o blur — e o valor entrava sem passar pelo alerta. */
+  if(!_NEC_DESTRAVADO[chave]) return;
   if(Math.abs(v - pl.meta) < 0.005) return;
   if(!Array.isArray(pl.historico)) pl.historico = [];
   pl.historico.push({ meta: pl.meta, receitaPrev: pl.receitaPrev, fixadoEm: pl.fixadoEm,
@@ -121418,6 +121502,7 @@ function necMetaValor(chave, txt){
   pl.meta = v;
   pl.fixadoEm = new Date().toISOString().slice(0,10);
   pl.manual = true;                       // valor combinado, não calculado
+  delete _NEC_DESTRAVADO[chave];          // salvou, tranca de novo
   necSave(); necMetasRender(); renderNec();
 }
 function necSoltarChave(chave){
