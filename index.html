@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788462640"/>
+  <meta name="fk-build" content="forekash-v1788463024"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -42669,6 +42669,12 @@ function renderFlxSheet(){
      seções personalizadas — dois números diferentes pro mesmo conceito, na
      mesma tela. Uma conta só, um resultado só. */
   try{ window._flxFimDeAno = { ano: String(year), valor: arrSaldoFinal[11], inicial: saldoIni }; }catch(_){}
+  /* A linha inteira, publicada pra quem precisa dela fora do Fluxo — hoje a
+     Necessidade de Venda. Ela reconstruía a soma por fora e dava outro número:
+     arrSaldoMes carrega parcelamento de impostos e os ajustes de caixa das
+     seções personalizadas, que flxSaldoMesVal não conhece. Uma conta só. */
+  try{ window._flxCaixaLinha = { ano: String(year), saldoMes: arrSaldoMes.slice(),
+                                 saldoFinal: arrSaldoFinal.slice(), inicial: saldoIni }; }catch(_){}
 
   // Helpers de linha.
   // rowKey: ativa check de confirmação por célula (✓ sutil).
@@ -120361,6 +120367,7 @@ function renderNec(){
   // os botões do gráfico nascem só no innerHTML lá embaixo — marcados no fim
 
   const year = necAnoAtivo();
+  try{ _necLinhaFluxo(year, true); }catch(_){}   // linha do Fluxo fresca a cada abertura
   const hoje = new Date();
   const mCur = (parseInt(year,10) === hoje.getFullYear()) ? hoje.getMonth() : 0;
   /* Só projeção é o padrão: mês que já fechou não é meta de ninguém. Em ano
@@ -120570,9 +120577,34 @@ function necSave(){
 /* Saldo do mês — mesma conta da linha SALDO DO MÊS do Fluxo. Reusa as funções
    de lá de propósito: se a regra do Fluxo mudar, este indicador acompanha em
    vez de divergir. */
+/* A linha do Fluxo, publicada por renderFlxSheet. É a fonte: qualquer conta
+   feita por fora diverge, porque a linha carrega parcelamento de impostos e
+   ajustes de caixa de seções personalizadas.
+
+   Se ela ainda não existe (o usuário abriu Negócios sem passar pelo Fluxo),
+   manda renderizar uma vez. */
+function _necLinhaFluxo(year, forcar){
+  const ok = () => (window._flxCaixaLinha && window._flxCaixaLinha.ano === String(year))
+                    ? window._flxCaixaLinha : null;
+  let l = ok();
+  /* Sem o forcar, a linha ficava em cache: mudar o saldo inicial no Fluxo não
+     mexia na meta até alguém reabrir aquele módulo. renderNec pede fresco uma
+     vez por abertura; as chamadas seguintes, dentro do mesmo render, reusam. */
+  if(l && !forcar) return l;
+  try{
+    if(typeof flxSetYear === 'function' && typeof flxActiveYear !== 'undefined'
+       && String(flxActiveYear) !== String(year)){
+      // ano diferente do aberto: não mexo na tela do Fluxo, uso o fallback
+      return null;
+    }
+    if(typeof renderFlxSheet === 'function') renderFlxSheet();
+  }catch(_){}
+  return ok();
+}
+
 function necSaldoMes(year, mIdx){
-  /* flxSaldoMesVal É a linha SALDO DO MÊS do Fluxo. Chamar ela em vez de
-     repetir a soma aqui garante que os dois números nunca divirjam. */
+  const l = _necLinhaFluxo(year);
+  if(l && Array.isArray(l.saldoMes) && isFinite(l.saldoMes[mIdx])) return l.saldoMes[mIdx];
   try{ return flxSaldoMesVal(year, mIdx); }catch(e){ return 0; }
 }
 
@@ -120585,6 +120617,11 @@ function necSaldoMes(year, mIdx){
    dele. Uma diferença conhecida: ajustes de caixa de seções personalizadas
    entram lá e não entram aqui. */
 function necCaixaAcum(year, mIdx){
+  const l = _necLinhaFluxo(year);
+  if(l && Array.isArray(l.saldoFinal)){
+    const v = l.saldoFinal[mIdx];
+    return (v == null || !isFinite(v)) ? null : v;   // null = mês antes da âncora do saldo
+  }
   try{
     const ini    = flxSaldoInicialEfetivo(year) || 0;
     const ancora = flxSaldoInicialMesVal(year) || 0;
