@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788467063"/>
+  <meta name="fk-build" content="forekash-v1788467895"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7736,6 +7736,53 @@
     .nec-plano-hist{margin-top:6px;font-size:.68rem;color:#64748B;font-variant-numeric:tabular-nums}
     .nec-plano-hist i{font-style:normal;color:#94A3B8}
     .nec-plano-hist b{color:#0F172A}
+
+    /* realizado dentro do cartão e da barra do gráfico */
+    .nec-card-feito{margin-top:7px}
+    .nec-card-barra{height:5px;border-radius:3px;background:rgba(148,163,184,.22);overflow:hidden}
+    .nec-card-barra i{display:block;height:100%;background:#10B981;border-radius:3px}
+    .nec-card-feito-txt{margin-top:3px;font-size:.64rem;color:#64748B;font-variant-numeric:tabular-nums}
+    .nec-card-feito-txt b{color:#0F766E;font-weight:800}
+    .nec-gr-feito{fill:#0F766E;opacity:.92}
+    .nec-gr-feito-lbl{font-size:9.5px;font-weight:800;fill:#fff;text-anchor:middle}
+
+    /* modal de metas */
+    .nec-ov{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9998;display:flex;
+            align-items:flex-start;justify-content:center;padding:48px 20px;overflow:auto;
+            backdrop-filter:blur(2px)}
+    .nec-metas-card{background:#fff;border-radius:14px;width:min(940px,100%);
+                    box-shadow:0 24px 64px rgba(15,23,42,.28);overflow:hidden}
+    .nec-metas-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;
+                  padding:18px 22px;border-bottom:1px solid #E2E8F0}
+    .nec-metas-cap{font-size:.66rem;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:#94A3B8}
+    .nec-metas-hd h2{margin:3px 0 0;font-size:1.16rem;color:#0F172A}
+    .nec-metas-x{background:#F1F5F9;border:none;width:32px;height:32px;border-radius:50%;
+                 font-size:1.25rem;color:#475569;cursor:pointer;line-height:1}
+    .nec-metas-corpo{padding:16px 22px 22px}
+    .nec-metas-sub{margin:0 0 14px;font-size:.8rem;color:#64748B;line-height:1.55;max-width:70ch}
+    .nec-metas-tab{width:100%;border-collapse:collapse;font-size:.8rem;font-variant-numeric:tabular-nums}
+    .nec-metas-tab th{font-size:.64rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+                      color:#94A3B8;text-align:right;padding:0 10px 8px;border-bottom:1px solid #E2E8F0}
+    .nec-metas-tab th.l,.nec-metas-tab td.l{text-align:left;text-transform:uppercase;font-weight:800;color:#475569}
+    .nec-metas-tab td{text-align:right;padding:7px 10px;border-bottom:1px solid #F1F5F9;color:#334155}
+    .nec-metas-tab tr.atual td{background:#F8FAFC}
+    .nec-metas-tab tr.passou td{color:#94A3B8}
+    .nec-metas-tab td.proj{color:#1D4ED8;font-weight:700}
+    .nec-metas-tab td.proj .cob{color:#0F766E;font-weight:600}
+    .nec-metas-tab td.dif .sobe{color:#B45309;font-weight:700}
+    .nec-metas-tab td.dif .desce{color:#0F766E;font-weight:700}
+    .nec-metas-tab td.acao{text-align:right;white-space:nowrap}
+    .nec-metas-tab .vazio{color:#CBD5E1}
+    .nec-metas-inp{width:118px;text-align:right;border:1px solid #CBD5E1;border-radius:6px;
+                   padding:5px 8px;font-family:inherit;font-size:.8rem;color:#0F172A;
+                   font-variant-numeric:tabular-nums}
+    .nec-metas-inp:disabled{background:#F8FAFC;color:#94A3B8}
+    .nec-mini{background:#fff;border:1px solid #CBD5E1;border-radius:6px;padding:4px 9px;cursor:pointer;
+              font-family:inherit;font-size:.68rem;font-weight:700;color:#475569;margin-left:5px}
+    .nec-mini:hover{border-color:#94A3B8;color:#0F172A}
+    .nec-mini.forte{background:#0F172A;border-color:#0F172A;color:#fff}
+    .nec-mini.alt{color:#94A3B8}
+    .nec-mini:disabled{opacity:.4;cursor:default}
     .nec-card{background:#fff;border:1px solid #E2E8F0;border-top:3px solid var(--nec-cor,#CBD5E1);
               border-radius:10px;padding:10px 12px}
     .nec-card.atual{box-shadow:0 0 0 2px var(--nec-borda)}
@@ -120191,23 +120238,21 @@ function _necUnidadeTxt(d){
    dividido pelo valor/hora, a mesma quantidade em outra unidade. Por isso não
    existe segundo eixo aqui — dois eixos y seria mentir sobre a escala. */
 function necGraficoSVG(year, mCur, m0, larguraPx){
-  const dados = [];
-  for(let m = 0; m < 12; m++) dados.push(necDados(year, m));
-  const meses = [];
-  for(let m = m0; m < 12; m++) meses.push(m);
-  if(!meses.length) return '<div class="nec-gr-vazio">Nada a projetar — o ano já passou.</div>';
+  const itens = necLista(year, m0);
+  if(!itens.length) return '<div class="nec-gr-vazio">Nada a projetar — o ano já passou.</div>';
 
   /* Acumulado responde outra pergunta: não "quanto em novembro", mas "quanto
      até novembro". Some as metas do período visível, na ordem. */
   const modo = NEC.grafico || 'mensal';
   let acum = 0;
-  const serie = meses.map(m => {
-    const d = dados[m];
+  const serie = itens.map(d => {
     acum += d.bruto;
     const valor = modo === 'acumulado' ? acum
                 : modo === 'cobertura' ? necCobertura(d)
                 : d.bruto;
-    return { m, valor, mensal: d.bruto, acum, d };
+    const rz = necRealizadoItem(year, d);
+    return { m: d.mIdx, label: d.label, valor, mensal: d.bruto, acum, d,
+             feito: rz && rz.acima > 0 ? rz.acima : 0, pct: rz ? rz.pct : null };
   });
   // Em % a escala é sempre 0–100: barra de porcentagem com topo variável mente.
   const max = modo === 'cobertura' ? 100 : Math.max(...serie.map(x => x.valor), 1);
@@ -120262,7 +120307,7 @@ function necGraficoSVG(year, mCur, m0, larguraPx){
       if(it.valor > 0){
         rotulos += `<text x="${p.x.toFixed(1)}" y="${(p.y - 12).toFixed(1)}" class="nec-gr-val${atual?' atual':''}">${_necCurto(it.valor)}</text>`;
       }
-      rotulos += `<text x="${p.x.toFixed(1)}" y="${H - 11}" class="nec-gr-mes${atual ? ' atual' : ''}">${NEC_MESES[it.m]}</text>`;
+      rotulos += `<text x="${p.x.toFixed(1)}" y="${H - 11}" class="nec-gr-mes${atual ? ' atual' : ''}">${it.label}</text>`;
       hits += `<rect x="${(p.x - slot/2).toFixed(1)}" y="${padT}" width="${slot.toFixed(1)}" height="${plotH}" `
            +  `fill="transparent" class="nec-gr-hit" data-m="${it.m}" data-ac="${it.valor.toFixed(2)}" data-cob="" `
            +  `data-x="${p.x.toFixed(1)}"/>`;
@@ -120289,7 +120334,7 @@ function necGraficoSVG(year, mCur, m0, larguraPx){
              +  `L${(x+bw).toFixed(1)},${y0} Z"/>`;
       rotulos += `<text x="${cx.toFixed(1)}" y="${(y-8).toFixed(1)}" class="nec-gr-val${atual?' atual':''}">`
              +  `${pct.toLocaleString('pt-BR',{maximumFractionDigits:0})}%</text>`;
-      rotulos += `<text x="${cx.toFixed(1)}" y="${H - 11}" class="nec-gr-mes${atual ? ' atual' : ''}">${NEC_MESES[it.m]}</text>`;
+      rotulos += `<text x="${cx.toFixed(1)}" y="${H - 11}" class="nec-gr-mes${atual ? ' atual' : ''}">${it.label}</text>`;
       hits += `<rect x="${(cx - slot/2).toFixed(1)}" y="${padT}" width="${slot.toFixed(1)}" height="${plotH}" `
            +  `fill="transparent" class="nec-gr-hit" data-m="${it.m}" data-ac="" data-cob="${pct.toFixed(1)}"/>`;
       return;
@@ -120308,8 +120353,21 @@ function necGraficoSVG(year, mCur, m0, larguraPx){
              +  `L${(x+bw).toFixed(1)},${y0} Z"/>`;
       // ele pediu todos os valores visíveis — cabe porque são no máximo 12 e o rótulo é curto
       rotulos += `<text x="${cx.toFixed(1)}" y="${(y-8).toFixed(1)}" class="nec-gr-val${atual?' atual':''}">${_necCurto(it.valor)}</text>`;
+      /* Realizado por dentro da meta: a barra clara é o alvo, a escura é o que
+         já entrou. Duas barras lado a lado obrigariam a comparar alturas. */
+      if(modo === 'mensal' && it.feito > 0){
+        const hf = Math.min(h, (it.feito / max) * plotH);
+        const yf = y0 - hf;
+        const rf = Math.min(4, hf);
+        barras += `<path class="nec-gr-feito" d="M${x.toFixed(1)},${y0} L${x.toFixed(1)},${(yf+rf).toFixed(1)} `
+               +  `Q${x.toFixed(1)},${yf.toFixed(1)} ${(x+rf).toFixed(1)},${yf.toFixed(1)} `
+               +  `L${(x+bw-rf).toFixed(1)},${yf.toFixed(1)} Q${(x+bw).toFixed(1)},${yf.toFixed(1)} ${(x+bw).toFixed(1)},${(yf+rf).toFixed(1)} `
+               +  `L${(x+bw).toFixed(1)},${y0} Z"/>`;
+        rotulos += `<text x="${cx.toFixed(1)}" y="${(y0-6).toFixed(1)}" class="nec-gr-feito-lbl">`
+               +  `${(it.pct||0).toLocaleString('pt-BR',{maximumFractionDigits:0})}%</text>`;
+      }
     }
-    rotulos += `<text x="${cx.toFixed(1)}" y="${H - 11}" class="nec-gr-mes${atual ? ' atual' : ''}">${NEC_MESES[it.m]}</text>`;
+    rotulos += `<text x="${cx.toFixed(1)}" y="${H - 11}" class="nec-gr-mes${atual ? ' atual' : ''}">${it.label}</text>`;
     hits += `<rect x="${(cx - slot/2).toFixed(1)}" y="${padT}" width="${slot.toFixed(1)}" height="${plotH}" `
          +  `fill="transparent" class="nec-gr-hit" data-m="${it.m}" data-ac="${modo === 'acumulado' ? it.valor.toFixed(2) : ''}" data-cob=""/>`;
   });
@@ -120330,11 +120388,15 @@ function necGrHover(ev){
   const alvo = ev.target.closest ? ev.target.closest('.nec-gr-hit') : null;
   const tip = document.getElementById('nec-gr-tip');
   if(!alvo || !tip){ if(tip) tip.style.display = 'none'; return; }
+  const yy = _necAnoGr || necAnoAtivo();
   const m = parseInt(alvo.getAttribute('data-m'), 10);
-  const d = necDados(_necAnoGr || necAnoAtivo(), m);
+  const lista = necLista(yy, 0);
+  const d = lista.find(x => x.mIdx === m) || necDados(yy, m);
   const ac = parseFloat(alvo.getAttribute('data-ac'));
   const cob = parseFloat(alvo.getAttribute('data-cob'));
-  const linhas = [`<b>${NEC_MESES[m]}/${d.year}</b>`];
+  const linhas = [`<b>${d.label}/${d.year}</b>`];
+  const rzT = necRealizadoItem(yy, d);
+  if(rzT) linhas.push(`Realizado <b>${fmtBRL(rzT.acima)}</b> · ${rzT.pct.toLocaleString('pt-BR',{maximumFractionDigits:0})}% da meta`);
   if(isFinite(ac) && ac > 0) linhas.push(`Acumulado até aqui <b>${fmtBRL(ac)}</b>`);
   if(isFinite(cob)) linhas.push(`Mês <b>${cob.toLocaleString('pt-BR',{maximumFractionDigits:0})}% coberto</b> pelo previsto`);
   if(d.bruto <= 0){
@@ -120379,11 +120441,18 @@ function _necExportDados(){
   const mCur = (parseInt(year,10) === hoje.getFullYear()) ? hoje.getMonth() : 0;
   const anoPassado = parseInt(year,10) < hoje.getFullYear();
   const m0 = (NEC.soProjecao && !anoPassado) ? mCur : 0;
+  /* Usa a mesma lista da tela: com Trimestral ligado, o arquivo sai por
+     trimestre. Antes o export ignorava a agregação e exportava sempre meses —
+     dois documentos diferentes para a mesma tela. */
   const linhas = [];
-  for(let m = m0; m < 12; m++){
-    const c = necComposicao(year, m), d = necDados(year, m), pl = necPlano(year, m);
-    const rz = pl ? necRealizado(year, m) : null;
-    linhas.push({ mes: NEC_MESES[m], receita: c.receita, custo: c.custoTotal, saldo: d.saldo,
+  for(const d of necLista(year, m0)){
+    const c = d.meses.reduce((ac, mm) => {
+      const cc = necComposicao(year, mm);
+      return { receita: ac.receita + cc.receita, custoTotal: ac.custoTotal + cc.custoTotal };
+    }, { receita:0, custoTotal:0 });
+    const pl = (NEC.planos || {})[d.chave];
+    const rz = pl ? necRealizadoItem(year, d) : null;
+    linhas.push({ mes: d.label, receita: c.receita, custo: c.custoTotal, saldo: d.saldo,
                   cobertura: necCobertura(d), imposto: d.imposto, meta: d.bruto,
                   unidade: d.unidade, prazo: d.limiteISO,
                   metaFixada: pl ? pl.meta : null, fixadaEm: pl ? pl.fixadoEm : null,
@@ -120397,6 +120466,7 @@ function _necCabecalho(){
   return [
     ['Necessidade de Venda', year],
     ['Base da meta', NEC.base === 'caixa' ? 'Fluxo de caixa (acumulado)' : 'Saldo do mês'],
+    ['Agregação', NEC.agr === 'tri' ? 'Trimestral' : 'Mensal'],
     ['Período', NEC.soProjecao ? 'Só projeção' : 'Ano inteiro'],
     ['Imposto sobre a venda', (necAliquota(year)*100).toFixed(2).replace('.',',') + '% · ' + necAliqFonte(year)],
     ['Margem mínima', (+NEC.margem || 0) + '%'],
@@ -120413,7 +120483,7 @@ function necExportCSV(){
   const L = [];
   for(const [k,v] of _necCabecalho()) L.push([k, v].map(_necCsvEsc).join(';'));
   L.push('');
-  L.push(['Mês','Receita prevista','Custo total', NEC.base === 'caixa' ? 'Caixa acumulado' : 'Saldo do mês',
+  L.push([NEC.agr === 'tri' ? 'Trimestre' : 'Mês','Receita prevista','Custo total', NEC.base === 'caixa' ? 'Caixa acumulado' : 'Saldo do mês',
           '% coberto','Imposto da venda','Meta de venda',
           NEC.modo === 'hora' ? 'Horas' : NEC.unidadeLabel,
           'Vender até','Meta fixada','Fixada em','Realizado acima do previsto','% da meta','Mês fechado']
@@ -120512,7 +120582,7 @@ function necExportPDF(){
       <div class="params">${params}</div>
       <table>
         <thead><tr>
-          <th class="l">Mês</th><th>Receita prevista</th><th>Custo total</th>
+          <th class="l">${NEC.agr === 'tri' ? 'Trimestre' : 'Mês'}</th><th>Receita prevista</th><th>Custo total</th>
           <th>${NEC.base === 'caixa' ? 'Caixa acumulado' : 'Saldo do mês'}</th>
           <th>% coberto</th><th class="imp">Imposto da venda</th><th class="meta">Meta de venda</th>
           ${temUnid  ? `<th>${esc(unidLbl)}</th>` : ''}
@@ -120633,8 +120703,8 @@ function renderNec(){
                     : '<div class="nec-plano-txt">Sem receita realizada no Extrato ainda para este mês.</div>'}
           </div>`
         : `<div class="nec-plano-cta">
-            <span>O cenário mudou desde que você planejou? <b>Fixe</b> a meta para medir contra o combinado.</span>
-            <button type="button" class="nec-btn-fixar" onclick="necFixarPlano('${year}',${mCur})">Fixar meta de ${NEC_MESES[mCur]}</button>
+            <span>A meta muda junto com a projeção. <b>Fixe</b> o alvo de cada mês para medir o realizado contra o combinado.</span>
+            <button type="button" class="nec-btn-fixar" onclick="necMetasAbrir()">Definir metas</button>
           </div>`}
       </div>`;
   } else {
@@ -120659,8 +120729,8 @@ function renderNec(){
              quanto — replanejar é legítimo, esconder que replanejou não. */
           const pl = necPlano(year, mCur);
           if(!pl) return `<div class="nec-plano-cta">
-              <span>A meta muda junto com a projeção. <b>Fixe</b> o cenário para medir o realizado contra o combinado.</span>
-              <button type="button" class="nec-btn-fixar" onclick="necFixarPlano('${year}',${mCur})">Fixar meta de ${NEC_MESES[mCur]}</button>
+              <span>A meta muda junto com a projeção. <b>Fixe</b> o alvo de cada mês para medir o realizado contra o combinado.</span>
+              <button type="button" class="nec-btn-fixar" onclick="necMetasAbrir()">Definir metas</button>
             </div>`;
           const rz = necRealizado(year, mCur);
           const dif = d.bruto - pl.meta;
@@ -120669,6 +120739,7 @@ function renderNec(){
               <div class="nec-plano-topo">
                 <span class="nec-plano-tit">Meta fixada em ${_necDataBR(pl.fixadoEm)} · <b>${fmtBRL(pl.meta)}</b></span>
                 <span class="nec-plano-acoes">
+                  <button type="button" class="nec-btn-soltar" onclick="necMetasAbrir()" title="Ver e ajustar todos os meses">todas as metas</button>
                   <button type="button" class="nec-btn-soltar" onclick="necEditarPlano('${year}',${mCur})" title="Refixar com a projeção de hoje">reabrir</button>
                   <button type="button" class="nec-btn-soltar" onclick="necSoltarPlano('${year}',${mCur})" title="Voltar a acompanhar a projeção viva">soltar</button>
                 </span>
@@ -120751,43 +120822,34 @@ function renderNec(){
       <div class="nec-gr-tip" id="nec-gr-tip"></div>
     </div>`;
 
-  const tris = necPeriodos(year, m0);
+  const itens = necLista(year, m0);
   html += '<div class="nec-grade">';
-  if(tris){
-    for(const dd of tris){
-      const c = NEC_NIVEL[dd.nivel] || NEC_NIVEL.ok;
-      const zerado = dd.bruto <= 0;
-      html += `<div class="nec-card${dd.meses.indexOf(mCur) >= 0 ? ' atual' : ''}" style="--nec-cor:${c.cor};--nec-borda:${c.borda}">
-          <div class="nec-card-mes">${dd.label} <small>${dd.meses.map(x=>NEC_MESES[x]).join('·')}</small></div>
-          <div class="nec-card-num${zerado ? ' zero' : ''}">${zerado ? '—' : fmtBRL(dd.bruto)}</div>
-          ${zerado ? '<div class="nec-card-sub">coberto</div>'
-                   : `${dd.unidade != null ? `<div class="nec-card-unid">${_necUnidadeTxt(dd)}</div>` : ''}
-                      <div class="nec-card-sub">${fmtBRL(dd.porDia)}/dia · ${dd.uteisVenda}d úteis</div>`}
-        </div>`;
-    }
-    html += '</div>';
-  } else {
-  for(let m = m0; m < 12; m++){
-    const dd = anual[m];
+  for(const dd of itens){
     const c = NEC_NIVEL[dd.nivel] || NEC_NIVEL.ok;
     const zerado = dd.bruto <= 0;
-    html += `<div class="nec-card${m === mCur ? ' atual' : ''}" style="--nec-cor:${c.cor};--nec-borda:${c.borda}">
-        <div class="nec-card-mes">${NEC_MESES[m]}</div>
+    const rz = necRealizadoItem(year, dd);
+    const ehAtual = dd.meses.indexOf(mCur) >= 0;
+    html += `<div class="nec-card${ehAtual ? ' atual' : ''}" style="--nec-cor:${c.cor};--nec-borda:${c.borda}">
+        <div class="nec-card-mes">${dd.label}${dd.meses.length > 1 ? ` <small>${dd.meses.map(x=>NEC_MESES[x]).join('·')}</small>` : ''}</div>
         <div class="nec-card-num${zerado ? ' zero' : ''}">${zerado ? '—' : fmtBRL(dd.bruto)}</div>
         ${zerado ? '<div class="nec-card-sub">coberto</div>'
                  : `${dd.unidade != null ? `<div class="nec-card-unid">${_necUnidadeTxt(dd)}</div>` : ''}
-                    <div class="nec-card-sub">${fmtBRL(dd.porDia)}/dia · ${dd.uteisVenda}d úteis</div>
-                    ${(dd.cicloDias > 0 || dd.prazoDias > 0)
-                       ? (dd.semSaida
-                            ? `<div class="nec-card-alerta fora">fora do prazo</div>`
-                            : dd.foraDoPrazo
-                              ? `<div class="nec-card-alerta curto">receber em até ${dd.prazoMax}d</div>`
-                              : `<div class="nec-card-alerta">vender até ${_necDataBR(dd.limiteISO)}</div>`)
-                       : ''}`}
+                    <div class="nec-card-sub">${fmtBRL(dd.porDia)}/dia · ${dd.uteisVenda}d úteis</div>`}
+        ${rz ? `<div class="nec-card-feito">
+             <div class="nec-card-barra"><i style="width:${Math.min(100, rz.pct).toFixed(1)}%"></i></div>
+             <div class="nec-card-feito-txt"><b>${fmtBRL(rz.acima)}</b> feito ·
+               ${rz.pct.toLocaleString('pt-BR',{maximumFractionDigits:0})}%</div>
+           </div>` : ''}
+        ${(!zerado && (dd.cicloDias > 0 || dd.prazoDias > 0))
+           ? (dd.semSaida
+                ? `<div class="nec-card-alerta fora">fora do prazo</div>`
+                : dd.foraDoPrazo
+                  ? `<div class="nec-card-alerta curto">receber em até ${dd.prazoMax}d</div>`
+                  : `<div class="nec-card-alerta">vender até ${_necDataBR(dd.limiteISO)}</div>`)
+           : ''}
       </div>`;
   }
   html += '</div>';
-  }
 
   /* De onde vem a meta. O time de vendas recebe um número; sem ver a conta, ele
      é só um número. Aqui está o mês de referência inteiro: o que entra, o que
@@ -120804,9 +120866,12 @@ function renderNec(){
         </tr></thead><tbody>`;
   let tR=0,tC=0,tS=0,tM=0,tI=0;
   let ultimoCaixa = null, ultimoMes = null;
-  for(let m = m0; m < 12; m++){
-    const c  = necComposicao(year, m);
-    const dd = anual[m];
+  for(const dd of itens){
+    const m = dd.mIdx;
+    const c = dd.meses.reduce((ac, mm) => {
+      const cc = necComposicao(year, mm);
+      return { receita: ac.receita + cc.receita, custoTotal: ac.custoTotal + cc.custoTotal };
+    }, { receita:0, custoTotal:0 });
     tR+=c.receita; tC+=c.custoTotal; tS+=dd.saldo; tM+=dd.bruto; tI+=dd.imposto;
     /* Caixa acumulado é ESTOQUE: cada mês já contém os anteriores. Somar a
        coluna contaria o mesmo dinheiro várias vezes — o que vale no rodapé é
@@ -120814,8 +120879,8 @@ function renderNec(){
     if(dd.saldo != null){ ultimoCaixa = dd.saldo; ultimoMes = m; }
     const vazio = (c.receita===0 && c.custoTotal===0);
     const cob = necCobertura(dd);
-    html += `<tr class="${m===mCur?'atual':''}${vazio?' vazio':''}">
-        <td class="l">${NEC_MESES[m]}</td>
+    html += `<tr class="${dd.meses.indexOf(mCur)>=0?'atual':''}${vazio?' vazio':''}">
+        <td class="l">${dd.label}</td>
         <td>${fmtBRL(c.receita)}</td>
         <td>${fmtBRL(c.custoTotal)}</td>
         <td class="${dd.saldo < 0 ? 'neg' : 'pos'}">${fmtBRL(dd.saldo)}</td>
@@ -120848,9 +120913,9 @@ function renderNec(){
      Sem isto o histórico existia só dentro do JSON — e "onde isso fica
      guardado?" é uma pergunta que ninguém deveria precisar fazer. */
   const fixados = [];
-  for(let m = 0; m < 12; m++){
-    const pl = necPlano(year, m);
-    if(pl) fixados.push({ m, pl, rz: necRealizado(year, m) });
+  for(const it of necLista(year, 0)){
+    const pl = (NEC.planos || {})[it.chave];
+    if(pl) fixados.push({ it, pl, rz: necRealizadoItem(year, it) });
   }
   if(fixados.length){
     html += `<div class="nec-tab-wrap">
@@ -120864,8 +120929,8 @@ function renderNec(){
     for(const f of fixados){
       const rev = (f.pl.historico || []).length;
       const pct = f.rz ? f.rz.pct : null;
-      html += `<tr class="${f.m === mCur ? 'atual' : ''}">
-          <td class="l">${NEC_MESES[f.m]}</td>
+      html += `<tr class="${f.it.meses.indexOf(mCur) >= 0 ? 'atual' : ''}">
+          <td class="l">${f.it.label}</td>
           <td>${fmtBRL(f.pl.meta)}</td>
           <td>${_necDataBR(f.pl.fixadoEm)}</td>
           <td>${f.rz && f.rz.acima != null ? fmtBRL(f.rz.acima) : '—'}</td>
@@ -121059,6 +121124,7 @@ function necAliquota(year){
    No trimestre a conta é feita sobre o saldo AGREGADO do período. Out +48k,
    nov −57k e dez −125k viram um trimestre de −133k, não 195k de metas
    mensais somadas. É a mesma empresa; o que muda é a régua. */
+const NEC_MESES_LONGO = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const NEC_TRIS = [{lbl:'1º tri', meses:[0,1,2]}, {lbl:'2º tri', meses:[3,4,5]},
                   {lbl:'3º tri', meses:[6,7,8]}, {lbl:'4º tri', meses:[9,10,11]}];
 
@@ -121096,8 +121162,39 @@ function necDadosTri(year, q, m0){
   const porDia = base.uteisVenda > 0 ? bruto / base.uteisVenda : bruto;
   return Object.assign({}, base, { tri:q, label:t.lbl, meses, saldo, receita, falta, bruto,
                                    unidade, porDia, impossivel,
-                                   imposto: bruto - falta, mIdx: ultimo });
+                                   imposto: bruto - falta, mIdx: ultimo,
+                                   chave: String(year) + '-Q' + (q+1) });
 }
+/* A unidade da aba: mês ou trimestre. Todo o resto — gráfico, cartões, tabela,
+   metas — consome esta lista, então trocar a agregação troca a tela inteira e
+   não só um pedaço dela. */
+function necLista(year, m0){
+  if(NEC.agr === 'tri') return necPeriodos(year, m0) || [];
+  const out = [];
+  for(let m = (m0 || 0); m < 12; m++) out.push(necDados(year, m));
+  return out;
+}
+
+/* Realizado do período: no trimestre, soma o que entrou acima do previsto em
+   cada mês dele. */
+function necRealizadoItem(year, item){
+  if(!item) return null;
+  const pl = (NEC.planos || {})[item.chave];
+  if(!pl) return null;
+  let real = 0, achou = false;
+  for(const m of item.meses){
+    let v = null;
+    if(pl.fechado && pl.fechado.receitaReal != null && item.meses.length === 1) v = pl.fechado.receitaReal;
+    else { try{ v = flxRealizadoExtrato(year, 'receita', m); }catch(_){} }
+    if(v != null){ real += v; achou = true; }
+  }
+  if(!achou) return null;
+  const acima = real - (pl.receitaPrev || 0);
+  const pct = pl.meta > 0 ? Math.max(0, (acima / pl.meta) * 100) : (acima >= 0 ? 100 : 0);
+  return { receitaReal: real, acima, pct: Math.min(999, pct), plano: pl };
+}
+try{ window.necLista = necLista; window.necRealizadoItem = necRealizadoItem; }catch(_){}
+
 function necPeriodos(year, m0){
   if(NEC.agr !== 'tri') return null;
   const out = [];
@@ -121120,6 +121217,10 @@ try{ window.necDadosTri = necDadosTri; window.necSetAgr = necSetAgr; window.necP
    pergunta fica honesta — o que entrou, contra o que foi combinado. E a
    projeção viva continua ao lado, mostrando quanto o alvo mudou e por quê. */
 function _necYm(year, mIdx){ return String(year) + '-' + String(mIdx+1).padStart(2,'0'); }
+function _necItemPorChave(year, chave){
+  const lista = necLista(year, 0);
+  return lista.find(x => x.chave === chave) || null;
+}
 
 function necPlano(year, mIdx){
   return (NEC.planos && NEC.planos[_necYm(year, mIdx)]) || null;
@@ -121153,10 +121254,11 @@ function necArquivarPassados(year){
   if(mudou) necSave();
 }
 try{ window.necArquivarPassados = necArquivarPassados; }catch(_){}
-function necFixarPlano(year, mIdx){
-  const d = necDados(year, mIdx);
+function necFixarPlano(year, mIdx, chave){
+  const d = chave ? _necItemPorChave(year, chave) : necDados(year, mIdx);
+  if(!d) return;
   if(!NEC.planos) NEC.planos = {};
-  const k = _necYm(year, mIdx);
+  const k = d.chave;
   const antigo = NEC.planos[k];
   /* Refixar não apaga: a meta anterior vai pro histórico. Quem trabalhou
      perseguindo o alvo antigo tem direito a ele estar registrado. */
@@ -121228,6 +121330,103 @@ function necRealizado(year, mIdx){
 try{
   window.necPlano = necPlano; window.necFixarPlano = necFixarPlano;
   window.necSoltarPlano = necSoltarPlano; window.necRealizado = necRealizado;
+}catch(_){}
+
+/* ═══ MODAL DE METAS ═════════════════════════════════════════════════
+   Um botão que fixa só o mês corrente resolvia pouco: quem planeja precisa
+   fechar o alvo de novembro em setembro. Aqui estão todos os períodos do ano
+   numa tela só — o que a projeção pede, o que está fixado, o que já entrou —
+   e dá pra fixar pela projeção ou digitar um valor combinado com o time. */
+function necMetasAbrir(){
+  const year = necAnoAtivo();
+  let ov = document.getElementById('nec-metas-ov');
+  if(ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'nec-metas-ov';
+  ov.className = 'nec-ov';
+  ov.addEventListener('click', e => { if(e.target === ov) necMetasFechar(); });
+  document.body.appendChild(ov);
+  necMetasRender();
+}
+function necMetasFechar(){ const o = document.getElementById('nec-metas-ov'); if(o) o.remove(); }
+function necMetasRender(){
+  const ov = document.getElementById('nec-metas-ov');
+  if(!ov) return;
+  const year = necAnoAtivo();
+  const itens = necLista(year, 0);
+  const hoje = new Date();
+  const mCur = (parseInt(year,10) === hoje.getFullYear()) ? hoje.getMonth() : -1;
+  let linhas = '';
+  for(const it of itens){
+    const pl = (NEC.planos || {})[it.chave];
+    const rz = necRealizadoItem(year, it);
+    const passou = it.meses.every(m => (parseInt(year,10) < hoje.getFullYear()) ||
+                                       (parseInt(year,10) === hoje.getFullYear() && m < hoje.getMonth()));
+    const dif = pl ? (it.bruto - pl.meta) : 0;
+    linhas += `<tr class="${it.meses.indexOf(mCur)>=0 ? 'atual' : ''}${passou ? ' passou' : ''}">
+        <td class="l">${it.label}</td>
+        <td class="proj">${it.bruto > 0 ? fmtBRL(it.bruto) : '<span class="cob">coberto</span>'}</td>
+        <td class="fix">
+          ${pl ? `<input type="text" value="${fmtBRL(pl.meta)}" class="nec-metas-inp"
+                     onblur="necMetaValor('${it.chave}', this.value)"
+                     ${pl.fechado ? 'disabled' : ''}>` : '<span class="vazio">—</span>'}
+        </td>
+        <td>${pl ? _necDataBR(pl.fixadoEm) : ''}</td>
+        <td>${rz ? fmtBRL(rz.acima) : '—'}</td>
+        <td class="${rz ? (rz.pct >= 100 ? 'cob cheio' : (rz.pct >= 60 ? 'cob quase' : 'cob vazio')) : ''}">
+          ${rz ? rz.pct.toLocaleString('pt-BR',{maximumFractionDigits:0}) + '%' : '—'}</td>
+        <td class="dif">${pl && Math.abs(dif) > 0.5
+            ? `<span class="${dif > 0 ? 'sobe' : 'desce'}">${dif > 0 ? '+' : '−'}${fmtBRL(Math.abs(dif))}</span>` : ''}</td>
+        <td class="acao">
+          ${pl && pl.fechado ? '<span class="vazio">fechado</span>'
+            : pl ? `<button type="button" class="nec-mini" onclick="necFixarPlano('${year}',null,'${it.chave}')" title="Atualizar para a projeção de hoje">refixar</button>
+                    <button type="button" class="nec-mini alt" onclick="necSoltarChave('${it.chave}')">soltar</button>`
+                 : `<button type="button" class="nec-mini forte" onclick="necFixarPlano('${year}',null,'${it.chave}')"
+                      ${it.bruto > 0 ? '' : 'disabled'}>fixar</button>`}
+        </td>
+      </tr>`;
+  }
+  ov.innerHTML = `<div class="nec-metas-card">
+      <div class="nec-metas-hd">
+        <div>
+          <div class="nec-metas-cap">Necessidade de Venda · ${year}</div>
+          <h2>Metas ${NEC.agr === 'tri' ? 'por trimestre' : 'mês a mês'}</h2>
+        </div>
+        <button type="button" class="nec-metas-x" onclick="necMetasFechar()">×</button>
+      </div>
+      <div class="nec-metas-corpo">
+        <p class="nec-metas-sub">Fixar congela o alvo: a partir daí o realizado é medido contra ele,
+          e não contra a projeção — que continua mudando. Dá para digitar outro valor se o time
+          combinou diferente.</p>
+        <table class="nec-metas-tab">
+          <thead><tr><th class="l">${NEC.agr === 'tri' ? 'Trimestre' : 'Mês'}</th><th>Projeção pede</th>
+            <th>Meta fixada</th><th>Fixada em</th><th>Realizado</th><th>%</th><th>Δ hoje</th><th></th></tr></thead>
+          <tbody>${linhas}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+function necMetaValor(chave, txt){
+  const v = _necNum(txt);
+  const pl = (NEC.planos || {})[chave];
+  if(!pl || pl.fechado) return;
+  if(Math.abs(v - pl.meta) < 0.005) return;
+  if(!Array.isArray(pl.historico)) pl.historico = [];
+  pl.historico.push({ meta: pl.meta, receitaPrev: pl.receitaPrev, fixadoEm: pl.fixadoEm,
+                      aliq: pl.aliq, margem: pl.margem, base: pl.base,
+                      substituidoEm: new Date().toISOString().slice(0,10) });
+  pl.meta = v;
+  pl.fixadoEm = new Date().toISOString().slice(0,10);
+  pl.manual = true;                       // valor combinado, não calculado
+  necSave(); necMetasRender(); renderNec();
+}
+function necSoltarChave(chave){
+  if(NEC.planos) delete NEC.planos[chave];
+  necSave(); necMetasRender(); renderNec();
+}
+try{
+  window.necMetasAbrir = necMetasAbrir; window.necMetasFechar = necMetasFechar;
+  window.necMetaValor = necMetaValor; window.necSoltarChave = necSoltarChave;
 }catch(_){}
 
 /* De onde veio a alíquota — pra ninguém ter que adivinhar o número. */
@@ -121380,7 +121579,8 @@ function necDados(year, mIdx){
   return { year, mIdx, saldo, falta, bruto, aliq, uteis, totalUteis, porDia,
            unidade, nivel, doMesCorrente, passou, imposto: bruto - falta,
            margem: m, receita, impossivel, cicloDias, prazoDias, uteisVenda, foraDoPrazo, limiteISO,
-           prazoMax: janela.prazoMax, semSaida: janela.semSaida };
+           prazoMax: janela.prazoMax, semSaida: janela.semSaida,
+           label: NEC_MESES_LONGO[mIdx], meses: [mIdx], chave: _necYm(year, mIdx) };
 }
 try{ window.necDados = necDados; window.necAliquota = necAliquota; window.necSaldoMes = necSaldoMes; }catch(_){}
 
