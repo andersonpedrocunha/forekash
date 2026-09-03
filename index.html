@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788463024"/>
+  <meta name="fk-build" content="forekash-v1788463345"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7696,6 +7696,7 @@
     .nec-tab td.cob.quase{color:#0369A1}
     .nec-tab td.cob.vazio{color:#B45309}
     .nec-tab-nota b{color:#334155}
+    .nec-tab-hint{display:block;font-size:.62rem;font-weight:600;color:#94A3B8;letter-spacing:.03em}
     .nec-tab tfoot td{border-top:2px solid #E2E8F0;border-bottom:none;font-weight:800;color:#0F172A;
                       padding-top:9px}
     .nec-tab-nota{margin-top:9px;font-size:.72rem;color:#64748B;line-height:1.5}
@@ -120513,10 +120514,15 @@ function renderNec(){
           <th>% coberto</th><th class="imp">Imposto da venda</th><th class="meta">Meta de venda</th>
         </tr></thead><tbody>`;
   let tR=0,tC=0,tS=0,tM=0,tI=0;
+  let ultimoCaixa = null, ultimoMes = null;
   for(let m = m0; m < 12; m++){
     const c  = necComposicao(year, m);
     const dd = anual[m];
     tR+=c.receita; tC+=c.custoTotal; tS+=dd.saldo; tM+=dd.bruto; tI+=dd.imposto;
+    /* Caixa acumulado é ESTOQUE: cada mês já contém os anteriores. Somar a
+       coluna contaria o mesmo dinheiro várias vezes — o que vale no rodapé é
+       onde o caixa termina. Saldo do mês é fluxo e continua somando. */
+    if(dd.saldo != null){ ultimoCaixa = dd.saldo; ultimoMes = m; }
     const vazio = (c.receita===0 && c.custoTotal===0);
     const cob = necCobertura(dd);
     html += `<tr class="${m===mCur?'atual':''}${vazio?' vazio':''}">
@@ -120532,12 +120538,18 @@ function renderNec(){
   html += `</tbody><tfoot><tr>
         <td class="l">${NEC.soProjecao && !anoPassado ? 'restante' : 'ano'}</td>
         <td>${fmtBRL(tR)}</td><td>${fmtBRL(tC)}</td>
-        <td class="${tS < 0 ? 'neg' : 'pos'}">${fmtBRL(tS)}</td>
+        <td class="${(NEC.base === 'caixa' ? (ultimoCaixa||0) : tS) < 0 ? 'neg' : 'pos'}">
+          ${NEC.base === 'caixa'
+            ? (ultimoCaixa == null ? '—'
+               : `${fmtBRL(ultimoCaixa)}<small class="nec-tab-hint">em ${NEC_MESES[ultimoMes]}</small>`)
+            : fmtBRL(tS)}
+        </td>
         <td></td>
         <td class="imp">${fmtBRL(tI)}</td>
         <td class="meta">${fmtBRL(tM)}</td>
       </tr></tfoot></table></div>
       <div class="nec-tab-nota">Custo total = folha + despesas + empréstimos + impostos do mês, como no Fluxo.
+        ${NEC.base === 'caixa' ? 'A coluna de caixa não soma no rodapé: cada mês já traz o saldo dos anteriores, então o que vale é onde o caixa termina. ' : ''}
         A meta é o que falta${(+NEC.margem > 0) ? ` para fechar com <b>${(+NEC.margem).toLocaleString('pt-BR')}% de margem</b>` : ' no saldo'},
         com o <b>imposto da própria venda</b> por cima — por isso ela é maior que o buraco do mês.</div>
     </div>`;
