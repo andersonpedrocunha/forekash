@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788544393"/>
+  <meta name="fk-build" content="forekash-v1788548480"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7682,6 +7682,9 @@
                     font-size:.7rem;font-weight:700;text-decoration:underline;padding:0}
     .nec-plano-barra{height:7px;border-radius:4px;background:rgba(148,163,184,.22);overflow:hidden;margin:8px 0 6px}
     .nec-plano-barra i{display:block;height:100%;background:#10B981;border-radius:4px}
+    /* Realizado negativo: a barra cresce em vermelho, para o lado contrário. */
+    .nec-plano-barra.perda{background:rgba(220,38,38,.14);display:flex;justify-content:flex-end}
+    .nec-plano-barra.perda i{background:#DC2626}
     .nec-plano-txt{font-size:.74rem;color:#475569;font-variant-numeric:tabular-nums}
     .nec-plano-txt b{color:#0F172A}
     .nec-plano-dif{margin-top:6px;font-size:.7rem;font-weight:700}
@@ -7845,8 +7848,11 @@
     .nec-card-feito{margin-top:7px;min-height:22px}
     .nec-card-barra{height:5px;border-radius:3px;background:rgba(148,163,184,.22);overflow:hidden}
     .nec-card-barra i{display:block;height:100%;background:#10B981;border-radius:3px}
+    .nec-card-barra.perda{background:rgba(220,38,38,.14);display:flex;justify-content:flex-end}
+    .nec-card-barra.perda i{background:#DC2626}
     .nec-card-feito-txt{margin-top:3px;font-size:.64rem;color:#64748B;font-variant-numeric:tabular-nums}
     .nec-card-feito-txt b{color:#0F766E;font-weight:800}
+    .nec-card-feito-txt.perda b{color:#B91C1C}
     /* modal de metas */
     .nec-ov{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9998;display:flex;
             align-items:flex-start;justify-content:center;padding:48px 20px;overflow:auto;
@@ -7870,8 +7876,12 @@
     .nec-metas-tab tr.passou td{color:#94A3B8}
     .nec-metas-tab td.proj{color:#1D4ED8;font-weight:700}
     .nec-metas-tab td.proj .cob{color:#0F766E;font-weight:600}
-    .nec-metas-tab td.dif .sobe{color:#B45309;font-weight:700}
-    .nec-metas-tab td.dif .desce{color:#0F766E;font-weight:700}
+    .nec-metas-tab td.dif .sobe{color:#B45309;font-weight:700;cursor:help}
+    .nec-metas-tab td.dif .desce{color:#0F766E;font-weight:700;cursor:help}
+    .nec-metas-tab td.cob.cheio{color:#0F766E;font-weight:700}
+    .nec-metas-tab td.cob.quase{color:#0369A1;font-weight:700}
+    .nec-metas-tab td.cob.vazio{color:#B45309;font-weight:700}
+    .nec-metas-tab td.cob.perda{color:#B91C1C;font-weight:800}
     .nec-metas-tab td.acao{text-align:right;white-space:nowrap}
     .nec-metas-tab .vazio{color:#CBD5E1}
     .nec-metas-inp{width:118px;text-align:right;border:1px solid #CBD5E1;border-radius:6px;
@@ -118221,10 +118231,9 @@ function renderNec(){
                                    <button type="button" class="nec-btn-soltar" onclick="necSoltarPlano('${year}',${mCur})">soltar</button>
                                  </span>`}
             </div>
-            ${rzCob ? `<div class="nec-plano-barra"><i style="width:${Math.min(100,rzCob.pct).toFixed(1)}%"></i></div>
-                       <div class="nec-plano-txt"><b>${fmtBRL(rzCob.acima)}</b> vendidos acima do previsto ·
-                         <b>${rzCob.pct.toLocaleString('pt-BR',{maximumFractionDigits:0})}%</b> da meta</div>`
+            ${rzCob ? _necBarra(rzCob.pct) + `<div class="nec-plano-txt">${_necFeitoTxt(rzCob, plCob.meta)}</div>`
                     : '<div class="nec-plano-txt">Sem receita realizada no Extrato ainda para este mês.</div>'}
+            ${_necDifTxt(d, plCob)}
           </div>`
         : `<div class="nec-plano-cta">
             <span>A meta muda junto com a projeção. <b>Fixe</b> o alvo de cada mês para medir o realizado contra o combinado.</span>
@@ -118257,8 +118266,6 @@ function renderNec(){
               <button type="button" class="nec-btn-fixar" onclick="necMetasAbrir()">Definir metas</button>
             </div>`;
           const rz = necRealizado(year, mCur);
-          const dif = d.bruto - pl.meta;
-          const pct = rz ? rz.pct : 0;
           return `<div class="nec-plano">
               <div class="nec-plano-topo">
                 <span class="nec-plano-tit">Meta fixada em ${_necDataBR(pl.fixadoEm)} · <b>${fmtBRL(pl.meta)}</b></span>
@@ -118268,21 +118275,14 @@ function renderNec(){
                   <button type="button" class="nec-btn-soltar" onclick="necSoltarPlano('${year}',${mCur})" title="Voltar a acompanhar a projeção viva">soltar</button>
                 </span>
               </div>
-              ${rz ? `<div class="nec-plano-barra"><i style="width:${Math.min(100,pct).toFixed(1)}%"></i></div>
-                     <div class="nec-plano-txt">
-                       <b>${fmtBRL(rz.acima)}</b> vendidos acima do previsto ·
-                       <b>${pct.toLocaleString('pt-BR',{maximumFractionDigits:0})}%</b> da meta ·
-                       faltam <b>${fmtBRL(Math.max(0, pl.meta - rz.acima))}</b>
-                     </div>`
+              ${rz ? _necBarra(rz.pct) + `<div class="nec-plano-txt">${_necFeitoTxt(rz, pl.meta)}</div>`
                    : `<div class="nec-plano-txt">Sem receita realizada no Extrato ainda para ${NEC_MESES[mCur]}.</div>`}
               ${(pl.historico || []).length ? `<div class="nec-plano-hist">
                   ${pl.historico.length} ${pl.historico.length === 1 ? 'revisão' : 'revisões'}:
                   ${pl.historico.map(h => `${fmtBRL(h.meta)} <i>(${_necDataBR(h.fixadoEm)})</i>`).join(' → ')}
                   → <b>${fmtBRL(pl.meta)}</b> atual
                 </div>` : ''}
-              ${Math.abs(dif) > 0.5 ? `<div class="nec-plano-dif ${dif > 0 ? 'sobe' : 'desce'}">
-                  A projeção de hoje pede ${fmtBRL(d.bruto)} — ${dif > 0 ? 'subiu' : 'caiu'} ${fmtBRL(Math.abs(dif))} desde que a meta foi fixada.
-                </div>` : ''}
+              ${_necDifTxt(d, pl)}
             </div>`;
         })()}
         ${(function(){
@@ -118361,8 +118361,8 @@ function renderNec(){
         <div class="nec-card-sub">${zerado ? ''
             : `${fmtBRL(dd.porDia)}/dia · ${dd.uteisVenda}d úteis`}</div>
         <div class="nec-card-feito">
-          ${rz ? `<div class="nec-card-barra"><i style="width:${Math.min(100, rz.pct).toFixed(1)}%"></i></div>
-                  <div class="nec-card-feito-txt"><b>${fmtBRL(rz.acima)}</b> feito ·
+          ${rz ? `<div class="nec-card-barra${rz.pct < 0 ? ' perda' : ''}"><i style="width:${Math.min(100, Math.abs(rz.pct)).toFixed(1)}%"></i></div>
+                  <div class="nec-card-feito-txt${rz.acima < 0 ? ' perda' : ''}"><b>${fmtBRL(rz.acima)}</b> ${rz.acima < 0 ? 'a menos' : 'feito'} ·
                     ${rz.pct.toLocaleString('pt-BR',{maximumFractionDigits:0})}%</div>` : ''}
         </div>
         <div class="nec-card-pe">
@@ -118682,6 +118682,10 @@ function necLista(year, m0){
    ele devolve o que o Extrato registrou, em mês futuro devolve a previsão.
    Comparado com a receita que o plano tinha na hora de fixar, a diferença é
    exatamente a venda nova. */
+function _necClampPct(p){
+  if(!isFinite(p)) return 0;
+  return Math.max(-999, Math.min(999, p));
+}
 function necRealizadoItem(year, item){
   if(!item) return null;
   const pl = (NEC.planos || {})[item.chave];
@@ -118696,8 +118700,11 @@ function necRealizadoItem(year, item){
   if(!achou) return null;
   const acima = receitaHoje - (pl.receitaPrev || 0);
   if(Math.abs(acima) < 0.005) return { receitaReal: receitaHoje, acima: 0, pct: 0, plano: pl };
-  const pct = pl.meta > 0 ? Math.max(0, (acima / pl.meta) * 100) : (acima >= 0 ? 100 : 0);
-  return { receitaReal: receitaHoje, acima, pct: Math.min(999, pct), plano: pl };
+  /* Negativo fica negativo. Cortar em zero fazia "perdi 15k de receita
+     programada" ler igual a "ainda não vendi nada" — que é exatamente a
+     informação que importa quando o cenário piora. */
+  const pct = pl.meta > 0 ? (acima / pl.meta) * 100 : (acima >= 0 ? 100 : -100);
+  return { receitaReal: receitaHoje, acima, pct: _necClampPct(pct), plano: pl };
 }
 try{ window.necLista = necLista; window.necRealizadoItem = necRealizadoItem; }catch(_){}
 
@@ -118830,9 +118837,70 @@ function necRealizado(year, mIdx){
   }
   if(receitaReal == null) return null;
   const acima = receitaReal - (plano.receitaPrev || 0);
-  const pct = plano.meta > 0 ? Math.max(0, (acima / plano.meta) * 100) : (acima >= 0 ? 100 : 0);
-  return { receitaReal, acima, pct: Math.min(999, pct), plano };
+  const pct = plano.meta > 0 ? (acima / plano.meta) * 100 : (acima >= 0 ? 100 : -100);
+  return { receitaReal, acima, pct: _necClampPct(pct), plano };
 }
+
+/* Por que o alvo mudou desde que foi fixado.
+
+   "Subiu R$ 18 mil" não diz nada acionável: o comercial precisa saber se
+   sumiu receita programada ou se apareceu custo. Como o plano guardou a
+   receita e o saldo do momento em que foi fixado, a conta sai de graça —
+   custo é receita menos saldo, nos dois instantes. */
+function necDesvio(d, pl){
+  if(!d || !pl) return null;
+  const dif = d.bruto - (pl.meta || 0);
+  if(Math.abs(dif) <= 0.5) return null;
+  const temSnap = pl.receitaPrev != null && pl.saldoPrev != null;
+  const dRec = temSnap ? (d.receita - pl.receitaPrev) : null;
+  const custoAntes = temSnap ? (pl.receitaPrev - pl.saldoPrev) : null;
+  const dCusto = temSnap ? ((d.receita - d.saldo) - custoAntes) : null;
+  const partes = [];
+  if(dRec != null && Math.abs(dRec) > 0.5)
+    partes.push((dRec < 0 ? 'saiu ' : 'entrou ') + fmtBRL(Math.abs(dRec)) + ' de receita prevista');
+  if(dCusto != null && Math.abs(dCusto) > 0.5)
+    partes.push('o custo ' + (dCusto > 0 ? 'subiu ' : 'caiu ') + fmtBRL(Math.abs(dCusto)));
+  /* O buraco é em resultado; a meta é em venda bruta. A diferença entre os
+     dois é o imposto que incide sobre essa venda a mais — dizer isso evita
+     que o leitor tente somar as parcelas e ache que a conta não fecha. */
+  const buraco = temSnap ? (-dRec + dCusto) : null;
+  const resto = buraco == null ? 0 : (Math.abs(dif) - Math.abs(buraco));
+  return { dif, dRec, dCusto, buraco, resto, motivo: partes.join(' e ') };
+}
+function _necDifTxt(d, pl){
+  const dv = necDesvio(d, pl);
+  if(!dv) return '';
+  const cls = dv.dif > 0 ? 'sobe' : 'desce';
+  const verbo = dv.dif > 0 ? 'subiu' : 'caiu';
+  const abre = d.bruto > 0
+    ? `A projeção de hoje pede ${fmtBRL(d.bruto)} — ${verbo} ${fmtBRL(Math.abs(dv.dif))}`
+    : `A projeção de hoje já cobre o mês — a necessidade caiu ${fmtBRL(Math.abs(dv.dif))}`;
+  /* Sem essa última frase o leitor soma as parcelas e acha que a conta não
+     fecha: o buraco é em resultado, a meta é em venda com imposto por cima. */
+  /* Mês coberto é piso: a meta parou no zero e não acompanha mais a melhora,
+     então a reconciliação não fecha — e afirmá-la ali seria mentira. */
+  const imp = (d.bruto > 0 && dv.buraco != null && Math.abs(dv.resto) > 0.5)
+    ? ` São ${fmtBRL(Math.abs(dv.buraco))} em resultado — ${fmtBRL(Math.abs(dv.dif))} em venda, com o imposto por cima.` : '';
+  return `<div class="nec-plano-dif ${cls}">
+      ${abre} desde que a meta foi fixada${dv.motivo ? ': ' + dv.motivo : ''}.${imp}
+    </div>`;
+}
+/* Realizado negativo não é "0% da meta": é buraco. O texto separa os dois
+   casos porque a ação é oposta — vender mais, ou recompor o que caiu. */
+function _necFeitoTxt(rz, meta){
+  const pct = rz.pct.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + '%';
+  if(rz.acima < -0.005)
+    return `<b>${fmtBRL(Math.abs(rz.acima))}</b> abaixo do previsto quando a meta foi fixada ·
+            <b>${pct}</b> da meta · faltam <b>${fmtBRL((meta || 0) - rz.acima)}</b>`;
+  return `<b>${fmtBRL(rz.acima)}</b> vendidos acima do previsto ·
+          <b>${pct}</b> da meta · faltam <b>${fmtBRL(Math.max(0, (meta || 0) - rz.acima))}</b>`;
+}
+function _necBarra(pct){
+  const neg = pct < 0;
+  const w = Math.min(100, Math.abs(pct)).toFixed(1);
+  return `<div class="nec-plano-barra${neg ? ' perda' : ''}"><i style="width:${w}%"></i></div>`;
+}
+try{ window.necDesvio = necDesvio; }catch(_){}
 try{
   window.necPlano = necPlano; window.necFixarPlano = necFixarPlano;
   window.necSoltarPlano = necSoltarPlano; window.necRealizado = necRealizado;
@@ -118871,7 +118939,7 @@ function necMetasRender(){
     const rz = necRealizadoItem(year, it);
     const passou = it.meses.every(m => (parseInt(year,10) < hoje.getFullYear()) ||
                                        (parseInt(year,10) === hoje.getFullYear() && m < hoje.getMonth()));
-    const dif = pl ? (it.bruto - pl.meta) : 0;
+    const dv = pl ? necDesvio(it, pl) : null;
     linhas += `<tr class="${it.meses.indexOf(mCur)>=0 ? 'atual' : ''}${passou ? ' passou' : ''}">
         <td class="l">${it.label}</td>
         <td class="proj">${it.bruto > 0 ? fmtBRL(it.bruto) : '<span class="cob">coberto</span>'}</td>
@@ -118894,10 +118962,11 @@ function necMetasRender(){
         </td>
         <td>${pl ? _necDataBR(pl.fixadoEm) : ''}</td>
         <td>${rz ? fmtBRL(rz.acima) : '—'}</td>
-        <td class="${rz ? (rz.pct >= 100 ? 'cob cheio' : (rz.pct >= 60 ? 'cob quase' : 'cob vazio')) : ''}">
+        <td class="${rz ? (rz.pct < 0 ? 'cob perda' : (rz.pct >= 100 ? 'cob cheio' : (rz.pct >= 60 ? 'cob quase' : 'cob vazio'))) : ''}">
           ${rz ? rz.pct.toLocaleString('pt-BR',{maximumFractionDigits:0}) + '%' : '—'}</td>
-        <td class="dif">${pl && Math.abs(dif) > 0.5
-            ? `<span class="${dif > 0 ? 'sobe' : 'desce'}">${dif > 0 ? '+' : '−'}${fmtBRL(Math.abs(dif))}</span>` : ''}</td>
+        <td class="dif">${pl && dv
+            ? `<span class="${dv.dif > 0 ? 'sobe' : 'desce'}"${dv.motivo ? ` title="${_extEsc(dv.motivo)}"` : ''}>${
+                 dv.dif > 0 ? '+' : '−'}${fmtBRL(Math.abs(dv.dif))}</span>` : ''}</td>
         <td class="acao">
           ${pl && pl.fechado ? '<span class="vazio">fechado</span>'
             : pl ? `<button type="button" class="nec-mini" onclick="necRefixarComAviso('${year}','${it.chave}')" title="Atualizar para a projeção de hoje">refixar</button>
