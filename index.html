@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788533633"/>
+  <meta name="fk-build" content="forekash-v1788533859"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7610,6 +7610,13 @@
     .ctb-ren:hover{color:#1D4ED8}
     .ctb-rn{flex:1;min-width:0;border:1px solid #3B82F6;border-radius:6px;padding:3px 7px;
             font-family:inherit;font-size:.78rem;color:#0F172A}
+    .ctb-item{padding:2px 0 6px;border-bottom:1px solid #F8FAFC}
+    .ctb-item:last-child{border-bottom:0}
+    .ctb-item .ctb-lista li{border-bottom:0;padding-bottom:2px}
+    .ctb-vinc,.ctb-cc{width:100%;border:1px solid #E2E8F0;border-radius:6px;padding:3px 7px;
+                      font-family:inherit;font-size:.68rem;color:#64748B;background:#F8FAFC}
+    .ctb-vinc:hover{border-color:#CBD5E1;color:#334155}
+    .ctb-cc{border-color:#3B82F6;background:#fff;color:#0F172A}
     .ctb-docs{margin-top:12px}
     .ctb-card-sub{margin:2px 0 0;font-size:.72rem;color:#94A3B8;max-width:62ch}
 
@@ -119237,20 +119244,26 @@ function _ctbNoMes(dataISO, ym){ return String(dataISO || '').slice(0,7) === ym;
    contabilidade concilia banco a banco. Sem isso, cinco PDFs de bancos
    diferentes viram uma pilha só. */
 function ctbContas(){
+  /* fkContasAgrupadas é quem monta o rótulo canônico das Disponibilidades —
+     banco + tipo (corrente, CDB, poupança), com apelido e desempate quando
+     duas contas colidem. Eu montava "banco · c.nome" por fora e saía
+     "Únilos · conta" repetido, porque c.nome é genérico e o tipo ficava de
+     fora. Uma fonte só pro nome da conta. */
   const out = [];
   try{
-    if(typeof dispo !== 'undefined' && dispo && Array.isArray(dispo.contas)){
-      for(const c of dispo.contas){
-        if(c.ativo === false) continue;
-        let banco = '';
-        try{
-          const b = (dispo.bancos || []).find(x => x.id === c.bancoId);
-          banco = b ? b.nome : '';
-        }catch(_){}
-        out.push({ id: String(c.id), nome: (banco ? banco + ' · ' : '') + (c.nome || 'conta') });
-      }
+    // a chamada é pelo efeito: ela grava _fkRotulo em cada conta
+    if(typeof fkContasAgrupadas === 'function') fkContasAgrupadas();
+    const tipo = id => ((dispo && dispo.tipos) || []).find(t => t.id === id) || null;
+    for(const c of ((dispo && dispo.contas) || [])){
+      if(!c || c.ativo === false) continue;
+      const rot = c._fkRotulo || '';
+      if(!rot) continue;
+      const t = tipo(c.tipoId);
+      out.push({ id: String(c.id), nome: rot,
+                 grupo: (t && t.liquidez === 'reserva') ? 'reserva' : 'caixa' });
     }
-  }catch(_){}
+    out.sort((a2,b2) => a2.nome.localeCompare(b2.nome, 'pt'));
+  }catch(e){ console.warn('[FK] contas do contador:', e && e.message); }
   return out;
 }
 
@@ -119472,6 +119485,44 @@ try{ window.ctbExportRazao = ctbExportRazao; window.ctbBaixarPacote = ctbBaixarP
 // ─── Tela ────────────────────────────────────────────────────────────
 function ctbSetYm(v){ CTB.ym = v || null; ctbSave(); renderContador(); }
 function ctbSetBanco(v){ CTB.banco = v || ''; ctbSave(); renderContador(); }
+
+/* Vincular DEPOIS de enviar. O seletor do topo só define a conta do próximo
+   upload — quem já subiu ficava preso em "sem conta definida", que foi
+   exatamente o que aconteceu. Agora cada arquivo tem o seu. */
+function ctbVincular(ym, i, valor){
+  const a2 = ((CTB.extratos || {})[ym] || [])[i];
+  if(!a2) return;
+  if(valor === '__custom__'){
+    _ctbEditandoConta = ym + ':' + i;
+    renderContador();
+    const inp = document.getElementById('ctb-cc');
+    if(inp){ inp.focus(); inp.select(); }
+    return;
+  }
+  const c = ctbContas().find(x => x.id === String(valor || ''));
+  a2.contaId = c ? c.id : '';
+  a2.banco = c ? c.nome : '';
+  a2.contaCustom = false;
+  ctbSave(); renderContador();
+}
+/* Nome livre: conta que não está em Disponibilidades (aplicação de terceiro,
+   conta encerrada, caixinha) não deveria travar o envio do extrato. */
+let _ctbEditandoConta = null;
+function ctbContaCustom(ym, i, valor){
+  const a2 = ((CTB.extratos || {})[ym] || [])[i];
+  _ctbEditandoConta = null;
+  if(a2){
+    const t = String(valor || '').trim();
+    if(t){ a2.banco = t; a2.contaId = ''; a2.contaCustom = true; ctbSave(); }
+  }
+  renderContador();
+}
+function ctbContaCustomTecla(ev, ym, i){
+  if(ev.key === 'Enter'){ ev.preventDefault(); ev.target.blur(); }
+  else if(ev.key === 'Escape'){ _ctbEditandoConta = null; renderContador(); }
+}
+try{ window.ctbVincular = ctbVincular; window.ctbContaCustom = ctbContaCustom;
+     window.ctbContaCustomTecla = ctbContaCustomTecla; }catch(_){}
 
 async function ctbSubirArquivos(arqs, destino){
   const lista = Array.from(arqs || []);
@@ -119709,8 +119760,22 @@ function renderContador(){
       $('ctb-extratos').innerHTML = Object.keys(grupos).sort().map(k => `
           <div class="ctb-grupo">
             <div class="ctb-grupo-hd">${_extEsc(k)} <span>${grupos[k].length}</span></div>
-            <ul class="ctb-lista">${grupos[k].map(({a,i}) => _ctbLinhaArquivo('ext', ym, i, a,
-                `ctbAbrirExtrato('${ym}',${i})`, `ctbRemoverExtrato('${ym}',${i})`)).join('')}</ul>
+            ${grupos[k].map(({a,i}) => `<div class="ctb-item">
+                <ul class="ctb-lista">${_ctbLinhaArquivo('ext', ym, i, a,
+                    `ctbAbrirExtrato('${ym}',${i})`, `ctbRemoverExtrato('${ym}',${i})`)}</ul>
+                ${_ctbEditandoConta === (ym + ':' + i)
+                  ? `<input id="ctb-cc" class="ctb-cc" type="text" placeholder="nome da conta"
+                       value="${_extEsc(a.contaCustom ? (a.banco || '') : '')}"
+                       onblur="ctbContaCustom('${ym}',${i}, this.value)"
+                       onkeydown="ctbContaCustomTecla(event,'${ym}',${i})">`
+                  : `<select class="ctb-vinc" onchange="ctbVincular('${ym}',${i}, this.value)"
+                       title="Vincular este extrato a uma conta">
+                       <option value=""${!a.contaId && !a.contaCustom ? ' selected' : ''}>sem conta definida</option>
+                       ${contas.map(c => `<option value="${c.id}"${String(a.contaId) === c.id ? ' selected' : ''}>${_extEsc(c.nome)}</option>`).join('')}
+                       ${a.contaCustom ? `<option value="__atual__" selected>${_extEsc(a.banco)}</option>` : ''}
+                       <option value="__custom__">outro nome…</option>
+                     </select>`}
+              </div>`).join('')}
           </div>`).join('');
     }
   }
