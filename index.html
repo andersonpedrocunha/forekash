@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788535045"/>
+  <meta name="fk-build" content="forekash-v1788544393"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7572,7 +7572,8 @@
     .ctb-ok{background:#ECFDF5;border:1px solid #A7F3D0;border-radius:10px;padding:12px 14px;
             color:#065F46;font-size:.84rem;font-weight:600;margin-bottom:16px}
 
-    .ctb-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px}
+    /* Um card por linha: o nome do arquivo é a informação principal e não pode quebrar. */
+    .ctb-cols{display:grid;grid-template-columns:1fr;gap:12px}
     .ctb-card{background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:14px 16px}
     .ctb-card-hd{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
     .ctb-card-hd h3{margin:0;font-size:.86rem;color:#0F172A}
@@ -7594,7 +7595,7 @@
     .ctb-mais{color:#94A3B8;font-size:.72rem;font-style:italic}
     .ctb-sel,.ctb-cat{border:1px solid #CBD5E1;border-radius:7px;padding:5px 8px;font-family:inherit;
                       font-size:.74rem;color:#334155;background:#fff}
-    .ctb-sel{width:100%;margin-bottom:10px}
+    .ctb-sel{width:100%;max-width:340px;margin-bottom:10px}
     .ctb-cat{font-size:.68rem;padding:3px 6px;max-width:150px}
     .ctb-drop{position:relative;transition:border-color .15s,background .15s}
     .ctb-drop.drag-over{border-color:#3B82F6;background:#F5F9FF}
@@ -22851,7 +22852,6 @@ td.mes.do-extrato{background:#ECFDF5}
           <div id="ctb-docs"></div>
           <div class="ctb-dica">arraste os arquivos aqui</div>
         </div>
-        </div>
       </div>
 
       <div class="mod" id="mod-notasfiscais">
@@ -35924,68 +35924,127 @@ function _dkbBaixarAt(kind, i){
 }
 try{ window._dkbBaixarAt = _dkbBaixarAt; window._dkbAnexosDoKind = _dkbAnexosDoKind; }catch(_){}
 
+/* Abrir o anexo numa aba, sem baixar.
+
+   Três armadilhas empilhadas, cada uma achada na prática:
+   · window.open(url) direto é tratado como popup e bloqueado;
+   · <a href="blob:…" target="_blank"> o Chrome resolve BAIXANDO — navegação
+     de topo para blob: é restrita, e foi isso que fez "abrir em outra aba"
+     virar download;
+   · formato que o navegador não exibe (.ofx, .zip) vai baixar de qualquer
+     jeito — aí baixar é a resposta certa, só precisa ser dita.
+
+   O que funciona: abrir uma aba em branco pelo clique do usuário e embutir o
+   arquivo num iframe dentro dela. */
+const _FK_VISUALIZAVEL = /^(application[/]pdf|image[/]|text[/]|application[/]json|application[/]xml)/i;
+
+function _fkMimeDe(nome, tipo){
+  const ext = String(nome || '').split('.').pop().toLowerCase();
+  const porExt = { pdf:'application/pdf', png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg',
+                   gif:'image/gif', webp:'image/webp', svg:'image/svg+xml', txt:'text/plain',
+                   html:'text/html', json:'application/json', xml:'text/xml', csv:'text/csv' };
+  if(!tipo || tipo === 'application/octet-stream') return porExt[ext] || tipo || '';
+  return tipo;
+}
+function _fkEhImagem(mime){ return String(mime || '').toLowerCase().slice(0,6) === 'image/'; }
+
+function _fkEsc(t){
+  return String(t == null ? '' : t).replace(/[&<>\u0022]/g,
+    c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '\u0022':'&quot;' }[c]));
+}
+function _fkAbrirAbaVazia(nome){
+  const w = window.open('', '_blank');
+  if(!w){
+    if(typeof toast === 'function') toast('⚠ O navegador bloqueou a aba — libere pop-ups para este site');
+    return null;
+  }
+  try{
+    w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'
+      + _fkEsc(nome || 'anexo') + '</title>'
+      + '<style>html,body{margin:0;height:100%;background:#525659;color:#CBD5E1;'
+      + 'font:14px -apple-system,Segoe UI,Roboto,sans-serif;display:flex;align-items:center;'
+      + 'justify-content:center}iframe,img{border:0;width:100%;height:100%}'
+      + 'img{object-fit:contain}</style></head><body>abrindo…</body></html>');
+    w.document.close();
+  }catch(_){}
+  return w;
+}
+function _fkPreencheAba(w, url, nome, mime){
+  if(!w){ return false; }
+  try{
+    const ehImg = String(mime || '').toLowerCase().slice(0,6) === 'image/';
+    w.document.body.innerHTML = ehImg
+      ? '<img src="' + url + '" alt="' + _fkEsc(nome) + '">'
+      : '<iframe src="' + url + '"></iframe>';
+    w.document.body.style.display = 'block';
+  }catch(e){
+    try{ w.location.replace(url); }catch(_){}
+  }
+  return true;
+}
+function _fkAbrirEmAba(url, nome, mime){
+  return _fkPreencheAba(_fkAbrirAbaVazia(nome), url, nome, mime);
+}
+
 async function _dkbOpenAttachment(anexo){
   if(!anexo){ if(typeof toast === 'function') toast('Anexo indisponível'); return; }
-  /* Anexo no Storage: o registro guarda só o ponteiro. Pede uma URL assinada
-     (1h) e abre — mesmo caminho de sempre pra quem olha a tela. */
+  const nome = anexo.name || anexo.nome || 'arquivo';
+  const mime = _fkMimeDe(nome, anexo.type || anexo.tipo);
+
+  /* A aba precisa nascer AGORA, dentro do clique. Se o window.open esperar o
+     await da URL assinada, o Chrome já perdeu o gesto do usuário e bloqueia. */
+  const abrivel = _FK_VISUALIZAVEL.test(mime);
+  const aba = abrivel ? _fkAbrirAbaVazia(nome) : null;
+  const fecha = () => { try{ aba && aba.close(); }catch(_){} };
+
   if(!anexo.dataUrl && anexo.path){
     let url = null;
     try{ url = await fkAnexoUrl(anexo); }catch(e){ console.warn('[FK] anexo url:', e && e.message); }
     if(!url){
-      if(typeof toast === 'function') toast('⚠ Não consegui abrir "' + (anexo.name || anexo.nome || 'arquivo') + '" — está na nuvem, mas o acesso falhou');
+      fecha();
+      if(typeof toast === 'function') toast('⚠ Não consegui abrir "' + nome + '" — está na nuvem, mas o acesso falhou');
       return;
     }
-    const el = document.createElement('a');
-    el.href = url; el.target = '_blank'; el.rel = 'noopener';
-    document.body.appendChild(el); el.click();
-    setTimeout(() => el.remove(), 0);
+    if(!abrivel){
+      if(typeof toast === 'function') toast('"' + nome + '" o navegador não exibe — baixando');
+      _anexoBaixar({ nome: nome, tipo: mime, path: anexo.path });
+      return;
+    }
+    _fkPreencheAba(aba, url, nome, mime);
     return;
   }
+
   if(!anexo.dataUrl){
-    /* Sem dataUrl é o caso do anexo que ficou só como referência (não coube no
-       armazenamento quando foi salvo). Dizer isso é melhor que "indisponível". */
-    if(typeof toast === 'function') toast('⚠ "' + (anexo.name || 'arquivo') + '" tem só o registro do nome — o arquivo não foi guardado');
+    fecha();
+    if(typeof toast === 'function') toast('⚠ "' + nome + '" tem só o registro do nome — o arquivo não foi guardado');
     return;
   }
-  try {
+
+  try{
     const m = /^data:([^;]+);base64,(.*)$/.exec(anexo.dataUrl);
-    if(!m){ window.open(anexo.dataUrl, '_blank'); return; }
-    const mime = m[1];
+    if(!m){ _fkPreencheAba(aba, anexo.dataUrl, nome, mime); return; }
     const bin = atob(m[2]);
     const bytes = new Uint8Array(bin.length);
-    for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
-    /* O mime tem que ser o real: com application/octet-stream o navegador
-       baixa em vez de exibir, que era a reclamação. Quando o arquivo não
-       trouxe tipo, deduz pela extensão pros formatos que dá pra ver na aba. */
-    const ext = String(anexo.name || '').split('.').pop().toLowerCase();
-    const porExt = { pdf:'application/pdf', png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg',
-                     gif:'image/gif', webp:'image/webp', svg:'image/svg+xml', txt:'text/plain',
-                     html:'text/html', json:'application/json', xml:'text/xml', csv:'text/csv' };
-    const mimeBom = (!mime || mime === 'application/octet-stream') ? (porExt[ext] || mime) : mime;
-    const blob = new Blob([bytes], { type: mimeBom });
+    for(let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], { type: mime || 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
-    /* <a target=_blank> em vez de window.open: o open é tratado como popup e
-       bloqueado com mais frequência, e o clique do usuário já autoriza este. */
-    const a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.rel = 'noopener';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    /* Se o clique programático não abriu nada (bloqueio de popup em alguns
-       navegadores), tenta o window.open e, falhando, avisa em vez de silenciar. */
-    setTimeout(() => {
-      try{
-        if(!document.hidden){
-          const w = window.open(url, '_blank', 'noopener');
-          if(!w && typeof toast === 'function') toast('⚠ O navegador bloqueou a aba — libere pop-ups para forekash.com.br');
-        }
-      }catch(_){}
-    }, 350);
-    setTimeout(() => { try { URL.revokeObjectURL(url); } catch(_){} }, 60000);
-  } catch(e){ console.error(e); if(typeof toast === 'function') toast('Erro abrindo anexo'); }
+    if(!abrivel){
+      if(typeof toast === 'function') toast('"' + nome + '" o navegador não exibe — baixando');
+      const a = document.createElement('a');
+      a.href = url; a.download = nome;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => { try{ URL.revokeObjectURL(url); }catch(_){} }, 30000);
+      return;
+    }
+    _fkPreencheAba(aba, url, nome, mime);
+    setTimeout(() => { try{ URL.revokeObjectURL(url); }catch(_){} }, 120000);
+  }catch(e){
+    fecha();
+    console.warn('[FK] abrir anexo:', e && e.message);
+    if(typeof toast === 'function') toast('Não consegui abrir "' + nome + '"');
+  }
 }
+try{ window._fkAbrirEmAba = _fkAbrirEmAba; window._fkAbrirAbaVazia = _fkAbrirAbaVazia; }catch(_){}
 try {
   window._dkbRenderAnexoUI = _dkbRenderAnexoUI;
   window._dkbAnexoChange = _dkbAnexoChange;
