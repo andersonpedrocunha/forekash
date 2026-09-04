@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788534270"/>
+  <meta name="fk-build" content="forekash-v1788535045"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7580,12 +7580,12 @@
             padding:5px 11px;cursor:pointer;font-size:.72rem;font-weight:700}
     .ctb-up input{display:none}
     .ctb-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px}
-    .ctb-lista li{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #F1F5F9;
+    .ctb-lista li{display:flex;align-items:flex-start;gap:6px;padding:7px 0;border-bottom:1px solid #F1F5F9;
                   font-size:.78rem;min-width:0}
     .ctb-lista li:last-child{border-bottom:0}
-    .ctb-nome{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-              background:none;border:none;padding:0;text-align:left;font-family:inherit;font-size:.78rem;
-              color:#1D4ED8;cursor:pointer;font-weight:600}
+    .ctb-nome{flex:1;min-width:0;background:none;border:none;padding:0;text-align:left;
+              font-family:inherit;font-size:.78rem;color:#1D4ED8;cursor:pointer;font-weight:600;
+              white-space:normal;overflow-wrap:anywhere;line-height:1.35}
     span.ctb-nome{color:#334155;cursor:default;font-weight:600}
     .ctb-meta{color:#94A3B8;font-size:.7rem;white-space:nowrap;font-variant-numeric:tabular-nums}
     .ctb-x{background:none;border:none;color:#CBD5E1;cursor:pointer;font-size:1rem;line-height:1;padding:0 2px}
@@ -7606,8 +7606,9 @@
     .ctb-grupo-hd{font-size:.64rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
                   color:#94A3B8;display:flex;align-items:center;gap:6px;margin-bottom:2px}
     .ctb-grupo-hd span{background:#F1F5F9;border-radius:999px;padding:0 6px;font-size:.6rem;color:#64748B}
-    .ctb-ren{background:none;border:none;color:#CBD5E1;cursor:pointer;font-size:.82rem;line-height:1;padding:0 2px}
-    .ctb-ren:hover{color:#1D4ED8}
+    .ctb-ic,.ctb-ren{background:none;border:none;color:#CBD5E1;cursor:pointer;font-size:.82rem;
+                     line-height:1;padding:0 3px;flex:none}
+    .ctb-ic:hover,.ctb-ren:hover{color:#1D4ED8}
     .ctb-rn{flex:1;min-width:0;border:1px solid #3B82F6;border-radius:6px;padding:3px 7px;
             font-family:inherit;font-size:.78rem;color:#0F172A}
     .ctb-item{padding:2px 0 6px;border-bottom:1px solid #F8FAFC}
@@ -119568,6 +119569,25 @@ async function ctbRemoverMensal(balde, ym, i){
   lista.splice(i, 1);
   ctbSave(); renderContador();
 }
+/* Baixar um arquivo só. O pacote do mês serve pro contador; no dia a dia
+   você quer um boleto específico, não um zip de 40. */
+/* Os que vêm do lançamento não moram no CTB — são lidos do Extrato a cada
+   render, então o acesso é pelo índice da lista do mês. */
+function _ctbComprovDe(i){ return ctbComprovantes(ctbYm())[i] || null; }
+function ctbAbrirComprov(i){
+  const c = _ctbComprovDe(i);
+  if(c) _dkbOpenAttachment({ name: c.nome, type: c.tipo, path: c.path, dataUrl: c.dataUrl });
+}
+function ctbBaixarComprov(i){
+  const c = _ctbComprovDe(i);
+  if(c) _anexoBaixar({ nome: c.nome, tipo: c.tipo, path: c.path, dataUrl: c.dataUrl });
+}
+try{ window.ctbAbrirComprov = ctbAbrirComprov; window.ctbBaixarComprov = ctbBaixarComprov; }catch(_){}
+
+function ctbBaixar(balde, ym, i){
+  const a = balde === 'doc' ? ((CTB.docs || [])[i]) : (((CTB[balde] || {})[ym] || [])[i]);
+  if(a) _anexoBaixar(a);
+}
 function ctbAbrirMensal(balde, ym, i){
   const a = ((CTB[balde] || {})[ym] || [])[i];
   if(a) _dkbOpenAttachment({ name: a.nome, type: a.tipo, size: a.tamanho, path: a.path, dataUrl: a.dataUrl });
@@ -119648,6 +119668,7 @@ try{
   window.ctbRenomearSalvar = ctbRenomearSalvar; window.ctbRenomearTecla = ctbRenomearTecla;
   window.ctbSubirNota = ctbSubirNota; window.ctbSubirAvulso = ctbSubirAvulso;
   window.ctbRemoverMensal = ctbRemoverMensal; window.ctbAbrirMensal = ctbAbrirMensal;
+  window.ctbBaixar = ctbBaixar;
 }catch(_){}
 async function ctbRemoverExtrato(ym, i){
   const lista = (CTB.extratos || {})[ym] || [];
@@ -119678,10 +119699,13 @@ function _ctbNomeArquivo(onde, chave, i, a, abrir){
   return `<button type="button" class="ctb-nome" onclick="${abrir}" title="Abrir">${_extEsc(a.nome)}</button>`;
 }
 function _ctbLinhaArquivo(onde, chave, i, a, abrir, remover){
+  const balde = { ext:'extratos', nota:'notasForn', avulso:'avulsos', doc:'doc' }[onde] || 'extratos';
   return `<li>
       ${_ctbNomeArquivo(onde, chave, i, a, abrir)}
-      <span class="ctb-meta">${_ctbTam(a.tamanho)}${a.path ? '' : ' · local'}</span>
-      <button type="button" class="ctb-ren" onclick="ctbRenomear('${onde}','${chave}',${i})" title="Renomear">✎</button>
+      <span class="ctb-meta">${_ctbTam(a.tamanho)}</span>
+      <button type="button" class="ctb-ic" onclick="${abrir}" title="Abrir em nova aba">↗</button>
+      <button type="button" class="ctb-ic" onclick="ctbBaixar('${balde}','${chave}',${i})" title="Baixar">⤓</button>
+      <button type="button" class="ctb-ic" onclick="ctbRenomear('${onde}','${chave}',${i})" title="Renomear">✎</button>
       <button type="button" class="ctb-x" onclick="${remover}" title="Remover">×</button>
     </li>`;
 }
@@ -119759,7 +119783,9 @@ function renderContador(){
                     <div class="ctb-li-top">
                       ${_ctbNomeArquivo('ext', ym, i, a, `ctbAbrirExtrato('${ym}',${i})`)}
                       <span class="ctb-meta">${_ctbTam(a.tamanho)}</span>
-                      <button type="button" class="ctb-ren" onclick="ctbRenomear('ext','${ym}',${i})" title="Renomear">✎</button>
+                      <button type="button" class="ctb-ic" onclick="ctbAbrirExtrato('${ym}',${i})" title="Abrir em nova aba">↗</button>
+                      <button type="button" class="ctb-ic" onclick="ctbBaixar('extratos','${ym}',${i})" title="Baixar">⤓</button>
+                      <button type="button" class="ctb-ic" onclick="ctbRenomear('ext','${ym}',${i})" title="Renomear">✎</button>
                       <button type="button" class="ctb-x" onclick="ctbRemoverExtrato('${ym}',${i})" title="Remover">×</button>
                     </div>
                     ${editandoConta
@@ -119783,6 +119809,9 @@ function renderContador(){
               ${CTB_DOC_CATS.map(c => `<option${(d.categoria === c) ? ' selected' : ''}>${c}</option>`).join('')}
             </select>
             <span class="ctb-meta">${_ctbTam(d.tamanho)}</span>
+            <button type="button" class="ctb-ic" onclick="ctbAbrirDoc(${i})" title="Abrir em nova aba">↗</button>
+            <button type="button" class="ctb-ic" onclick="ctbBaixar('doc','',${i})" title="Baixar">⤓</button>
+            <button type="button" class="ctb-ic" onclick="ctbRenomear('doc','',${i})" title="Renomear">✎</button>
             <button type="button" class="ctb-x" onclick="ctbRemoverDoc(${i})" title="Remover">×</button>
           </li>`).join('')}</ul>`
       : `<div class="ctb-vazio">Nenhum documento guardado. Contratos e certidões ficam aqui e entram em todo pacote.</div>`;
@@ -119796,9 +119825,11 @@ function renderContador(){
       /* O que veio do lançamento traz a que ele pertence — é isso que a
          contabilidade usa pra amarrar documento e pagamento. */
       h += `<div class="ctb-grupo-hd">dos lançamentos <span>${comps.length}</span></div>
-            <ul class="ctb-lista">${comps.slice(0,30).map(c => `<li>
-              <span class="ctb-nome">${_extEsc(c.nome)}</span>
+            <ul class="ctb-lista">${comps.slice(0,30).map((c,ci) => `<li>
+              <button type="button" class="ctb-nome" onclick="ctbAbrirComprov(${ci})" title="Abrir em nova aba">${_extEsc(c.nome)}</button>
               <span class="ctb-meta">${_extEsc(String(c.lanc).slice(0,26))} · ${fmtBRL(c.valor)}</span>
+              <button type="button" class="ctb-ic" onclick="ctbAbrirComprov(${ci})" title="Abrir em nova aba">↗</button>
+              <button type="button" class="ctb-ic" onclick="ctbBaixarComprov(${ci})" title="Baixar">⤓</button>
             </li>`).join('')}${comps.length > 30 ? `<li class="ctb-mais">+${comps.length-30} no pacote</li>` : ''}</ul>`;
     }
     if(avuls.length){
