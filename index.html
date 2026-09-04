@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788533859"/>
+  <meta name="fk-build" content="forekash-v1788534270"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7572,7 +7572,7 @@
     .ctb-ok{background:#ECFDF5;border:1px solid #A7F3D0;border-radius:10px;padding:12px 14px;
             color:#065F46;font-size:.84rem;font-weight:600;margin-bottom:16px}
 
-    .ctb-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+    .ctb-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px}
     .ctb-card{background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:14px 16px}
     .ctb-card-hd{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
     .ctb-card-hd h3{margin:0;font-size:.86rem;color:#0F172A}
@@ -7613,10 +7613,14 @@
     .ctb-item{padding:2px 0 6px;border-bottom:1px solid #F8FAFC}
     .ctb-item:last-child{border-bottom:0}
     .ctb-item .ctb-lista li{border-bottom:0;padding-bottom:2px}
-    .ctb-vinc,.ctb-cc{width:100%;border:1px solid #E2E8F0;border-radius:6px;padding:3px 7px;
-                      font-family:inherit;font-size:.68rem;color:#64748B;background:#F8FAFC}
+    .ctb-li2{display:block !important;padding:7px 0}
+    .ctb-li-top{display:flex;align-items:center;gap:8px;min-width:0}
+    .ctb-vinc,.ctb-cc{width:100%;margin-top:3px;border:1px solid transparent;border-radius:6px;
+                      padding:2px 6px;font-family:inherit;font-size:.66rem;color:#94A3B8;background:transparent}
+    .ctb-vinc:hover{border-color:#E2E8F0;color:#334155;background:#F8FAFC}
     .ctb-vinc:hover{border-color:#CBD5E1;color:#334155}
     .ctb-cc{border-color:#3B82F6;background:#fff;color:#0F172A}
+    .ctb-largo{grid-column:1/-1}
     .ctb-docs{margin-top:12px}
     .ctb-card-sub{margin:2px 0 0;font-size:.72rem;color:#94A3B8;max-width:62ch}
 
@@ -22815,29 +22819,18 @@ td.mes.do-extrato{background:#ECFDF5}
             <div id="ctb-extratos"></div>
             <div class="ctb-dica">arraste os arquivos aqui</div>
           </div>
-          <div class="ctb-card ctb-drop" ondragover="ctbDrag(event,'nota',true)"
-               ondragleave="ctbDrag(event,'nota',false)" ondrop="ctbDrop(event,'nota')">
-            <div class="ctb-card-hd">
-              <div>
-                <h3>Notas de fornecedores</h3>
-                <p class="ctb-card-sub">Documento de entrada. A nota que você emite é de saída e fica em Notas Fiscais.</p>
-              </div>
-              <label class="ctb-up"><input type="file" multiple onchange="ctbSubirNota(this)">+ enviar</label>
-            </div>
-            <div id="ctb-notas"></div>
-            <div class="ctb-dica">arraste as notas aqui</div>
-          </div>
-          <div class="ctb-card ctb-drop" ondragover="ctbDrag(event,'avulso',true)"
+          <div class="ctb-card ctb-drop ctb-largo" ondragover="ctbDrag(event,'avulso',true)"
                ondragleave="ctbDrag(event,'avulso',false)" ondrop="ctbDrop(event,'avulso')">
             <div class="ctb-card-hd">
               <div>
-                <h3>Boletos e comprovantes</h3>
-                <p class="ctb-card-sub">Os anexados aos lançamentos entram sozinhos; solte aqui os avulsos.</p>
+                <h3>Notas, boletos e comprovantes</h3>
+                <p class="ctb-card-sub">Vêm dos lançamentos do mês. O que não estiver preso a um
+                  lançamento você solta aqui como avulso.</p>
               </div>
-              <label class="ctb-up"><input type="file" multiple onchange="ctbSubirAvulso(this)">+ enviar</label>
+              <label class="ctb-up"><input type="file" multiple onchange="ctbSubirAvulso(this)">+ avulso</label>
             </div>
             <div id="ctb-comprov"></div>
-            <div class="ctb-dica">arraste boletos e comprovantes aqui</div>
+            <div class="ctb-dica">arraste notas, boletos e comprovantes aqui</div>
           </div>
         </div>
 
@@ -119325,11 +119318,7 @@ function ctbPendencias(ym){
   });
   if(grandes.length) p.push({ nivel:'medio', item: grandes.length + ' pagamento(s) acima de R$ 1.000 sem comprovante',
                               detalhe:'Despesa sem documento costuma virar glosa.' });
-  const desp = lancs.filter(l => l.tipo === 'gasto' && Math.abs(parseFloat(l.valor)||0) > 0).length;
-  if(desp > 0 && !ctbNotasForn(ym).length){
-    p.push({ nivel:'medio', item:'Nenhuma nota de fornecedor enviada',
-             detalhe: desp + ' despesa(s) no mês e nenhuma nota de entrada anexada.' });
-  }
+
   const pend = lancs.filter(l => l.status === 'pendente');
   if(pend.length) p.push({ nivel:'baixo', item: pend.length + ' lançamento(s) ainda em aberto',
                            detalhe:'Podem entrar no mês seguinte — confira antes de fechar.' });
@@ -119427,19 +119416,14 @@ async function ctbBaixarPacote(){
       arquivos.push({ nome, bytes });
       indice.push('documento · ' + nome);
     }
-    for(const n of ctbNotasForn(ym)){
-      const bytes = await _fkBytesDoAnexo(n);
-      if(!bytes){ indice.push('! nota não recuperada: ' + n.nome); continue; }
-      const nome = nomeUnico(ym + '/notas-fornecedores', n.nome);
-      arquivos.push({ nome, bytes });
-      indice.push('nota forn. · ' + nome);
-    }
+    /* Avulso em pasta própria: quem abre o pacote precisa saber o que veio
+       amarrado a um lançamento e o que chegou solto. */
     for(const v of ctbAvulsos(ym)){
       const bytes = await _fkBytesDoAnexo(v);
-      if(!bytes){ indice.push('! boleto não recuperado: ' + v.nome); continue; }
-      const nome = nomeUnico(ym + '/comprovantes', v.nome);
+      if(!bytes){ indice.push('! avulso não recuperado: ' + v.nome); continue; }
+      const nome = nomeUnico(ym + '/avulsos', v.nome);
       arquivos.push({ nome, bytes });
-      indice.push('boleto     · ' + nome);
+      indice.push('avulso     · ' + nome);
     }
     const comps = ctbComprovantes(ym);
     for(const c of comps){
@@ -119760,22 +119744,32 @@ function renderContador(){
       $('ctb-extratos').innerHTML = Object.keys(grupos).sort().map(k => `
           <div class="ctb-grupo">
             <div class="ctb-grupo-hd">${_extEsc(k)} <span>${grupos[k].length}</span></div>
-            ${grupos[k].map(({a,i}) => `<div class="ctb-item">
-                <ul class="ctb-lista">${_ctbLinhaArquivo('ext', ym, i, a,
-                    `ctbAbrirExtrato('${ym}',${i})`, `ctbRemoverExtrato('${ym}',${i})`)}</ul>
-                ${_ctbEditandoConta === (ym + ':' + i)
-                  ? `<input id="ctb-cc" class="ctb-cc" type="text" placeholder="nome da conta"
-                       value="${_extEsc(a.contaCustom ? (a.banco || '') : '')}"
-                       onblur="ctbContaCustom('${ym}',${i}, this.value)"
-                       onkeydown="ctbContaCustomTecla(event,'${ym}',${i})">`
-                  : `<select class="ctb-vinc" onchange="ctbVincular('${ym}',${i}, this.value)"
-                       title="Vincular este extrato a uma conta">
-                       <option value=""${!a.contaId && !a.contaCustom ? ' selected' : ''}>sem conta definida</option>
+            <ul class="ctb-lista">${grupos[k].map(({a,i}) => {
+                const editandoConta = _ctbEditandoConta === (ym + ':' + i);
+                const trocar = `<select class="ctb-vinc" onchange="ctbVincular('${ym}',${i}, this.value)"
+                       title="Conta deste extrato">
+                       <option value=""${!a.contaId && !a.contaCustom ? ' selected' : ''}>sem conta</option>
                        ${contas.map(c => `<option value="${c.id}"${String(a.contaId) === c.id ? ' selected' : ''}>${_extEsc(c.nome)}</option>`).join('')}
                        ${a.contaCustom ? `<option value="__atual__" selected>${_extEsc(a.banco)}</option>` : ''}
                        <option value="__custom__">outro nome…</option>
-                     </select>`}
-              </div>`).join('')}
+                     </select>`;
+                /* Duas linhas: o nome do arquivo é longo e o seletor de conta
+                   comia o espaço dele até sobrar "e…". */
+                return `<li class="ctb-li2">
+                    <div class="ctb-li-top">
+                      ${_ctbNomeArquivo('ext', ym, i, a, `ctbAbrirExtrato('${ym}',${i})`)}
+                      <span class="ctb-meta">${_ctbTam(a.tamanho)}</span>
+                      <button type="button" class="ctb-ren" onclick="ctbRenomear('ext','${ym}',${i})" title="Renomear">✎</button>
+                      <button type="button" class="ctb-x" onclick="ctbRemoverExtrato('${ym}',${i})" title="Remover">×</button>
+                    </div>
+                    ${editandoConta
+                      ? `<input id="ctb-cc" class="ctb-cc" type="text" placeholder="nome da conta"
+                           value="${_extEsc(a.contaCustom ? (a.banco || '') : '')}"
+                           onblur="ctbContaCustom('${ym}',${i}, this.value)"
+                           onkeydown="ctbContaCustomTecla(event,'${ym}',${i})">`
+                      : trocar}
+                  </li>`;
+              }).join('')}</ul>
           </div>`).join('');
     }
   }
@@ -119794,31 +119788,28 @@ function renderContador(){
       : `<div class="ctb-vazio">Nenhum documento guardado. Contratos e certidões ficam aqui e entram em todo pacote.</div>`;
   }
 
-  const notasF = ctbNotasForn(ym);
-  if($('ctb-notas')){
-    $('ctb-notas').innerHTML = notasF.length
-      ? `<ul class="ctb-lista">${notasF.map((a2,i) => _ctbLinhaArquivo('nota', ym, i, a2,
-            `ctbAbrirMensal('notasForn','${ym}',${i})`, `ctbRemoverMensal('notasForn','${ym}',${i})`)).join('')}</ul>`
-      : `<div class="ctb-vazio">Nenhuma nota de fornecedor em ${_ctbYmLabel(ym)}.</div>`;
-  }
-
   const comps = ctbComprovantes(ym);
   const avuls = ctbAvulsos(ym);
   if($('ctb-comprov')){
     let h = '';
+    if(comps.length){
+      /* O que veio do lançamento traz a que ele pertence — é isso que a
+         contabilidade usa pra amarrar documento e pagamento. */
+      h += `<div class="ctb-grupo-hd">dos lançamentos <span>${comps.length}</span></div>
+            <ul class="ctb-lista">${comps.slice(0,30).map(c => `<li>
+              <span class="ctb-nome">${_extEsc(c.nome)}</span>
+              <span class="ctb-meta">${_extEsc(String(c.lanc).slice(0,26))} · ${fmtBRL(c.valor)}</span>
+            </li>`).join('')}${comps.length > 30 ? `<li class="ctb-mais">+${comps.length-30} no pacote</li>` : ''}</ul>`;
+    }
     if(avuls.length){
-      h += `<ul class="ctb-lista">${avuls.map((a2,i) => _ctbLinhaArquivo('avulso', ym, i, a2,
+      h += `<div class="ctb-grupo-hd" style="margin-top:${comps.length ? '12px' : '0'}">
+              avulsos <span>${avuls.length}</span></div>
+            <ul class="ctb-lista">${avuls.map((a2,i) => _ctbLinhaArquivo('avulso', ym, i, a2,
               `ctbAbrirMensal('avulsos','${ym}',${i})`, `ctbRemoverMensal('avulsos','${ym}',${i})`)).join('')}</ul>`;
     }
-    if(comps.length){
-      h += `<div class="ctb-grupo-hd" style="margin-top:${avuls.length ? '10px' : '0'}">
-              dos lançamentos <span>${comps.length}</span></div>
-            <ul class="ctb-lista">${comps.slice(0,25).map(c => `<li>
-              <span class="ctb-nome">${_extEsc(c.nome)}</span>
-              <span class="ctb-meta">${_extEsc(String(c.lanc).slice(0,24))} · ${fmtBRL(c.valor)}</span>
-            </li>`).join('')}${comps.length > 25 ? `<li class="ctb-mais">+${comps.length-25} no pacote</li>` : ''}</ul>`;
-    }
-    $('ctb-comprov').innerHTML = h || `<div class="ctb-vazio">Nenhum boleto ou comprovante em ${_ctbYmLabel(ym)}.</div>`;
+    $('ctb-comprov').innerHTML = h
+      || `<div class="ctb-vazio">Nada em ${_ctbYmLabel(ym)}. Anexe o documento ao lançamento no Extrato,
+            ou solte aqui o que não tem lançamento.</div>`;
   }
 }
 try{ window.renderContador = renderContador; }catch(_){}
