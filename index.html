@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788557694"/>
+  <meta name="fk-build" content="forekash-v1788558814"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -112253,6 +112253,49 @@ async function resetAllData(){
 
   let currentInput = null;
 
+  /* A alça é position:fixed e mora no <body>, então nenhum overflow do
+     caminho a corta. getBoundingClientRect devolve a posição de layout da
+     célula mesmo quando ela está rolada pra fora da planilha — e a alça ia
+     parar ali, solta no meio da página, longe de qualquer célula. Também
+     acontecia com célula escondida atrás das colunas fixas: a alça, com
+     z-index 9999, aparecia por cima delas.
+
+     A regra passa a ser: a alça só existe se o canto da célula estiver
+     mesmo visível. Todos os ancestrais que rolam entram na conta. */
+  function cantoVisivel(el, x, y){
+    for(let p = el.parentElement; p && p !== document.body; p = p.parentElement){
+      const cs = getComputedStyle(p);
+      const rola = /(auto|scroll|hidden)/.test(cs.overflowX + ' ' + cs.overflowY);
+      if(!rola) continue;
+      const rp = p.getBoundingClientRect();
+      if(x < rp.left || x > rp.right || y < rp.top || y > rp.bottom) return false;
+    }
+    if(x < 0 || y < 0 || x > innerWidth || y > innerHeight) return false;
+    /* Colunas e cabeçalho fixos ficam por cima da célula quando ela passa por
+       baixo. elementFromPoint não serve aqui — qualquer overlay de página
+       responde primeiro —, então a conta é geométrica: onde termina o bloco
+       fixo, começa a área em que a alça pode aparecer. */
+    const td = el.closest('td, th');
+    const tr = td && td.parentElement;
+    if(tr){
+      const tabela = td.closest('table');
+      /* Só o que pode cobrir ESTE ponto: as células fixas da própria linha
+         (colunas travadas à esquerda) e a linha de cabeçalho. Varrer a tabela
+         inteira custaria caro numa planilha grande, a cada rolagem. */
+      const candidatas = [...tr.children];
+      const thead = tabela && tabela.tHead;
+      if(thead && thead.rows[0]) candidatas.push(...thead.rows[0].children);
+      for(const fixa of candidatas){
+        if(fixa === td) continue;
+        if(getComputedStyle(fixa).position !== 'sticky') continue;
+        const rf = fixa.getBoundingClientRect();
+        if(!rf.width || !rf.height) continue;
+        if(x < rf.right && x > rf.left && y < rf.bottom && y > rf.top) return false;
+      }
+    }
+    return true;
+  }
+
   function positionHandle(input){
     currentInput = input;
     // Orçamento Previsto: o <input> é menor que a célula (fica dentro de .c-prev
@@ -112262,6 +112305,10 @@ async function resetAllData(){
       anchor = input.closest('.c-prev') || input.closest('td') || input;
     }
     const r = anchor.getBoundingClientRect();
+    if(!r.width || !cantoVisivel(anchor, r.right - 3, r.bottom - 3)){
+      handle.style.display = 'none';
+      return;
+    }
     // viewport-relative (handle é position:fixed)
     handle.style.left = (r.right - 4) + 'px';
     handle.style.top  = (r.bottom - 4) + 'px';
@@ -112278,8 +112325,15 @@ async function resetAllData(){
   document.addEventListener('focusin', e => {
     if(fillClassOf(e.target)) positionHandle(e.target);
   });
-  // Rolagem / resize: esconde (o retângulo do input pode ter mudado)
-  window.addEventListener('scroll', hideHandle, true);
+  /* Rolagem: a alça acompanha a célula em vez de sumir — e some sozinha
+     quando a célula sai de vista, porque positionHandle checa isso. Rolar
+     escondendo obrigava a clicar de novo só pra recuperar a alça. */
+  let _reposAgendado = false;
+  window.addEventListener('scroll', () => {
+    if(!currentInput || _reposAgendado) return;
+    _reposAgendado = true;
+    requestAnimationFrame(() => { _reposAgendado = false; if(currentInput) positionHandle(currentInput); });
+  }, true);
   window.addEventListener('resize', hideHandle);
 
   // ─── Drag state ───
