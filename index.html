@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788532987"/>
+  <meta name="fk-build" content="forekash-v1788533633"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -22808,13 +22808,29 @@ td.mes.do-extrato{background:#ECFDF5}
             <div id="ctb-extratos"></div>
             <div class="ctb-dica">arraste os arquivos aqui</div>
           </div>
-          <div class="ctb-card">
-            <div class="ctb-card-hd"><h3>Notas fiscais</h3></div>
+          <div class="ctb-card ctb-drop" ondragover="ctbDrag(event,'nota',true)"
+               ondragleave="ctbDrag(event,'nota',false)" ondrop="ctbDrop(event,'nota')">
+            <div class="ctb-card-hd">
+              <div>
+                <h3>Notas de fornecedores</h3>
+                <p class="ctb-card-sub">Documento de entrada. A nota que você emite é de saída e fica em Notas Fiscais.</p>
+              </div>
+              <label class="ctb-up"><input type="file" multiple onchange="ctbSubirNota(this)">+ enviar</label>
+            </div>
             <div id="ctb-notas"></div>
+            <div class="ctb-dica">arraste as notas aqui</div>
           </div>
-          <div class="ctb-card">
-            <div class="ctb-card-hd"><h3>Comprovantes e boletos</h3></div>
+          <div class="ctb-card ctb-drop" ondragover="ctbDrag(event,'avulso',true)"
+               ondragleave="ctbDrag(event,'avulso',false)" ondrop="ctbDrop(event,'avulso')">
+            <div class="ctb-card-hd">
+              <div>
+                <h3>Boletos e comprovantes</h3>
+                <p class="ctb-card-sub">Os anexados aos lançamentos entram sozinhos; solte aqui os avulsos.</p>
+              </div>
+              <label class="ctb-up"><input type="file" multiple onchange="ctbSubirAvulso(this)">+ enviar</label>
+            </div>
             <div id="ctb-comprov"></div>
+            <div class="ctb-dica">arraste boletos e comprovantes aqui</div>
           </div>
         </div>
 
@@ -119197,7 +119213,7 @@ async function _fkBytesDoAnexo(a){
 try{ window.fkZip = fkZip; }catch(_){}
 
 const CTB_KEY = 'forekash:contador:v1';
-let CTB = { extratos: {}, docs: [], ym: null, banco: '', entregues: {} };
+let CTB = { extratos: {}, notasForn: {}, avulsos: {}, docs: [], ym: null, banco: '', entregues: {} };
 // extratos[ym] = [{path,nome,tipo,tamanho,em,banco}] · docs = documentos permanentes (contratos etc)
 function ctbLoad(){
   try{ const raw = localStorage.getItem(CTB_KEY); if(raw) CTB = Object.assign(CTB, JSON.parse(raw)); }catch(_){}
@@ -119267,17 +119283,12 @@ function ctbComprovantes(ym){
   return out;
 }
 
-/* Notas fiscais do mês, do módulo NF. */
-function ctbNotas(ym){
-  try{
-    const raw = localStorage.getItem('forekash:nf:v1');
-    if(!raw) return [];
-    const nf = JSON.parse(raw);
-    const lista = nf.notas || nf.list || nf.emitidas || [];
-    if(!Array.isArray(lista)) return [];
-    return lista.filter(n => _ctbNoMes(n.data || n.emissao || n.dataEmissao, ym));
-  }catch(_){ return []; }
-}
+/* Notas de FORNECEDOR — documento de entrada. A nota que a empresa emite é
+   documento de saída: vive no módulo Notas Fiscais e a contabilidade já a
+   recebe pela prefeitura. O que o contador cobra todo mês é o que entrou:
+   nota do fornecedor, boleto, comprovante. */
+function ctbNotasForn(ym){ return ((CTB.notasForn || {})[ym] || []); }
+function ctbAvulsos(ym){ return ((CTB.avulsos || {})[ym] || []); }
 
 /* O que falta pro mês fechar. É esta lista que evita o e-mail do contador
    pedindo "o extrato de setembro" três dias depois. */
@@ -119297,10 +119308,15 @@ function ctbPendencias(ym){
   const grandes = lancs.filter(l => {
     const v = Math.abs(parseFloat(l.valor)||0);
     const temAnexo = Array.isArray(l.anexo) ? l.anexo.length : !!l.anexo;
-    return v >= 1000 && !temAnexo;
+    return l.tipo !== 'ganho' && v >= 1000 && !temAnexo;
   });
   if(grandes.length) p.push({ nivel:'medio', item: grandes.length + ' pagamento(s) acima de R$ 1.000 sem comprovante',
                               detalhe:'Despesa sem documento costuma virar glosa.' });
+  const desp = lancs.filter(l => l.tipo === 'gasto' && Math.abs(parseFloat(l.valor)||0) > 0).length;
+  if(desp > 0 && !ctbNotasForn(ym).length){
+    p.push({ nivel:'medio', item:'Nenhuma nota de fornecedor enviada',
+             detalhe: desp + ' despesa(s) no mês e nenhuma nota de entrada anexada.' });
+  }
   const pend = lancs.filter(l => l.status === 'pendente');
   if(pend.length) p.push({ nivel:'baixo', item: pend.length + ' lançamento(s) ainda em aberto',
                            detalhe:'Podem entrar no mês seguinte — confira antes de fechar.' });
@@ -119317,11 +119333,12 @@ function ctbResumo(ym){
   }
   return { lancamentos: lancs.length, entrada, saida, saldo: entrada - saida,
            extratos: ((CTB.extratos||{})[ym] || []).length,
-           notas: ctbNotas(ym).length, comprovantes: ctbComprovantes(ym).length,
+           notas: ctbNotasForn(ym).length,
+           comprovantes: ctbComprovantes(ym).length + ctbAvulsos(ym).length,
            docs: (CTB.docs || []).length };
 }
 try{ window.ctbResumo = ctbResumo; window.ctbPendencias = ctbPendencias;
-     window.ctbComprovantes = ctbComprovantes; window.ctbNotas = ctbNotas; }catch(_){}
+     window.ctbComprovantes = ctbComprovantes; window.ctbNotasForn = ctbNotasForn; }catch(_){}
 
 /* Razão do mês: uma linha por lançamento, com o que a contabilidade precisa
    pra classificar. Ponto-e-vírgula e BOM porque o Excel brasileiro abre
@@ -119397,6 +119414,20 @@ async function ctbBaixarPacote(){
       arquivos.push({ nome, bytes });
       indice.push('documento · ' + nome);
     }
+    for(const n of ctbNotasForn(ym)){
+      const bytes = await _fkBytesDoAnexo(n);
+      if(!bytes){ indice.push('! nota não recuperada: ' + n.nome); continue; }
+      const nome = nomeUnico(ym + '/notas-fornecedores', n.nome);
+      arquivos.push({ nome, bytes });
+      indice.push('nota forn. · ' + nome);
+    }
+    for(const v of ctbAvulsos(ym)){
+      const bytes = await _fkBytesDoAnexo(v);
+      if(!bytes){ indice.push('! boleto não recuperado: ' + v.nome); continue; }
+      const nome = nomeUnico(ym + '/comprovantes', v.nome);
+      arquivos.push({ nome, bytes });
+      indice.push('boleto     · ' + nome);
+    }
     const comps = ctbComprovantes(ym);
     for(const c of comps){
       const bytes = await _fkBytesDoAnexo(c);
@@ -119418,14 +119449,6 @@ async function ctbBaixarPacote(){
     }
     arquivos.push({ nome: ym + '/razao-' + ym + '.csv', bytes: enc.encode('\uFEFF' + linhas.join('\r\n')) });
 
-    const notas = ctbNotas(ym);
-    if(notas.length){
-      const ln = [['Número','Data','Cliente','Valor','Descrição'].map(esc).join(';')];
-      for(const n of notas) ln.push([n.numero||'', n.data||n.emissao||'', n.cliente||n.tomador||'',
-                                     num(+n.valor||0), n.descricao||''].map(esc).join(';'));
-      arquivos.push({ nome: ym + '/notas-fiscais-' + ym + '.csv', bytes: enc.encode('\uFEFF' + ln.join('\r\n')) });
-      indice.push('notas      · ' + ym + '/notas-fiscais-' + ym + '.csv (' + notas.length + ')');
-    }
     const pend = ctbPendencias(ym);
     if(pend.length) indice.push('', 'PENDÊNCIAS APONTADAS:', ...pend.map(x => '  - ' + x.item));
     arquivos.push({ nome: ym + '/INDICE.txt', bytes: enc.encode(indice.join('\r\n')) });
@@ -119454,22 +119477,29 @@ async function ctbSubirArquivos(arqs, destino){
   const lista = Array.from(arqs || []);
   if(!lista.length) return;
   const ym = ctbYm();
+  const mensais = { extrato:'extratos', nota:'notasForn', avulso:'avulsos' };
+  const balde = mensais[destino];
   if(destino === 'doc'){
     if(!Array.isArray(CTB.docs)) CTB.docs = [];
-  } else {
-    if(!CTB.extratos) CTB.extratos = {};
-    if(!CTB.extratos[ym]) CTB.extratos[ym] = [];
+  } else if(balde){
+    if(!CTB[balde]) CTB[balde] = {};
+    if(!CTB[balde][ym]) CTB[balde][ym] = [];
   }
   const contas = ctbContas();
   const conta = contas.find(c => c.id === String(CTB.banco || ''));
   for(const f of lista){
     try{
-      const at = await fkAnexoIngest(f, destino === 'doc' ? 'documento' : ('extrato/' + ym));
+      const escopo = destino === 'doc' ? 'documento' : (destino + '/' + ym);
+      const at = await fkAnexoIngest(f, escopo);
       const reg = { nome: at.name, tipo: at.type, tamanho: at.size,
                     path: at.path || null, dataUrl: at.dataUrl || null,
                     em: new Date().toISOString().slice(0,10) };
       if(destino === 'doc'){ reg.categoria = CTB_DOC_CATS[0]; CTB.docs.push(reg); }
-      else { reg.banco = conta ? conta.nome : ''; reg.contaId = conta ? conta.id : ''; CTB.extratos[ym].push(reg); }
+      else if(destino === 'extrato'){
+        reg.banco = conta ? conta.nome : ''; reg.contaId = conta ? conta.id : '';
+        CTB.extratos[ym].push(reg);
+      }
+      else if(balde){ CTB[balde][ym].push(reg); }
     }catch(e){
       if(typeof toast === 'function') toast((e && e.message) || ('Falha ao enviar "' + f.name + '"'));
     }
@@ -119483,6 +119513,29 @@ async function ctbSubirExtrato(inp){
 async function ctbSubirDoc(inp){
   await ctbSubirArquivos((inp && inp.files) || [], 'doc');
   try{ inp.value = ''; }catch(_){}
+}
+async function ctbSubirNota(inp){
+  await ctbSubirArquivos((inp && inp.files) || [], 'nota');
+  try{ inp.value = ''; }catch(_){}
+}
+async function ctbSubirAvulso(inp){
+  await ctbSubirArquivos((inp && inp.files) || [], 'avulso');
+  try{ inp.value = ''; }catch(_){}
+}
+async function ctbRemoverMensal(balde, ym, i){
+  const lista = (CTB[balde] || {})[ym] || [];
+  const a = lista[i];
+  if(!a) return;
+  const ok = await askConfirm({ title:'Remover arquivo', message:'Remover "' + a.nome + '"?',
+                                variant:'danger', confirmLabel:'Remover', cancelLabel:'Cancelar' });
+  if(!ok) return;
+  try{ await fkAnexoRemover(a); }catch(_){}
+  lista.splice(i, 1);
+  ctbSave(); renderContador();
+}
+function ctbAbrirMensal(balde, ym, i){
+  const a = ((CTB[balde] || {})[ym] || [])[i];
+  if(a) _dkbOpenAttachment({ name: a.nome, type: a.tipo, size: a.tamanho, path: a.path, dataUrl: a.dataUrl });
 }
 
 /* Arrastar e soltar — é assim que o arquivo chega: do e-mail ou da pasta de
@@ -119514,8 +119567,13 @@ function ctbRenomear(onde, chave, i){
     inp.setSelectionRange(0, ponto > 0 ? ponto : inp.value.length);
   }
 }
+function _ctbLista(onde, chave){
+  if(onde === 'doc') return CTB.docs || [];
+  const balde = { ext:'extratos', nota:'notasForn', avulso:'avulsos' }[onde] || 'extratos';
+  return (CTB[balde] || {})[chave] || [];
+}
 function ctbRenomearSalvar(onde, chave, i, valor){
-  const lista = onde === 'doc' ? (CTB.docs || []) : ((CTB.extratos || {})[chave] || []);
+  const lista = _ctbLista(onde, chave);
   const a = lista[i];
   _ctbEditando = null;
   if(a){
@@ -119553,6 +119611,8 @@ try{
   window.ctbDrag = ctbDrag; window.ctbDrop = ctbDrop; window.ctbRenomear = ctbRenomear;
   window.ctbDocCat = ctbDocCat; window.ctbRemoverDoc = ctbRemoverDoc; window.ctbAbrirDoc = ctbAbrirDoc;
   window.ctbRenomearSalvar = ctbRenomearSalvar; window.ctbRenomearTecla = ctbRenomearTecla;
+  window.ctbSubirNota = ctbSubirNota; window.ctbSubirAvulso = ctbSubirAvulso;
+  window.ctbRemoverMensal = ctbRemoverMensal; window.ctbAbrirMensal = ctbAbrirMensal;
 }catch(_){}
 async function ctbRemoverExtrato(ym, i){
   const lista = (CTB.extratos || {})[ym] || [];
@@ -119610,7 +119670,7 @@ function renderContador(){
         <div class="ctb-kpi"><span>Entradas</span><b class="pos">${fmtBRL(r.entrada)}</b></div>
         <div class="ctb-kpi"><span>Saídas</span><b class="neg">${fmtBRL(r.saida)}</b></div>
         <div class="ctb-kpi"><span>Extratos</span><b>${r.extratos}</b></div>
-        <div class="ctb-kpi"><span>Notas fiscais</span><b>${r.notas}</b></div>
+        <div class="ctb-kpi"><span>Notas de fornecedor</span><b>${r.notas}</b></div>
         <div class="ctb-kpi"><span>Comprovantes</span><b>${r.comprovantes}</b></div>
         <div class="ctb-kpi"><span>Documentos</span><b>${r.docs}</b></div>
       </div>`;
@@ -119669,24 +119729,31 @@ function renderContador(){
       : `<div class="ctb-vazio">Nenhum documento guardado. Contratos e certidões ficam aqui e entram em todo pacote.</div>`;
   }
 
-  const notas = ctbNotas(ym);
+  const notasF = ctbNotasForn(ym);
   if($('ctb-notas')){
-    $('ctb-notas').innerHTML = notas.length
-      ? `<ul class="ctb-lista">${notas.map(n => `<li>
-            <span class="ctb-nome">${_extEsc(n.numero ? ('NF ' + n.numero) : (n.descricao || 'Nota'))}</span>
-            <span class="ctb-meta">${n.cliente || n.tomador || ''} ${n.valor ? '· ' + fmtBRL(+n.valor) : ''}</span>
-          </li>`).join('')}</ul>`
-      : `<div class="ctb-vazio">Nenhuma nota emitida em ${_ctbYmLabel(ym)}.</div>`;
+    $('ctb-notas').innerHTML = notasF.length
+      ? `<ul class="ctb-lista">${notasF.map((a2,i) => _ctbLinhaArquivo('nota', ym, i, a2,
+            `ctbAbrirMensal('notasForn','${ym}',${i})`, `ctbRemoverMensal('notasForn','${ym}',${i})`)).join('')}</ul>`
+      : `<div class="ctb-vazio">Nenhuma nota de fornecedor em ${_ctbYmLabel(ym)}.</div>`;
   }
 
   const comps = ctbComprovantes(ym);
+  const avuls = ctbAvulsos(ym);
   if($('ctb-comprov')){
-    $('ctb-comprov').innerHTML = comps.length
-      ? `<ul class="ctb-lista">${comps.slice(0,40).map(c => `<li>
-            <span class="ctb-nome">${_extEsc(c.nome)}</span>
-            <span class="ctb-meta">${_extEsc(String(c.lanc).slice(0,28))} · ${fmtBRL(c.valor)}</span>
-          </li>`).join('')}${comps.length > 40 ? `<li class="ctb-mais">+${comps.length-40} no pacote</li>` : ''}</ul>`
-      : `<div class="ctb-vazio">Nenhum comprovante anexado aos lançamentos do mês.</div>`;
+    let h = '';
+    if(avuls.length){
+      h += `<ul class="ctb-lista">${avuls.map((a2,i) => _ctbLinhaArquivo('avulso', ym, i, a2,
+              `ctbAbrirMensal('avulsos','${ym}',${i})`, `ctbRemoverMensal('avulsos','${ym}',${i})`)).join('')}</ul>`;
+    }
+    if(comps.length){
+      h += `<div class="ctb-grupo-hd" style="margin-top:${avuls.length ? '10px' : '0'}">
+              dos lançamentos <span>${comps.length}</span></div>
+            <ul class="ctb-lista">${comps.slice(0,25).map(c => `<li>
+              <span class="ctb-nome">${_extEsc(c.nome)}</span>
+              <span class="ctb-meta">${_extEsc(String(c.lanc).slice(0,24))} · ${fmtBRL(c.valor)}</span>
+            </li>`).join('')}${comps.length > 25 ? `<li class="ctb-mais">+${comps.length-25} no pacote</li>` : ''}</ul>`;
+    }
+    $('ctb-comprov').innerHTML = h || `<div class="ctb-vazio">Nenhum boleto ou comprovante em ${_ctbYmLabel(ym)}.</div>`;
   }
 }
 try{ window.renderContador = renderContador; }catch(_){}
