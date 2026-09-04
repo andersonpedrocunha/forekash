@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788556936"/>
+  <meta name="fk-build" content="forekash-v1788557694"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7684,6 +7684,7 @@
     .nec-plano-barra i{display:block;height:100%;background:#10B981;border-radius:4px}
     .nec-plano-txt{font-size:.74rem;color:#475569;font-variant-numeric:tabular-nums}
     .nec-plano-txt b{color:#0F172A}
+    .nec-plano-txt b.perda{color:#B91C1C}
     .nec-plano-dif{margin-top:6px;font-size:.7rem;font-weight:700}
     .nec-plano-dif.sobe{color:#B45309}
     .nec-plano-dif.desce{color:#0F766E}
@@ -7847,11 +7848,8 @@
     .nec-card-barra i{display:block;height:100%;background:#10B981;border-radius:3px}
     .nec-card-feito-txt{margin-top:3px;font-size:.64rem;color:#64748B;font-variant-numeric:tabular-nums}
     .nec-card-feito-txt b{color:#0F766E;font-weight:800}
-    /* Alvo que cresceu: âmbar de aviso, não vermelho de erro — replanejar
-       é legítimo, só não pode passar despercebido. */
-    .nec-card-alvo{margin-top:4px;font-size:.62rem;font-weight:700;color:#B45309;
-                   background:rgba(245,158,11,.12);border-radius:5px;padding:2px 6px;
-                   display:inline-block;cursor:help;font-variant-numeric:tabular-nums}
+    .nec-card-feito-txt.perda b{color:#B91C1C}
+    .nec-card-feito-txt.perda{color:#B91C1C}
     /* modal de metas */
     .nec-ov{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9998;display:flex;
             align-items:flex-start;justify-content:center;padding:48px 20px;overflow:auto;
@@ -7880,7 +7878,28 @@
     .nec-metas-tab td.cob.cheio{color:#0F766E;font-weight:700}
     .nec-metas-tab td.cob.quase{color:#0369A1;font-weight:700}
     .nec-metas-tab td.cob.vazio{color:#B45309;font-weight:700}
+    .nec-metas-tab td.cob.perda,.nec-metas-tab td.perda{color:#B91C1C;font-weight:800}
     .nec-metas-tab td.acao{text-align:right;white-space:nowrap}
+    .nec-metas-tab td.trilha{text-align:center;white-space:nowrap}
+    .nec-metas-tab td.trilha .vazio{color:#CBD5E1;font-size:.7rem}
+    /* Trilha: linha do tempo do que a projeção fez desde que a meta fechou */
+    .nec-trilha-row td{background:#F8FAFC;padding:10px 14px 12px}
+    .nec-trilha-cap{font-size:.62rem;font-weight:800;letter-spacing:.07em;
+                    text-transform:uppercase;color:#94A3B8;margin-bottom:7px}
+    .nec-trilha{list-style:none;margin:0;padding:0 0 0 12px;border-left:2px solid #E2E8F0;
+                display:flex;flex-direction:column;gap:6px;text-align:left}
+    .nec-trilha li{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;
+                   font-size:.72rem;color:#475569;position:relative}
+    .nec-trilha li::before{content:'';position:absolute;left:-17px;top:6px;width:7px;height:7px;
+                           border-radius:50%;background:#CBD5E1;box-shadow:0 0 0 2px #F8FAFC}
+    .nec-trilha li.sobe::before{background:#B45309}
+    .nec-trilha li.desce::before{background:#0F766E}
+    .nec-trilha li.base::before{background:#0F172A}
+    .nec-trilha .d{font-weight:800;color:#0F172A;font-variant-numeric:tabular-nums;min-width:46px}
+    .nec-trilha li.sobe b{color:#B45309}
+    .nec-trilha li.desce b{color:#0F766E}
+    .nec-trilha .v{color:#64748B;font-variant-numeric:tabular-nums}
+    .nec-trilha .m{color:#94A3B8;font-style:italic;flex-basis:100%}
     .nec-metas-tab .vazio{color:#CBD5E1}
     .nec-metas-inp{width:118px;text-align:right;border:1px solid #CBD5E1;border-radius:6px;
                    padding:5px 8px;font-family:inherit;font-size:.8rem;color:#0F172A;
@@ -118187,6 +118206,7 @@ function renderNec(){
   const year = necAnoAtivo();
   try{ _necLinhaFluxo(year, true); }catch(_){}   // linha do Fluxo fresca a cada abertura
   try{ necArquivarPassados(year); }catch(_){}    // fecha o que já passou, uma vez
+  try{ necRegistrarTrilha(year); }catch(_){}     // grava o movimento da projeção
   const hoje = new Date();
   const mCur = (parseInt(year,10) === hoje.getFullYear()) ? hoje.getMonth() : 0;
   /* Só projeção é o padrão: mês que já fechou não é meta de ninguém. Em ano
@@ -118360,16 +118380,8 @@ function renderNec(){
             : `${fmtBRL(dd.porDia)}/dia · ${dd.uteisVenda}d úteis`}</div>
         <div class="nec-card-feito">
           ${rz ? `<div class="nec-card-barra"><i style="width:${Math.max(0, Math.min(100, rz.pct)).toFixed(1)}%"></i></div>
-                  <div class="nec-card-feito-txt"><b>${fmtBRL(Math.max(0, rz.acima))}</b> feito ·
+                  <div class="nec-card-feito-txt${rz.acima < -0.005 ? ' perda' : ''}"><b>${fmtBRL(rz.acima)}</b> ${rz.acima < -0.005 ? 'a menos' : 'feito'} ·
                     ${rz.pct.toLocaleString('pt-BR',{maximumFractionDigits:0})}%</div>` : ''}
-          ${(function(){
-            /* O cenário piorando não move a barra — move o alvo. É aqui que
-               isso aparece no card, sem espaço pro texto longo do hero. */
-            const dv = necDesvio(dd, (NEC.planos || {})[dd.chave]);
-            if(!dv || dv.dif <= 0.5) return '';
-            return `<div class="nec-card-alvo" title="${_extEsc(dv.motivo || 'a projeção mudou desde que a meta foi fixada')}">
-                      meta +${_necCurto(dv.dif)} desde ${_necDataBR((NEC.planos[dd.chave] || {}).fixadoEm)}</div>`;
-          })()}
         </div>
         <div class="nec-card-pe">
           ${(!zerado && (dd.cicloDias > 0 || dd.prazoDias > 0))
@@ -118688,14 +118700,16 @@ function necLista(year, m0){
    ele devolve o que o Extrato registrou, em mês futuro devolve a previsão.
    Comparado com a receita que o plano tinha na hora de fixar, a diferença é
    exatamente a venda nova. */
-/* Progresso não anda pra trás. A barra mede quanto do combinado já virou
-   venda — e o mês que ainda nem começou tem zero de venda, não venda
-   negativa. Receita prevista que saiu do plano é OUTRA coisa: aparece como
-   a meta subindo, em necDesvio(). Misturar as duas fazia novembro, em
-   setembro, mostrar "−54%" só porque a receita do mês ainda não caiu. */
+/* O número pode ser negativo; a barra, não.
+
+   Perder um cliente ou fechar uma venda acontece muito antes do mês chegar —
+   então o realizado de um mês futuro se mexe pros dois lados, e cortar em
+   zero escondia justamente a metade ruim. Mas barra é progresso: encolher
+   quando o cenário piora dá a impressão de venda andando de ré. Então o
+   valor e o % carregam o sinal, e a barra só cresce com venda feita. */
 function _necClampPct(p){
   if(!isFinite(p)) return 0;
-  return Math.max(0, Math.min(999, p));
+  return Math.max(-999, Math.min(999, p));
 }
 function necRealizadoItem(year, item){
   if(!item) return null;
@@ -118778,6 +118792,50 @@ function necArquivarPassados(year){
   if(mudou) necSave();
 }
 try{ window.necArquivarPassados = necArquivarPassados; }catch(_){}
+
+/* ═══ TRILHA DO DESVIO ═══════════════════════════════════════════════
+   Contrato de 12 meses cai, cliente que estava fechado não fecha, e a
+   projeção do mês muda meses antes dele chegar. Calcular o desvio ao vivo
+   mostra o estado de hoje e some quando o cenário se mexe de novo — some
+   junto a informação de que houve o tranco.
+
+   Então cada movimento fica gravado: uma marca por dia em que a projeção
+   saiu do lugar, com o valor e a razão. Vira a trilha do mês, do dia em que
+   a meta foi fixada até o fechamento. */
+const NEC_TRILHA_MAX = 60;
+function necRegistrarTrilha(year){
+  if(!NEC.planos) return false;
+  const hoje = new Date().toISOString().slice(0,10);
+  let mudou = false;
+  let itens = [];
+  try{ itens = necLista(year, 0); }catch(_){ return false; }
+  for(const it of itens){
+    const pl = NEC.planos[it.chave];
+    if(!pl || pl.fechado) continue;               // mês arquivado não se mexe mais
+    if(!Array.isArray(pl.trilha)) pl.trilha = [];
+    const ultimo = pl.trilha.length ? pl.trilha[pl.trilha.length - 1] : null;
+    const antes = ultimo ? ultimo.bruto : pl.meta;
+    if(Math.abs(it.bruto - antes) <= 0.5) continue;
+    /* O motivo é do PASSO, não do acumulado: compara com a marca anterior
+       quando existe, e só com a meta original no primeiro tranco. */
+    const base = ultimo
+      ? { meta: ultimo.bruto, receitaPrev: ultimo.receita, saldoPrev: ultimo.saldo }
+      : pl;
+    const dv = necDesvio(it, base);
+    const marca = { em: hoje, bruto: it.bruto, receita: it.receita, saldo: it.saldo,
+                    dif: it.bruto - antes, motivo: dv ? dv.motivo : '' };
+    /* Uma marca por dia: mexer três vezes na mesma tarde é uma decisão só,
+       não três. A última do dia é a que vale. */
+    if(ultimo && ultimo.em === hoje) pl.trilha[pl.trilha.length - 1] = marca;
+    else pl.trilha.push(marca);
+    if(pl.trilha.length > NEC_TRILHA_MAX) pl.trilha = pl.trilha.slice(-NEC_TRILHA_MAX);
+    mudou = true;
+  }
+  if(mudou) necSave();
+  return mudou;
+}
+try{ window.necRegistrarTrilha = necRegistrarTrilha; }catch(_){}
+
 function necFixarPlano(year, mIdx, chave){
   const d = chave ? _necItemPorChave(year, chave) : necDados(year, mIdx);
   if(!d) return;
@@ -118790,7 +118848,8 @@ function necFixarPlano(year, mIdx, chave){
   if(antigo){
     historico.push({ meta: antigo.meta, receitaPrev: antigo.receitaPrev,
                      fixadoEm: antigo.fixadoEm, aliq: antigo.aliq, margem: antigo.margem,
-                     base: antigo.base, substituidoEm: new Date().toISOString().slice(0,10) });
+                     base: antigo.base, trilha: antigo.trilha || [],
+                     substituidoEm: new Date().toISOString().slice(0,10) });
   }
   NEC.planos[k] = {
     meta: d.bruto, receitaPrev: d.receita, saldoPrev: d.saldo,
@@ -118897,14 +118956,42 @@ function _necDifTxt(d, pl){
     </div>`;
 }
 function _necFeitoTxt(rz, meta){
-  const feito = Math.max(0, rz.acima);
-  return `<b>${fmtBRL(feito)}</b> vendidos acima do previsto ·
-          <b>${rz.pct.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%</b> da meta ·
-          faltam <b>${fmtBRL(Math.max(0, (meta || 0) - feito))}</b>`;
+  const pct = rz.pct.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + '%';
+  const neg = rz.acima < -0.005;
+  return `<b class="${neg ? 'perda' : ''}">${fmtBRL(rz.acima)}</b> ${neg ? 'abaixo do previsto' : 'vendidos acima do previsto'} ·
+          <b class="${neg ? 'perda' : ''}">${pct}</b> da meta ·
+          faltam <b>${fmtBRL(Math.max(0, (meta || 0) - rz.acima))}</b>`;
 }
 function _necBarra(pct){
   return `<div class="nec-plano-barra"><i style="width:${Math.max(0, Math.min(100, pct)).toFixed(1)}%"></i></div>`;
 }
+
+/* A trilha em linha do tempo: cada tranco com data, tamanho e razão. Piora e
+   melhora entram do mesmo jeito — o que muda é a cor. */
+const _NEC_TRILHA_ABERTA = {};
+function necTrilhaToggle(chave){
+  if(_NEC_TRILHA_ABERTA[chave]) delete _NEC_TRILHA_ABERTA[chave];
+  else _NEC_TRILHA_ABERTA[chave] = true;
+  necMetasRender();
+}
+function _necTrilhaLinha(pl, chave, colspan){
+  const t = (pl && Array.isArray(pl.trilha)) ? pl.trilha : [];
+  if(!t.length || !_NEC_TRILHA_ABERTA[chave]) return '';
+  const passos = t.map(p => `<li class="${p.dif > 0 ? 'sobe' : 'desce'}">
+        <span class="d">${_necDataBR(p.em)}</span>
+        <b>${p.dif > 0 ? '+' : '−'}${fmtBRL(Math.abs(p.dif))}</b>
+        <span class="v">virou ${fmtBRL(p.bruto)}</span>
+        ${p.motivo ? `<span class="m">${_extEsc(p.motivo)}</span>` : ''}
+      </li>`).join('');
+  return `<tr class="nec-trilha-row"><td colspan="${colspan}">
+      <div class="nec-trilha-cap">Movimento da projeção desde ${_necDataBR(pl.fixadoEm)}</div>
+      <ol class="nec-trilha">
+        <li class="base"><span class="d">${_necDataBR(pl.fixadoEm)}</span>
+          <b>meta fixada</b> <span class="v">${fmtBRL(pl.meta)}</span></li>
+        ${passos}
+      </ol></td></tr>`;
+}
+try{ window.necTrilhaToggle = necTrilhaToggle; }catch(_){}
 try{ window.necDesvio = necDesvio; }catch(_){}
 try{
   window.necPlano = necPlano; window.necFixarPlano = necFixarPlano;
@@ -118966,12 +119053,18 @@ function necMetasRender(){
                     title="Digite o valor combinado com o time — ou use Fixar para adotar o que a projeção pede">`}
         </td>
         <td>${pl ? _necDataBR(pl.fixadoEm) : ''}</td>
-        <td>${rz ? fmtBRL(Math.max(0, rz.acima)) : '—'}</td>
-        <td class="${rz ? (rz.pct >= 100 ? 'cob cheio' : (rz.pct >= 60 ? 'cob quase' : 'cob vazio')) : ''}">
+        <td class="${rz && rz.acima < -0.005 ? 'perda' : ''}">${rz ? fmtBRL(rz.acima) : '—'}</td>
+        <td class="${rz ? (rz.pct < 0 ? 'cob perda' : (rz.pct >= 100 ? 'cob cheio' : (rz.pct >= 60 ? 'cob quase' : 'cob vazio'))) : ''}">
           ${rz ? rz.pct.toLocaleString('pt-BR',{maximumFractionDigits:0}) + '%' : '—'}</td>
         <td class="dif">${pl && dv
             ? `<span class="${dv.dif > 0 ? 'sobe' : 'desce'}"${dv.motivo ? ` title="${_extEsc(dv.motivo)}"` : ''}>${
                  dv.dif > 0 ? '+' : '−'}${fmtBRL(Math.abs(dv.dif))}</span>` : ''}</td>
+        <td class="trilha">${(pl && (pl.trilha || []).length)
+            ? `<button type="button" class="nec-mini${_NEC_TRILHA_ABERTA[it.chave] ? ' forte' : ''}"
+                  onclick="necTrilhaToggle('${it.chave}')"
+                  title="Ver quando a projeção deste período se mexeu">${pl.trilha.length} ${
+                  pl.trilha.length === 1 ? 'tranco' : 'trancos'}</button>`
+            : (pl ? '<span class="vazio">estável</span>' : '')}</td>
         <td class="acao">
           ${pl && pl.fechado ? '<span class="vazio">fechado</span>'
             : pl ? `<button type="button" class="nec-mini" onclick="necRefixarComAviso('${year}','${it.chave}')" title="Atualizar para a projeção de hoje">refixar</button>
@@ -118979,7 +119072,7 @@ function necMetasRender(){
                  : `<button type="button" class="nec-mini forte" onclick="necFixarPlano('${year}',null,'${it.chave}')"
                       ${it.bruto > 0 ? '' : 'disabled'}>fixar</button>`}
         </td>
-      </tr>`;
+      </tr>` + _necTrilhaLinha(pl, it.chave, 9);
   }
   ov.innerHTML = `<div class="nec-metas-card">
       <div class="nec-metas-hd">
@@ -118995,7 +119088,8 @@ function necMetasRender(){
           digitar no campo define o valor que o time combinou. Meta fixada fica travada — o cadeado libera.</p>
         <table class="nec-metas-tab">
           <thead><tr><th class="l">${NEC.agr === 'tri' ? 'Trimestre' : 'Mês'}</th><th>Projeção pede</th>
-            <th>Meta fixada</th><th>Fixada em</th><th>Realizado</th><th>%</th><th>Δ hoje</th><th></th></tr></thead>
+            <th>Meta fixada</th><th>Fixada em</th><th>Realizado</th><th>%</th><th>Δ hoje</th>
+            <th>Movimento</th><th></th></tr></thead>
           <tbody>${linhas}</tbody>
         </table>
       </div>
