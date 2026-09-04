@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788552257"/>
+  <meta name="fk-build" content="forekash-v1788556936"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7682,11 +7682,6 @@
                     font-size:.7rem;font-weight:700;text-decoration:underline;padding:0}
     .nec-plano-barra{height:7px;border-radius:4px;background:rgba(148,163,184,.22);overflow:hidden;margin:8px 0 6px}
     .nec-plano-barra i{display:block;height:100%;background:#10B981;border-radius:4px}
-    /* Realizado negativo: mesma direção de sempre, cor invertida. Encher da
-       direita pra esquerda parecia barra andando de ré — o vermelho já diz
-       que aquilo é buraco, não progresso. */
-    .nec-plano-barra.perda{background:rgba(220,38,38,.12)}
-    .nec-plano-barra.perda i{background:#DC2626}
     .nec-plano-txt{font-size:.74rem;color:#475569;font-variant-numeric:tabular-nums}
     .nec-plano-txt b{color:#0F172A}
     .nec-plano-dif{margin-top:6px;font-size:.7rem;font-weight:700}
@@ -7850,11 +7845,13 @@
     .nec-card-feito{margin-top:7px;min-height:22px}
     .nec-card-barra{height:5px;border-radius:3px;background:rgba(148,163,184,.22);overflow:hidden}
     .nec-card-barra i{display:block;height:100%;background:#10B981;border-radius:3px}
-    .nec-card-barra.perda{background:rgba(220,38,38,.12)}
-    .nec-card-barra.perda i{background:#DC2626}
     .nec-card-feito-txt{margin-top:3px;font-size:.64rem;color:#64748B;font-variant-numeric:tabular-nums}
     .nec-card-feito-txt b{color:#0F766E;font-weight:800}
-    .nec-card-feito-txt.perda b{color:#B91C1C}
+    /* Alvo que cresceu: âmbar de aviso, não vermelho de erro — replanejar
+       é legítimo, só não pode passar despercebido. */
+    .nec-card-alvo{margin-top:4px;font-size:.62rem;font-weight:700;color:#B45309;
+                   background:rgba(245,158,11,.12);border-radius:5px;padding:2px 6px;
+                   display:inline-block;cursor:help;font-variant-numeric:tabular-nums}
     /* modal de metas */
     .nec-ov{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9998;display:flex;
             align-items:flex-start;justify-content:center;padding:48px 20px;overflow:auto;
@@ -7883,7 +7880,6 @@
     .nec-metas-tab td.cob.cheio{color:#0F766E;font-weight:700}
     .nec-metas-tab td.cob.quase{color:#0369A1;font-weight:700}
     .nec-metas-tab td.cob.vazio{color:#B45309;font-weight:700}
-    .nec-metas-tab td.cob.perda{color:#B91C1C;font-weight:800}
     .nec-metas-tab td.acao{text-align:right;white-space:nowrap}
     .nec-metas-tab .vazio{color:#CBD5E1}
     .nec-metas-inp{width:118px;text-align:right;border:1px solid #CBD5E1;border-radius:6px;
@@ -118363,9 +118359,17 @@ function renderNec(){
         <div class="nec-card-sub">${zerado ? ''
             : `${fmtBRL(dd.porDia)}/dia · ${dd.uteisVenda}d úteis`}</div>
         <div class="nec-card-feito">
-          ${rz ? `<div class="nec-card-barra${rz.pct < 0 ? ' perda' : ''}"><i style="width:${Math.min(100, Math.abs(rz.pct)).toFixed(1)}%"></i></div>
-                  <div class="nec-card-feito-txt${rz.acima < 0 ? ' perda' : ''}"><b>${fmtBRL(rz.acima)}</b> ${rz.acima < 0 ? 'a menos' : 'feito'} ·
+          ${rz ? `<div class="nec-card-barra"><i style="width:${Math.max(0, Math.min(100, rz.pct)).toFixed(1)}%"></i></div>
+                  <div class="nec-card-feito-txt"><b>${fmtBRL(Math.max(0, rz.acima))}</b> feito ·
                     ${rz.pct.toLocaleString('pt-BR',{maximumFractionDigits:0})}%</div>` : ''}
+          ${(function(){
+            /* O cenário piorando não move a barra — move o alvo. É aqui que
+               isso aparece no card, sem espaço pro texto longo do hero. */
+            const dv = necDesvio(dd, (NEC.planos || {})[dd.chave]);
+            if(!dv || dv.dif <= 0.5) return '';
+            return `<div class="nec-card-alvo" title="${_extEsc(dv.motivo || 'a projeção mudou desde que a meta foi fixada')}">
+                      meta +${_necCurto(dv.dif)} desde ${_necDataBR((NEC.planos[dd.chave] || {}).fixadoEm)}</div>`;
+          })()}
         </div>
         <div class="nec-card-pe">
           ${(!zerado && (dd.cicloDias > 0 || dd.prazoDias > 0))
@@ -118684,9 +118688,14 @@ function necLista(year, m0){
    ele devolve o que o Extrato registrou, em mês futuro devolve a previsão.
    Comparado com a receita que o plano tinha na hora de fixar, a diferença é
    exatamente a venda nova. */
+/* Progresso não anda pra trás. A barra mede quanto do combinado já virou
+   venda — e o mês que ainda nem começou tem zero de venda, não venda
+   negativa. Receita prevista que saiu do plano é OUTRA coisa: aparece como
+   a meta subindo, em necDesvio(). Misturar as duas fazia novembro, em
+   setembro, mostrar "−54%" só porque a receita do mês ainda não caiu. */
 function _necClampPct(p){
   if(!isFinite(p)) return 0;
-  return Math.max(-999, Math.min(999, p));
+  return Math.max(0, Math.min(999, p));
 }
 function necRealizadoItem(year, item){
   if(!item) return null;
@@ -118887,20 +118896,14 @@ function _necDifTxt(d, pl){
       ${abre} desde que a meta foi fixada${dv.motivo ? ': ' + dv.motivo : ''}.${imp}
     </div>`;
 }
-/* Realizado negativo não é "0% da meta": é buraco. O texto separa os dois
-   casos porque a ação é oposta — vender mais, ou recompor o que caiu. */
 function _necFeitoTxt(rz, meta){
-  const pct = rz.pct.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + '%';
-  if(rz.acima < -0.005)
-    return `<b>${fmtBRL(Math.abs(rz.acima))}</b> abaixo do previsto quando a meta foi fixada ·
-            <b>${pct}</b> da meta · faltam <b>${fmtBRL((meta || 0) - rz.acima)}</b>`;
-  return `<b>${fmtBRL(rz.acima)}</b> vendidos acima do previsto ·
-          <b>${pct}</b> da meta · faltam <b>${fmtBRL(Math.max(0, (meta || 0) - rz.acima))}</b>`;
+  const feito = Math.max(0, rz.acima);
+  return `<b>${fmtBRL(feito)}</b> vendidos acima do previsto ·
+          <b>${rz.pct.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%</b> da meta ·
+          faltam <b>${fmtBRL(Math.max(0, (meta || 0) - feito))}</b>`;
 }
 function _necBarra(pct){
-  const neg = pct < 0;
-  const w = Math.min(100, Math.abs(pct)).toFixed(1);
-  return `<div class="nec-plano-barra${neg ? ' perda' : ''}"><i style="width:${w}%"></i></div>`;
+  return `<div class="nec-plano-barra"><i style="width:${Math.max(0, Math.min(100, pct)).toFixed(1)}%"></i></div>`;
 }
 try{ window.necDesvio = necDesvio; }catch(_){}
 try{
@@ -118963,8 +118966,8 @@ function necMetasRender(){
                     title="Digite o valor combinado com o time — ou use Fixar para adotar o que a projeção pede">`}
         </td>
         <td>${pl ? _necDataBR(pl.fixadoEm) : ''}</td>
-        <td>${rz ? fmtBRL(rz.acima) : '—'}</td>
-        <td class="${rz ? (rz.pct < 0 ? 'cob perda' : (rz.pct >= 100 ? 'cob cheio' : (rz.pct >= 60 ? 'cob quase' : 'cob vazio'))) : ''}">
+        <td>${rz ? fmtBRL(Math.max(0, rz.acima)) : '—'}</td>
+        <td class="${rz ? (rz.pct >= 100 ? 'cob cheio' : (rz.pct >= 60 ? 'cob quase' : 'cob vazio')) : ''}">
           ${rz ? rz.pct.toLocaleString('pt-BR',{maximumFractionDigits:0}) + '%' : '—'}</td>
         <td class="dif">${pl && dv
             ? `<span class="${dv.dif > 0 ? 'sobe' : 'desce'}"${dv.motivo ? ` title="${_extEsc(dv.motivo)}"` : ''}>${
