@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788904721"/>
+  <meta name="fk-build" content="forekash-v1788905273"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -39702,19 +39702,35 @@ function _recEstadoDoAno(ano){
 
    A única diferença: não mostra nada quando o ano ainda não tem valor. Em
    janeiro de um ano novo o recebido é zero, e "↓ 100% YoY" ali só assusta. */
+/* Ano fechado só tem realizado; ano em curso ou futuro carrega projeção. */
+function _recNatureza(ano){
+  return _recEstadoDoAno(ano).estado === 'fechado' ? 'realizado' : 'previsto';
+}
+
+/* O rótulo do selo diz que tipo de comparação é aquela — e é aí que a maioria
+   dos painéis mente sem querer.
+
+   YoY pressupõe a mesma medida nos dois lados. Realizado de 2025 contra
+   realizado de 2024: YoY. Previsto de 2027 contra previsto de 2026: também,
+   é plano contra plano. Mas previsto de 2026 contra realizado de 2025 são
+   coisas diferentes — chamar de YoY dá ao número uma autoridade que ele não
+   tem. Nesse caso o selo diz só "vs 2025", e o tooltip explica o que é cada
+   lado. YTD é o terceiro caso: mesma medida, janela cortada no mesmo mês. */
 function _recYoyChip(atual, anterior, anoAnt, janela){
   if(!(Math.abs(atual) > 0.005)) return '';
   const pct = anterior !== 0 ? ((atual - anterior) / Math.abs(anterior) * 100) : (atual > 0 ? 100 : 0);
   const badge = yoyBadge({ atual, anterior, delta: atual - anterior, deltaPct: pct,
                            yAnterior: anoAnt });
-  const dizer = janela
-    ? fmtBRL(anterior) + ' em ' + anoAnt + ' \u2192 ' + fmtBRL(atual) + ' em ' + recActiveYear
-      + ' \u00b7 ' + janela
-    : fmtBRL(anterior) + ' em ' + anoAnt + ' \u2192 ' + fmtBRL(atual) + ' em ' + recActiveYear;
-  let out = badge.replace('title="vs ' + anoAnt + '"', 'title="' + dizer + '"');
-  // Janela parcial não é YoY cheio — o rótulo tem que dizer isso.
-  if(janela) out = out.replace('% YoY', '% YTD');
-  return ' ' + out;
+  const natAtual = janela ? 'realizado' : _recNatureza(recActiveYear);
+  const natAnt   = janela ? 'realizado' : _recNatureza(anoAnt);
+  const mesma = natAtual === natAnt;
+  const rotulo = janela ? 'YTD' : (mesma ? 'YoY' : 'vs ' + anoAnt);
+  const dizer = fmtBRL(anterior) + ' ' + natAnt + ' em ' + anoAnt
+              + ' \u2192 ' + fmtBRL(atual) + ' ' + natAtual + ' em ' + recActiveYear
+              + (janela ? ' \u00b7 ' + janela : '');
+  return ' ' + badge
+    .replace('title="vs ' + anoAnt + '"', 'title="' + dizer + '"')
+    .replace('% YoY', '% ' + rotulo);
 }
 
 function updateRecTotals(){
