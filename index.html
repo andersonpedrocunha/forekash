@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788886001"/>
+  <meta name="fk-build" content="forekash-v1788902693"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -25296,9 +25296,22 @@ td.mes.do-extrato{background:#ECFDF5}
           <span>Leads (simular) do ano</span>
         </label>
         <label class="nyr-check">
-          <input type="checkbox" id="nyr-copy-meses">
-          <span>Valores mensais (copiar também os valores recebidos/em aberto)</span>
+          <input type="checkbox" id="nyr-copy-meses" onchange="updateNyrOptions()">
+          <span>Valores mensais</span>
         </label>
+        <!-- Como copiar o valor: o ano inteiro ou só dezembro repetido. Dezembro
+             é o contrato como ele terminou o ano — quem entrou em agosto ou
+             teve reajuste no meio não deve voltar ao valor antigo. -->
+        <div class="nyr-subchoice" id="nyr-meses-modo" style="display:none">
+          <label class="nyr-radio">
+            <input type="radio" name="nyr-meses-modo" value="mes" checked onchange="updateNyrOptions()">
+            <span><b>Mês a mês</b> — repete o ano inteiro como ele foi</span>
+          </label>
+          <label class="nyr-radio">
+            <input type="radio" name="nyr-meses-modo" value="dez" onchange="updateNyrOptions()">
+            <span><b>Repetir dezembro</b> — o valor de dezembro nos 12 meses</span>
+          </label>
+        </div>
         <div class="nyr-hint">
           Os tipos são globais e <b>sempre</b> ficam disponíveis em todos os anos.
           Os clientes também são únicos — você só duplica as <i>linhas de projeto</i>.
@@ -33575,6 +33588,14 @@ function updateNyrOptions(){
   const box = document.getElementById('nyr-copy-options');
   if(box) box.style.display = src ? 'block' : 'none';
 
+  // "Como copiar" só aparece quando os valores mensais vêm junto
+  const cbMeses = document.getElementById('nyr-copy-meses');
+  const comMeses = !!(cbMeses && cbMeses.checked);
+  const boxModo = document.getElementById('nyr-meses-modo');
+  if(boxModo) boxModo.style.display = comMeses ? 'flex' : 'none';
+  const modoSel = document.querySelector('input[name="nyr-meses-modo"]:checked');
+  const modo = modoSel ? modoSel.value : 'mes';
+
   // Preview no rodapé
   const prev = document.getElementById('nyr-preview');
   if(prev){
@@ -33582,7 +33603,20 @@ function updateNyrOptions(){
       prev.textContent = 'Criar um ano totalmente vazio.';
     } else {
       const d = receita.years[src] || {clients:[],leads:[]};
-      prev.textContent = `Copiando ${d.clients.length} cliente(s) e ${d.leads.length} lead(s) de ${src}.`;
+      let txt = `Copiando ${d.clients.length} cliente(s) e ${d.leads.length} lead(s) de ${src}.`;
+      if(comMeses && modo === 'dez'){
+        /* Linha sem dezembro vem sem valor — dizer quantas são evita a
+           surpresa de abrir o ano novo com menos receita do que o esperado. */
+        const todas = (d.clients || []).concat(d.leads || []);
+        const comDez = todas.filter(r => {
+          const c = r.meses && r.meses[REC_MESES[11]];
+          return c && c.valor !== '' && c.valor != null && +c.valor !== 0;
+        }).length;
+        const fora = todas.length - comDez;
+        txt += ` Dezembro repetido nos 12 meses · ${comDez} linha(s) com valor`
+             + (fora > 0 ? ` (${fora} sem dezembro ${fora === 1 ? 'fica' : 'ficam'} zerada${fora === 1 ? '' : 's'})` : '');
+      }
+      prev.textContent = txt;
     }
   }
 }
@@ -33605,7 +33639,9 @@ async function submitNewYear(){
     const copyRows  = document.getElementById('nyr-copy-rows') .checked;
     const copyLeads = document.getElementById('nyr-copy-leads').checked;
     const copyMeses = document.getElementById('nyr-copy-meses').checked;
-    receita.years[y] = copyYearData(src, {copyRows, copyLeads, copyMeses});
+    const modoSel = document.querySelector('input[name="nyr-meses-modo"]:checked');
+    receita.years[y] = copyYearData(src, {copyRows, copyLeads, copyMeses,
+                                          mesesModo: modoSel ? modoSel.value : 'mes'});
   }
 
   recActiveYear = y;
@@ -33621,7 +33657,7 @@ async function submitNewYear(){
 function copyYearData(fromY, opts){
   const src = receita.years[fromY];
   if(!src) return {clients:[], leads:[], nextId:1};
-  const { copyRows = true, copyLeads = true, copyMeses = false } = opts || {};
+  const { copyRows = true, copyLeads = true, copyMeses = false, mesesModo = 'mes' } = opts || {};
 
   const cloneRow = (r, newId) => {
     const copy = {
@@ -33635,14 +33671,28 @@ function copyYearData(fromY, opts){
       meses: {}
     };
     if(copyMeses){
-      for(const m of REC_MESES){
-        if(r.meses && r.meses[m]){
-          copy.meses[m] = {
-            valor: r.meses[m].valor,
-            // Nota: o status recebido pode não fazer sentido no ano futuro.
-            // Ao copiar valores, reseto tudo para 'aberto' (expectativa de recebimento).
-            status: 'aberto'
-          };
+      if(mesesModo === 'dez'){
+        /* Dezembro é o contrato como ele terminou o ano — é ele que segue
+           valendo. Copiar mês a mês trazia de volta o valor de antes do
+           reajuste, e deixava sete meses vazios pra quem entrou em agosto.
+
+           Sem dezembro, a linha vem sem valor nenhum: cliente que encerrou no
+           meio do ano não entra renovado no ano seguinte. */
+        const dez = r.meses && r.meses[REC_MESES[11]];
+        const vDez = dez ? dez.valor : null;
+        if(vDez !== '' && vDez != null && +vDez !== 0){
+          for(const m of REC_MESES) copy.meses[m] = { valor: vDez, status: 'aberto' };
+        }
+      } else {
+        for(const m of REC_MESES){
+          if(r.meses && r.meses[m]){
+            copy.meses[m] = {
+              valor: r.meses[m].valor,
+              // Nota: o status recebido pode não fazer sentido no ano futuro.
+              // Ao copiar valores, reseto tudo para 'aberto' (expectativa de recebimento).
+              status: 'aberto'
+            };
+          }
         }
       }
     }
