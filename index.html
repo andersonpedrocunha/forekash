@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788558814"/>
+  <meta name="fk-build" content="forekash-v1788880261"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -9304,6 +9304,13 @@
     .pes-sheet .pes-reaj-pct.dn{color:#DC2626}
     .pes-sheet .pes-reaj-pct.zr{color:var(--txl)}
     tr.inat .pes-reaj-mes,tr.inat .pes-reaj-pct{opacity:.85}
+    /* Externo: "não se aplica" em cinza discreto — não é um alerta, é um
+       campo que não existe pra essa pessoa. */
+    .pes-sheet .pes-reaj-ext{font-size:.68rem;color:#94A3B8;font-style:italic;letter-spacing:-0.01em}
+    .pes-sheet tbody td.pes-reaj-cell.ext{text-align:left}
+    .pes-ext-selo{flex:0 0 auto;margin-left:6px;font-size:.55rem;font-weight:800;letter-spacing:.06em;
+                  color:#7C3AED;background:rgba(124,58,237,.1);border-radius:4px;padding:2px 5px;
+                  cursor:help;line-height:1}
 
     /* Inputs da primeira coluna (nome) */
     .pes-first-wrap{display:flex;align-items:center;padding-right:6px}
@@ -14521,6 +14528,10 @@
     .pcard-vinc-chip + .pcard-vinc-chip{border-left:1px solid #E2E8F0}
     .pcard-vinc-chip:hover{background:#EFF6FF;color:#2563EB}
     .pcard-vinc-chip.on{background:#2563EB;color:#fff}
+    /* Externo em roxo: é outra natureza de vínculo, não uma variação de CLT/PJ */
+    .pcard-vinc-chip.ext:hover{background:#F5F3FF;color:#7C3AED}
+    .pcard-vinc-chip.ext.on{background:#7C3AED;color:#fff}
+    .pcard-vinc-chip.ext.on:hover{background:#6D28D9;color:#fff}
     .pcard-vinc-chip.on:hover{background:#1D4ED8}
     .pcard-vinc-hint{font-size:.68rem;color:#94A3B8;margin-top:5px;line-height:1.4}
     .pcard-tipo-chips{display:inline-flex;gap:0;border:1px solid #E2E8F0;border-radius:7px;
@@ -55026,6 +55037,11 @@ function pesReajSimFactor(p, key, ignorarToggle){
      individual está dizendo qual é o dele, não "o do tipo mais um extra". */
   const chavePessoa = 'p:' + p.id;
   const daPessoa = pesReajSimAllRules().filter(r => r.tipoId === chavePessoa);
+  /* Externo fica de fora do reajuste geral e do reajuste por tipo — o valor
+     dele é contrato, não política salarial. Regra criada NELE continua
+     valendo: aí foi uma decisão explícita, não a régua da casa passando por
+     cima. */
+  if(!daPessoa.length && pesEhExterno(p)) return 1;
   const aplicaveis = daPessoa.length
     ? daPessoa
     : pesReajSimAllRules().filter(r => r.tipoId === p.tipoId);
@@ -105242,13 +105258,26 @@ function askPesSaidaCancel(){
 /* Vínculo: como a pessoa é contratada. É diferente de "tipo de pessoa" (PF /
    Empresa / Estrangeiro), que é sobre o documento — o prestador PJ tem CPF e
    CNPJ, e os dois campos são verdadeiros ao mesmo tempo. */
-const PES_VINCULOS = { clt: 'PF · CLT', pj: 'PJ' };
+/* EXTERNO é o prestador que só está na empresa por causa de um projeto: o
+   custo dele é folha como qualquer outro, mas ele não entra na política de
+   reajuste da casa. Não tem data-base, não tem dissídio, não tem "está sem
+   aumento há 14 meses" — o valor dele é o combinado do contrato e muda
+   quando o contrato mudar. Rastrear reajuste dele só produz ruído. */
+const PES_VINCULOS = { clt: 'PF · CLT', pj: 'PJ', ext: 'Externo' };
 function _pesVinculo(regId){
   try{
     const r = pesRegistry().find(x => x.id === regId);
     return (r && PES_VINCULOS[r.vinculo]) ? r.vinculo : '';
   }catch(_){ return ''; }
 }
+/* A linha da planilha não guarda o vínculo — ele mora no cadastro (registry),
+   compartilhado com Workflows. Daí a ponte pelo pessoaId. */
+function pesEhExterno(p){
+  if(!p) return false;
+  if(p.sim) return false;                       // vaga simulada não é ninguém ainda
+  return _pesVinculo(p.pessoaId) === 'ext';
+}
+try{ window.pesEhExterno = pesEhExterno; }catch(_){}
 /* A tag em Workflows › Cadastro segue o vínculo sozinha — dois lugares
    dizendo a mesma coisa é convite pra divergirem. */
 function _pesSincronizaTagVinculo(reg){
@@ -105461,7 +105490,7 @@ function renderPesCardBody(){
   // Alerta de reajuste atrasado (passou de 1 ano desde o último reajuste)
   // Se não há reajuste registrado, considera a data de entrada como baseline.
   let alertHtml = '';
-  if(p.ativo){
+  if(p.ativo && !pesEhExterno(p)){        // externo não tem data-base pra cobrar
     const histForAlert = computePesReajustes(p);
     const baselineKey = histForAlert.length
       ? histForAlert[histForAlert.length-1].key
@@ -105849,13 +105878,16 @@ function renderPesCardBody(){
         <div class="pcard-field">
           <label class="pcard-lbl">Contratação</label>
           <div class="pcard-vinc">
-            ${['clt','pj'].map(v => `
-              <button type="button" class="pcard-vinc-chip ${(_pesVinculo(regId)===v)?'on':''}"
-                      onclick="setPesVinculo(${regId}, '${v}')">${v === 'clt' ? 'PF · CLT' : 'PJ'}</button>`).join('')}
+            ${Object.keys(PES_VINCULOS).map(v => `
+              <button type="button" class="pcard-vinc-chip ${(_pesVinculo(regId)===v)?'on':''}${v==='ext'?' ext':''}"
+                      onclick="setPesVinculo(${regId}, '${v}')">${PES_VINCULOS[v]}</button>`).join('')}
           </div>
-          <div class="pcard-vinc-hint">${_pesVinculo(regId) === 'pj'
+          <div class="pcard-vinc-hint">${
+            _pesVinculo(regId) === 'ext'
+            ? 'Presta serviço e depende de um projeto para estar aqui. O custo continua na folha, mas fica fora da política de reajuste: sem data-base, sem alerta de aumento atrasado e sem histórico de reajuste.'
+            : (_pesVinculo(regId) === 'pj'
             ? 'Prestador de serviço PJ — sem vínculo empregatício. Os dados de PF acima continuam valendo: é a mesma pessoa.'
-            : (_pesVinculo(regId) === 'clt' ? 'Empregado com vínculo pela CLT.' : 'Como esta pessoa é contratada — a tag aparece em Workflows › Cadastro.')}</div>
+            : (_pesVinculo(regId) === 'clt' ? 'Empregado com vínculo pela CLT.' : 'Como esta pessoa é contratada — a tag aparece em Workflows › Cadastro.'))}</div>
         </div>
         <div class="pcard-field">
           <label class="pcard-lbl" for="pcard-tipo">Tipo</label>
@@ -105878,17 +105910,19 @@ function renderPesCardBody(){
         </div>
         <div class="pcard-field">
           <label class="pcard-lbl">Último reajuste</label>
-          <div class="pcard-val ${last?'':'muted'}">${esc(lastLabel)}</div>
+          <div class="pcard-val ${pesEhExterno(p) ? 'muted' : (last?'':'muted')}">${
+            pesEhExterno(p) ? 'não se aplica · externo' : esc(lastLabel)}</div>
         </div>
       </div>
 
       ${anexosHtml}
 
+      ${pesEhExterno(p) ? '' : `
       <div class="pcard-section-title">
         <span>Histórico de reajustes</span>
         <span class="pcard-last">${hist.length} ${hist.length===1?'registro':'registros'}</span>
       </div>
-      ${reajHtml}
+      ${reajHtml}`}
     ` : _pcardRenderPagto(p, reg)}
   `;
   // Re-roda validação de PIX se a aba pagamento estiver ativa
@@ -107339,6 +107373,8 @@ function renderPesReajSimList(){
       <div class="pes-reajsim-tipo-lbl">
         <span class="pes-reajsim-tipo-dot" style="background:${esc((tp&&tp.color)||'#E5E7EB')}"></span>
         <span class="nm">${esc(pesRegView(pe).nome || 'sem nome')}</span>
+        ${pesEhExterno(pe) ? `<span class="pes-ext-selo"
+           title="Externo — o reajuste geral e o do tipo não pegam nele. Uma regra criada aqui vale.">EXT</span>` : ''}
       </div>
       <span class="pes-reajsim-field sel">
         <select onchange="setPesReajSimField('${esc(k)}','key',this.value)">
@@ -108393,10 +108429,17 @@ function renderPesPersonRow(p, year, isSim, forTipoId){
   const nMesesCustom = pesMesesCustomizados(p);
 
   // Último reajuste (mesma lógica do card)
-  const histR = computePesReajustes(p);
+  const externo = pesEhExterno(p);
+  const histR = externo ? [] : computePesReajustes(p);
   const lastR = histR.length ? histR[histR.length-1] : null;
   let reajCellHtml;
-  if(lastR){
+  if(externo){
+    /* Sem "—": traço aqui leria como "está sem aumento", que é justo o que
+       não se aplica. O rótulo diz o motivo. */
+    reajCellHtml = `<td class="stk stk-4 pes-reaj-cell ext"
+      title="Externo — o valor vem do contrato, fora da política de reajuste da empresa">
+      <span class="pes-reaj-ext">não se aplica</span></td>`;
+  } else if(lastR){
     const [ry, rm] = lastR.key.split('-');
     const mesAbrev = PES_MESES[parseInt(rm,10)-1] || rm;
     const mesLabel = mesAbrev.charAt(0).toUpperCase() + mesAbrev.slice(1) + '/' + ry.slice(2);
@@ -108581,6 +108624,7 @@ function renderPesPersonRow(p, year, isSim, forTipoId){
           <span class="rec-cli-txt">${btnLabel}</span>
           <span class="rec-cli-caret">▾</span>
         </button>`}
+        ${externo ? `<span class="pes-ext-selo" title="Externo — presta serviço, fora da política de reajuste">EXT</span>` : ''}
       </div>
     </td>
     <td class="stk stk-2">
@@ -108663,6 +108707,7 @@ function updatePesTotals(){
      não contamina a Folha do Mês, e o Pago só é marcado se alguém deu ✓ numa
      célula simulada. */
   const sim = { folha:0, mes:0, head:0, pago:0, proj:0 };
+  let headExt = 0;   // externos dentro do headcount do ano
   for(const p of real){
     if(!p.ativo) continue;
     let hadAny = false;
@@ -108670,7 +108715,7 @@ function updatePesTotals(){
       const v = pesEffVal(p, pesMesKey(year,i));
       if(v > 0){ folha += v; perMonthActive[i]++; hadAny = true; if(p.sim) sim.folha += v; }
     }
-    if(hadAny){ headSet.add(p.id); if(p.sim) sim.head++; }
+    if(hadAny){ headSet.add(p.id); if(p.sim) sim.head++; if(pesEhExterno(p)) headExt++; }
   }
   const mediaMensal = folha/12;
   const head = headSet.size;
@@ -108701,6 +108746,7 @@ function updatePesTotals(){
   let folhaMes = 0;
   let folhaMesFatur = 0;
   let headMes  = 0;
+  let extMes   = 0;   // quantos dos do mês são externos
   // Identifica tipos considerados "Força Faturável": id 'fatur' ou nome contendo "fatur"
   const faturTipoIds = new Set((pessoas.tipos||[])
     .filter(t => {
@@ -108715,6 +108761,7 @@ function updatePesTotals(){
     if(v > 0){
       folhaMes += v;
       headMes++;
+      if(pesEhExterno(p)) extMes++;
       if(p.sim) sim.mes += v;
       if(faturTipoIds.has(p.tipoId)) folhaMesFatur += v;
     }
@@ -108785,7 +108832,12 @@ function updatePesTotals(){
 
   if(q('pes-kpi-media')) q('pes-kpi-media').textContent = fmtBRL(mediaMensal);
   if(q('pes-kpi-head'))  q('pes-kpi-head').textContent  = String(head);
-  if(q('pes-kpi-head-sub')) q('pes-kpi-head-sub').textContent = head ? `pessoas ativas em ${year}` : 'sem headcount no ano';
+  if(q('pes-kpi-head-sub')){
+    /* Externo entra no headcount porque o custo é folha — mas dizer quantos
+       são evita ler o número como tamanho de equipe. */
+    const extTxt = headExt ? ` · ${headExt} externo${headExt > 1 ? 's' : ''}` : '';
+    q('pes-kpi-head-sub').textContent = head ? `pessoas ativas em ${year}${extTxt}` : 'sem headcount no ano';
+  }
   if(q('pes-ft-total')) q('pes-ft-total').textContent = fmtBRL(folha);
 
   // Card split Pago × Projetado
