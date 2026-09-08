@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788902951"/>
+  <meta name="fk-build" content="forekash-v1788903278"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -33783,16 +33783,20 @@ function applyTipoSelectStyle(sel, nome){
   }
 }
 
-/* Meses desta linha que têm dinheiro conciliado com o Extrato, em qualquer ano.
-   Excluir a linha não apagaria o lançamento — só tiraria o dono dele, e o valor
-   ficaria no caixa sem origem. */
-function _recMesesDoExtrato(row){
+/* Meses desta linha que têm dinheiro conciliado com o Extrato.
+
+   Com `ano`, olha só aquele ano — é o caso de apagar UMA LINHA, que é sempre
+   de um ano só: a linha de 2027 não é dona do que entrou em 2026, e travar a
+   exclusão por causa do ano anterior deixava o ano novo intocável.
+   Sem `ano`, varre tudo — aí é o cliente inteiro saindo do Cadastro. */
+function _recMesesDoExtrato(row, ano){
   const out = [];
   try{
     const nome = (clienteView(row) || {}).nome || '';
     if(!nome) return out;
     const chave = (typeof recNomeChave === 'function') ? recNomeChave(nome) : nome;
-    for(const ano of Object.keys(receita.years || {})){
+    const anos = ano ? [String(ano)] : Object.keys(receita.years || {});
+    for(const ano of anos){
       let real = {};
       try{ real = recRealizadoExtrato(ano) || {}; }catch(_){ continue; }
       const porMes = real[chave];
@@ -33815,7 +33819,7 @@ async function delRecRow(type, id){
 
   /* Recebimento conciliado é fato do Extrato. Apagar aqui deixaria o dinheiro
      no caixa sem dono e o relatório mentiria sem avisar. */
-  const doExtrato = _recMesesDoExtrato(row);
+  const doExtrato = _recMesesDoExtrato(row, recActiveYear);
   if(doExtrato.length){
     const total = doExtrato.reduce((s,x)=>s+x.valor,0);
     const meses = doExtrato.slice(0,6).map(x=>x.mes).join(', ')
@@ -33823,7 +33827,8 @@ async function delRecRow(type, id){
     await showConfirm({
       title: 'Não dá pra excluir',
       message: `<strong>${esc(view.nome || 'Esta linha')}</strong> tem `
-        + `<strong>${doExtrato.length} recebimento(s)</strong> vindos do Extrato Financeiro, `
+        + `<strong>${doExtrato.length} recebimento(s)</strong> vindos do Extrato Financeiro `
+        + `em <strong>${esc(String(recActiveYear))}</strong>, `
         + `somando <strong>${fmtBRL(total)}</strong> — ${esc(meses)}.\n\n`
         + `Esses valores são fato: o dinheiro entrou na conta. Apagar a linha aqui não apagaria o lançamento, `
         + `só tiraria o dono dele.\n\n`
