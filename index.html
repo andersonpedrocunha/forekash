@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788881648"/>
+  <meta name="fk-build" content="forekash-v1788885263"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7119,6 +7119,13 @@
     .viag-desp-add{padding:6px 14px;background:#0F766E;color:#fff;border:none;border-radius:6px;
       font-size:.78rem;font-weight:700;cursor:pointer;font-family:inherit;transition:all .12s}
     .viag-desp-add:hover{background:#0E6B65}
+    /* Baixar/importar são apoio: mesma altura do botão principal, peso menor */
+    .viag-desp-acoes{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .viag-desp-sec{padding:6px 12px;background:#fff;color:#0F766E;border:1px solid #A7F3D0;
+      border-radius:6px;font-size:.75rem;font-weight:700;cursor:pointer;font-family:inherit;
+      transition:all .12s;white-space:nowrap}
+    .viag-desp-sec:hover{background:#ECFDF5;border-color:#6EE7B7}
+    .viag-desp-sec:disabled{opacity:.45;cursor:not-allowed}
     /* Wrapper com scroll horizontal pra evitar texto cortado em telas estreitas */
     .viag-desp-table-wrap{width:100%;overflow-x:auto;border:1px solid var(--bdr);border-radius:8px;background:#fff;
       -webkit-overflow-scrolling:touch}
@@ -57867,7 +57874,14 @@ function _viagRenderEditor(){
     + '<div class="viag-desp-section">'
     +   '<div class="viag-desp-section-hd">'
     +     '<h3>Despesas (' + (v.despesas||[]).length + ')</h3>'
-    +     '<button class="viag-desp-add" onclick="viagAddDesp()"' + _vDis + '>+ Adicionar despesa</button>'
+    +     '<div class="viag-desp-acoes">'
+    +       '<button class="viag-desp-sec" onclick="viagBaixarModelo()" '
+    +         'title="Planilha em branco pro colaborador preencher — abre no Excel e no Google Sheets">'
+    +         '↓ Baixar planilha modelo</button>'
+    +       '<button class="viag-desp-sec" onclick="viagImportarPlanilha()"' + _vDis + ' '
+    +         'title="Ler a planilha preenchida e lançar as despesas">↑ Importar preenchida</button>'
+    +       '<button class="viag-desp-add" onclick="viagAddDesp()"' + _vDis + '>+ Adicionar despesa</button>'
+    +     '</div>'
     +   '</div>'
     +   '<div style="padding:10px 14px;background:#F5F3FF;border-left:3px solid #7C3AED;border-radius:6px;font-size:.78rem;color:#5B21B6;line-height:1.45;margin-bottom:10px">'
     +     '<strong>Dicas:</strong> (1) Anexe foto do recibo e clique 🪄 pra extrair valor/data/categoria automaticamente via OCR. (2) Marque cada despesa como <span style="color:#0F766E;font-weight:700">Empresa</span> (cartão/PIX direto) ou <span style="color:#7C3AED;font-weight:700">Funcionário</span> (a reembolsar) — o saldo a acertar considera só as despesas do funcionário.'
@@ -58846,6 +58860,215 @@ function viagAplicarOCR(despId){
   _viagOCRExtracted = null;
   if(typeof toast === 'function') toast('🪄 ' + aplicados + ' campo(s) aplicado(s)');
 }
+/* ═══ PLANILHA MODELO ════════════════════════════════════════════════
+   O colaborador raramente tem acesso ao Forekash — ele volta da viagem com
+   um monte de recibo e manda por WhatsApp. Aqui ele recebe uma planilha com
+   as colunas certas e os valores válidos já listados; devolve preenchida e
+   as despesas entram de uma vez.
+
+   CSV com BOM e separador ";" porque é o que o Excel em português abre com
+   as colunas separadas sem pedir importação. O Google Sheets também lê. */
+const VIAG_MODELO_COLS = ['DATA', 'CATEGORIA', 'DESCRICAO', 'DE QUEM', 'PAGO POR', 'VALOR'];
+const VIAG_MODELO_MARCA = 'REFERENCIA';
+
+function _viagCsvCel(s){
+  const t = String(s == null ? '' : s);
+  return /[\u0022;\n\r]/.test(t) ? '"' + t.split('"').join('""') + '"' : t;
+}
+function _viagNorm(s){
+  return String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().trim();
+}
+
+function viagBaixarModelo(){
+  const v = _viagCurrent();
+  if(!v){ if(typeof toast === 'function') toast('Abra um relatório primeiro'); return; }
+  try{ _viagEnsureColabs(v); }catch(_){}
+  const colabs = (v.colaboradores || []).filter(c => (c.nome || '').trim());
+  const linhas = [];
+  const L = arr => linhas.push(arr.map(_viagCsvCel).join(';'));
+
+  L(VIAG_MODELO_COLS);
+  for(let i = 0; i < 15; i++) L(['', '', '', '', '', '']);   // espaço pra preencher
+
+  /* O bloco de referência fica DEPOIS das linhas em branco e é ignorado na
+     leitura. Sem ele o colaborador chuta o nome da categoria e a importação
+     joga tudo em "Outros". */
+  L([]);
+  L([VIAG_MODELO_MARCA + ' — nao preencha abaixo desta linha']);
+  L([]);
+  L(['Viagem', v.titulo || '(sem título)', 'Destino', v.destino || '—',
+     'Período', (_viagFmtData ? _viagFmtData(v.dataInicio) : v.dataInicio) + ' a ' +
+                (_viagFmtData ? _viagFmtData(v.dataFim) : v.dataFim)]);
+  L([]);
+  L(['DATA', 'dia da despesa, no formato 31/12/2026']);
+  L(['CATEGORIA', 'use um destes:']);
+  for(const c of VIAG_CATEGORIAS) L(['', c.nome]);
+  L(['DESCRICAO', 'texto livre — ex.: Uber aeroporto para o hotel']);
+  L(['DE QUEM', colabs.length ? 'use um destes nomes:' : 'nenhum colaborador cadastrado ainda — deixe "Empresa"']);
+  for(const c of colabs) L(['', c.nome]);
+  L(['', 'Empresa']);
+  if(colabs.length > 1) L(['', 'Rateio (divide igual entre todos)']);
+  L(['PAGO POR', 'Empresa  — pago no cartão ou PIX da empresa']);
+  L(['', 'Funcionario  — o colaborador pagou e vai ser reembolsado']);
+  L(['VALOR', 'so o numero, ex.: 1.234,56 ou 1234,56']);
+
+  const nome = 'despesas-' + _viagNorm(v.titulo || 'viagem').replace(/[^a-z0-9]+/g, '-')
+                              .replace(/^-|-$/g, '').slice(0, 40) + '.csv';
+  _fkDownload('\uFEFF' + linhas.join('\r\n'), nome, 'text/csv;charset=utf-8');
+  if(typeof toast === 'function') toast('Planilha modelo baixada — mande pro colaborador preencher');
+}
+try{ window.viagBaixarModelo = viagBaixarModelo; }catch(_){}
+
+/* Leitura tolerante: o arquivo volta do Excel, do Sheets ou do Numbers, com
+   separador diferente e coluna fora de ordem. Em vez de exigir formato, a
+   gente procura cada coluna pelo nome do cabeçalho. */
+function _viagSplitCsvLinha(linha, sep){
+  const out = []; let cur = ''; let aspas = false;
+  for(let i = 0; i < linha.length; i++){
+    const ch = linha[i];
+    if(aspas){
+      if(ch === '"' && linha[i+1] === '"'){ cur += '"'; i++; }
+      else if(ch === '"') aspas = false;
+      else cur += ch;
+    } else if(ch === '"') aspas = true;
+    else if(ch === sep){ out.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+function _viagParsePlanilha(texto, v){
+  const raw = String(texto || '').replace(/^﻿/, '');
+  const linhas = raw.split(/\r\n|\n|\r/);
+  const cab = linhas.findIndex(l => /data/i.test(l) && /valor/i.test(l));
+  if(cab < 0) return { erro: 'Não achei o cabeçalho com as colunas DATA e VALOR. O arquivo é a planilha modelo?' };
+  // separador = o que mais aparece na linha do cabeçalho
+  const cont = s => (linhas[cab].split(s).length - 1);
+  const sep = [';', ',', '\t'].sort((a, b) => cont(b) - cont(a))[0];
+  const cols = _viagSplitCsvLinha(linhas[cab], sep).map(_viagNorm);
+  const idx = alvo => cols.findIndex(c => c.indexOf(alvo) === 0 || c === alvo);
+  const iData = idx('data'), iCat = idx('categoria'), iDesc = idx('descricao'),
+        iQuem = idx('de quem'), iPag = idx('pago por'),
+        iVal  = cols.findIndex(c => c.indexOf('valor') === 0);
+  if(iData < 0 || iVal < 0) return { erro: 'A planilha precisa ter ao menos as colunas DATA e VALOR.' };
+
+  const colabs = (v.colaboradores || []).filter(c => (c.nome || '').trim());
+  const achaColab = txt => {
+    const n = _viagNorm(txt);
+    if(!n) return null;
+    if(n === 'empresa') return 'empresa';
+    if(n.indexOf('rateio') === 0) return colabs.length > 1 ? 'rateio' : null;
+    const exato = colabs.find(c => _viagNorm(c.nome) === n);
+    if(exato) return exato.cid;
+    const parcial = colabs.find(c => _viagNorm(c.nome).indexOf(n) === 0 || n.indexOf(_viagNorm(c.nome)) === 0);
+    return parcial ? parcial.cid : null;
+  };
+  const achaCat = txt => {
+    const n = _viagNorm(txt);
+    if(!n) return 'outros';
+    const c = VIAG_CATEGORIAS.find(x => _viagNorm(x.nome) === n || x.id === n)
+           || VIAG_CATEGORIAS.find(x => _viagNorm(x.nome).indexOf(n) === 0);
+    return c ? c.id : null;
+  };
+  const leData = txt => {
+    const t = String(txt || '').trim();
+    let m = /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/.exec(t);
+    if(m){
+      let a = m[3]; if(a.length === 2) a = '20' + a;
+      return a + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
+    }
+    m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(t);
+    if(m) return m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0');
+    return null;
+  };
+  const leValor = txt => {
+    let t = String(txt || '').replace(/[^\d.,\-]/g, '').trim();
+    if(!t) return null;
+    /* "1.234,56" é BR; "1,234.56" é US. Quem manda é o separador da direita. */
+    const ultVirg = t.lastIndexOf(','), ultPto = t.lastIndexOf('.');
+    if(ultVirg > ultPto) t = t.replace(/\./g, '').replace(',', '.');
+    else t = t.replace(/,/g, '');
+    const n = parseFloat(t);
+    return isFinite(n) ? n : null;
+  };
+
+  const itens = [], avisos = [];
+  for(let i = cab + 1; i < linhas.length; i++){
+    const bruta = linhas[i];
+    if(_viagNorm(bruta).indexOf(_viagNorm(VIAG_MODELO_MARCA)) === 0) break;   // começou a referência
+    if(!bruta.replace(new RegExp('\\' + sep, 'g'), '').trim()) continue;      // linha vazia
+    const cel = _viagSplitCsvLinha(bruta, sep);
+    const at = j => (j >= 0 && j < cel.length) ? String(cel[j]).trim() : '';
+    const valor = leValor(at(iVal));
+    const desc  = at(iDesc);
+    if(valor == null && !desc) continue;                                     // linha em branco do modelo
+    const nLinha = i + 1;
+    if(valor == null || valor <= 0){ avisos.push('Linha ' + nLinha + ': sem valor — ignorada'); continue; }
+    const data = leData(at(iData));
+    if(!data) avisos.push('Linha ' + nLinha + ': data "' + at(iData) + '" não entendida — usei o início da viagem');
+    const cat = achaCat(at(iCat));
+    if(cat === null) avisos.push('Linha ' + nLinha + ': categoria "' + at(iCat) + '" não existe — entrou como Outros');
+    let quem = achaColab(at(iQuem));
+    if(at(iQuem) && quem === null) avisos.push('Linha ' + nLinha + ': "' + at(iQuem) + '" não é colaborador deste relatório — entrou como Empresa');
+    const pagTxt = _viagNorm(at(iPag));
+    const pagamento = pagTxt
+      ? (pagTxt.indexOf('emp') === 0 ? 'empresa' : 'funcionario')
+      : 'empresa';
+    itens.push({
+      data: data || v.dataInicio || new Date().toISOString().slice(0,10),
+      categoria: cat || 'outros',
+      descricao: desc,
+      valor: valor,
+      pagamento: pagamento,
+      porQuem: quem || 'empresa'
+    });
+  }
+  return { itens, avisos };
+}
+
+async function viagImportarPlanilha(){
+  const v = _viagCurrent();
+  if(!v) return;
+  if(_viagIsLocked(v)){ _viagToastLocked(); return; }
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.csv,text/csv,text/plain';
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0];
+    if(!f) return;
+    let texto = '';
+    try{ texto = await f.text(); }
+    catch(e){ await showInfo({ title:'Não consegui ler', message:'O arquivo não pôde ser lido.', warning:true }); return; }
+    const r = _viagParsePlanilha(texto, v);
+    if(r.erro){ await showInfo({ title:'Planilha não reconhecida', message: esc(r.erro), warning:true }); return; }
+    if(!r.itens.length){
+      await showInfo({ title:'Nada para importar',
+        message:'Não achei nenhuma linha preenchida com valor.' +
+                (r.avisos.length ? '<br><br>' + esc(r.avisos.join(' · ')) : ''), warning:true });
+      return;
+    }
+    const total = r.itens.reduce((s, d) => s + d.valor, 0);
+    const ok = await showConfirm({
+      title: 'Importar ' + r.itens.length + ' despesa' + (r.itens.length === 1 ? '' : 's') + '?',
+      message: 'Total <b>' + _viagFmt(total) + '</b>. As despesas serão <b>somadas</b> às que já existem — nada é apagado.'
+             + (r.avisos.length
+                 ? '<br><br><b>Atenção:</b><br>' + r.avisos.map(a => '• ' + esc(a)).join('<br>')
+                 : ''),
+      confirmLabel: 'Importar',
+      cancelLabel: 'Cancelar'
+    });
+    if(!ok) return;
+    if(!Array.isArray(v.despesas)) v.despesas = [];
+    for(const d of r.itens) v.despesas.push(Object.assign({ id: viagens.nextDespId++ }, d));
+    viagSave();
+    _viagRenderEditor();
+    if(typeof toast === 'function') toast(r.itens.length + ' despesa(s) importada(s) · ' + _viagFmt(total));
+  };
+  inp.click();
+}
+try{ window.viagImportarPlanilha = viagImportarPlanilha; }catch(_){}
+
 function viagAddDesp(){
   const v = _viagCurrent();
   if(!v) return;
@@ -61767,7 +61990,7 @@ function wfCadSaveCurrent(){
    deixar nascer duplicado. Cliente ou fornecedor apagado com movimento vira
    lançamento órfão — o dinheiro fica, o dono some, e o relatório mente. */
 function _wfNorm(v){
-  return String(v || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+  return String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
          .toLowerCase().replace(/\s+/g, ' ').trim();
 }
 function _wfDig(v){ return String(v || '').replace(/\D/g, ''); }
@@ -84488,7 +84711,7 @@ function _vendRelPeriodoSlug(st){
 function _vendCsvNum(n){ return (Math.round((parseFloat(n)||0)*100)/100).toString().replace('.', ','); }
 function _vendCsvEsc(s){
   const t = String(s == null ? '' : s);
-  return /[";\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  return /[\u0022;\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
 }
 // Exportar CSV da aba atual
 function _vendRelExportCSV(){
@@ -94609,7 +94832,7 @@ function _anaPeriodoStr(){
 }
 function _anaCsvEsc(s){
   const t = String(s == null ? '' : s);
-  return /[";\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  return /[\u0022;\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
 }
 function _anaCsvNum(n){
   if(n == null || isNaN(n)) return '';
@@ -118157,7 +118380,7 @@ try{ window.necGrHover = necGrHover; window.necGrOut = necGrOut; }catch(_){}
    abrir semana que vem não sabe qual alíquota, ciclo ou base produziu aquilo. */
 function _necCsvEsc(v){
   const t = String(v == null ? '' : v);
-  return /[";\n\r]/.test(t) ? '"' + t.replace(/"/g,'""') + '"' : t;
+  return /[\u0022;\n\r]/.test(t) ? '"' + t.replace(/"/g,'""') + '"' : t;
 }
 function _necCsvNum(v){
   return (typeof v === 'number' && isFinite(v)) ? v.toFixed(2).replace('.', ',') : '';
@@ -119751,7 +119974,7 @@ try{ window.ctbResumo = ctbResumo; window.ctbPendencias = ctbPendencias;
    assim sem perguntar nada. */
 function ctbExportRazao(){
   const ym = ctbYm();
-  const esc = v => { const t = String(v == null ? '' : v); return /[";\n\r]/.test(t) ? '"' + t.replace(/"/g,'""') + '"' : t; };
+  const esc = v => { const t = String(v == null ? '' : v); return /[\u0022;\n\r]/.test(t) ? '"' + t.replace(/"/g,'""') + '"' : t; };
   const num = v => (typeof v === 'number' && isFinite(v)) ? v.toFixed(2).replace('.', ',') : '';
   const L = [];
   L.push(['Razão do mês', _ctbYmLabel(ym)].map(esc).join(';'));
@@ -119839,7 +120062,7 @@ async function ctbBaixarPacote(){
     }
 
     // a razão vai junto: é o que amarra os arquivos aos lançamentos
-    const esc = v => { const t = String(v == null ? '' : v); return /[";\n\r]/.test(t) ? '"' + t.replace(/"/g,'""') + '"' : t; };
+    const esc = v => { const t = String(v == null ? '' : v); return /[\u0022;\n\r]/.test(t) ? '"' + t.replace(/"/g,'""') + '"' : t; };
     const num = v => (typeof v === 'number' && isFinite(v)) ? v.toFixed(2).replace('.', ',') : '';
     const linhas = [['Data','Descrição','Contraparte','Categoria','Conta','Tipo','Status','Valor','Comprovante'].map(esc).join(';')];
     for(const l of ctbLancamentos(ym)){
@@ -129860,7 +130083,7 @@ const CMDK_NAV_ALIASES = {
 function _cmdkDetectNavigate(q){
   const m = q.match(/^(ir|abrir|abre|go|vai|vou|voltar)\s+(?:pr?a?|para|ao|no|na|o|a|em)?\s*(.+)$/i);
   if(!m) return null;
-  const alvo = m[2].trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const alvo = m[2].trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   // Procura no mapa
   const mod = CMDK_NAV_ALIASES[alvo];
   if(!mod) return null;
