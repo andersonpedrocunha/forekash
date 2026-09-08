@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788905273"/>
+  <meta name="fk-build" content="forekash-v1788905967"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -39702,9 +39702,14 @@ function _recEstadoDoAno(ano){
 
    A única diferença: não mostra nada quando o ano ainda não tem valor. Em
    janeiro de um ano novo o recebido é zero, e "↓ 100% YoY" ali só assusta. */
-/* Ano fechado só tem realizado; ano em curso ou futuro carrega projeção. */
+/* Três medidas, não duas. O ano fechado é realizado puro; o ano futuro é
+   previsto puro; o ano EM CURSO é híbrido — meses que já entraram somados a
+   meses que ainda são plano. Tratar o híbrido como "previsto" repetia o erro
+   um nível abaixo: 2027 (plano puro) contra 2026 (8 meses de fato + 4 de
+   plano) não é ano contra ano comparável. */
 function _recNatureza(ano){
-  return _recEstadoDoAno(ano).estado === 'fechado' ? 'realizado' : 'previsto';
+  const e = _recEstadoDoAno(ano).estado;
+  return e === 'fechado' ? 'realizado' : (e === 'futuro' ? 'previsto' : 'parcial');
 }
 
 /* O rótulo do selo diz que tipo de comparação é aquela — e é aí que a maioria
@@ -39723,10 +39728,14 @@ function _recYoyChip(atual, anterior, anoAnt, janela){
                            yAnterior: anoAnt });
   const natAtual = janela ? 'realizado' : _recNatureza(recActiveYear);
   const natAnt   = janela ? 'realizado' : _recNatureza(anoAnt);
-  const mesma = natAtual === natAnt;
+  /* "parcial" nunca fecha YoY, nem com outro parcial: são recortes diferentes
+     do calendário, um com mais meses reais que o outro. */
+  const mesma = natAtual === natAnt && natAtual !== 'parcial';
   const rotulo = janela ? 'YTD' : (mesma ? 'YoY' : 'vs ' + anoAnt);
-  const dizer = fmtBRL(anterior) + ' ' + natAnt + ' em ' + anoAnt
-              + ' \u2192 ' + fmtBRL(atual) + ' ' + natAtual + ' em ' + recActiveYear
+  const comoDizer = { realizado: 'realizado', previsto: 'previsto',
+                      parcial: 'realizado + projeção' };
+  const dizer = fmtBRL(anterior) + ' (' + comoDizer[natAnt] + ') em ' + anoAnt
+              + ' \u2192 ' + fmtBRL(atual) + ' (' + comoDizer[natAtual] + ') em ' + recActiveYear
               + (janela ? ' \u00b7 ' + janela : '');
   return ' ' + badge
     .replace('title="vs ' + anoAnt + '"', 'title="' + dizer + '"')
