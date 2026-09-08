@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788904486"/>
+  <meta name="fk-build" content="forekash-v1788904721"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -31408,6 +31408,8 @@ function saveRegistroField(id, mes, field, rawVal){
 // ═══════════════════════════════════════════════════
 const REC_KEY   = 'taller_receita_v1';
 const REC_MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const REC_MESES_LONG = ['janeiro','fevereiro','março','abril','maio','junho',
+                        'julho','agosto','setembro','outubro','novembro','dezembro'];
 const REC_COLORS = ['#BFDBFE','#A7F3D0','#FCA5A5','#FDE68A','#DDD6FE',
                     '#FBCFE8','#BAE6FD','#D8B4FE','#FED7AA','#E5E7EB'];
 // Lista de países com bandeira (emoji). Brasil no topo.
@@ -39643,9 +39645,11 @@ function updateRecRowTotal(type, id){
 /* Totais de um ano qualquer, pela mesma conta da tela. Existe pra comparar o
    ano aberto com o anterior sem duplicar a regra da célula — se a conta do KPI
    mudar, a comparação muda junto. */
-function _recTotaisDoAno(ano){
+function _recTotaisDoAno(ano, ateMes){
   const d = receita && receita.years && receita.years[ano];
   if(!d) return null;
+  const lim = (ateMes == null) ? 11 : Math.max(0, Math.min(11, ateMes));
+  const meses = REC_MESES.slice(0, lim + 1);
   let tRec = 0, tAbt = 0, tSim = 0, ativos = 0, sims = 0;
   // Cada ano tem seu próprio "com simulações" — o do ano aberto não vale aqui.
   const incluiSim = _recSimDoAno(ano);
@@ -39653,7 +39657,7 @@ function _recTotaisDoAno(ano){
   try{ real = recRealizadoExtrato(ano) || {}; }catch(_){}
   for(const r of (d.clients || [])){
     let tem = false;
-    for(const m of REC_MESES){
+    for(const m of meses){
       const ef = recCelulaEfetiva(r, m, ano, real);
       if(!ef.total) continue;
       tRec += ef.recebido; tAbt += ef.aberto; tem = true;
@@ -39662,7 +39666,7 @@ function _recTotaisDoAno(ano){
   }
   for(const r of (d.leads || [])){
     let tem = false;
-    for(const m of REC_MESES){
+    for(const m of meses){
       const c = r.meses && r.meses[m];
       if(!c || c.valor === '' || c.valor == null) continue;
       const v = parseFloat(c.valor) || 0;
@@ -39677,6 +39681,16 @@ function _recTotaisDoAno(ano){
            ticket: divisor > 0 ? tTot / divisor : 0 };
 }
 
+/* Ano em curso, fechado ou ainda por vir — cada um pede uma comparação
+   diferente, e é isso que separa um número honesto de um número bonito. */
+function _recEstadoDoAno(ano){
+  const hoje = new Date();
+  const y = parseInt(ano, 10), yHoje = hoje.getFullYear();
+  if(y < yHoje)  return { estado: 'fechado',   mes: 11 };
+  if(y > yHoje)  return { estado: 'futuro',    mes: 11 };
+  return           { estado: 'emCurso',  mes: hoje.getMonth() };
+}
+
 /* Em Aberto NÃO tem YoY de propósito: é saldo, não fluxo do ano. O aberto de
    um ano fechado encolhe conforme entra dinheiro, então comparar com o de um
    ano que mal começou é medir coisas diferentes — e dava um % que contradizia
@@ -39688,14 +39702,19 @@ function _recTotaisDoAno(ano){
 
    A única diferença: não mostra nada quando o ano ainda não tem valor. Em
    janeiro de um ano novo o recebido é zero, e "↓ 100% YoY" ali só assusta. */
-function _recYoyChip(atual, anterior, anoAnt){
+function _recYoyChip(atual, anterior, anoAnt, janela){
   if(!(Math.abs(atual) > 0.005)) return '';
   const pct = anterior !== 0 ? ((atual - anterior) / Math.abs(anterior) * 100) : (atual > 0 ? 100 : 0);
   const badge = yoyBadge({ atual, anterior, delta: atual - anterior, deltaPct: pct,
                            yAnterior: anoAnt });
-  // O badge do Fluxo diz só "vs 2026"; aqui o número do ano anterior cabe e ajuda.
-  return ' ' + badge.replace('title="vs ' + anoAnt + '"',
-    'title="' + fmtBRL(anterior) + ' em ' + anoAnt + ' \u2192 ' + fmtBRL(atual) + ' em ' + recActiveYear + '"');
+  const dizer = janela
+    ? fmtBRL(anterior) + ' em ' + anoAnt + ' \u2192 ' + fmtBRL(atual) + ' em ' + recActiveYear
+      + ' \u00b7 ' + janela
+    : fmtBRL(anterior) + ' em ' + anoAnt + ' \u2192 ' + fmtBRL(atual) + ' em ' + recActiveYear;
+  let out = badge.replace('title="vs ' + anoAnt + '"', 'title="' + dizer + '"');
+  // Janela parcial não é YoY cheio — o rótulo tem que dizer isso.
+  if(janela) out = out.replace('% YoY', '% YTD');
+  return ' ' + out;
 }
 
 function updateRecTotals(){
@@ -39765,12 +39784,39 @@ function updateRecTotals(){
      planilha. Nada de comparar com ano que o usuário nem cadastrou. */
   const anoAnt = String(parseInt(recActiveYear, 10) - 1);
   const ant = _recTotaisDoAno(anoAnt);
-  const chip = (id, atual, anterior) => {
+  const chip = (id, atual, anterior, janela) => {
     const e = document.getElementById(id);
     if(!e) return;
-    e.innerHTML = ant ? _recYoyChip(atual, anterior, anoAnt) : '';
+    e.innerHTML = ant ? _recYoyChip(atual, anterior, anoAnt, janela) : '';
   };
-  chip('rec-kpi-recebido-var', tRec,   ant && ant.tRec);
+  /* Total e Ticket são o ANO INTEIRO dos dois lados — 12 meses previstos aqui,
+     12 meses previstos lá. Comparação justa esteja o ano fechado ou não.
+
+     Recebido é diferente: é o que já caiu na conta. Num ano em curso ele tem
+     só os meses que passaram, e medir isso contra os 12 meses do ano anterior
+     dá uma queda que não existe. Então, com o ano em curso, os dois lados são
+     cortados no mesmo mês — e o rótulo vira YTD, porque deixou de ser o ano
+     contra o ano. Ano fechado contra ano fechado segue YoY cheio. */
+  const est = _recEstadoDoAno(recActiveYear);
+  let recAtual = tRec, recAnt = ant && ant.tRec, janelaRec = '';
+  if(est.estado === 'emCurso'){
+    /* Corta no último mês FECHADO, não no mês corrente: setembro de 2026 ainda
+       está entrando, o de 2025 entrou inteiro. Comparar os dois faria o ano
+       novo parecer pior por um mês que nem terminou. Em janeiro não existe mês
+       fechado ainda — aí não há o que comparar, e o selo não aparece. */
+    const mFech = est.mes - 1;
+    if(mFech < 0){ recAnt = 0; }
+    else {
+      const atu = _recTotaisDoAno(recActiveYear, mFech);
+      const anterior = _recTotaisDoAno(anoAnt, mFech);
+      if(atu && anterior){
+        recAtual = atu.tRec;
+        recAnt = anterior.tRec;
+        janelaRec = 'janeiro a ' + REC_MESES_LONG[mFech] + ' dos dois anos';
+      }
+    }
+  }
+  chip('rec-kpi-recebido-var', recAtual, recAnt, janelaRec);
   chip('rec-kpi-total-var',    tTot,   ant && ant.tTot);
   chip('rec-kpi-ticket-var',   ticket, ant && ant.ticket);
 
