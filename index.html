@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788881098"/>
+  <meta name="fk-build" content="forekash-v1788881648"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8525,6 +8525,14 @@
                font-size:.78rem;color:var(--tx);cursor:pointer}
     .nyr-check input[type="checkbox"]{cursor:pointer;accent-color:var(--blue);width:14px;height:14px}
     .nyr-check:hover{color:var(--blue-d)}
+    /* Como copiar o salário — recuado sob o checkbox de que depende */
+    .nyr-subchoice{margin:2px 0 8px 22px;padding-left:10px;border-left:2px solid var(--bdr);
+                   display:flex;flex-direction:column;gap:2px}
+    .nyr-radio{display:flex;align-items:center;gap:8px;padding:4px 0;
+               font-size:.75rem;color:var(--txm);cursor:pointer}
+    .nyr-radio input[type="radio"]{cursor:pointer;accent-color:var(--blue);width:13px;height:13px;flex:0 0 auto}
+    .nyr-radio b{color:var(--tx);font-weight:700}
+    .nyr-radio:hover{color:var(--blue-d)}
     .rec-year-dup{background:none;border:none;cursor:pointer;color:var(--txl);
                    padding:2px 6px;margin-left:4px;border-radius:4px;font-size:.85rem;
                    display:none;align-items:center;line-height:1}
@@ -21015,8 +21023,22 @@ td.mes.do-extrato{background:#ECFDF5}
               <label class="nyr-label">O que copiar</label>
               <label class="nyr-check">
                 <input type="checkbox" id="pnyr-copy-salarios" checked>
-                <span>Salários do ano (mês a mês, só pessoas ativas)</span>
+                <span>Salários</span>
               </label>
+              <!-- Como copiar o salário: o ano inteiro ou só a foto de dezembro.
+                   Dezembro é a estrutura de custo com que a empresa terminou o
+                   ano — é ela que segue valendo, não a média do que mudou no
+                   meio do caminho. -->
+              <div class="nyr-subchoice" id="pnyr-sal-modo">
+                <label class="nyr-radio">
+                  <input type="radio" name="pnyr-sal-modo" value="mes" checked>
+                  <span><b>Mês a mês</b> — repete o ano inteiro como ele foi</span>
+                </label>
+                <label class="nyr-radio">
+                  <input type="radio" name="pnyr-sal-modo" value="dez">
+                  <span><b>Repetir dezembro</b> — o valor de dezembro nos 12 meses</span>
+                </label>
+              </div>
               <label class="nyr-check">
                 <input type="checkbox" id="pnyr-copy-reaj" checked>
                 <span>Marcadores de reajuste (os <b>*</b> no cabeçalho)</span>
@@ -104456,13 +104478,29 @@ function updatePnyrOptions(){
     const copyReaj = document.getElementById('pnyr-copy-reaj');
     const doSal  = copySal ? copySal.checked  : true;
     const doReaj = copyReaj ? copyReaj.checked : true;
+    const modoSel = document.querySelector('input[name="pnyr-sal-modo"]:checked');
+    const modo = modoSel ? modoSel.value : 'mes';
+    // Como copiar só faz sentido se há o que copiar
+    const modoBox = document.getElementById('pnyr-sal-modo');
+    if(modoBox) modoBox.style.display = doSal ? '' : 'none';
     if(preview){
       const parts = [];
-      if(doSal)  parts.push('salários');
+      if(doSal)  parts.push(modo === 'dez' ? 'salários de dezembro em todos os meses' : 'salários mês a mês');
       if(doReaj) parts.push('reajustes');
-      preview.textContent = parts.length
+      let txt = parts.length
         ? `Copiará: ${parts.join(' + ')} de ${src}`
         : `Apenas criará o ano (nada será copiado de ${src})`;
+      /* Quem não tem dezembro fica de fora — dizer quantos evita a surpresa
+         de abrir o ano novo com menos gente do que o ano anterior. */
+      if(doSal && modo === 'dez'){
+        const comDez = pessoas.people.filter(p => (p.salarios||{})[pesMesKey(src, 11)] > 0).length;
+        const noAno  = pessoas.people.filter(p => Object.keys(p.salarios||{})
+                              .some(k => k.startsWith(src + '-') && p.salarios[k] > 0)).length;
+        const fora = noAno - comDez;
+        txt += ` · ${comDez} pessoa${comDez===1?'':'s'}`
+             + (fora > 0 ? ` (${fora} sem dezembro ${fora===1?'fica':'ficam'} de fora)` : '');
+      }
+      preview.textContent = txt;
     }
   } else {
     opts.style.display = 'none';
@@ -104471,16 +104509,30 @@ function updatePnyrOptions(){
 }
 // Atualiza o preview quando o usuário mexe nos checkboxes
 document.addEventListener('change', (ev)=>{
-  if(ev.target && (ev.target.id === 'pnyr-copy-salarios' || ev.target.id === 'pnyr-copy-reaj')){
+  if(ev.target && (ev.target.id === 'pnyr-copy-salarios' || ev.target.id === 'pnyr-copy-reaj'
+                   || ev.target.name === 'pnyr-sal-modo')){
     updatePnyrOptions();
   }
 });
 
 function copyPesYearData(fromY, toY, opts){
-  const { copySalarios = true, copyReajustes = true } = opts || {};
+  const { copySalarios = true, copyReajustes = true, salModo = 'mes' } = opts || {};
   if(copySalarios){
     for(const p of pessoas.people){
       if(!p.salarios) p.salarios = {};
+      if(salModo === 'dez'){
+        /* Dezembro é a estrutura de custo com que o ano terminou — a que
+           segue valendo. Copiar mês a mês arrastava para o ano novo salários
+           que já tinham sido reajustados no meio do caminho: quem entrou em
+           agosto reaparecia com meio ano de valor antigo.
+
+           Sem dezembro, ninguém é copiado: quem não estava na folha do último
+           mês não faz parte da estrutura que continua. */
+        const vDez = p.salarios[pesMesKey(fromY, 11)];
+        if(vDez === undefined || vDez === null || vDez === 0) continue;
+        for(let i=0;i<12;i++) p.salarios[pesMesKey(toY, i)] = vDez;
+        continue;
+      }
       for(let i=0;i<12;i++){
         const kFrom = pesMesKey(fromY, i);
         const kTo   = pesMesKey(toY,   i);
@@ -104518,12 +104570,14 @@ async function submitPesNewYear(){
   const src = srcSel ? srcSel.value : '';
   const copySal  = document.getElementById('pnyr-copy-salarios');
   const copyReaj = document.getElementById('pnyr-copy-reaj');
+  const modoSel = document.querySelector('input[name="pnyr-sal-modo"]:checked');
   pessoas.years.push(y);
   pessoas.years.sort();
   if(src){
     copyPesYearData(src, y, {
       copySalarios:  copySal  ? copySal.checked  : true,
-      copyReajustes: copyReaj ? copyReaj.checked : true
+      copyReajustes: copyReaj ? copyReaj.checked : true,
+      salModo: modoSel ? modoSel.value : 'mes'
     });
   }
   pesActiveYear = y;
