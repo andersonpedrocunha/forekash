@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788904144"/>
+  <meta name="fk-build" content="forekash-v1788904486"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -21194,7 +21194,7 @@ td.mes.do-extrato{background:#ECFDF5}
             <div class="rec-kpi-sub" id="rec-kpi-recebido-sub">0% da receita prevista</div>
           </div>
           <div class="rec-kpi aberto">
-            <div class="rec-kpi-lbl">Total Em Aberto <span id="rec-kpi-aberto-var"></span></div>
+            <div class="rec-kpi-lbl">Total Em Aberto</div>
             <div class="rec-kpi-val amb" id="rec-kpi-aberto">R$ 0,00</div>
             <div class="rec-kpi-sub">ainda a receber no ano</div>
           </div>
@@ -31601,7 +31601,17 @@ let recActiveYear = null;
 let recFilterTipo = ''; // '' = todos
 let recFilterPais = ''; // '' = todos os países (por code, ex: 'BR')
 let recFilterAtivo = ''; // '' = todos, 'ativos', 'inativos'
+/* Vale só para o ano aberto. O estado real mora em `receita.simPorAno`, um
+   mapa ano → bool: cada aba é um cenário próprio, e ligar simulações em 2026
+   não pode arrastar 2027 junto. Esta variável é o valor do ano da vez,
+   recalculado a cada render — todo o resto do módulo continua lendo ela. */
 let recIncluirSim = false; // leads simuladas entram no total do ano? (default: sem simulações)
+function _recSimDoAno(ano){
+  const m = (receita && receita.simPorAno) || {};
+  return !!m[String(ano == null ? recActiveYear : ano)];
+}
+function _recSyncSim(){ recIncluirSim = _recSimDoAno(recActiveYear); }
+try{ window._recSimDoAno = _recSimDoAno; }catch(_){}
 
 // Cor de texto escura universal (funciona em todos os tons pastel da paleta)
 const REC_TIPO_TXT = '#1F2937';
@@ -39637,6 +39647,8 @@ function _recTotaisDoAno(ano){
   const d = receita && receita.years && receita.years[ano];
   if(!d) return null;
   let tRec = 0, tAbt = 0, tSim = 0, ativos = 0, sims = 0;
+  // Cada ano tem seu próprio "com simulações" — o do ano aberto não vale aqui.
+  const incluiSim = _recSimDoAno(ano);
   let real = {};
   try{ real = recRealizadoExtrato(ano) || {}; }catch(_){}
   for(const r of (d.clients || [])){
@@ -39655,17 +39667,22 @@ function _recTotaisDoAno(ano){
       if(!c || c.valor === '' || c.valor == null) continue;
       const v = parseFloat(c.valor) || 0;
       tSim += v; tem = true;
-      if(recIncluirSim){ if(c.status === 'recebido') tRec += v; else tAbt += v; }
+      if(incluiSim){ if(c.status === 'recebido') tRec += v; else tAbt += v; }
     }
     if(tem) sims++;
   }
   const tTot = tRec + tAbt;
-  const divisor = ativos + (recIncluirSim ? sims : 0);
+  const divisor = ativos + (incluiSim ? sims : 0);
   return { tRec, tAbt, tTot, tSim, ativos,
            ticket: divisor > 0 ? tTot / divisor : 0 };
 }
 
-/* Comparação com o ano anterior no MESMO badge do Fluxo (yoyBadge) — um só
+/* Em Aberto NÃO tem YoY de propósito: é saldo, não fluxo do ano. O aberto de
+   um ano fechado encolhe conforme entra dinheiro, então comparar com o de um
+   ano que mal começou é medir coisas diferentes — e dava um % que contradizia
+   o do total ao lado.
+
+   Comparação com o ano anterior no MESMO badge do Fluxo (yoyBadge) — um só
    componente pra um só significado; dois estilos de YoY na mesma tela seria
    ruído. Fica ao lado do rótulo, não do número, como lá.
 
@@ -39674,8 +39691,11 @@ function _recTotaisDoAno(ano){
 function _recYoyChip(atual, anterior, anoAnt){
   if(!(Math.abs(atual) > 0.005)) return '';
   const pct = anterior !== 0 ? ((atual - anterior) / Math.abs(anterior) * 100) : (atual > 0 ? 100 : 0);
-  return ' ' + yoyBadge({ atual, anterior, delta: atual - anterior, deltaPct: pct,
-                          yAnterior: anoAnt });
+  const badge = yoyBadge({ atual, anterior, delta: atual - anterior, deltaPct: pct,
+                           yAnterior: anoAnt });
+  // O badge do Fluxo diz só "vs 2026"; aqui o número do ano anterior cabe e ajuda.
+  return ' ' + badge.replace('title="vs ' + anoAnt + '"',
+    'title="' + fmtBRL(anterior) + ' em ' + anoAnt + ' \u2192 ' + fmtBRL(atual) + ' em ' + recActiveYear + '"');
 }
 
 function updateRecTotals(){
@@ -39751,7 +39771,6 @@ function updateRecTotals(){
     e.innerHTML = ant ? _recYoyChip(atual, anterior, anoAnt) : '';
   };
   chip('rec-kpi-recebido-var', tRec,   ant && ant.tRec);
-  chip('rec-kpi-aberto-var',   tAbt,   ant && ant.tAbt);
   chip('rec-kpi-total-var',    tTot,   ant && ant.tTot);
   chip('rec-kpi-ticket-var',   ticket, ant && ant.ticket);
 
@@ -39763,6 +39782,9 @@ function updateRecTotals(){
 
 function renderReceita(){
   if(!receita) return;
+  /* Ponto único onde o "com simulações" do ano aberto entra em vigor — trocar
+     de aba passa por aqui, então o cenário de cada ano se restabelece sozinho. */
+  _recSyncSim();
   // Tabs de ano
   const ytContainer = document.getElementById('rec-year-tabs');
   if(!ytContainer) return;
@@ -40193,7 +40215,10 @@ async function toggleRecIncluirSim(){
     });
     return; // não muda o estado
   }
-  recIncluirSim = !recIncluirSim;
+  if(!receita.simPorAno) receita.simPorAno = {};
+  receita.simPorAno[String(recActiveYear)] = vaiLigar;
+  _recSyncSim();
+  receitaSave();
   renderReceita();
 }
 
