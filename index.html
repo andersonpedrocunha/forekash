@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788902693"/>
+  <meta name="fk-build" content="forekash-v1788902951"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -25297,24 +25297,12 @@ td.mes.do-extrato{background:#ECFDF5}
         </label>
         <label class="nyr-check">
           <input type="checkbox" id="nyr-copy-meses" onchange="updateNyrOptions()">
-          <span>Valores mensais</span>
+          <span>Valores mensais (copiar também os valores recebidos/em aberto)</span>
         </label>
-        <!-- Como copiar o valor: o ano inteiro ou só dezembro repetido. Dezembro
-             é o contrato como ele terminou o ano — quem entrou em agosto ou
-             teve reajuste no meio não deve voltar ao valor antigo. -->
-        <div class="nyr-subchoice" id="nyr-meses-modo" style="display:none">
-          <label class="nyr-radio">
-            <input type="radio" name="nyr-meses-modo" value="mes" checked onchange="updateNyrOptions()">
-            <span><b>Mês a mês</b> — repete o ano inteiro como ele foi</span>
-          </label>
-          <label class="nyr-radio">
-            <input type="radio" name="nyr-meses-modo" value="dez" onchange="updateNyrOptions()">
-            <span><b>Repetir dezembro</b> — o valor de dezembro nos 12 meses</span>
-          </label>
-        </div>
         <div class="nyr-hint">
           Os tipos são globais e <b>sempre</b> ficam disponíveis em todos os anos.
           Os clientes também são únicos — você só duplica as <i>linhas de projeto</i>.
+          O status volta para <b>em aberto</b>: recebido de um ano não vale no outro.
         </div>
       </div>
     </div>
@@ -33543,17 +33531,35 @@ function addRecYear(prefillSource){
       const d = receita.years[y];
       const nLinhas = (d.clients||[]).length + (d.leads||[]).length;
       if(nLinhas === 0) continue; // não faz sentido "copiar" de um ano vazio
-      const label = document.createElement('label');
-      label.className = 'nyr-choice copy-src';
-      const checked = prefillSource === y ? 'checked' : '';
-      label.innerHTML = `
-        <input type="radio" name="nyr-src" value="${y}" ${checked} onchange="updateNyrOptions()">
-        <div class="nyr-choice-body">
-          <div class="nyr-choice-title">Copiar de ${y}</div>
-          <div class="nyr-choice-desc">${nLinhas} linha${nLinhas===1?'':'s'} (clientes + leads)</div>
-        </div>
-      `;
-      group.appendChild(label);
+      /* Duas formas de copiar o mesmo ano, lado a lado. Antes "repetir
+         dezembro" morava dentro de "O que copiar", que só aparecia depois de
+         escolher a origem e marcar mais um checkbox — três cliques até
+         enxergar a opção. Aqui ela se vê de cara. */
+      const comDez = ((d.clients||[]).concat(d.leads||[])).filter(r => {
+        const c = r.meses && r.meses[REC_MESES[11]];
+        return c && c.valor !== '' && c.valor != null && +c.valor !== 0;
+      }).length;
+      const opcoes = [
+        { v: y, tit: 'Copiar de ' + y,
+          desc: nLinhas + ' linha' + (nLinhas===1?'':'s') + ' (clientes + leads) · valores mês a mês' },
+        { v: y + '|dez', tit: 'Copiar de ' + y + ' · repetindo dezembro',
+          desc: 'O valor de dezembro nos 12 meses — o contrato como o ano terminou'
+              + (comDez < nLinhas ? ' · ' + (nLinhas - comDez) + ' sem dezembro ' +
+                 (nLinhas - comDez === 1 ? 'fica zerada' : 'ficam zeradas') : '') }
+      ];
+      for(const o of opcoes){
+        const label = document.createElement('label');
+        label.className = 'nyr-choice copy-src';
+        const checked = prefillSource === o.v ? 'checked' : '';
+        label.innerHTML = `
+          <input type="radio" name="nyr-src" value="${o.v}" ${checked} onchange="updateNyrOptions()">
+          <div class="nyr-choice-body">
+            <div class="nyr-choice-title">${o.tit}</div>
+            <div class="nyr-choice-desc">${o.desc}</div>
+          </div>
+        `;
+        group.appendChild(label);
+      }
     }
   }
 
@@ -33585,16 +33591,16 @@ function updateNyrOptions(){
   const radios = document.getElementsByName('nyr-src');
   let src = '';
   for(const r of radios){ if(r.checked){ src = r.value; break; } }
+  const [ano, modo] = String(src).split('|');
   const box = document.getElementById('nyr-copy-options');
   if(box) box.style.display = src ? 'block' : 'none';
 
-  // "Como copiar" só aparece quando os valores mensais vêm junto
+  /* Repetindo dezembro os valores vêm por definição — o checkbox de "valores
+     mensais" viraria uma pergunta já respondida. */
   const cbMeses = document.getElementById('nyr-copy-meses');
-  const comMeses = !!(cbMeses && cbMeses.checked);
-  const boxModo = document.getElementById('nyr-meses-modo');
-  if(boxModo) boxModo.style.display = comMeses ? 'flex' : 'none';
-  const modoSel = document.querySelector('input[name="nyr-meses-modo"]:checked');
-  const modo = modoSel ? modoSel.value : 'mes';
+  const linhaMeses = cbMeses ? cbMeses.closest('.nyr-check') : null;
+  if(linhaMeses) linhaMeses.style.display = (modo === 'dez') ? 'none' : '';
+  const comMeses = (modo === 'dez') || !!(cbMeses && cbMeses.checked);
 
   // Preview no rodapé
   const prev = document.getElementById('nyr-preview');
@@ -33602,9 +33608,9 @@ function updateNyrOptions(){
     if(!src){
       prev.textContent = 'Criar um ano totalmente vazio.';
     } else {
-      const d = receita.years[src] || {clients:[],leads:[]};
-      let txt = `Copiando ${d.clients.length} cliente(s) e ${d.leads.length} lead(s) de ${src}.`;
-      if(comMeses && modo === 'dez'){
+      const d = receita.years[ano] || {clients:[],leads:[]};
+      let txt = `Copiando ${d.clients.length} cliente(s) e ${d.leads.length} lead(s) de ${ano}.`;
+      if(modo === 'dez'){
         /* Linha sem dezembro vem sem valor — dizer quantas são evita a
            surpresa de abrir o ano novo com menos receita do que o esperado. */
         const todas = (d.clients || []).concat(d.leads || []);
@@ -33615,6 +33621,8 @@ function updateNyrOptions(){
         const fora = todas.length - comDez;
         txt += ` Dezembro repetido nos 12 meses · ${comDez} linha(s) com valor`
              + (fora > 0 ? ` (${fora} sem dezembro ${fora === 1 ? 'fica' : 'ficam'} zerada${fora === 1 ? '' : 's'})` : '');
+      } else if(comMeses){
+        txt += ' Valores mensais como foram em ' + ano + '.';
       }
       prev.textContent = txt;
     }
@@ -33638,17 +33646,18 @@ async function submitNewYear(){
   } else {
     const copyRows  = document.getElementById('nyr-copy-rows') .checked;
     const copyLeads = document.getElementById('nyr-copy-leads').checked;
-    const copyMeses = document.getElementById('nyr-copy-meses').checked;
-    const modoSel = document.querySelector('input[name="nyr-meses-modo"]:checked');
-    receita.years[y] = copyYearData(src, {copyRows, copyLeads, copyMeses,
-                                          mesesModo: modoSel ? modoSel.value : 'mes'});
+    const [ano, modo] = String(src).split('|');
+    // Repetindo dezembro, os valores vêm sempre — não há checkbox pra marcar.
+    const copyMeses = (modo === 'dez') || document.getElementById('nyr-copy-meses').checked;
+    receita.years[y] = copyYearData(ano, {copyRows, copyLeads, copyMeses,
+                                          mesesModo: modo === 'dez' ? 'dez' : 'mes'});
   }
 
   recActiveYear = y;
   receitaSave();
   closeNewYearModal();
   renderReceita();
-  toast(src ? `Ano ${y} criado a partir de ${src}.` : `Ano ${y} adicionado.`);
+  toast(src ? `Ano ${y} criado a partir de ${String(src).split('|')[0]}.` : `Ano ${y} adicionado.`);
 }
 
 // Retorna uma nova estrutura de ano {clients,leads,nextId} a partir de outro ano.
