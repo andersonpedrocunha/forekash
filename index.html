@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1788960907"/>
+  <meta name="fk-build" content="forekash-v1790624840"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -56894,6 +56894,46 @@ function _vendComissaoPorCliente(v, year, mIdx){
   }
   return out;
 }
+/* O percentual que vale pro mês quando não há cliente na jogada — é o que o
+   ajuste usa. Com faixas, a alíquota efetiva depende do volume; sem volume
+   atribuível, a primeira faixa é a honesta. */
+function _vendPctDoMes(r){
+  if(!r) return 0;
+  if(r.modo === 'escalonado' && Array.isArray(r.faixas) && r.faixas.length){
+    const faixas = r.faixas.slice().sort((a,b) => (parseFloat(a.ate)||0) - (parseFloat(b.ate)||0));
+    return parseFloat(faixas[0].pct) || 0;
+  }
+  return parseFloat(r.pct) || 0;
+}
+
+/* Ajuste é RECEITA, não comissão.
+
+   O que se digita ali é uma venda que não tem linha na Receita — e venda
+   entra pelo mesmo caminho de qualquer outra: soma no bruto, desconta o
+   imposto da regra e só então vira comissão pelo percentual. Antes o valor
+   caía direto no total de comissão, como se fosse dinheiro do vendedor:
+   R$ 62,33 de venda viravam R$ 62,33 de comissão, e não os R$ 43,22 que a
+   regra manda. Por isso o relatório também deixa de chamar essa linha de
+   "sem base": agora ela tem bruto, líquido e percentual como as outras. */
+function _vendAjusteDoMes(v, year, mIdx){
+  const _ym = year + '-' + String(mIdx+1).padStart(2,'0');
+  let bruto = 0;
+  if(Array.isArray(v.ajustes)){
+    for(const a of v.ajustes){
+      if(a && a.ym === _ym) bruto += parseFloat(a.valor) || 0;
+    }
+  } else if(v.ajustes && v.ajustes[_ym]){
+    bruto = parseFloat(v.ajustes[_ym].valor) || 0;   // ainda não migrado em memória
+  }
+  if(!bruto) return { bruto:0, liq:0, com:0, pct:0 };
+  const r = vendedorRegraDoMes(v, year, mIdx);
+  const abater = r ? (parseFloat(r.abaterImpostos) || 0) : 0;
+  const pct = _vendPctDoMes(r);
+  const liq = bruto * (1 - abater/100);
+  return { bruto, liq, com: liq * pct/100, pct };
+}
+try{ window._vendAjusteDoMes = _vendAjusteDoMes; }catch(_){}
+
 // Calcula a comissão do vendedor num mês específico.
 function comissaoVendedorMes(v, year, mIdx){
   if(!v || v.ativo === false) return 0;
@@ -56902,18 +56942,7 @@ function comissaoVendedorMes(v, year, mIdx){
   // Ajuste continua sendo adicionado em cima (independente).
   const override = (v.overrides && v.overrides[_ym] !== undefined && v.overrides[_ym] !== '')
     ? parseFloat(v.overrides[_ym]) : null;
-  // Soma todos os ajustes do mês (estrutura nova: array). Cada ajuste pode
-  // estar marcado pra uma regra específica via regraId — somamos todos pro
-  // total do mês (a vinculação por regra é informativa/relatório).
-  let ajuste = 0;
-  if(Array.isArray(v.ajustes)){
-    for(const a of v.ajustes){
-      if(a && a.ym === _ym) ajuste += parseFloat(a.valor) || 0;
-    }
-  } else if(v.ajustes && v.ajustes[_ym]){
-    // Backward-compat: ainda não migrado em memória
-    ajuste = parseFloat(v.ajustes[_ym].valor) || 0;
-  }
+  const ajuste = _vendAjusteDoMes(v, year, mIdx).com;
   if(override !== null && !isNaN(override)) return override + ajuste;
   const r = vendedorRegraDoMes(v, year, mIdx);
   if(!r) return ajuste;
@@ -84992,6 +85021,8 @@ function _vendRelDataClientes(v, st){
   const idxAte = st.anoAte*12 + st.mesAte;
   const agg = new Map();
   let outros = 0;
+  // Ajuste agora tem base: bruto, líquido e percentual como qualquer venda.
+  const aj = { bruto:0, liq:0, com:0 };
   const getOrInit = (cid, nome) => {
     if(!agg.has(cid)) agg.set(cid, {id:cid, nome:nome||'(sem cliente)', bruto:0, liq:0, com:0});
     return agg.get(cid);
@@ -85009,9 +85040,12 @@ function _vendRelDataClientes(v, st){
       acc.com   += pc.com;
       comPerCliSum += pc.com;
     }
-    // Comissão "total" (com override/ajuste) — se diferir do somatório per-cliente, vai pra outros
+    const a = _vendAjusteDoMes(v, y, m);
+    aj.bruto += a.bruto; aj.liq += a.liq; aj.com += a.com;
+    /* Sobra do mês = override. O ajuste já foi contabilizado com base logo
+       acima, então sai da conta aqui pra não aparecer duas vezes. */
     const comTot = comissaoVendedorMes(v, y, m) || 0;
-    const delta = comTot - comPerCliSum;
+    const delta = comTot - comPerCliSum - a.com;
     if(Math.abs(delta) > 0.005) outros += delta;
   }
   const lista = Array.from(agg.values()).sort((a,b) => b.liq - a.liq);
@@ -85021,8 +85055,10 @@ function _vendRelDataClientes(v, st){
     // % efetiva do cliente no período = com/liq (média ponderada se houver variação mês a mês)
     c.pct = c.liq > 0 ? (c.com / c.liq * 100) : 0;
   }
+  aj.pct = aj.liq > 0 ? (aj.com / aj.liq * 100) : 0;
+  totBruto += aj.bruto; totLiq += aj.liq; totCom += aj.com;
   const totPct = totLiq > 0 ? ((totCom + outros) / totLiq * 100) : 0;
-  return { lista, outros, totBruto, totLiq, totPct, totCom: totCom + outros };
+  return { lista, aj, outros, totBruto, totLiq, totPct, totCom: totCom + outros };
 }
 // Abre modal detalhando a origem do "Ajustes / Overrides (sem base)" —
 // percorre o período e lista, mês a mês, ajustes manuais e overrides que
@@ -85146,7 +85182,7 @@ try { window._vendRelOutrosOpen = _vendRelOutrosOpen; } catch(e){}
 // Aba Clientes — renderiza usando o dataset
 function _vendRelBodyClientes(v, st){
   const d = _vendRelDataClientes(v, st);
-  if(d.lista.length === 0 && d.outros === 0){
+  if(d.lista.length === 0 && d.outros === 0 && !(d.aj && d.aj.bruto)){
     return `<div class="vend-rel-empty">Sem movimentação nesse período.</div>`;
   }
   const fmtPct = p => p > 0 ? p.toFixed(2).replace('.',',') + '%' : '—';
@@ -85157,8 +85193,21 @@ function _vendRelBodyClientes(v, st){
     <td style="color:#7C3AED;font-weight:700">${fmtPct(c.pct)}</td>
     <td style="color:#4C1D95;font-weight:800">${c.com>0?fmtBRL(c.com):'—'}</td>
   </tr>`).join('');
+  /* Ajuste tem base e vai numa linha completa — juros de atraso, venda avulsa,
+     o que for: é receita e se lê como as outras. Override continua sem base,
+     porque ali o número É a comissão, por decisão de quem digitou. */
+  const rowAjuste = (d.aj && Math.abs(d.aj.bruto) > 0.005) ? `<tr>
+    <td style="color:#B45309;font-style:italic">Ajustes (receita avulsa)
+      <button class="vend-rel-origem-btn" onclick="_vendRelOutrosOpen(${v.id})"
+              title="Ver de onde vem esse valor">?</button>
+    </td>
+    <td>${fmtBRL(d.aj.bruto)}</td>
+    <td>${fmtBRL(d.aj.liq)}</td>
+    <td style="color:#7C3AED;font-weight:700">${fmtPct(d.aj.pct)}</td>
+    <td style="color:#4C1D95;font-weight:800">${fmtBRL(d.aj.com)}</td>
+  </tr>` : '';
   const rowOutros = d.outros !== 0 ? `<tr>
-    <td style="color:#B45309;font-style:italic">Ajustes / Overrides (sem base)
+    <td style="color:#B45309;font-style:italic">Overrides (sem base)
       <button class="vend-rel-origem-btn" onclick="_vendRelOutrosOpen(${v.id})"
               title="Ver de onde vem esse valor">?</button>
     </td>
@@ -85174,7 +85223,7 @@ function _vendRelBodyClientes(v, st){
         <th style="min-width:80px" title="Percentual efetivo de comissão no período (comissão ÷ líquido)">% Comissão</th>
         <th style="min-width:120px">Comissão</th>
       </tr></thead>
-      <tbody>${rows}${rowOutros}</tbody>
+      <tbody>${rows}${rowAjuste}${rowOutros}</tbody>
       <tfoot><tr>
         <td>Total</td>
         <td style="color:#34D399">${fmtBRL(d.totBruto)}</td>
@@ -85292,8 +85341,12 @@ function _vendRelExportCSV(){
     for(const c of d.lista){
       linhas.push([c.nome, _vendCsvNum(c.bruto), _vendCsvNum(c.liq), _vendCsvNum(c.pct), _vendCsvNum(c.com)].map(_vendCsvEsc).join(';'));
     }
+    if(d.aj && Math.abs(d.aj.bruto) > 0.005){
+      linhas.push(['Ajustes (receita avulsa)', _vendCsvNum(d.aj.bruto), _vendCsvNum(d.aj.liq),
+                   _vendCsvNum(d.aj.pct), _vendCsvNum(d.aj.com)].map(_vendCsvEsc).join(';'));
+    }
     if(d.outros !== 0){
-      linhas.push(['Ajustes / Overrides (sem base)','','','', _vendCsvNum(d.outros)].map(_vendCsvEsc).join(';'));
+      linhas.push(['Overrides (sem base)','','','', _vendCsvNum(d.outros)].map(_vendCsvEsc).join(';'));
     }
     linhas.push(['Total', _vendCsvNum(d.totBruto), _vendCsvNum(d.totLiq), _vendCsvNum(d.totPct), _vendCsvNum(d.totCom)].map(_vendCsvEsc).join(';'));
   } else {
@@ -85355,8 +85408,11 @@ function _vendRelExportPDF(){
       <td>${c.liq>0?fmtBRL(c.liq):'—'}</td>
       <td class="hl">${c.com>0?fmtBRL(c.com):'—'}</td>
     </tr>`).join('');
+    const rowAj = (d.aj && Math.abs(d.aj.bruto) > 0.005)
+      ? `<tr><td class="lft" style="font-style:italic;color:#9a4a00">Ajustes (receita avulsa)</td><td>${fmtBRL(d.aj.bruto)}</td><td>${fmtBRL(d.aj.liq)}</td><td class="hl">${fmtBRL(d.aj.com)}</td></tr>`
+      : '';
     const rowO = d.outros !== 0
-      ? `<tr><td class="lft" style="font-style:italic;color:#9a4a00">Ajustes / Overrides (sem base)</td><td>—</td><td>—</td><td class="hl" style="color:#9a4a00">${fmtBRL(d.outros)}</td></tr>`
+      ? `<tr><td class="lft" style="font-style:italic;color:#9a4a00">Overrides (sem base)</td><td>—</td><td>—</td><td class="hl" style="color:#9a4a00">${fmtBRL(d.outros)}</td></tr>`
       : '';
     tableHtml = `
       <table>
@@ -85366,7 +85422,7 @@ function _vendRelExportPDF(){
           <th>Líq. c/ impostos</th>
           <th>Comissão</th>
         </tr></thead>
-        <tbody>${rows}${rowO}</tbody>
+        <tbody>${rows}${rowAj}${rowO}</tbody>
         <tfoot><tr>
           <td class="lft">Total</td>
           <td>${fmtBRL(d.totBruto)}</td>
