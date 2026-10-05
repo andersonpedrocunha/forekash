@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1791213427"/>
+  <meta name="fk-build" content="forekash-v1791213662"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8356,6 +8356,11 @@
 
     /* Células mensais */
     .rec-cell{position:relative}
+    /* Marca de célula com fórmula: triângulo no canto, como nas planilhas.
+       Diz "aqui tem conta por trás" sem ocupar espaço nenhum. */
+    .rec-cell.tem-formula::after{content:'';position:absolute;top:0;right:0;
+      border-width:0 6px 6px 0;border-style:solid;border-color:transparent #7C3AED transparent transparent;
+      pointer-events:none;opacity:.75}
     .rec-cell.aberto .rec-input{background:#FEF3C7;color:#92400E;font-weight:600}
     .rec-cell.aberto:hover .rec-input{background:#FDE68A}
     .rec-cell.recebido .rec-input{background:#D1FAE5;color:#065F46;font-weight:700}
@@ -34365,6 +34370,27 @@ function notifyDoExtrato(el){
 }
 try{ window.notifyDoExtrato = notifyDoExtrato; }catch(_){}
 
+/* Clássico de planilha: a célula mostra o RESULTADO e devolve a FÓRMULA
+   quando você entra pra editar. Sem isso o cálculo morria no primeiro blur —
+   "=28800*2" virava 57.600,00 e nunca mais dava pra saber de onde veio. */
+function recCelFoco(inp){
+  const f = inp.getAttribute('data-formula');
+  if(f) inp.value = f;
+  try{ inp.select(); }catch(_){}
+}
+function recCelBlur(inp, type, id, mes){
+  saveRecMes(type, id, mes, inp.value);
+  const bruto = String(inp.value || '').trim();
+  const v = parseBR(inp.value);
+  const temFormula = bruto.startsWith('=') && v !== '' && v !== 0;
+  inp.setAttribute('data-formula', temFormula ? bruto : '');
+  if(temFormula) inp.title = bruto; else inp.removeAttribute('title');
+  const td = inp.closest('td');
+  if(td) td.classList.toggle('tem-formula', temFormula);
+  inp.value = (v === '' || v === 0) ? '' : fmtBR(v);
+}
+try{ window.recCelFoco = recCelFoco; window.recCelBlur = recCelBlur; }catch(_){}
+
 function saveRecMes(type, id, mes, rawVal){
   const d = receita.years[recActiveYear];
   const list = type==='lead' ? d.leads : d.clients;
@@ -34379,6 +34405,12 @@ function saveRecMes(type, id, mes, rawVal){
   if(!row.meses[mes]) row.meses[mes] = {valor:'', status:'aberto'};
   // Zero é tratado como vazio (não muda a cor da célula)
   row.meses[mes].valor = (n !== '' && n !== 0) ? n : '';
+  /* Só guarda a fórmula se ela realmente calculou. Fórmula quebrada guardada
+     viraria um número vazio com uma explicação que não explica nada; e número
+     digitado na mão apaga a fórmula que estava ali — é uma substituição. */
+  const _bruto = (rawVal == null ? '' : String(rawVal)).trim();
+  if(_bruto.startsWith('=') && n !== '' && n !== 0) row.meses[mes].formula = _bruto;
+  else delete row.meses[mes].formula;
   receitaSave();
 
   // Atualiza classe da célula
@@ -39977,12 +40009,17 @@ function renderReceita(){
             ? `<span class="rec-cell-real parcial" title="Já recebido segundo o Extrato">${esc(fmtBR(ef.realizado))}</span>`
             : `<span class="rec-cell-real" title="Valor conciliado com o Extrato Financeiro">extrato</span>`)
         : '';
-      return `<td class="rec-cell ${cls} ${simCls}${doExtrato ? ' do-extrato' : ''}" data-mes="${m}">
+      /* Fórmula digitada fica guardada ao lado do resultado — a célula mostra
+         o número e devolve a fórmula quando volta pra edição. Valor vindo do
+         Extrato não tem fórmula: ali quem manda é o lançamento. */
+      const fml = (!doExtrato && c && c.formula) ? String(c.formula) : '';
+      return `<td class="rec-cell ${cls} ${simCls}${doExtrato ? ' do-extrato' : ''}${fml ? ' tem-formula' : ''}" data-mes="${m}">
         <input class="rec-input num" type="text" value="${has ? esc(fmtBR(valorCel)) : ''}"
                placeholder="0,00"
                data-cellref="rec:${type}:${r.id}:${m}"${ro}${roTitle}${roClick}
-               onfocus="this.select()"
-               onblur="saveRecMes('${type}',${r.id},'${m}',this.value);var _rv=parseBR(this.value);this.value=(_rv===''||_rv===0)?'':fmtBR(_rv)"
+               data-formula="${esc(fml)}"${fml ? ` title="${esc(fml)}"` : ''}
+               onfocus="recCelFoco(this)"
+               onblur="recCelBlur(this,'${type}',${r.id},'${m}')"
                onkeydown="if(event.key==='Enter'){this.blur();}else if(event.key==='Escape'){this.blur();}">
         ${marca}
         ${doExtrato && recebidoCel ? '<span class="rec-cell-ok" title="Recebido — conciliado com o Extrato">✓</span>' : ''}
