@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1791224890"/>
+  <meta name="fk-build" content="forekash-v1791225366"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -15443,6 +15443,13 @@
       font-size:.55rem;font-weight:700;color:#10B981;opacity:.75;line-height:1
     }
     /* Botão compacto de pagamento (check) — invisível por padrão, aparece no hover */
+    /* Célula fora do automático: âmbar discreto e um traço na base. Não é
+       erro nem alerta — é "esse número é seu, não meu". */
+    .imp-cor-sheet tbody td.mes.manual{background:rgba(245,158,11,.07)}
+    .imp-cor-sheet tbody td.mes.manual input{color:#B45309;font-weight:700}
+    .imp-cor-sheet tbody td.mes.manual::after{content:'';position:absolute;left:6px;right:6px;bottom:3px;
+      height:2px;background:#F59E0B;opacity:.5;border-radius:1px;pointer-events:none}
+    .imp-cor-sheet tbody td.mes{position:relative}
     .imp-cor-sheet tbody td.mes .imp-cor-pagar-btn{
       position:absolute;top:3px;right:3px;width:13px;height:13px;padding:0;
       background:transparent;border:1px solid transparent;border-radius:3px;
@@ -90021,7 +90028,6 @@ function renderImpCorRow(c, year){
        <span class="badge custom">Custom</span>`;
 
   // Células mensais editáveis (com previsão ghost nas células vazias, se houver regime)
-  const pagosMap = c.pagos || {};
   const valCells = IMP_MESES.map((_,m) => {
     const key = impMesKey(year, m);
     /* Pagamento identificado no Extrato manda: é fato, não estimativa. Quando
@@ -90044,25 +90050,26 @@ function renderImpCorRow(c, year){
       }
     }
 
-    // Vindo do extrato, está pago por definição — o dinheiro saiu da conta.
-    const pago = hasReal && !aliqExclusiva && (doExtrato != null || !!pagosMap[key]);
+    /* Pago é o que saiu da conta — quem diz isso é o Extrato, não um ✓ aqui.
+       A marca manual (`pagosMap`) some da leitura junto com o botão: deixar
+       ela travando a célula sem ter como destravar seria pior que o problema. */
+    const pago = hasReal && !aliqExclusiva && doExtrato != null;
     if(pago) cellExtra += ' pago';
     if(doExtrato != null) cellExtra += ' do-extrato';
+    // Digitado na mão: sai do automático e diz isso na cara
+    const ehManual = hasReal && doExtrato == null && !!(c.manual && c.manual[key]);
+    if(ehManual) cellExtra += ' manual';
     if(!hasReal && !cellExtra.includes('forecast')) cellExtra += ' empty';
 
-    // Botão de toggle só aparece em células com valor real e fora do modo exclusivo
-    /* Sem botão de baixa quando vem do extrato: o pagamento é o lançamento. */
-    const btnPagar = (hasReal && !aliqExclusiva && doExtrato == null)
-      ? `<button type="button" class="imp-cor-pagar-btn" tabindex="-1"
-               onmousedown="event.preventDefault()"
-               onclick="event.stopPropagation(); toggleImpCorPago('${esc(c.rubricaId)}','${key}')"
-               title="${pago ? 'Marcar como não pago' : 'Marcar como pago'}">✓</button>`
-      : '';
+    /* Sem botão de baixa, ponto. A baixa do imposto é o lançamento no Extrato
+       Financeiro — marcar aqui criava uma segunda verdade sobre o mesmo
+       pagamento, e as duas divergiam na primeira conciliação. */
+    const btnPagar = '';
 
     const ro = pago ? ' readonly' : '';
     const roTitle = doExtrato != null
       ? ' title="Valor pago, identificado no Extrato Financeiro — corrija no lançamento"'
-      : (pago ? ' title="Remova o ✓ para editar"' : '');
+      : (ehManual ? ' title="Lançado à mão — não acompanha a Receita. Apague para voltar ao automático."' : '');
     const roClick = doExtrato != null
       ? ' onmousedown="notifyImpDoExtrato()"'
       : (pago ? ' onmousedown="notifyLocked()"' : '');
@@ -90163,39 +90170,65 @@ function updateImpCorKpis(){
   if(elAberto) elAberto.textContent = fmtBRL(totalAberto);
 }
 
+/* Digitar numa célula é assumir ela.
+
+   Com "Seguir a Receita" ligado o padrão é todo mundo acompanhar — mas um
+   número digitado na mão tem dono, e sobrescrever ele na próxima mudança de
+   receita seria apagar uma decisão. Então a célula sai do automático, muda de
+   cara e volta sozinha quando é esvaziada. O aviso aparece uma vez só: a
+   partir daí a formatação é que conta a história. */
+async function _impAvisaManual(){
+  if(impostos.avisouManual) return;
+  impostos.avisouManual = true;
+  impSave();
+  try{
+    await askConfirm({
+      title: 'Essa célula sai do automático',
+      message: 'Valor digitado na mão deixa de acompanhar a Receita — a previsão não vai mais reescrever ele.',
+      sub: 'A célula fica marcada em âmbar. Para devolver ao automático, apague o valor: ela volta a seguir a Receita.',
+      variant: 'info',
+      confirmLabel: 'Entendi',
+      cancelLabel: ''
+    });
+  }catch(_){}
+}
+
 function setImpCorValor(rubricaId, key, val){
   const c = impostos.correntes.find(x=>x.rubricaId===rubricaId);
   if(!c) return;
   // Regra: célula com ✓ (pago) trava edição até o ✓ ser removido
   if(c.pagos && c.pagos[key]){ notifyLocked(); return; }
   const n = parseBR(val);
+  const jaEraManual = !!(c.manual && c.manual[key]);
   if(!n || isNaN(n)){
     delete c.valores[key];
+    // Esvaziar devolve a célula ao automático
+    if(c.manual) delete c.manual[key];
     // Se a célula foi esvaziada, remove também a marcação de pago
     if(c.pagos && Object.prototype.hasOwnProperty.call(c.pagos, key)){
       delete c.pagos[key];
     }
   } else {
     c.valores[key] = n;
+    if(!c.manual || typeof c.manual !== 'object') c.manual = {};
+    c.manual[key] = true;
   }
   impSave();
   renderImpCorSheet();
   updateImpCorKpis();
+  if(n && !isNaN(n) && !jaEraManual && typeof impSeguirReceitaLigado === 'function'
+     && impSeguirReceitaLigado()){
+    _impAvisaManual();
+  }
 }
 
 // Alterna o estado "pago" de uma célula de Impostos Correntes.
 // Só funciona quando a célula tem um valor real lançado.
-function toggleImpCorPago(rubricaId, key){
-  const c = impostos.correntes.find(x=>x.rubricaId===rubricaId);
-  if(!c) return;
-  const v = c.valores[key];
-  if(v === undefined || v === null || v === 0) return; // sem valor real → nada a marcar
-  if(!c.pagos) c.pagos = {};
-  if(c.pagos[key]) delete c.pagos[key];
-  else             c.pagos[key] = true;
-  impSave();
-  renderImpCorSheet();
-  updateImpCorKpis();
+/* Mantida só pra não quebrar chamada antiga: a baixa mora no Extrato. */
+function toggleImpCorPago(){
+  if(typeof toast === 'function'){
+    toast('A baixa do imposto vem do Extrato Financeiro — lance o pagamento lá e ele aparece aqui.', 5000);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -90213,7 +90246,21 @@ function impReceitaMes(year, mIdx){
       return (typeof v === 'number' && !isNaN(v)) ? v : 0;
     }
     try{
-      if(typeof flxReceitaMes === 'function') return +flxReceitaMes(year, mIdx) || 0;
+      if(typeof flxReceitaMes === 'function'){
+        const v = +flxReceitaMes(year, mIdx) || 0;
+        if(v > 0) return v;
+        /* Mês que já passou devolve o REALIZADO do Extrato — e zero enquanto a
+           conciliação não foi feita. Pro Fluxo isso é honesto; pra base de
+           imposto, não: setembro sem conciliar zerava a base e, por tabela, o
+           imposto de outubro, que é calculado sobre a competência anterior.
+           Sem realizado, vale o previsto da Receita — imposto se estima, não
+           se adia. */
+        if(typeof _flxAutoReceita === 'function'){
+          const prev = +_flxAutoReceita(year, mIdx) || 0;
+          if(prev > 0) return prev;
+        }
+        return v;
+      }
     }catch(e){}
     return 0;
   });
@@ -90732,7 +90779,10 @@ function impSincronizarPrevisao(ano){
   for(const c of impostos.correntes){
     for(let m = 0; m < 12; m++){
       const key = impMesKey(year, m);
-      if(c.pagos && c.pagos[key]) continue;
+      /* Pago identificado no Extrato é fato: não se recalcula. A fonte é a
+         mesma que a planilha usa pra travar a célula — uma verdade só. */
+      try{ const cel = impValorCelula(c, key); if(cel && cel.doExtrato) continue; }catch(_){}
+      if(c.manual && c.manual[key]) continue;        // digitado na mão tem dono
       const prev = impForecastValor(c.rubricaId, year, m);
       if(prev == null || !(prev > 0.005)) continue;
       const novo = +prev.toFixed(2);
