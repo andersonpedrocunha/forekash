@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1790624840"/>
+  <meta name="fk-build" content="forekash-v1791213427"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -9220,13 +9220,16 @@
 
     /* ── Fill handle (arrastar valor entre células, estilo Excel) ───── */
     .xl-fill-handle{
-      position:fixed; width:8px; height:8px; background:#2563EB;
+      position:absolute; right:-4px; bottom:-4px; width:8px; height:8px; background:#2563EB;
       border:1px solid #fff; border-radius:1px;
-      cursor:crosshair; z-index:9999;
+      cursor:crosshair; z-index:12;
       display:none; pointer-events:auto;
       box-shadow:0 0 0 1px rgba(37,99,235,.35), 0 1px 2px rgba(0,0,0,.12);
       user-select:none;
     }
+    /* A célula que segura a alça precisa deixar o canto vazar — senão os 4px
+       que ficam pra fora somem no overflow da própria célula. */
+    td.xl-tem-alca, .xl-tem-alca{overflow:visible !important}
     .xl-fill-handle:hover{background:#1D4ED8}
     .xl-fill-handle.active{background:#DC2626;box-shadow:0 0 0 1px rgba(220,38,38,.45), 0 1px 3px rgba(0,0,0,.2)}
     /* Destaque das células que vão receber o valor */
@@ -113214,69 +113217,39 @@ async function resetAllData(){
 
   let currentInput = null;
 
-  /* A alça é position:fixed e mora no <body>, então nenhum overflow do
-     caminho a corta. getBoundingClientRect devolve a posição de layout da
-     célula mesmo quando ela está rolada pra fora da planilha — e a alça ia
-     parar ali, solta no meio da página, longe de qualquer célula. Também
-     acontecia com célula escondida atrás das colunas fixas: a alça, com
-     z-index 9999, aparecia por cima delas.
+  /* A alça mora DENTRO da célula, não no <body>.
 
-     A regra passa a ser: a alça só existe se o canto da célula estiver
-     mesmo visível. Todos os ancestrais que rolam entram na conta. */
-  function cantoVisivel(el, x, y){
-    for(let p = el.parentElement; p && p !== document.body; p = p.parentElement){
-      const cs = getComputedStyle(p);
-      const rola = /(auto|scroll|hidden)/.test(cs.overflowX + ' ' + cs.overflowY);
-      if(!rola) continue;
-      const rp = p.getBoundingClientRect();
-      if(x < rp.left || x > rp.right || y < rp.top || y > rp.bottom) return false;
+     Antes ela era position:fixed e eu calculava left/top a partir do
+     getBoundingClientRect da célula. Toda a dificuldade vinha daí: rect não
+     sabe de recorte, então a alça aparecia sobre a planilha rolada, por cima
+     das colunas fixas, e qualquer diferença de contexto a deslocava do canto.
+     Virou um filho absolute da própria célula: o navegador gruda no canto, o
+     overflow da planilha corta sozinho quando a célula sai de vista, e as
+     colunas fixas passam por cima porque têm z-index maior. Nenhuma conta pra
+     errar, nenhum listener de rolagem pra sincronizar. */
+  function _alcaCelula(input){
+    if(input.classList && input.classList.contains('orc-prev-input')){
+      return input.closest('.c-prev') || input.closest('td') || input.parentElement;
     }
-    if(x < 0 || y < 0 || x > innerWidth || y > innerHeight) return false;
-    /* Colunas e cabeçalho fixos ficam por cima da célula quando ela passa por
-       baixo. elementFromPoint não serve aqui — qualquer overlay de página
-       responde primeiro —, então a conta é geométrica: onde termina o bloco
-       fixo, começa a área em que a alça pode aparecer. */
-    const td = el.closest('td, th');
-    const tr = td && td.parentElement;
-    if(tr){
-      const tabela = td.closest('table');
-      /* Só o que pode cobrir ESTE ponto: as células fixas da própria linha
-         (colunas travadas à esquerda) e a linha de cabeçalho. Varrer a tabela
-         inteira custaria caro numa planilha grande, a cada rolagem. */
-      const candidatas = [...tr.children];
-      const thead = tabela && tabela.tHead;
-      if(thead && thead.rows[0]) candidatas.push(...thead.rows[0].children);
-      for(const fixa of candidatas){
-        if(fixa === td) continue;
-        if(getComputedStyle(fixa).position !== 'sticky') continue;
-        const rf = fixa.getBoundingClientRect();
-        if(!rf.width || !rf.height) continue;
-        if(x < rf.right && x > rf.left && y < rf.bottom && y > rf.top) return false;
-      }
-    }
-    return true;
+    return input.closest('td') || input.parentElement;
   }
 
   function positionHandle(input){
     currentInput = input;
-    // Orçamento Previsto: o <input> é menor que a célula (fica dentro de .c-prev
-    // com padding). Ancora a alça no canto da célula (.c-prev), não do input.
-    let anchor = input;
-    if(input.classList && input.classList.contains('orc-prev-input')){
-      anchor = input.closest('.c-prev') || input.closest('td') || input;
-    }
-    const r = anchor.getBoundingClientRect();
-    if(!r.width || !cantoVisivel(anchor, r.right - 3, r.bottom - 3)){
-      handle.style.display = 'none';
-      return;
-    }
-    // viewport-relative (handle é position:fixed)
-    handle.style.left = (r.right - 4) + 'px';
-    handle.style.top  = (r.bottom - 4) + 'px';
+    const cel = _alcaCelula(input);
+    if(!cel){ handle.style.display = 'none'; return; }
+    if(getComputedStyle(cel).position === 'static') cel.style.position = 'relative';
+    cel.classList.add('xl-tem-alca');
+    if(handle.parentElement !== cel) cel.appendChild(handle);
     handle.style.display = 'block';
   }
   function hideHandle(){
     handle.style.display = 'none';
+    const pai = handle.parentElement;
+    if(pai && pai !== document.body){
+      pai.classList.remove('xl-tem-alca');
+      document.body.appendChild(handle);
+    }
     currentInput = null;
   }
 
@@ -113286,16 +113259,8 @@ async function resetAllData(){
   document.addEventListener('focusin', e => {
     if(fillClassOf(e.target)) positionHandle(e.target);
   });
-  /* Rolagem: a alça acompanha a célula em vez de sumir — e some sozinha
-     quando a célula sai de vista, porque positionHandle checa isso. Rolar
-     escondendo obrigava a clicar de novo só pra recuperar a alça. */
-  let _reposAgendado = false;
-  window.addEventListener('scroll', () => {
-    if(!currentInput || _reposAgendado) return;
-    _reposAgendado = true;
-    requestAnimationFrame(() => { _reposAgendado = false; if(currentInput) positionHandle(currentInput); });
-  }, true);
-  window.addEventListener('resize', hideHandle);
+  /* Sem listener de rolagem nem de resize: dentro da célula, a alça acompanha
+     e é recortada pelo navegador. */
 
   // ─── Drag state ───
   let drag = null;
