@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1791213662"/>
+  <meta name="fk-build" content="forekash-v1791214136"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8361,6 +8361,24 @@
     .rec-cell.tem-formula::after{content:'';position:absolute;top:0;right:0;
       border-width:0 6px 6px 0;border-style:solid;border-color:transparent #7C3AED transparent transparent;
       pointer-events:none;opacity:.75}
+    /* Nota: mesma gramática, canto de cima à esquerda e cor própria. Uma
+       célula pode ter conta E explicação, e os dois cantos não disputam. */
+    .rec-cell.tem-nota::before{content:'';position:absolute;top:0;left:0;
+      border-width:6px 6px 0 0;border-style:solid;border-color:#D97706 transparent transparent transparent;
+      pointer-events:none;opacity:.85;z-index:2}
+    .rec-nota-pop{position:fixed;z-index:10000;width:280px;background:#fff;border:1px solid #E2E8F0;
+      border-radius:10px;box-shadow:0 12px 32px rgba(15,23,42,.18);padding:10px 12px 10px}
+    .rec-nota-cap{font-size:.6rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+      color:#94A3B8;margin-bottom:6px}
+    .rec-nota-pop textarea{width:100%;border:1px solid #CBD5E1;border-radius:7px;padding:7px 9px;
+      font-family:inherit;font-size:.78rem;color:#0F172A;resize:vertical;line-height:1.45}
+    .rec-nota-pop textarea:focus{outline:none;border-color:var(--blue);background:#F8FAFF}
+    .rec-nota-pe{display:flex;align-items:center;gap:8px;margin-top:8px}
+    .rec-nota-sp{flex:1}
+    .rec-nota-ok{background:#0F172A;border:none;color:#fff;border-radius:7px;padding:5px 13px;
+      cursor:pointer;font-family:inherit;font-size:.74rem;font-weight:700}
+    .rec-nota-del{background:none;border:none;color:#B91C1C;cursor:pointer;
+      font-family:inherit;font-size:.72rem;font-weight:700;padding:0}
     .rec-cell.aberto .rec-input{background:#FEF3C7;color:#92400E;font-weight:600}
     .rec-cell.aberto:hover .rec-input{background:#FDE68A}
     .rec-cell.recebido .rec-input{background:#D1FAE5;color:#065F46;font-weight:700}
@@ -34372,19 +34390,125 @@ try{ window.notifyDoExtrato = notifyDoExtrato; }catch(_){}
 
 /* Clássico de planilha: a célula mostra o RESULTADO e devolve a FÓRMULA
    quando você entra pra editar. Sem isso o cálculo morria no primeiro blur —
-   "=28800*2" virava 57.600,00 e nunca mais dava pra saber de onde veio. */
+   "=28800*2" virava 57.600,00 e nunca mais dava pra saber de onde veio.
+
+   O porém: referência a outra célula é guardada como "[ref:rec:client:7:set]",
+   que é o id interno. Devolver isso pro campo entregava um token ilegível —
+   e num campo de 92px nem o token inteiro cabia. Então a fórmula vai pra tela
+   com a referência em nome de gente ({ECBR·set}) e volta pro token na saída,
+   usando o mapa montado na própria entrada: nada é adivinhado. */
+function _recRefRotulo(cellId){
+  try{
+    const p = String(cellId).split(':');            // rec:<tipo>:<linha>:<mes>
+    if(p[0] !== 'rec') return cellId;
+    const d = receita.years[recActiveYear];
+    const lista = p[1] === 'lead' ? d.leads : d.clients;
+    const row = lista.find(r => String(r.id) === p[2]);
+    const nome = row ? ((clienteView(row) || {}).nome || row.nome || 'linha ' + p[2]) : 'linha ' + p[2];
+    return nome + '·' + p[3];
+  }catch(_){ return cellId; }
+}
+function _recFormulaParaTela(f, mapa){
+  return String(f || '').replace(/\[ref:([^\]\[]+)\]/g, function(_, id){
+    const rot = _recRefRotulo(id);
+    mapa['{' + rot + '}'] = '[ref:' + id + ']';
+    return '{' + rot + '}';
+  });
+}
+function _recFormulaDaTela(txt, mapa){
+  let s = String(txt || '');
+  for(const rot of Object.keys(mapa || {})) s = s.split(rot).join(mapa[rot]);
+  return s;
+}
+
+/* Nota da célula: o "por quê" que o número não cabe.
+
+   Botão direito abre — é onde a mão já procura em planilha — e um balão
+   aparece no hover, sem precisar clicar. Mora no mesmo objeto do valor
+   (`{valor, status, formula, nota}`), então vai junto no save e na nuvem. */
+function recNotaFechar(){
+  const o = document.getElementById('rec-nota-pop');
+  if(o) o.remove();
+  document.removeEventListener('mousedown', _recNotaFora, true);
+}
+function _recNotaFora(ev){
+  const p = document.getElementById('rec-nota-pop');
+  if(p && !p.contains(ev.target)) recNotaFechar();
+}
+function recNotaAbrir(ev, type, id, mes){
+  if(ev){ ev.preventDefault(); ev.stopPropagation(); }
+  recNotaFechar();
+  const d = receita.years[recActiveYear];
+  const lista = type === 'lead' ? d.leads : d.clients;
+  const row = lista.find(r => r.id === id);
+  if(!row) return;
+  const cel = (row.meses && row.meses[mes]) || {};
+  const td = ev && ev.currentTarget ? ev.currentTarget
+           : document.querySelector(`tr[data-rec="${type}-${id}"] td.rec-cell[data-mes="${mes}"]`);
+  const r = td ? td.getBoundingClientRect() : { left: 100, bottom: 100 };
+  const pop = document.createElement('div');
+  pop.id = 'rec-nota-pop';
+  pop.className = 'rec-nota-pop';
+  pop.innerHTML = `
+    <div class="rec-nota-cap">${esc((clienteView(row)||{}).nome || row.nome || '')} · ${esc(String(mes).toUpperCase())}</div>
+    <textarea id="rec-nota-txt" placeholder="Por que esse valor é esse? Ex.: reajuste combinado em agosto"
+              rows="3">${esc(cel.nota || '')}</textarea>
+    <div class="rec-nota-pe">
+      ${cel.nota ? `<button type="button" class="rec-nota-del" onclick="recNotaSalvar('${type}',${id},'${mes}','')">Remover</button>` : '<span></span>'}
+      <span class="rec-nota-sp"></span>
+      <button type="button" class="rec-nota-ok"
+        onclick="recNotaSalvar('${type}',${id},'${mes}',document.getElementById('rec-nota-txt').value)">Salvar</button>
+    </div>`;
+  document.body.appendChild(pop);
+  // Dentro da viewport: perto da célula, mas sem vazar pela direita ou por baixo
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  pop.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + 'px';
+  pop.style.top  = Math.max(8, Math.min(r.bottom + 4, innerHeight - h - 8)) + 'px';
+  const ta = document.getElementById('rec-nota-txt');
+  if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+  setTimeout(() => document.addEventListener('mousedown', _recNotaFora, true), 0);
+}
+function recNotaSalvar(type, id, mes, texto){
+  const d = receita.years[recActiveYear];
+  const lista = type === 'lead' ? d.leads : d.clients;
+  const row = lista.find(r => r.id === id);
+  if(!row) return;
+  if(!row.meses[mes]) row.meses[mes] = { valor:'', status:'aberto' };
+  const t = String(texto || '').trim();
+  if(t) row.meses[mes].nota = t; else delete row.meses[mes].nota;
+  receitaSave();
+  recNotaFechar();
+  const td = document.querySelector(`tr[data-rec="${type}-${id}"] td.rec-cell[data-mes="${mes}"]`);
+  if(td){
+    td.classList.toggle('tem-nota', !!t);
+    if(t){ td.setAttribute('data-nota', t); td.title = t; }
+    else { td.removeAttribute('data-nota'); td.removeAttribute('title'); }
+  }
+  if(typeof toast === 'function') toast(t ? 'Nota salva' : 'Nota removida');
+}
+try{ window.recNotaAbrir = recNotaAbrir; window.recNotaSalvar = recNotaSalvar;
+     window.recNotaFechar = recNotaFechar; }catch(_){}
+
 function recCelFoco(inp){
   const f = inp.getAttribute('data-formula');
-  if(f) inp.value = f;
+  if(f){
+    const mapa = {};
+    inp.value = _recFormulaParaTela(f, mapa);
+    inp._refMapa = mapa;
+  } else {
+    inp._refMapa = null;
+  }
   try{ inp.select(); }catch(_){}
 }
 function recCelBlur(inp, type, id, mes){
-  saveRecMes(type, id, mes, inp.value);
-  const bruto = String(inp.value || '').trim();
-  const v = parseBR(inp.value);
+  // De volta ao token antes de qualquer cálculo — o avaliador só entende [ref:]
+  const bruto = _recFormulaDaTela(String(inp.value || '').trim(), inp._refMapa);
+  inp._refMapa = null;
+  saveRecMes(type, id, mes, bruto);
+  const v = parseBR(bruto);
   const temFormula = bruto.startsWith('=') && v !== '' && v !== 0;
   inp.setAttribute('data-formula', temFormula ? bruto : '');
-  if(temFormula) inp.title = bruto; else inp.removeAttribute('title');
+  if(temFormula) inp.title = _recFormulaParaTela(bruto, {}); else inp.removeAttribute('title');
   const td = inp.closest('td');
   if(td) td.classList.toggle('tem-formula', temFormula);
   inp.value = (v === '' || v === 0) ? '' : fmtBR(v);
@@ -40013,11 +40137,14 @@ function renderReceita(){
          o número e devolve a fórmula quando volta pra edição. Valor vindo do
          Extrato não tem fórmula: ali quem manda é o lançamento. */
       const fml = (!doExtrato && c && c.formula) ? String(c.formula) : '';
-      return `<td class="rec-cell ${cls} ${simCls}${doExtrato ? ' do-extrato' : ''}${fml ? ' tem-formula' : ''}" data-mes="${m}">
+      const nota = (c && c.nota) ? String(c.nota) : '';
+      return `<td class="rec-cell ${cls} ${simCls}${doExtrato ? ' do-extrato' : ''}${fml ? ' tem-formula' : ''}${nota ? ' tem-nota' : ''}" data-mes="${m}"
+             oncontextmenu="recNotaAbrir(event,'${type}',${r.id},'${m}')"
+             ${nota ? `data-nota="${esc(nota)}" title="${esc(nota)}"` : ''}>
         <input class="rec-input num" type="text" value="${has ? esc(fmtBR(valorCel)) : ''}"
                placeholder="0,00"
                data-cellref="rec:${type}:${r.id}:${m}"${ro}${roTitle}${roClick}
-               data-formula="${esc(fml)}"${fml ? ` title="${esc(fml)}"` : ''}
+               data-formula="${esc(fml)}"${fml ? ` title="${esc(_recFormulaParaTela(fml, {}))}"` : ''}
                onfocus="recCelFoco(this)"
                onblur="recCelBlur(this,'${type}',${r.id},'${m}')"
                onkeydown="if(event.key==='Enter'){this.blur();}else if(event.key==='Escape'){this.blur();}">
