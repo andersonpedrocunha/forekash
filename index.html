@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1791223857"/>
+  <meta name="fk-build" content="forekash-v1791224102"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -15293,6 +15293,13 @@
       width:18px;height:18px;border-radius:5px;background:#CCFBF1;color:#0F766E;
       display:flex;align-items:center;justify-content:center;flex-shrink:0
     }
+    /* Caixa "Seguir a Receita" colada no botão de preencher — a opção e a
+       ação que ela automatiza moram juntas. */
+    .imp-fill-wrap{display:inline-flex;align-items:center;gap:10px}
+    .imp-seguir{display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+      font-size:.72rem;font-weight:700;color:#475569;white-space:nowrap}
+    .imp-seguir input{cursor:pointer;accent-color:#0F766E;width:14px;height:14px}
+    .imp-seguir:hover{color:#0F172A}
     /* Pill toggle Auto ↔ Manual na linha "Base · Receita" */
     .imp-cor-sheet tbody tr.imp-base-row .base-mode-toggle{
       display:inline-flex;margin-left:8px;border:1px solid #CBD5E1;border-radius:999px;
@@ -33586,6 +33593,18 @@ window.cloudReceitaFetch = cloudReceitaFetch;
 let _recMemoriaAdiante = false;
 function receitaSave(){
   receita.activeYear = recActiveYear;
+  /* Imposto previsto acompanha a receita — ligado pela caixa em Impostos.
+     Fica aqui, no funil único de gravação da Receita, pra pegar qualquer
+     caminho de edição: célula, colar, importar, novo ano. */
+  try{
+    if(typeof impSeguirReceitaLigado === 'function' && impSeguirReceitaLigado()){
+      const n = impSincronizarPrevisao();
+      if(n && document.getElementById('mod-impostos') &&
+         document.getElementById('mod-impostos').classList.contains('active')){
+        renderImpCorSheet(); updateImpCorKpis();
+      }
+    }
+  }catch(_){}
   /* Era `catch(e){}` mudo. Anexo de contrato em base64 (1,1 MB vira ~1,5 MB de
      string) estoura a cota do navegador, a gravação falhava em silêncio e no
      F5 seguinte o localStorage velho — sem os anexos — voltava por cima.
@@ -90151,6 +90170,8 @@ function setImpCorValor(rubricaId, key, val){
   } else {
     c.valores[key] = n;
   }
+  // Número digitado deixa de seguir a receita — a mão do usuário vence sempre
+  if(c.autoPrev) delete c.autoPrev[key];
   impSave();
   renderImpCorSheet();
   updateImpCorKpis();
@@ -90661,6 +90682,61 @@ async function toggleImpAliquotaUnica(){
 
 // Preenche a planilha de Correntes com os valores de previsão sugeridos pelo
 // regime atual — só escreve em células que o usuário ainda não digitou.
+/* ═══ IMPOSTO QUE SEGUE A RECEITA ═══════════════════════════════════
+   Preencher com a previsão congela o número: mexer na Receita depois não
+   mudava mais nada, e a projeção de imposto ficava contando uma história
+   velha. Com isto ligado, toda alteração na Receita reescreve as células que
+   VIERAM da previsão — e só elas. O que você digitou na mão não se mexe, nem
+   o que já está marcado como pago. */
+function impSeguirReceitaLigado(){
+  return !!(impostos && impostos.seguirReceita);
+}
+function setImpSeguirReceita(on){
+  impostos.seguirReceita = !!on;
+  impSave();
+  if(impostos.seguirReceita){ try{ impSincronizarPrevisao(); }catch(_){} }
+  try{ renderImpRegimeBar(); renderImpCorSheet(); updateImpCorKpis(); }catch(_){}
+  if(typeof toast === 'function'){
+    toast(impostos.seguirReceita
+      ? 'Impostos previstos passam a acompanhar a Receita'
+      : 'Impostos previstos congelados nos valores atuais');
+  }
+}
+/* Reescreve as células marcadas como vindas da previsão. Devolve quantas
+   mudaram — zero significa que não há nada a avisar. */
+function impSincronizarPrevisao(ano){
+  if(!impostos || !Array.isArray(impostos.correntes)) return 0;
+  const year = String(ano || (typeof impActiveYearCor !== 'undefined' && impActiveYearCor
+               ? impActiveYearCor : new Date().getFullYear()));
+  const regime = (typeof impRegimeDoAno === 'function') ? impRegimeDoAno(year) : impostos.regimeTributario;
+  if(!regime) return 0;
+  let mudou = 0;
+  for(const c of impostos.correntes){
+    if(!c.autoPrev) continue;
+    for(const key of Object.keys(c.autoPrev)){
+      if(key.slice(0,4) !== year) continue;
+      if(c.pagos && c.pagos[key]) continue;         // pago é fato, não previsão
+      const m = parseInt(key.slice(5,7), 10) - 1;
+      if(!(m >= 0 && m < 12)) continue;
+      const prev = impForecastValor(c.rubricaId, year, m);
+      const novo = (prev != null && prev > 0.005) ? +prev.toFixed(2) : null;
+      const atual = c.valores[key];
+      if(novo == null){
+        if(atual !== undefined){ delete c.valores[key]; delete c.autoPrev[key]; mudou++; }
+        continue;
+      }
+      if(Math.abs((atual || 0) - novo) > 0.005){ c.valores[key] = novo; mudou++; }
+    }
+  }
+  if(mudou) impSave();
+  return mudou;
+}
+try{
+  window.setImpSeguirReceita = setImpSeguirReceita;
+  window.impSincronizarPrevisao = impSincronizarPrevisao;
+  window.impSeguirReceitaLigado = impSeguirReceitaLigado;
+}catch(_){}
+
 async function fillImpForecastValues(){
   /* impActiveYear NUNCA existiu — as variáveis são impActiveYearCor e
      impActiveYearPar. Isto lançava ReferenceError já na primeira linha: a
@@ -90727,6 +90803,10 @@ async function fillImpForecastValues(){
       const prev = impForecastValor(c.rubricaId, year, m);
       if(prev != null && prev > 0.005){
         c.valores[key] = +prev.toFixed(2);
+        /* Guarda QUEM pôs o número ali. É o que permite recalcular depois sem
+           passar por cima do que você digitou — ver impSeguirReceita. */
+        if(!c.autoPrev || typeof c.autoPrev !== 'object') c.autoPrev = {};
+        c.autoPrev[key] = true;
         preenchidas++;
       }
     }
@@ -90876,11 +90956,17 @@ function renderImpRegimeBar(){
 
   // Botão "Preencher com previsão" — disponível sempre que houver um regime ativo
   const fillBtn = regime
-    ? `<button class="imp-regime-fill" onclick="fillImpForecastValues()"
+    ? `<span class="imp-fill-wrap">
+         <label class="imp-seguir" title="Toda mudança na Receita reescreve as células que vieram da previsão. Valor digitado na mão e célula marcada como paga não se mexem.">
+           <input type="checkbox" ${impSeguirReceitaLigado() ? 'checked' : ''}
+                  onchange="setImpSeguirReceita(this.checked)">
+           <span>Seguir a Receita</span>
+         </label>
+         <button class="imp-regime-fill" onclick="fillImpForecastValues()"
                title="Copia os valores previstos para as células vazias da planilha (somente o ano atual).">
          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
          <span>Preencher valores previstos</span>
-       </button>`
+       </button></span>`
     : '';
 
   el.innerHTML = `
