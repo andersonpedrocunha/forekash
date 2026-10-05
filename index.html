@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1791224546"/>
+  <meta name="fk-build" content="forekash-v1791224890"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -89464,6 +89464,14 @@ function _impMemo(fn, key, compute){
 
 function renderImpostos(){
   if(!impostos) return;
+  /* Também ao abrir o módulo: a receita pode ter mudado com Impostos fechado,
+     e abrir a tela pra ver número velho é o pior dos mundos. Roda antes do
+     cache do render ligar, pra ler receita fresca. */
+  try{
+    if(typeof impSeguirReceitaLigado === 'function' && impSeguirReceitaLigado()){
+      impSincronizarPrevisao();
+    }
+  }catch(_){}
   // ─── Liga o cache pra esse ciclo de render ──
   _impCalcCache = {};
   try {
@@ -90170,8 +90178,6 @@ function setImpCorValor(rubricaId, key, val){
   } else {
     c.valores[key] = n;
   }
-  // Número digitado deixa de seguir a receita — a mão do usuário vence sempre
-  if(c.autoPrev) delete c.autoPrev[key];
   impSave();
   renderImpCorSheet();
   updateImpCorKpis();
@@ -90706,8 +90712,16 @@ function setImpSeguirReceita(on){
       : 'Impostos previstos congelados nos valores atuais');
   }
 }
-/* Reescreve as células marcadas como vindas da previsão. Devolve quantas
-   mudaram — zero significa que não há nada a avisar. */
+/* Reescreve TODA célula que o regime sabe prever. Duas exceções, e só duas:
+
+   · célula marcada como paga — pago é fato, não previsão;
+   · célula sem previsão nenhuma — ali o número é seu e fica.
+
+   A segunda exceção é a que salva o lançamento manual sem o sistema precisar
+   adivinhar: IRPJ de dezembro no regime trimestral não tem previsão (sai em
+   jan, abr, jul e out), então um valor digitado ali não se mexe. Onde há
+   previsão, ela manda — foi o que ele pediu ao dizer que até o valor em preto
+   tem que acompanhar. Nunca apaga: só sobrescreve onde tem o que escrever. */
 function impSincronizarPrevisao(ano){
   if(!impostos || !Array.isArray(impostos.correntes)) return 0;
   const year = String(ano || (typeof impActiveYearCor !== 'undefined' && impActiveYearCor
@@ -90716,20 +90730,13 @@ function impSincronizarPrevisao(ano){
   if(!regime) return 0;
   let mudou = 0;
   for(const c of impostos.correntes){
-    if(!c.autoPrev) continue;
-    for(const key of Object.keys(c.autoPrev)){
-      if(key.slice(0,4) !== year) continue;
-      if(c.pagos && c.pagos[key]) continue;         // pago é fato, não previsão
-      const m = parseInt(key.slice(5,7), 10) - 1;
-      if(!(m >= 0 && m < 12)) continue;
+    for(let m = 0; m < 12; m++){
+      const key = impMesKey(year, m);
+      if(c.pagos && c.pagos[key]) continue;
       const prev = impForecastValor(c.rubricaId, year, m);
-      const novo = (prev != null && prev > 0.005) ? +prev.toFixed(2) : null;
-      const atual = c.valores[key];
-      if(novo == null){
-        if(atual !== undefined){ delete c.valores[key]; delete c.autoPrev[key]; mudou++; }
-        continue;
-      }
-      if(Math.abs((atual || 0) - novo) > 0.005){ c.valores[key] = novo; mudou++; }
+      if(prev == null || !(prev > 0.005)) continue;
+      const novo = +prev.toFixed(2);
+      if(Math.abs((c.valores[key] || 0) - novo) > 0.005){ c.valores[key] = novo; mudou++; }
     }
   }
   if(mudou) impSave();
@@ -90807,10 +90814,6 @@ async function fillImpForecastValues(){
       const prev = impForecastValor(c.rubricaId, year, m);
       if(prev != null && prev > 0.005){
         c.valores[key] = +prev.toFixed(2);
-        /* Guarda QUEM pôs o número ali. É o que permite recalcular depois sem
-           passar por cima do que você digitou — ver impSeguirReceita. */
-        if(!c.autoPrev || typeof c.autoPrev !== 'object') c.autoPrev = {};
-        c.autoPrev[key] = true;
         preenchidas++;
       }
     }
@@ -90961,7 +90964,7 @@ function renderImpRegimeBar(){
   // Botão "Preencher com previsão" — disponível sempre que houver um regime ativo
   const fillBtn = regime
     ? `<span class="imp-fill-wrap">
-         <label class="imp-seguir" title="Toda mudança na Receita reescreve as células que vieram da previsão. Valor digitado na mão e célula marcada como paga não se mexem.">
+         <label class="imp-seguir" title="Toda mudança na Receita recalcula os impostos previstos. Não mexe em célula marcada como paga, nem em célula que o regime não prevê — como IRPJ de dezembro na apuração trimestral.">
            <input type="checkbox" ${impSeguirReceitaLigado() ? 'checked' : ''}
                   onchange="setImpSeguirReceita(this.checked)">
            <span>Seguir a Receita</span>
