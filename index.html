@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1791226118"/>
+  <meta name="fk-build" content="forekash-v1792076549"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -115490,6 +115490,19 @@ window.fkcRestoreFromBackup = fkcRestoreFromBackup;
 
 const _FK_BLOB_FLAGS = {};
 
+/* Quais módulos realmente conversaram com a nuvem nesta sessão.
+
+   O buraco que apagou Pessoas e Impostos em 14/10/2026, quando o chefe dele
+   entrou pela primeira vez: cloudBlobFetch devolvia `null` tanto para "a
+   nuvem está vazia" quanto para "a consulta falhou". Num login novo, se o
+   fetch de um módulo falha, o módulo fica no estado-semente — e o
+   FK_HIDRATADO, que é uma flag global, já estava ligado porque os OUTROS
+   módulos desceram. O primeiro save mandava a semente por cima de 893 kB.
+
+   Agora a hidratação é por módulo: só sobe quem desceu. */
+const _FK_BLOB_HIDRATADO = {};
+try{ window._FK_BLOB_HIDRATADO = _FK_BLOB_HIDRATADO; }catch(_){}
+
 async function cloudBlobFetch(moduleName){
   if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return null;
   const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
@@ -115502,12 +115515,37 @@ async function cloudBlobFetch(moduleName){
       .eq('module', moduleName)
       .maybeSingle();
     if (error) { console.warn('[FK] blob fetch erro:', moduleName, error.message); return null; }
-    if (!data) return null;  // cloud vazio
+    /* Consulta respondeu — inclusive quando não há linha. Esse é o único
+       caminho que autoriza o módulo a subir dados depois. */
+    _FK_BLOB_HIDRATADO[moduleName] = true;
+    if (!data) return null;  // cloud vazio, de verdade
     return data.data || {};
   } catch(e) {
     console.warn('[FK] blob fetch fail:', moduleName, e.message || e);
     return null;
   }
+}
+
+/* Encolhimento suspeito.
+
+   Contar arrays vazios não serve: o estado-semente que apagou Pessoas tinha
+   `people: []` mas `tipos`, `years` e `registry` preenchidos com o seed — e
+   passaria por "tem conteúdo". O que separa semente de dado é o TAMANHO:
+   939 bytes substituindo 893.844.
+
+   Então a régua é proporção. Módulo pequeno fica de fora (apagar três linhas
+   de um módulo de 2 kB é rotina); nos grandes, cair abaixo de um quarto não é
+   edição, é estado perdido. */
+const FK_BLOB_MIN_BYTES = 10240;   // abaixo disso, não vigia
+const FK_BLOB_MIN_RAZAO = 0.25;    // novo/antigo
+function _fkBlobEncolheuDemais(novoObj, remotoObj){
+  try{
+    if (!remotoObj) return false;
+    const antes = JSON.stringify(remotoObj).length;
+    if (antes < FK_BLOB_MIN_BYTES) return false;
+    const agora = JSON.stringify(novoObj == null ? {} : novoObj).length;
+    return agora < antes * FK_BLOB_MIN_RAZAO;
+  }catch(_){ return false; }
 }
 
 async function cloudBlobSync(moduleName, getDataFn){
@@ -115516,6 +115554,15 @@ async function cloudBlobSync(moduleName, getDataFn){
      está no servidor. Foi o que reduziu a Receita de 11 clientes pra 2. */
   if (!fkPodeSincronizar()){
     try{ console.warn('[FK] sync de ' + moduleName + ' adiado — nuvem ainda não desceu'); }catch(_){}
+    return;
+  }
+  /* Primeira trava: módulo que não desceu não sobe. A flag global não serve
+     aqui — ela fica verdadeira assim que a RODADA termina, mesmo que o fetch
+     deste módulo em particular tenha falhado no caminho. */
+  if (!_FK_BLOB_HIDRATADO[moduleName]){
+    try{ console.warn('[FK] sync de ' + moduleName + ' bloqueado — este módulo não desceu da nuvem'); }catch(_){}
+    try{ if(typeof _fkAvisaSyncFalhou === 'function')
+      _fkAvisaSyncFalhou(moduleName, new Error('módulo não carregou da nuvem — recarregue a página antes de editar')); }catch(_){}
     return;
   }
   const flagK = moduleName;
@@ -115532,6 +115579,22 @@ async function cloudBlobSync(moduleName, getDataFn){
     /* Tamanho no log: quando um módulo para de subir, quase sempre é o blob
        tendo crescido demais (anexo em base64 dentro do JSON). Sem o número, a
        investigação começa às cegas. */
+    /* Segunda trava, independente da primeira: módulo não encolhe pra um
+       quarto do tamanho sozinho. Custa uma leitura, e só quando o payload
+       está pequeno o bastante pra levantar suspeita. */
+    try{
+      const _tamNovo = JSON.stringify(data).length;
+      if (_tamNovo < 200000){
+        const remoto = await cloudBlobFetch(moduleName);
+        if (_fkBlobEncolheuDemais(data, remoto)){
+          console.warn('[FK] sync de ' + moduleName + ' abortado — encolheria de '
+            + JSON.stringify(remoto).length + ' para ' + _tamNovo + ' bytes');
+          if(typeof toast === 'function')
+            toast('⚠ Não gravei ' + moduleName + ': o que está aberto aqui é muito menor que o da nuvem. Recarregue a página antes de editar.', 10000);
+          return;
+        }
+      }
+    }catch(_){}
     let _mb = '?';
     try{ _mb = (JSON.stringify(data).length / 1048576).toFixed(2); }catch(_){}
     const { error } = await window.sb
