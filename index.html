@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792626154"/>
+  <meta name="fk-build" content="forekash-v1792627080"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -34807,9 +34807,21 @@ function recCelFoco(inp){
   } else {
     inp._refMapa = null;
   }
+  /* O que estava na tela quando entrou. Sem isso, sair da célula sem digitar
+     nada já gravava — e numa célula vinda do Extrato o que está na tela é o
+     valor REALIZADO, não a projeção. Clicar e clicar fora apagava a projeção
+     de R$ 57.600 e punha no lugar os R$ 54.057,60 que entraram, sem volta. */
+  inp._valorAoFocar = String(inp.value || '');
   try{ inp.select(); }catch(_){}
 }
 function recCelBlur(inp, type, id, mes){
+  // Nada digitado, nada gravado.
+  if(inp._valorAoFocar != null && String(inp.value || '') === inp._valorAoFocar){
+    inp._valorAoFocar = null;
+    inp._refMapa = null;
+    return;
+  }
+  inp._valorAoFocar = null;
   // De volta ao token antes de qualquer cálculo — o avaliador só entende [ref:]
   const bruto = _recFormulaDaTela(String(inp.value || '').trim(), inp._refMapa);
   inp._refMapa = null;
