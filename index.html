@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792607481"/>
+  <meta name="fk-build" content="forekash-v1792625696"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -18826,6 +18826,38 @@ td.mes.do-extrato{background:#ECFDF5}
   text-transform:uppercase;color:#059669;opacity:.75;pointer-events:none;font-weight:700}
 .rec-cell-real.parcial{text-transform:none;letter-spacing:0;font-size:.6rem;color:#B45309}
 .rec-cell.do-extrato{position:relative}
+/* ── Recebíveis ── */
+.rcb-wrap{margin-top:14px;border:1px solid var(--bd);border-radius:10px;background:var(--cd);overflow:hidden}
+.rcb-hd{width:100%;display:flex;align-items:center;gap:10px;padding:10px 14px;background:none;border:0;
+  cursor:pointer;font-family:inherit;text-align:left}
+.rcb-hd:hover{background:var(--bg)}
+.rcb-tt{font-size:.78rem;font-weight:700;color:var(--tx);letter-spacing:.01em}
+.rcb-resumo{font-size:.72rem;color:var(--txl);flex:1}
+.rcb-seta{font-size:.7rem;color:var(--txl)}
+.rcb-body{border-top:1px solid var(--bd);padding:4px 0 10px}
+.rcb-tb{width:100%;border-collapse:collapse;font-size:.73rem}
+.rcb-tb th{text-align:left;padding:7px 14px;font-weight:600;font-size:.66rem;color:var(--txl);
+  text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--bd)}
+.rcb-tb th.n,.rcb-tb td.n{text-align:right;font-variant-numeric:tabular-nums}
+.rcb-tb td{padding:7px 14px;border-bottom:1px solid var(--bd)}
+.rcb-row{cursor:pointer}
+.rcb-row:hover{background:var(--bg)}
+.rcb-nome{font-weight:600;color:var(--tx)}
+.rcb-ded{color:#92400E}
+.rcb-ab{color:#B45309;font-weight:600}
+.rcb-ok{color:#059669}
+.rcb-atr{color:#B45309;font-weight:600}
+.rcb-atr.feio{color:#DC2626}
+.rcb-na{color:var(--txl)}
+.rcb-det td{background:var(--bg);padding:0}
+.rcb-det-in{padding:8px 14px 10px}
+.rcb-li{display:grid;grid-template-columns:44px 110px 130px 1fr 60px;gap:10px;align-items:center;
+  padding:3px 0;font-size:.71rem;color:var(--txl);font-variant-numeric:tabular-nums}
+.rcb-li .m{text-transform:uppercase;font-size:.64rem;letter-spacing:.04em}
+.rcb-li .v{text-align:right;color:var(--tx);font-weight:600}
+.rcb-li .a{text-align:right}
+.rcb-sobra{border-top:1px dashed var(--bd);margin-top:4px;padding-top:6px}
+.rcb-aviso{margin:8px 14px 0;font-size:.69rem;color:var(--txl);line-height:1.5}
 .rec-cell-ok{position:absolute;left:5px;top:2px;font-size:.62rem;color:#059669;
   opacity:.8;pointer-events:none;font-weight:800}
 .rec-cell-nope{animation:recNope .38s ease}
@@ -21371,6 +21403,9 @@ td.mes.do-extrato{background:#ECFDF5}
             </tfoot>
           </table>
         </div>
+
+        <!-- Recebíveis · título × crédito, com a dedução separada do que está em aberto -->
+        <div id="rec-recebiveis"></div>
 
         <!-- Novo cliente / Novo lead ficam só na barra de cima. -->
         <div class="rec-add-toolbar">
@@ -31888,6 +31923,220 @@ function recRealizadoExtrato(ano){
   return out;
 }
 
+/* ══ RECEBÍVEIS · título × crédito ═════════════════════════════════════════
+   A célula da Receita diz quanto foi faturado e quando vencia; o Extrato diz
+   quando o dinheiro entrou. Faltava a ligação entre os dois — e ela não pede
+   campo novo: com um título por mês por cliente, o enésimo crédito quita o
+   enésimo título em aberto. É FIFO, que é como recebível funciona.
+
+   A diferença entre faturado e creditado NÃO é inadimplência. O crédito vem
+   com juros de atraso somados e com retenção, tarifa de cobrança e taxa de
+   antecipação descontadas — no DOT e na ECBR a dedução vai de 3,7% a 7,8%
+   conforme os dias de antecipação. Misturar as duas coisas fazia o cliente
+   parecer devedor de dinheiro que o banco reteve. Por isso aqui a dedução
+   aparece separada do que está realmente em aberto.
+
+   Título sem vencimento preenchido não vira atraso inventado: fica contado à
+   parte, pra a tela poder pedir a data em vez de mentir um número.          */
+function recRecebiveis(ano){
+  const y = String(ano || recActiveYear || '');
+  const res = { porCliente: {}, semVenc: 0, creditoSemTitulo: 0, hoje: '' };
+  if(typeof receita === 'undefined' || !receita || !receita.years || !receita.years[y]) return res;
+  const t = new Date();
+  const hoje = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+  res.hoje = hoje;
+
+  // 1) Títulos faturados no ano, em ordem de competência
+  const titulos = {};                 // chaveCliente -> [ {mes, valor, venc, nome} ]
+  const nomeDe  = {};
+  for(const row of (receita.years[y].clients || [])){
+    if(!row || !row.meses) continue;
+    const cli = (receita.clientes || []).find(c => c.id === row.clienteId);
+    const nome = cli ? (cli.nome || row.nome || '') : (row.nome || '');
+    const chave = recNomeChave(nome);
+    if(!chave) continue;
+    nomeDe[chave] = nome;
+    for(let i = 0; i < REC_MESES.length; i++){
+      const cell = row.meses[REC_MESES[i]];
+      if(!cell) continue;
+      const v = parseFloat(cell.valor);
+      if(!isFinite(v) || v <= 0.009) continue;
+      (titulos[chave] = titulos[chave] || []).push({
+        mes: REC_MESES[i], mi: i, valor: v,
+        venc: cell.dataVencimento || '', desc: row.descricao || ''
+      });
+    }
+  }
+  for(const k in titulos) titulos[k].sort((a,b) => a.mi - b.mi);
+
+  // 2) Créditos do ano, por cliente, em ordem de data. Cada linha do Extrato é
+  //    um título — os créditos agregados já nascem quebrados na importação.
+  const creditos = {};
+  const cats = _recCatsOperacionais();
+  let lans = [];
+  try{ lans = (extratoData && extratoData.lancamentos) || []; }catch(_){}
+  for(const l of lans){
+    if(!l || l.tipo !== 'ganho') continue;
+    if(!cats.has(String(l.categoria || '').trim().toLowerCase())) continue;
+    const chave = recNomeChave(l.contraparte);
+    if(!chave) continue;
+    const bs = (typeof extBaixas === 'function') ? extBaixas(l) : [];
+    const põe = (data, valor) => {
+      if(!data || !valor || String(data).slice(0,4) !== y) return;
+      (creditos[chave] = creditos[chave] || []).push({ data: String(data), valor: valor });
+    };
+    if(bs.length) bs.forEach(b => põe(b.data, parseFloat(b.valor) || 0));
+    else if(l.status === 'pago' || l.status === 'recebido') põe(l.dataPagamento || l.data, parseFloat(l.valorPago || l.valor) || 0);
+  }
+  for(const k in creditos) creditos[k].sort((a,b) => a.data.localeCompare(b.data));
+
+  // 3) Casa um a um, na ordem
+  const diasEntre = (a, b) => Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
+  const chaves = new Set(Object.keys(titulos).concat(Object.keys(creditos)));
+  for(const chave of chaves){
+    const ts = titulos[chave] || [];
+    const cs = creditos[chave] || [];
+    const linhas = [];
+    let faturado = 0, recebido = 0, aberto = 0, deducao = 0, atrasoSoma = 0, atrasoN = 0, pior = 0;
+    /* Um título pode ser quitado por mais de um crédito — a BLOOM fatura o mês
+       inteiro numa célula e recebe em duas parcelas. Então o crédito não casa
+       por posição, casa por valor acumulado: vai somando até cobrir o bruto,
+       com folga pra dedução (até 15% a menos) e sem passar muito (115%), que é
+       o sinal de que aquele crédito já é do próximo título. */
+    const COBRE = 0.85, ESTOURA = 1.15;
+    let ci = 0;
+    for(let i = 0; i < ts.length; i++){
+      const tit = ts[i];
+      faturado += tit.valor;
+      const usados = [];
+      let soma = 0;
+      while(ci < cs.length){
+        const prox = soma + cs[ci].valor;
+        if(soma >= tit.valor * COBRE && prox > tit.valor * ESTOURA) break;  // já cobriu, o resto é do próximo
+        if(usados.length && prox > tit.valor * ESTOURA) break;
+        soma = prox; usados.push(cs[ci]); ci++;
+        if(soma >= tit.valor * COBRE) break;
+      }
+      let atraso = null;
+      const quitado = usados.length > 0 && soma >= tit.valor * COBRE;
+      if(usados.length){
+        recebido += soma;
+        deducao  += (tit.valor - soma);
+        const ultimo = usados[usados.length - 1].data;
+        if(tit.venc){ atraso = diasEntre(tit.venc, ultimo); atrasoSoma += atraso; atrasoN++; if(atraso > pior) pior = atraso; }
+      }
+      if(!quitado){
+        aberto += (tit.valor - soma);
+        if(tit.venc && tit.venc < hoje){
+          const d = diasEntre(tit.venc, hoje);
+          if(d > pior) pior = d;
+          if(!usados.length) atraso = d;
+        }
+      }
+      if(!tit.venc) res.semVenc++;
+      linhas.push({ mes: tit.mes, valor: tit.valor, venc: tit.venc,
+                    creditoEm: usados.length ? usados[usados.length-1].data : '',
+                    creditoVal: soma, nCreditos: usados.length,
+                    atraso: atraso, quitado: quitado });
+    }
+    const sobra = cs.slice(ci);
+    sobra.forEach(c => { recebido += c.valor; res.creditoSemTitulo += c.valor; });
+    res.porCliente[chave] = { nome: nomeDe[chave] || chave, linhas: linhas, sobra: sobra,
+      faturado, recebido, aberto, deducao,
+      atrasoMedio: atrasoN ? (atrasoSoma / atrasoN) : null, pior };
+  }
+  return res;
+}
+try{ window.recRecebiveis = recRecebiveis; }catch(_){}
+
+/* Painel. Fica fechado por padrão: quem abre a Receita quer a planilha, e a
+   cobrança é uma pergunta de outro momento. */
+let _recRecebAberto = false;
+let _recRecebDetalhe = '';
+function recRecebToggle(){ _recRecebAberto = !_recRecebAberto; _recRenderRecebiveis(); }
+function recRecebDetalhe(chave){
+  _recRecebDetalhe = (_recRecebDetalhe === chave) ? '' : chave;
+  _recRenderRecebiveis();
+}
+function _recRecebDias(n){
+  if(n == null) return '<span class="rcb-na">—</span>';
+  if(n <= 0)    return '<span class="rcb-ok">em dia</span>';
+  return '<span class="rcb-atr' + (n > 30 ? ' feio' : '') + '">' + n + 'd</span>';
+}
+function _recRenderRecebiveis(){
+  const box = document.getElementById('rec-recebiveis');
+  if(!box) return;
+  let r;
+  try{ r = recRecebiveis(recActiveYear); }catch(e){ console.warn('recebiveis', e); box.innerHTML = ''; return; }
+  const fmt = (typeof fmtBRL === 'function') ? fmtBRL : (v => 'R$ ' + (v||0).toFixed(2));
+  const cli = Object.keys(r.porCliente)
+    .map(k => Object.assign({ chave: k }, r.porCliente[k]))
+    .filter(c => c.faturado > 0)
+    .sort((a,b) => (b.aberto - a.aberto) || (b.pior - a.pior));
+  if(!cli.length){ box.innerHTML = ''; return; }
+  const totAberto = cli.reduce((s,c) => s + c.aberto, 0);
+  const totDed    = cli.reduce((s,c) => s + c.deducao, 0);
+  const atrasados = cli.filter(c => c.pior > 0).length;
+
+  let h = '<div class="rcb-wrap' + (_recRecebAberto ? ' is-open' : '') + '">'
+    + '<button type="button" class="rcb-hd" onclick="recRecebToggle()">'
+    +   '<span class="rcb-tt">Recebíveis</span>'
+    +   '<span class="rcb-resumo">' + fmt(totAberto) + ' em aberto'
+    +     (atrasados ? ' · ' + atrasados + ' cliente' + (atrasados > 1 ? 's' : '') + ' com atraso' : '')
+    +     (totDed > 0.5 ? ' · ' + fmt(totDed) + ' de retenção e tarifa' : '')
+    +   '</span>'
+    +   '<span class="rcb-seta">' + (_recRecebAberto ? '▴' : '▾') + '</span>'
+    + '</button>';
+  if(_recRecebAberto){
+    h += '<div class="rcb-body"><table class="rcb-tb"><thead><tr>'
+      + '<th>Cliente</th><th class="n">Faturado</th><th class="n">Creditado</th>'
+      + '<th class="n">Retenção e tarifa</th><th class="n">Em aberto</th>'
+      + '<th class="n">Atraso médio</th><th class="n">Pior</th></tr></thead><tbody>';
+    for(const c of cli){
+      const med = c.atrasoMedio == null ? null : Math.round(c.atrasoMedio);
+      // chave vem de recNomeChave, que só deixa letra, número e espaço — não há aspas a escapar
+      h += '<tr class="rcb-row" onclick="recRecebDetalhe(\'' + c.chave + '\')">'
+        + '<td class="rcb-nome">' + ((typeof _recKbEsc === 'function') ? _recKbEsc(c.nome) : c.nome) + '</td>'
+        + '<td class="n">' + fmt(c.faturado) + '</td>'
+        + '<td class="n">' + fmt(c.recebido) + '</td>'
+        + '<td class="n rcb-ded">' + (c.deducao > 0.5 ? '−' + fmt(c.deducao) : '—') + '</td>'
+        + '<td class="n' + (c.aberto > 0.5 ? ' rcb-ab' : '') + '">' + (c.aberto > 0.5 ? fmt(c.aberto) : '—') + '</td>'
+        + '<td class="n">' + _recRecebDias(med) + '</td>'
+        + '<td class="n">' + _recRecebDias(c.pior || null) + '</td>'
+        + '</tr>';
+      if(_recRecebDetalhe === c.chave){
+        h += '<tr class="rcb-det"><td colspan="7"><div class="rcb-det-in">';
+        for(const l of c.linhas){
+          h += '<div class="rcb-li">'
+            + '<span class="m">' + l.mes + '</span>'
+            + '<span class="v">' + fmt(l.valor) + '</span>'
+            + '<span class="d">' + (l.venc ? ('venc ' + l.venc.slice(8,10) + '/' + l.venc.slice(5,7))
+                                            : '<span class="rcb-na">sem vencimento</span>') + '</span>'
+            + '<span class="d">' + (l.quitado ? ('creditado ' + l.creditoEm.slice(8,10) + '/' + l.creditoEm.slice(5,7)
+                                                 + ' · ' + fmt(l.creditoVal)) : '<span class="rcb-ab">em aberto</span>') + '</span>'
+            + '<span class="a">' + _recRecebDias(l.atraso) + '</span>'
+            + '</div>';
+        }
+        if(c.sobra.length){
+          h += '<div class="rcb-li rcb-sobra"><span class="m">+</span><span class="v">'
+            + fmt(c.sobra.reduce((s,x) => s + x.valor, 0)) + '</span>'
+            + '<span class="d" style="grid-column:3 / -1">crédito sem título correspondente na planilha — '
+            + 'fatura avulsa ou linha que falta criar</span></div>';
+        }
+        h += '</div></td></tr>';
+      }
+    }
+    h += '</tbody></table>';
+    if(r.semVenc){
+      h += '<p class="rcb-aviso">' + r.semVenc + ' título(s) sem data de vencimento preenchida — '
+        + 'sem ela o atraso não é calculado. A data fica no detalhe da célula, em <b>Data de Vencimento</b>.</p>';
+    }
+    h += '</div>';
+  }
+  box.innerHTML = h + '</div>';
+}
+try{ window.recRecebToggle = recRecebToggle; window.recRecebDetalhe = recRecebDetalhe; }catch(_){}
+
 /* ══ UM RECEBIMENTO, UMA LINHA ═════════════════════════════════════════════
    O Extrato sabe DE QUEM veio o dinheiro, não de qual linha do contrato. Como
    o mapa de realizado é por CLIENTE, um cliente com duas linhas — contrato +
@@ -40359,6 +40608,9 @@ function renderReceita(){
 
   // Renderiza a barra de filtro (chips) dinamicamente
   renderRecTipoBar(clientsVisible.length + leadsVisible.length);
+
+  // Recebíveis: lê a mesma planilha e o mesmo extrato, não guarda estado próprio
+  try{ _recRenderRecebiveis(); }catch(e){ console.warn('recebiveis render', e); }
 }
 
 // Reorder Receita: 'client' reordena d.clients (respeita ativo/inativo),
