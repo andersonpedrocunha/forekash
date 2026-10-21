@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792076549"/>
+  <meta name="fk-build" content="forekash-v1792607481"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -36695,7 +36695,9 @@ function dkbCardSave(propagateForward){
   try {
     const repCfg = _repReadCfg('dkb', venc || c.ym + '-01');
     if(repCfg && repCfg.mode !== 'once' && repCfg.count > 1){
-      const f = _EXT_FREQ.find(x => x.id === repCfg.freq) || { mes:1 };
+      // Grade mensal: frequência em dias não tem onde cair aqui, vira mensal.
+      const fCfg = _EXT_FREQ.find(x => x.id === repCfg.freq);
+      const f = (fCfg && fCfg.mes) ? fCfg : { mes:1 };
       const valoresAtual = ad.valoresOf(it) || {};
       const valNum = parseFloat(valoresAtual[c.ym]) || 0;
       const ymParts = c.ym.split('-');
@@ -39101,7 +39103,9 @@ function recKbCardSave(){
     const dataBase = venc || (year + '-' + String(REC_MESES.indexOf(mesAbbr)+1).padStart(2,'0') + '-01');
     const repCfg = _repReadCfg('rec', dataBase);
     if(repCfg && repCfg.mode !== 'once' && repCfg.count > 1){
-      const f = _EXT_FREQ.find(x => x.id === repCfg.freq) || { mes:1 };
+      // Grade mensal: frequência em dias não tem onde cair aqui, vira mensal.
+      const fCfg = _EXT_FREQ.find(x => x.id === repCfg.freq);
+      const f = (fCfg && fCfg.mes) ? fCfg : { mes:1 };
       const valNum = parseFloat(cell.valor) || 0;
       const m0Idx = REC_MESES.indexOf(mesAbbr);
       const y0 = parseInt(year, 10);
@@ -72640,7 +72644,12 @@ function _extCounterSelectHtml(tipo, current){
 
 // ─── Componente Repetir (único / N vezes / sempre) ───
 // Reusável por prefixo (ext / dkb / rec) para diferentes modais.
+/* `dias` em vez de `mes` muda o eixo: semanal não cabe em grade mensal
+   (Receita e Estrutura têm uma célula por mês — repetir toda semana só
+   sobrescreveria a mesma célula quatro vezes). Por isso a opção só aparece
+   no Extrato, onde cada repetição é um lançamento com data própria. */
 const _EXT_FREQ = [
+  { id:'semanal',    lbl:'Semanal',    mes:0, dias:7 },
   { id:'mensal',     lbl:'Mensal',     mes:1  },
   { id:'bimestral',  lbl:'Bimestral',  mes:2  },
   { id:'trimestral', lbl:'Trimestral', mes:3  },
@@ -72654,7 +72663,9 @@ function _repBuildHtml(prefix, mode, freqId, count, opts){
   const m = mode || 'once';
   const f = freqId || 'mensal';
   const n = count || 6;
-  const freqOpts = _EXT_FREQ.map(x => '<option value="' + x.id + '"' + (x.id === f ? ' selected' : '') + '>' + x.lbl + '</option>').join('');
+  const freqOpts = _EXT_FREQ
+    .filter(x => !x.dias || prefix === 'ext')
+    .map(x => '<option value="' + x.id + '"' + (x.id === f ? ' selected' : '') + '>' + x.lbl + '</option>').join('');
   // Hint contextual
   const hint = opts.hint || 'aplica nos próximos meses';
   const yLabel = String(new Date().getFullYear() + 4).slice(2);
@@ -72703,6 +72714,41 @@ function _repSetMode(prefix, mode){
   document.getElementById(prefix + '-rep-cfg-always').classList.toggle('is-open', mode === 'always');
   _repUpdatePreview(prefix);
 }
+/* A i-ésima ocorrência a partir de uma data YYYY-MM-DD. Em frequência por mês
+   o dia é preso ao último do mês (31/01 + 1 mês = 28/02, não 03/03). */
+function _freqOcorrencia(dataStr, f, i){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dataStr || '');
+  if(!m) return null;
+  const y0 = parseInt(m[1],10), mo0 = parseInt(m[2],10)-1, d0 = parseInt(m[3],10);
+  if(f && f.dias){
+    const d = new Date(y0, mo0, d0);
+    d.setDate(d.getDate() + i * f.dias);
+    return d;
+  }
+  const ymo = mo0 + i * ((f && f.mes) || 1);
+  const yi = y0 + Math.floor(ymo/12);
+  const mi = ((ymo % 12) + 12) % 12;
+  return new Date(yi, mi, Math.min(d0, new Date(yi, mi+1, 0).getDate()));
+}
+function _freqISO(d){
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+/* Quantas ocorrências cabem até dez do ano+4, que é o que "Sempre" promete. */
+function _freqContaAte5Anos(dataStr, f){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dataStr || '');
+  if(!m || !f) return 1;
+  const yIni = parseInt(m[1],10);
+  if(f.dias){
+    const fim = new Date(yIni + 4, 11, 31);
+    const ini = new Date(yIni, parseInt(m[2],10)-1, parseInt(m[3],10));
+    const dias = Math.floor((fim - ini) / 86400000);
+    return Math.max(1, Math.floor(dias / f.dias) + 1);
+  }
+  const inicio = new Date(yIni, parseInt(m[2],10)-1, 1);
+  const fim = new Date(yIni + 4, 11, 1);
+  const diffMeses = (fim.getFullYear()-inicio.getFullYear())*12 + (fim.getMonth()-inicio.getMonth());
+  return Math.max(1, Math.floor(diffMeses / (f.mes || 1)) + 1);
+}
 function _repUpdatePreview(prefix){
   const mode = document.getElementById(prefix + '-fld-rep-mode')?.value || 'once';
   // Acha a data: para ext usa ext-fld-data, para dkb/rec usa o vencimento ou hoje
@@ -72722,7 +72768,12 @@ function _repUpdatePreview(prefix){
     const n = parseInt(document.getElementById(prefix + '-fld-rep-count')?.value, 10) || 1;
     const freq = document.getElementById(prefix + '-fld-rep-freq-multi')?.value || 'mensal';
     const f = _EXT_FREQ.find(x => x.id === freq);
-    if(f && n > 0){
+    if(f && f.dias){
+      // Semanal muda de mês no meio do caminho: o dia precisa aparecer.
+      const ult = _freqOcorrencia(dataStr, f, n-1);
+      if(ult) preview = m[3] + '/' + MES[parseInt(m[2],10)-1] + ' → '
+                      + String(ult.getDate()).padStart(2,'0') + '/' + MES[ult.getMonth()] + '/' + String(ult.getFullYear()).slice(2);
+    } else if(f && n > 0){
       const inicio = new Date(parseInt(m[1],10), parseInt(m[2],10)-1, 1);
       const ultimoMes = inicio.getMonth() + (n-1)*f.mes;
       const ultY = inicio.getFullYear() + Math.floor(ultimoMes/12);
@@ -72737,7 +72788,11 @@ function _repUpdatePreview(prefix){
     if(f){
       const yIni = parseInt(m[1],10);
       const yFim = yIni + 4;
-      preview = MES[parseInt(m[2],10)-1] + '/' + m[1].slice(2) + ' → dez/' + String(yFim).slice(2) + ' (' + f.lbl.toLowerCase() + ')';
+      // Semanal por 5 anos passa de 250 lançamentos — o número tem que estar na tela
+      // antes de clicar, não virar surpresa depois.
+      const quantos = f.dias ? (' · ' + _freqContaAte5Anos(dataStr, f) + ' lançamentos') : '';
+      preview = MES[parseInt(m[2],10)-1] + '/' + m[1].slice(2) + ' → dez/' + String(yFim).slice(2)
+              + ' (' + f.lbl.toLowerCase() + quantos + ')';
     }
     const el = document.getElementById(prefix + '-rep-preview-always');
     if(el) el.textContent = preview ? '⤳ ' + preview : '—';
@@ -72753,14 +72808,7 @@ function _repReadCfg(prefix, dataStr){
   } else if(mode === 'always'){
     freq = document.getElementById(prefix + '-fld-rep-freq-always')?.value || 'mensal';
     const f = _EXT_FREQ.find(x => x.id === freq);
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dataStr || '');
-    if(f && m){
-      const yIni = parseInt(m[1],10);
-      const inicio = new Date(yIni, parseInt(m[2],10)-1, 1);
-      const fim = new Date(yIni + 4, 11, 1);
-      const diffMeses = (fim.getFullYear()-inicio.getFullYear())*12 + (fim.getMonth()-inicio.getMonth());
-      count = Math.max(1, Math.floor(diffMeses / f.mes) + 1);
-    }
+    if(f) count = _freqContaAte5Anos(dataStr, f);
   }
   return { mode, freq, count };
 }
@@ -74868,14 +74916,7 @@ function extSaveModal(tipo){
     // Calcula quantas vezes cabe entre data e dez do (ano da data + 4) — 5 anos de cobertura
     repFreq = (document.getElementById('ext-fld-rep-freq-always')?.value || 'mensal');
     const f = _EXT_FREQ.find(x => x.id === repFreq);
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(data);
-    if(f && m){
-      const yIni = parseInt(m[1],10);
-      const inicio = new Date(yIni, parseInt(m[2],10)-1, 1);
-      const fim = new Date(yIni + 4, 11, 1); // dez do ano + 4
-      const diffMeses = (fim.getFullYear()-inicio.getFullYear())*12 + (fim.getMonth()-inicio.getMonth());
-      repCount = Math.max(1, Math.floor(diffMeses / f.mes) + 1);
-    }
+    if(f) repCount = _freqContaAte5Anos(data, f);   // dez do ano + 4
   }
 
   if(!_extEditingId && (tipo === 'gasto' || tipo === 'ganho')){
@@ -74884,14 +74925,9 @@ function extSaveModal(tipo){
     const datasGeradas = [];
     const m0 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(data);
     if(m0 && repCount >= 1){
-      const y0 = parseInt(m0[1],10), mo0 = parseInt(m0[2],10)-1, d0 = parseInt(m0[3],10);
       for(let i=0;i<repCount;i++){
-        const ymo = mo0 + i*fObj.mes;
-        const yi = y0 + Math.floor(ymo/12);
-        const mi = ((ymo % 12) + 12) % 12;
-        const lastD = new Date(yi, mi+1, 0).getDate();
-        const di = Math.min(d0, lastD);
-        datasGeradas.push(yi + '-' + String(mi+1).padStart(2,'0') + '-' + String(di).padStart(2,'0'));
+        const d = _freqOcorrencia(data, fObj, i);
+        if(d) datasGeradas.push(_freqISO(d));
       }
     } else {
       datasGeradas.push(data);
