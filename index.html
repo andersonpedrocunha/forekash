@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792625696"/>
+  <meta name="fk-build" content="forekash-v1792626154"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -18846,6 +18846,7 @@ td.mes.do-extrato{background:#ECFDF5}
 .rcb-ded{color:#92400E}
 .rcb-ab{color:#B45309;font-weight:600}
 .rcb-ok{color:#059669}
+.rcb-ant{color:#6D28D9;font-weight:600}
 .rcb-atr{color:#B45309;font-weight:600}
 .rcb-atr.feio{color:#DC2626}
 .rcb-na{color:var(--txl)}
@@ -31967,7 +31968,23 @@ function recRecebiveis(ano){
       });
     }
   }
-  for(const k in titulos) titulos[k].sort((a,b) => a.mi - b.mi);
+  /* Cliente com contrato + aditivo tem DUAS linhas na planilha e portanto dois
+     títulos no mesmo mês — mas o banco credita um valor só. Sem juntar, a
+     alocação desalinha e empurra o crédito de um mês pro título do outro: o
+     DOT de junho são 57.600 do contrato e 14.400 do aditivo, e o crédito de
+     66.750,90 é dos dois juntos. Um mês, um título. */
+  for(const k in titulos){
+    const porMes = {};
+    for(const t of titulos[k]){
+      const a = porMes[t.mi];
+      if(!a) porMes[t.mi] = t;
+      else {
+        a.valor += t.valor;
+        if(t.venc && (!a.venc || t.venc < a.venc)) a.venc = t.venc;   // o mais antigo manda no atraso
+      }
+    }
+    titulos[k] = Object.keys(porMes).map(k2 => porMes[k2]).sort((a,b) => a.mi - b.mi);
+  }
 
   // 2) Créditos do ano, por cliente, em ordem de data. Cada linha do Extrato é
   //    um título — os créditos agregados já nascem quebrados na importação.
@@ -32058,8 +32075,13 @@ function recRecebDetalhe(chave){
   _recRecebDetalhe = (_recRecebDetalhe === chave) ? '' : chave;
   _recRenderRecebiveis();
 }
+/* Crédito que cai ANTES do vencimento não é pontualidade, é antecipação — o
+   banco adiantou e cobrou por isso. Chamar de "em dia" escondia justamente a
+   conta que o DOT e a ECBR pagam: os boletos antecipados deduziram 7,1% a
+   7,8% contra os 6,15% de retenção pura dos liquidados no prazo. */
 function _recRecebDias(n){
   if(n == null) return '<span class="rcb-na">—</span>';
+  if(n <= -3)   return '<span class="rcb-ant" title="Crédito antes do vencimento — boleto antecipado no banco">antecip. ' + (-n) + 'd</span>';
   if(n <= 0)    return '<span class="rcb-ok">em dia</span>';
   return '<span class="rcb-atr' + (n > 30 ? ' feio' : '') + '">' + n + 'd</span>';
 }
