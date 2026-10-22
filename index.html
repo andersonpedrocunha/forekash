@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792682793"/>
+  <meta name="fk-build" content="forekash-v1792685000"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -18860,23 +18860,34 @@ td.mes.do-extrato{background:#ECFDF5}
 .rcb-sobra{border-top:1px dashed var(--bd);margin-top:4px;padding-top:6px}
 .rcb-aviso{margin:8px 14px 0;font-size:.69rem;color:var(--txl);line-height:1.5}
 /* ── Adiantamentos (Pessoas) ── */
-.padt-badge{margin-left:7px;padding-left:7px;border-left:1px solid var(--bdr);
-  font-size:.68rem;font-weight:600;color:var(--txl);font-variant-numeric:tabular-nums}
-.rec-tipo-filter-btn:hover .padt-badge{color:var(--txm);border-left-color:#9CA3AF}
+/* Mesmo contador dos chips "Todos 17" que já existem nesta barra — era a
+   estrutura diferente dos vizinhos que destoava, não a cor. */
+.padt-badge{font-size:.62rem;color:var(--txl);background:#E5E7EB;padding:1px 6px;border-radius:8px;
+  font-weight:700;margin-left:2px;font-variant-numeric:tabular-nums}
+.rec-tipo-filter-btn:hover .padt-badge{background:#D1D5DB;color:var(--txm)}
 .padt-topo{display:flex;gap:16px;align-items:center;padding:12px 20px;border-bottom:1px solid var(--bd);
   font-size:.74rem;color:var(--txl)}
 .padt-topo b{color:var(--tx);font-size:.9rem}
 /* Coluna editável: parece número da tabela até receber o foco, pra não virar
    um formulário dentro de um relatório. */
-.padt-tb th.ed{color:#5B21B6}
-.padt-in{width:100%;max-width:140px;border:1px solid transparent;border-radius:6px;background:none;
-  padding:3px 7px;font:inherit;font-size:.73rem;font-weight:600;color:var(--tx);text-align:right;
-  font-variant-numeric:tabular-nums;cursor:text;transition:border-color .12s,background .12s}
-.padt-in::placeholder{color:#CBD5E1;font-weight:400}
-.padt-in:hover{border-color:var(--bd);background:var(--cd)}
-.padt-in:focus{outline:none;border-color:#7C3AED;background:#fff;box-shadow:0 0 0 3px rgba(124,58,237,.1)}
-.padt-in.edit{color:#5B21B6}
 .padt-auto{color:var(--txm)}
+.padt-zero{color:var(--txl)}
+.padt-dica{margin-left:auto;font-size:.68rem;color:var(--txl);font-style:italic}
+.padt-caret{display:inline-block;width:12px;color:var(--txl);font-size:.6rem}
+.padt-row.is-open{background:var(--bg)}
+.padt-fonte{display:block;font-size:.58rem;color:var(--txl);text-transform:uppercase;letter-spacing:.04em}
+/* Grade mês a mês: é onde ele diz em qual pagamento cada parcela foi abatida. */
+.padt-grade{display:grid;grid-template-columns:150px repeat(12,1fr);gap:4px;align-items:end;margin-bottom:8px}
+.padt-gl{font-size:.66rem;font-weight:700;color:var(--txm);padding-bottom:5px}
+.padt-m{display:flex;flex-direction:column;gap:2px}
+.padt-m > span{font-size:.56rem;text-transform:uppercase;letter-spacing:.04em;color:var(--txl);text-align:center}
+.padt-in{width:100%;border:1px solid var(--bd);border-radius:6px;background:var(--cd);
+  padding:3px 4px;font:inherit;font-size:.68rem;font-weight:600;color:var(--tx);text-align:right;
+  font-variant-numeric:tabular-nums;transition:border-color .12s,box-shadow .12s}
+.padt-in::placeholder{color:#CBD5E1;font-weight:400}
+.padt-in:focus{outline:none;border-color:#7C3AED;box-shadow:0 0 0 3px rgba(124,58,237,.1)}
+.padt-in.edit{color:#5B21B6;border-color:#DDD6FE;background:#FAF5FF}
+.padt-lanc{border-top:1px solid var(--bd);padding-top:8px;margin-top:4px}
 .padt-tb{width:100%;border-collapse:collapse;font-size:.73rem}
 .padt-tb th{text-align:left;padding:8px 20px;font-weight:600;font-size:.66rem;color:var(--txl);
   text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--bd)}
@@ -21003,6 +21014,7 @@ td.mes.do-extrato{background:#ECFDF5}
             </button>
             <button class="rec-tipo-filter-btn" id="btn-pes-adt" onclick="pesAdtOpen()" style="margin-left:4px"
                     title="Vale, antecipação e empréstimo ao colaborador">
+              <svg viewBox="0 0 24 24"><path d="M3 12h13M11 7l5 5-5 5M20 5v14"/></svg>
               Adiantamentos<span class="padt-badge" id="pes-adt-badge" style="display:none"></span>
             </button>
             <button class="rec-tipo-filter-btn pes-sim-reaj-btn" id="btn-pes-reaj-sim" onclick="openPesReajSimModal()" style="margin-left:4px"
@@ -108381,22 +108393,27 @@ function pesAdiantamentos(ano){
        e quanto voltou é você quem diz. A devolução em dinheiro nasce
        preenchida com o que o Extrato encontrou (no Rafa o CPF vem no PIX e a
        leitura é exata), mas também é editável: o valor digitado manda. */
-    let devolManual = null, descManual = null;
+    /* O acerto é POR MÊS, não um total: ele precisa saber em qual pagamento
+       cada parcela foi descontada. Um adiantamento de julho pode voltar em
+       agosto e setembro, e o total sozinho não diz isso. */
+    let devolMes = null, descMes = null;
     try{
       const ac = (pessoas.adtAcerto || {})[n];
       if(ac){
-        if(ac.devolvido  != null && ac.devolvido  !== '') devolManual = parseFloat(ac.devolvido)  || 0;
-        if(ac.descontado != null && ac.descontado !== '') descManual = parseFloat(ac.descontado) || 0;
+        if(ac.devolvido  && typeof ac.devolvido  === 'object') devolMes = ac.devolvido;
+        if(ac.descontado && typeof ac.descontado === 'object') descMes = ac.descontado;
       }
     }catch(_){}
-    const emDesconto = descManual != null ? descManual : 0;
-    const emDinheiro = devolManual != null ? devolManual : doExtrato;
+    const somaMes = o => { let t = 0; for(const k in (o||{})) t += parseFloat(o[k]) || 0; return t; };
+    const emDesconto = somaMes(descMes);
+    const emDinheiro = devolMes ? somaMes(devolMes) : doExtrato;
     const saldo = adiantado - emDinheiro - emDesconto;
     res.porPessoa[n] = {
       nome: nomeDe[n] || n,
       adiant: b.adiant.sort((a, c) => String(a.data).localeCompare(String(c.data))),
       devol: b.devol, usual: usual, doExtrato: doExtrato,
-      devolEditado: devolManual != null, descEditado: descManual != null,
+      devolMes: devolMes || {}, descMes: descMes || {}, meses: MES,
+      devolEditado: !!devolMes, descEditado: !!descMes,
       adiantado, emDinheiro, emDesconto, saldo: saldo
     };
     res.totalAdiantado += adiantado;
@@ -108408,15 +108425,15 @@ try{ window.pesAdiantamentos = pesAdiantamentos; }catch(_){}
 
 /* Quanto voltou é digitado, e fica em pessoas.adtAcerto por pessoa. Campo
    vazio volta ao que o Extrato leu; só o que ele digitou vira manual. */
-function pesAdtSet(chave, campo, el){
+function pesAdtSet(chave, campo, ym, el){
   if(!pessoas.adtAcerto) pessoas.adtAcerto = {};
   const alvo = pessoas.adtAcerto[chave] = pessoas.adtAcerto[chave] || {};
+  const mapa = alvo[campo] = (alvo[campo] && typeof alvo[campo] === 'object') ? alvo[campo] : {};
   const txt = String(el.value || '').trim();
-  if(txt === ''){ delete alvo[campo]; }
-  else {
-    const parse = (typeof _dkbParseNumBR === 'function') ? _dkbParseNumBR : (x => parseFloat(x) || 0);
-    alvo[campo] = Math.round((parse(txt) || 0) * 100) / 100;
-  }
+  const parse = (typeof _dkbParseNumBR === 'function') ? _dkbParseNumBR : (x => parseFloat(x) || 0);
+  const v = txt === '' ? 0 : (parse(txt) || 0);
+  if(v > 0.005) mapa[ym] = Math.round(v * 100) / 100; else delete mapa[ym];
+  if(!Object.keys(mapa).length) delete alvo[campo];
   if(!Object.keys(alvo).length) delete pessoas.adtAcerto[chave];
   try{ pessoasSave(); }catch(_){}
   _pesRenderAdiantamentos();
@@ -108441,24 +108458,38 @@ function pesAdtDetalhe(n){ _pesAdtDetalhe = (_pesAdtDetalhe === n) ? '' : n; _pe
    apagaria trabalho dele, então elas viram o valor inicial do campo — e dali
    em diante ele edita. */
 function _pesAdtMigrar(){
+  let mexeu = false;
+  /* Houve uma versão curta em que o acerto era um total só. Vira o mês em que
+     o último adiantamento aconteceu, que é o palpite menos errado — e ele
+     corrige na grade. */
   try{
-    if(!Array.isArray(pessoas.adtBaixas) || !pessoas.adtBaixas.length) return false;
-    if(pessoas.adtAcerto && Object.keys(pessoas.adtAcerto).length) { delete pessoas.adtBaixas; return true; }
-    const soma = {};
-    for(const b of pessoas.adtBaixas){
-      if(!b || !b.pessoa) continue;
-      const k = _pesNormTxt(b.pessoa);
-      soma[k] = (soma[k] || 0) + (parseFloat(b.valor) || 0);
+    for(const k of Object.keys(pessoas.adtAcerto || {})){
+      const a = pessoas.adtAcerto[k];
+      for(const campo of ['devolvido', 'descontado']){
+        if(a[campo] != null && typeof a[campo] !== 'object'){
+          const v = parseFloat(a[campo]) || 0;
+          a[campo] = v > 0.005 ? { '__total': Math.round(v * 100) / 100 } : undefined;
+          if(!a[campo]) delete a[campo];
+          mexeu = true;
+        }
+      }
     }
+  }catch(_){}
+  try{
+    if(!Array.isArray(pessoas.adtBaixas) || !pessoas.adtBaixas.length) return mexeu;
+    if(pessoas.adtAcerto && Object.keys(pessoas.adtAcerto).length) { delete pessoas.adtBaixas; return true; }
+
     pessoas.adtAcerto = pessoas.adtAcerto || {};
-    for(const k of Object.keys(soma)){
-      pessoas.adtAcerto[k] = pessoas.adtAcerto[k] || {};
-      if(pessoas.adtAcerto[k].descontado == null)
-        pessoas.adtAcerto[k].descontado = Math.round(soma[k] * 100) / 100;
+    for(const b of pessoas.adtBaixas){
+      if(!b || !b.pessoa || !b.ym) continue;
+      const k = _pesNormTxt(b.pessoa);
+      const a = pessoas.adtAcerto[k] = pessoas.adtAcerto[k] || {};
+      const m = a.descontado = (a.descontado && typeof a.descontado === 'object') ? a.descontado : {};
+      m[b.ym] = Math.round(((m[b.ym] || 0) + (parseFloat(b.valor) || 0)) * 100) / 100;
     }
     delete pessoas.adtBaixas;
     return true;
-  }catch(_){ return false; }
+  }catch(_){ return mexeu; }
 }
 
 function _pesRenderAdiantamentos(){
@@ -108493,52 +108524,69 @@ function _pesRenderAdiantamentos(){
   const dia = d => String(d||'').slice(8,10) + '/' + String(d||'').slice(5,7);
 
   const num = v => (v > 0.005) ? (typeof fmtBR === 'function' ? fmtBR(v) : v.toFixed(2)) : '';
+  const MNOME = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   let h = '<div class="padt-topo">'
     + '<span><b>' + fmt(r.totalAberto) + '</b> em aberto</span>'
     + '<span>' + fmt(r.totalAdiantado) + ' adiantados no ano</span>'
+    + '<span class="padt-dica">clique na pessoa pra lançar mês a mês</span>'
     + '</div>'
     + '<table class="padt-tb"><thead><tr>'
     + '<th>Pessoa</th><th class="n">Adiantado</th>'
-    + '<th class="n ed">Devolveu em dinheiro</th><th class="n ed">Descontado do pagamento</th>'
+    + '<th class="n">Devolveu em dinheiro</th><th class="n">Descontado do pagamento</th>'
     + '<th class="n">Saldo</th></tr></thead><tbody>';
   for(const p of gente){
-    const campo = (c, v, editado, dica) =>
-      '<input class="padt-in' + (editado ? ' edit' : '') + '" inputmode="decimal" value="' + num(v) + '"'
-      + ' placeholder="0,00" title="' + dica + '"'
-      + ' onclick="event.stopPropagation()"'
-      + ' onchange="pesAdtSet(\'' + p.chave + '\',\'' + c + '\',this)"'
-      + ' onkeydown="if(event.key===\'Enter\')this.blur()">';
-    h += '<tr class="padt-row" onclick="pesAdtDetalhe(\'' + p.chave + '\')">'
-      + '<td class="padt-nome">' + esc(p.nome) + '</td>'
+    const aberta = _pesAdtDetalhe === p.chave;
+    h += '<tr class="padt-row' + (aberta ? ' is-open' : '') + '" onclick="pesAdtDetalhe(\'' + p.chave + '\')">'
+      + '<td class="padt-nome"><span class="padt-caret">' + (aberta ? '▾' : '▸') + '</span>' + esc(p.nome) + '</td>'
       + '<td class="n padt-auto" title="Soma do que saiu segundo o Extrato">' + fmt(p.adiantado) + '</td>'
-      + '<td class="n">' + campo('devolvido', p.emDinheiro, p.devolEditado,
-          p.doExtrato > 0.5 ? ('O Extrato encontrou ' + fmt(p.doExtrato) + ' de volta — digite outro valor pra sobrepor')
-                            : 'Quanto a pessoa devolveu em dinheiro') + '</td>'
-      + '<td class="n">' + campo('descontado', p.emDesconto, p.descEditado,
-          'Quanto já foi descontado do pagamento dela') + '</td>'
+      + '<td class="n' + (p.emDinheiro > 0.5 ? '' : ' padt-zero') + '">'
+      +   (p.emDinheiro > 0.5 ? fmt(p.emDinheiro) : '—')
+      +   (p.devolEditado ? '' : (p.doExtrato > 0.5 ? '<span class="padt-fonte" title="Identificado no Extrato">extrato</span>' : '')) + '</td>'
+      + '<td class="n' + (p.emDesconto > 0.5 ? '' : ' padt-zero') + '">'
+      +   (p.emDesconto > 0.5 ? fmt(p.emDesconto) : '—') + '</td>'
       + '<td class="n' + (p.saldo > 0.5 ? ' padt-deve' : ' padt-quite') + '">'
       +   (p.saldo > 0.5 ? fmt(p.saldo) : (p.saldo < -0.5 ? fmt(-p.saldo) + ' a maior' : 'quitado')) + '</td>'
       + '</tr>';
-    if(_pesAdtDetalhe === p.chave){
-      h += '<tr class="padt-det"><td colspan="5"><div class="padt-det-in">';
-      for(const a of p.adiant)
-        h += '<div class="padt-li saiu"><span class="d">' + dia(a.data) + '</span>'
-          + '<span class="v">− ' + fmt(a.valor) + '</span><span class="t">' + esc(a.desc) + '</span></div>';
-      for(const d of p.devol)
-        h += '<div class="padt-li volta"><span class="d">' + dia(d.data) + '</span>'
-          + '<span class="v">+ ' + fmt(d.valor) + '</span><span class="t">entrada identificada no Extrato · '
-          + esc(d.desc) + '</span></div>';
-      if(!p.adiant.length && !p.devol.length)
-        h += '<p class="padt-aviso">Sem movimento no Extrato.</p>';
+    if(aberta){
+      const linhaMes = (campo, mapa, rotulo, ajuda) => {
+        let g = '<div class="padt-grade"><span class="padt-gl" title="' + ajuda + '">' + rotulo + '</span>';
+        for(let i = 0; i < 12; i++){
+          const ym = p.meses[i];
+          const v = parseFloat((mapa || {})[ym]) || 0;
+          g += '<label class="padt-m"><span>' + MNOME[i] + '</span>'
+            + '<input class="padt-in' + (v > 0.005 ? ' edit' : '') + '" inputmode="decimal" value="' + num(v) + '"'
+            + ' placeholder="—" onclick="event.stopPropagation()"'
+            + ' onchange="pesAdtSet(\'' + p.chave + '\',\'' + campo + '\',\'' + ym + '\',this)"'
+            + ' onkeydown="if(event.key===\'Enter\')this.blur()"></label>';
+        }
+        return g + '</div>';
+      };
+      h += '<tr class="padt-det"><td colspan="5"><div class="padt-det-in">'
+        + linhaMes('descontado', p.descMes, 'Descontado do pagamento',
+                   'Em qual pagamento cada parcela foi abatida')
+        + linhaMes('devolvido', p.devolMes, 'Devolveu em dinheiro',
+                   'Em qual mês a pessoa devolveu em dinheiro');
+      const extras = (p.devolMes && Object.keys(p.devolMes).length) ? [] : p.devol;
+      if(p.adiant.length || extras.length){
+        h += '<div class="padt-lanc">';
+        for(const a of p.adiant)
+          h += '<div class="padt-li saiu"><span class="d">' + dia(a.data) + '</span>'
+            + '<span class="v">− ' + fmt(a.valor) + '</span><span class="t">' + esc(a.desc) + '</span></div>';
+        for(const d of extras)
+          h += '<div class="padt-li volta"><span class="d">' + dia(d.data) + '</span>'
+            + '<span class="v">+ ' + fmt(d.valor) + '</span><span class="t">entrada identificada no Extrato · '
+            + esc(d.desc) + '</span></div>';
+        h += '</div>';
+      }
       h += '</div></td></tr>';
     }
   }
   h += '</tbody></table>'
     + '<p class="padt-aviso"><b>Adiantado</b> vem do Extrato: saída com "vale", "adiantamento" ou "antecipação" '
-    + 'na descrição, fora o que é benefício e não volta (BENEFÍCIOS). <b>Devolveu</b> e <b>descontado</b> são seus: '
-    + 'o desconto sai do próprio pagamento e o sistema não tem como saber o valor exato. '
-    + 'Quando o Extrato identifica uma devolução — o PIX do Rafa traz o CPF dele — o campo já nasce preenchido, '
-    + 'e o que você digitar manda. Clique na linha pra ver os lançamentos.</p>';
+    + 'na descrição, fora o que é benefício e não volta (BENEFÍCIOS). <b>Devolveu</b> e <b>descontado</b> são seus, '
+    + 'lançados no mês em que aconteceram — o desconto sai do próprio pagamento e o sistema não tem como saber '
+    + 'o valor exato. Enquanto você não lançar nada, a devolução em dinheiro mostra o que o Extrato identificou '
+    + '(o PIX do Rafa traz o CPF dele).</p>';
   box.innerHTML = h;
 }
 try{ window.pesAdtOpen = pesAdtOpen; window.pesAdtClose = pesAdtClose; window.pesAdtDetalhe = pesAdtDetalhe; }catch(_){}
