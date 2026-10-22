@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792680922"/>
+  <meta name="fk-build" content="forekash-v1792681958"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -18860,14 +18860,23 @@ td.mes.do-extrato{background:#ECFDF5}
 .rcb-sobra{border-top:1px dashed var(--bd);margin-top:4px;padding-top:6px}
 .rcb-aviso{margin:8px 14px 0;font-size:.69rem;color:var(--txl);line-height:1.5}
 /* ── Adiantamentos (Pessoas) ── */
-.padt-badge{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:7px;font-size:.62rem;
-  font-weight:800;background:#FEF3C7;color:#92400E;font-variant-numeric:tabular-nums}
-.padt-badge.tem-prop{background:#EDE9FE;color:#5B21B6}
+.padt-badge{display:inline-flex;align-items:center;height:16px;margin-left:5px;padding:0 6px;
+  border-radius:8px;font-size:.63rem;font-weight:700;letter-spacing:0;
+  background:#FEF3C7;color:#92400E;font-variant-numeric:tabular-nums}
 .padt-topo{display:flex;gap:16px;align-items:center;padding:12px 20px;border-bottom:1px solid var(--bd);
   font-size:.74rem;color:var(--txl)}
 .padt-topo b{color:var(--tx);font-size:.9rem}
-.padt-prop-n{margin-left:auto;color:#5B21B6;font-weight:700}
-.padt-prop-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#7C3AED;vertical-align:1px}
+/* Coluna editável: parece número da tabela até receber o foco, pra não virar
+   um formulário dentro de um relatório. */
+.padt-tb th.ed{color:#5B21B6}
+.padt-in{width:100%;max-width:140px;border:1px solid transparent;border-radius:6px;background:none;
+  padding:3px 7px;font:inherit;font-size:.73rem;font-weight:600;color:var(--tx);text-align:right;
+  font-variant-numeric:tabular-nums;cursor:text;transition:border-color .12s,background .12s}
+.padt-in::placeholder{color:#CBD5E1;font-weight:400}
+.padt-in:hover{border-color:var(--bd);background:var(--cd)}
+.padt-in:focus{outline:none;border-color:#7C3AED;background:#fff;box-shadow:0 0 0 3px rgba(124,58,237,.1)}
+.padt-in.edit{color:#5B21B6}
+.padt-auto{color:var(--txm)}
 .padt-tb{width:100%;border-collapse:collapse;font-size:.73rem}
 .padt-tb th{text-align:left;padding:8px 20px;font-weight:600;font-size:.66rem;color:var(--txl);
   text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--bd)}
@@ -18888,14 +18897,7 @@ td.mes.do-extrato{background:#ECFDF5}
 .padt-li.saiu .v{color:#B45309}
 .padt-li.volta .v{color:#059669}
 .padt-aviso{margin:10px 20px 14px;font-size:.69rem;color:var(--txl);line-height:1.5}
-.padt-li.prop .v{color:#6D28D9}
-.padt-li.prop .t{color:var(--txm)}
-.padt-ok,.padt-undo{font-family:inherit;font-size:.65rem;font-weight:700;border-radius:7px;padding:1px 7px;
-  margin-left:6px;cursor:pointer;border:1px solid transparent}
-.padt-ok{background:#EDE9FE;color:#5B21B6;border-color:#DDD6FE}
-.padt-ok:hover{background:#DDD6FE}
-.padt-undo{background:none;color:var(--txl);border-color:var(--bd)}
-.padt-undo:hover{color:#B45309;border-color:#FCD34D}
+
 .rec-cell-ok{position:absolute;left:5px;top:2px;font-size:.62rem;color:#059669;
   opacity:.8;pointer-events:none;font-weight:800}
 .rec-cell-nope{animation:recNope .38s ease}
@@ -21085,12 +21087,12 @@ td.mes.do-extrato{background:#ECFDF5}
 
       <!-- Modal: Adiantamentos · vale, antecipação e empréstimo ao colaborador -->
       <div class="overlay" id="ov-pes-adt" onclick="if(event.target.id==='ov-pes-adt')pesAdtClose()">
-        <div class="modal" style="width:860px;max-width:95vw">
+        <div class="modal" style="width:1040px;max-width:96vw">
           <div class="mod-head">
             <h3>Adiantamentos</h3>
             <button class="btn-close" onclick="pesAdtClose()">✕</button>
           </div>
-          <div class="mod-body" id="pes-adt-body" style="padding:0;max-height:70vh;overflow:auto">
+          <div class="mod-body" id="pes-adt-body" style="padding:0;max-height:78vh;overflow:auto">
             <!-- preenchido por _pesRenderAdiantamentos -->
           </div>
         </div>
@@ -108349,7 +108351,7 @@ function pesAdiantamentos(ano){
     const b = banco[n];
     if(!b.adiant.length) continue;
     const adiantado = b.adiant.reduce((s, x) => s + x.valor, 0);
-    const emDinheiro = b.devol.reduce((s, x) => s + x.valor, 0);
+    const doExtrato = b.devol.reduce((s, x) => s + x.valor, 0);
 
     /* A régua do desconto NÃO pode ser a folha. A folha guarda o BRUTO e o
        banco paga o LÍQUIDO: o Rafa tem 12.000 na folha e recebe 8.259,94 de
@@ -108371,40 +108373,33 @@ function pesAdiantamentos(ano){
     const usual = vals.length ? vals[Math.floor(vals.length / 2)] : 0;
     const temRegua = vals.length >= 3 && usual > 0;
 
-    /* Aqui o sistema PROPÕE, não afirma. Pagamento abaixo do habitual pode ser
-       amortização — ou reajuste, comissão que variou, mês com menos horas. No
-       Felipe Rico a leitura é limpa porque ele recebe valor fixo; no Jordano,
-       que tem comissão, a variação é natureza do pagamento e virava desconto
-       inventado. Então o candidato fica visível e só entra na conta quando
-       você confirma. O confirmado mora em pessoas.adtBaixas. */
-    const confirmadas = [];
+    /* O ACERTO É MANUAL, e isso não é preguiça — é o que os dados mandam.
+       O desconto sai do próprio pagamento e o sistema não tem como saber o
+       valor exato: no Jordano, que tem comissão, a variação do mês é natureza
+       do pagamento, e tentar inferir produziu R$ 4.815 de desconto a maior.
+       No Felipe Rico, que teve reajuste no meio do ano, a referência mudou.
+
+       Então o que o Extrato sabe de verdade — quanto saiu — fica automático,
+       e quanto voltou é você quem diz. A devolução em dinheiro nasce
+       preenchida com o que o Extrato encontrou (no Rafa o CPF vem no PIX e a
+       leitura é exata), mas também é editável: o valor digitado manda. */
+    let devolManual = null, descManual = null;
     try{
-      for(const bx of (pessoas.adtBaixas || [])){
-        if(bx && _pesNormTxt(bx.pessoa) === n && String(bx.ym || '').slice(0,4) === y)
-          confirmadas.push({ ym: bx.ym, valor: parseFloat(bx.valor) || 0 });
+      const ac = (pessoas.adtAcerto || {})[n];
+      if(ac){
+        if(ac.devolvido  != null && ac.devolvido  !== '') devolManual = parseFloat(ac.devolvido)  || 0;
+        if(ac.descontado != null && ac.descontado !== '') descManual = parseFloat(ac.descontado) || 0;
       }
     }catch(_){}
-    const jaConf = new Set(confirmadas.map(x => x.ym));
-    const candidatos = [];
-    if(temRegua){
-      const primeiro = b.adiant.map(x => String(x.data).slice(0, 7)).sort()[0];
-      for(const ym of MES){
-        if(ym < primeiro || jaConf.has(ym)) continue;
-        const srv = servicoPorMes[ym];
-        if(!srv) continue;                             // não pagou serviço nesse mês
-        const falta = usual - srv;
-        if(falta > Math.max(50, usual * 0.02)) candidatos.push({ ym: ym, valor: falta });
-      }
-    }
-    const descontos = confirmadas;
-    const emDesconto = confirmadas.reduce((s, x) => s + x.valor, 0);
+    const emDesconto = descManual != null ? descManual : 0;
+    const emDinheiro = devolManual != null ? devolManual : doExtrato;
     const saldo = adiantado - emDinheiro - emDesconto;
     res.porPessoa[n] = {
       nome: nomeDe[n] || n,
       adiant: b.adiant.sort((a, c) => String(a.data).localeCompare(String(c.data))),
-      devol: b.devol, descontos: descontos, candidatos: candidatos, usual: usual,
-      adiantado, emDinheiro, emDesconto, saldo: saldo,
-      semAcerto: !temRegua
+      devol: b.devol, usual: usual, doExtrato: doExtrato,
+      devolEditado: devolManual != null, descEditado: descManual != null,
+      adiantado, emDinheiro, emDesconto, saldo: saldo
     };
     res.totalAdiantado += adiantado;
     if(saldo > 0.5) res.totalAberto += saldo;
@@ -108413,26 +108408,22 @@ function pesAdiantamentos(ano){
 }
 try{ window.pesAdiantamentos = pesAdiantamentos; }catch(_){}
 
-/* Confirmar é o que transforma proposta em fato. Fica gravado em
-   pessoas.adtBaixas e entra no saldo; desfazer tira. */
-function pesAdtConfirmar(chave, ym, valor){
-  if(!pessoas.adtBaixas) pessoas.adtBaixas = [];
-  const nome = (pesAdiantamentos(pesActiveYear).porPessoa[chave] || {}).nome || chave;
-  pessoas.adtBaixas.push({ pessoa: nome, ym: ym, valor: Math.round(valor * 100) / 100,
-                           em: new Date().toISOString().slice(0, 10) });
-  try{ pessoasSave(); }catch(_){}
-  _pesRenderAdiantamentos();
-  if(typeof toast === 'function') toast('Amortização confirmada — o saldo foi abatido.', 3000);
-}
-function pesAdtDesfazer(chave, ym){
-  if(!Array.isArray(pessoas.adtBaixas)) return;
-  const nome = (pesAdiantamentos(pesActiveYear).porPessoa[chave] || {}).nome || chave;
-  pessoas.adtBaixas = pessoas.adtBaixas.filter(b =>
-    !(b && _pesNormTxt(b.pessoa) === _pesNormTxt(nome) && b.ym === ym));
+/* Quanto voltou é digitado, e fica em pessoas.adtAcerto por pessoa. Campo
+   vazio volta ao que o Extrato leu; só o que ele digitou vira manual. */
+function pesAdtSet(chave, campo, el){
+  if(!pessoas.adtAcerto) pessoas.adtAcerto = {};
+  const alvo = pessoas.adtAcerto[chave] = pessoas.adtAcerto[chave] || {};
+  const txt = String(el.value || '').trim();
+  if(txt === ''){ delete alvo[campo]; }
+  else {
+    const parse = (typeof _dkbParseNumBR === 'function') ? _dkbParseNumBR : (x => parseFloat(x) || 0);
+    alvo[campo] = Math.round((parse(txt) || 0) * 100) / 100;
+  }
+  if(!Object.keys(alvo).length) delete pessoas.adtAcerto[chave];
   try{ pessoasSave(); }catch(_){}
   _pesRenderAdiantamentos();
 }
-try{ window.pesAdtConfirmar = pesAdtConfirmar; window.pesAdtDesfazer = pesAdtDesfazer; }catch(_){}
+try{ window.pesAdtSet = pesAdtSet; }catch(_){}
 
 let _pesAdtDetalhe = '';
 function pesAdtOpen(){
@@ -108446,7 +108437,34 @@ function pesAdtClose(){
   _pesAdtDetalhe = '';
 }
 function pesAdtDetalhe(n){ _pesAdtDetalhe = (_pesAdtDetalhe === n) ? '' : n; _pesRenderAdiantamentos(); }
+/* Conversão única do formato antigo. A primeira versão do bloco propunha o
+   desconto e guardava cada confirmação em pessoas.adtBaixas; o desconto virou
+   campo digitado e mora em pessoas.adtAcerto. Jogar as confirmações fora
+   apagaria trabalho dele, então elas viram o valor inicial do campo — e dali
+   em diante ele edita. */
+function _pesAdtMigrar(){
+  try{
+    if(!Array.isArray(pessoas.adtBaixas) || !pessoas.adtBaixas.length) return false;
+    if(pessoas.adtAcerto && Object.keys(pessoas.adtAcerto).length) { delete pessoas.adtBaixas; return true; }
+    const soma = {};
+    for(const b of pessoas.adtBaixas){
+      if(!b || !b.pessoa) continue;
+      const k = _pesNormTxt(b.pessoa);
+      soma[k] = (soma[k] || 0) + (parseFloat(b.valor) || 0);
+    }
+    pessoas.adtAcerto = pessoas.adtAcerto || {};
+    for(const k of Object.keys(soma)){
+      pessoas.adtAcerto[k] = pessoas.adtAcerto[k] || {};
+      if(pessoas.adtAcerto[k].descontado == null)
+        pessoas.adtAcerto[k].descontado = Math.round(soma[k] * 100) / 100;
+    }
+    delete pessoas.adtBaixas;
+    return true;
+  }catch(_){ return false; }
+}
+
 function _pesRenderAdiantamentos(){
+  if(_pesAdtMigrar()){ try{ pessoasSave(); }catch(_){} }
   const badge = document.getElementById('pes-adt-badge');
   const box = document.getElementById('pes-adt-body');
   let r;
@@ -108455,7 +108473,6 @@ function _pesRenderAdiantamentos(){
   const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x||''));
   const gente = Object.keys(r.porPessoa).map(k => Object.assign({ chave: k }, r.porPessoa[k]))
     .sort((a,b) => b.saldo - a.saldo || b.adiantado - a.adiantado);
-  const nProp = gente.reduce((s2, p) => s2 + ((p.candidatos || []).length), 0);
 
   /* O botão carrega o número; sem isso o bloco virava modal que ninguém abre
      porque nada na tela diz que tem gente devendo. */
@@ -108463,8 +108480,7 @@ function _pesRenderAdiantamentos(){
     if(r.totalAberto > 0.5){
       // fmtBRL usa espaço não-quebrável — regex em vez de replace literal
       badge.textContent = fmt(r.totalAberto).replace(/^R\$[\s\u00a0]*/, '');
-      badge.className = 'padt-badge' + (nProp ? ' tem-prop' : '');
-      badge.title = fmt(r.totalAberto) + ' em aberto' + (nProp ? ' · ' + nProp + ' a confirmar' : '');
+      badge.title = fmt(r.totalAberto) + ' em aberto com ' + gente.filter(p => p.saldo > 0.5).length + ' pessoa(s)';
       badge.style.display = '';
     } else badge.style.display = 'none';
   }
@@ -108476,59 +108492,53 @@ function _pesRenderAdiantamentos(){
   }
   const dia = d => String(d||'').slice(8,10) + '/' + String(d||'').slice(5,7);
 
+  const num = v => (v > 0.005) ? (typeof fmtBR === 'function' ? fmtBR(v) : v.toFixed(2)) : '';
   let h = '<div class="padt-topo">'
     + '<span><b>' + fmt(r.totalAberto) + '</b> em aberto</span>'
     + '<span>' + fmt(r.totalAdiantado) + ' adiantados no ano</span>'
-    + (nProp ? '<span class="padt-prop-n">' + nProp + ' a confirmar</span>' : '')
     + '</div>'
     + '<table class="padt-tb"><thead><tr>'
-    + '<th>Pessoa</th><th class="n">Adiantado</th><th class="n">Devolveu em dinheiro</th>'
-    + '<th class="n">Descontado do pagamento</th><th class="n">Saldo</th><th>Como acerta</th>'
-    + '</tr></thead><tbody>';
+    + '<th>Pessoa</th><th class="n">Adiantado</th>'
+    + '<th class="n ed">Devolveu em dinheiro</th><th class="n ed">Descontado do pagamento</th>'
+    + '<th class="n">Saldo</th></tr></thead><tbody>';
   for(const p of gente){
-    const como = p.semAcerto ? '<span class="padt-na">sem acerto definido</span>'
-      : (p.emDinheiro > 0.5 && p.emDesconto > 0.5) ? 'dinheiro e desconto'
-      : (p.emDinheiro > 0.5) ? 'devolve em dinheiro'
-      : (p.emDesconto > 0.5) ? 'desconta do pagamento'
-      : '<span class="padt-na">ainda não acertou</span>';
+    const campo = (c, v, editado, dica) =>
+      '<input class="padt-in' + (editado ? ' edit' : '') + '" inputmode="decimal" value="' + num(v) + '"'
+      + ' placeholder="0,00" title="' + dica + '"'
+      + ' onclick="event.stopPropagation()"'
+      + ' onchange="pesAdtSet(\'' + p.chave + '\',\'' + c + '\',this)"'
+      + ' onkeydown="if(event.key===\'Enter\')this.blur()">';
     h += '<tr class="padt-row" onclick="pesAdtDetalhe(\'' + p.chave + '\')">'
-      + '<td class="padt-nome">' + esc(p.nome)
-      + ((p.candidatos || []).length ? ' <span class="padt-prop-dot" title="tem desconto a confirmar"></span>' : '')
-      + '</td>'
-      + '<td class="n">' + fmt(p.adiantado) + '</td>'
-      + '<td class="n">' + (p.emDinheiro > 0.5 ? fmt(p.emDinheiro) : '—') + '</td>'
-      + '<td class="n">' + (p.emDesconto > 0.5 ? fmt(p.emDesconto) : '—') + '</td>'
+      + '<td class="padt-nome">' + esc(p.nome) + '</td>'
+      + '<td class="n padt-auto" title="Soma do que saiu segundo o Extrato">' + fmt(p.adiantado) + '</td>'
+      + '<td class="n">' + campo('devolvido', p.emDinheiro, p.devolEditado,
+          p.doExtrato > 0.5 ? ('O Extrato encontrou ' + fmt(p.doExtrato) + ' de volta — digite outro valor pra sobrepor')
+                            : 'Quanto a pessoa devolveu em dinheiro') + '</td>'
+      + '<td class="n">' + campo('descontado', p.emDesconto, p.descEditado,
+          'Quanto já foi descontado do pagamento dela') + '</td>'
       + '<td class="n' + (p.saldo > 0.5 ? ' padt-deve' : ' padt-quite') + '">'
       +   (p.saldo > 0.5 ? fmt(p.saldo) : (p.saldo < -0.5 ? fmt(-p.saldo) + ' a maior' : 'quitado')) + '</td>'
-      + '<td class="padt-como">' + como + '</td></tr>';
+      + '</tr>';
     if(_pesAdtDetalhe === p.chave){
-      h += '<tr class="padt-det"><td colspan="6"><div class="padt-det-in">';
+      h += '<tr class="padt-det"><td colspan="5"><div class="padt-det-in">';
       for(const a of p.adiant)
         h += '<div class="padt-li saiu"><span class="d">' + dia(a.data) + '</span>'
           + '<span class="v">− ' + fmt(a.valor) + '</span><span class="t">' + esc(a.desc) + '</span></div>';
       for(const d of p.devol)
         h += '<div class="padt-li volta"><span class="d">' + dia(d.data) + '</span>'
-          + '<span class="v">+ ' + fmt(d.valor) + '</span><span class="t">devolveu em dinheiro · ' + esc(d.desc) + '</span></div>';
-      for(const x of p.descontos)
-        h += '<div class="padt-li volta"><span class="d">' + x.ym.slice(5) + '/' + x.ym.slice(2,4) + '</span>'
-          + '<span class="v">+ ' + fmt(x.valor) + '</span><span class="t">amortizado no pagamento do mês'
-          + ' <button type="button" class="padt-undo" onclick="event.stopPropagation();pesAdtDesfazer(\'' + p.chave + '\',\'' + x.ym + '\')">desfazer</button></span></div>';
-      for(const x of (p.candidatos || []))
-        h += '<div class="padt-li prop"><span class="d">' + x.ym.slice(5) + '/' + x.ym.slice(2,4) + '</span>'
-          + '<span class="v">? ' + fmt(x.valor) + '</span><span class="t">pagamento veio abaixo do habitual ('
-          + fmt(p.usual) + ') — foi desconto do adiantamento?'
-          + ' <button type="button" class="padt-ok" onclick="event.stopPropagation();pesAdtConfirmar(\'' + p.chave + '\',\'' + x.ym + '\',' + x.valor + ')">confirmar</button></span></div>';
-      if(p.semAcerto)
-        h += '<p class="padt-aviso">Sem pagamento recorrente que sirva de referência — o saldo só acumula '
-          + 'até ser cobrado ou devolvido.</p>';
+          + '<span class="v">+ ' + fmt(d.valor) + '</span><span class="t">entrada identificada no Extrato · '
+          + esc(d.desc) + '</span></div>';
+      if(!p.adiant.length && !p.devol.length)
+        h += '<p class="padt-aviso">Sem movimento no Extrato.</p>';
       h += '</div></td></tr>';
     }
   }
   h += '</tbody></table>'
-    + '<p class="padt-aviso">O bloco lê o Extrato: saída com "vale", "adiantamento" ou "antecipação" é adiantado, '
-    + 'e entrada da pessoa é devolução em dinheiro. Desconto no pagamento o sistema só <b>propõe</b> — '
-    + 'pagamento abaixo do habitual também pode ser reajuste, comissão ou mês com menos horas, '
-    + 'então entra no saldo quando você confirma. Benefício que não volta (BENEFÍCIOS) fica de fora.</p>';
+    + '<p class="padt-aviso"><b>Adiantado</b> vem do Extrato: saída com "vale", "adiantamento" ou "antecipação" '
+    + 'na descrição, fora o que é benefício e não volta (BENEFÍCIOS). <b>Devolveu</b> e <b>descontado</b> são seus: '
+    + 'o desconto sai do próprio pagamento e o sistema não tem como saber o valor exato. '
+    + 'Quando o Extrato identifica uma devolução — o PIX do Rafa traz o CPF dele — o campo já nasce preenchido, '
+    + 'e o que você digitar manda. Clique na linha pra ver os lançamentos.</p>';
   box.innerHTML = h;
 }
 try{ window.pesAdtOpen = pesAdtOpen; window.pesAdtClose = pesAdtClose; window.pesAdtDetalhe = pesAdtDetalhe; }catch(_){}
