@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792627080"/>
+  <meta name="fk-build" content="forekash-v1792627211"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -32208,8 +32208,34 @@ function recRealizadoPorLinha(ano, mapa){
         if(resta <= 0.005) break;
       }
       if(resta > 0.005){
-        const r0 = linhas[0];
-        (out[r0.id] = out[r0.id] || {})[m] = (out[r0.id][m] || 0) + resta;
+        /* Nenhuma linha projetava nada NESTE mês — é o caso de quem paga
+           atrasado: o título está na competência anterior e o dinheiro cai
+           agora. Jogar na primeira linha era chute, e errava sempre que o
+           cliente tinha contrato + adicional: o SETUP de R$ 6.000 do G Muller
+           vencia em fevereiro, entrou em março, e aparecia na linha do
+           disparo de whatsapp, que fatura R$ 1.250.
+
+           Então procura pra trás a linha com projeção em aberto mais parecida
+           com o que sobrou. Parecida de verdade: razão entre 0,5 e 1,5, senão
+           volta a ser chute. */
+        let alvo = null, melhor = Infinity;
+        const mIdx = meses.indexOf(m);
+        for(const r of linhas){
+          for(let k = mIdx - 1; k >= 0; k--){
+            const cel = (r.meses || {})[meses[k]];
+            const prev = (cel && cel.valor !== '' && cel.valor != null) ? (parseFloat(cel.valor) || 0) : 0;
+            if(prev <= 0) continue;
+            const jaAlocado = (out[r.id] || {})[meses[k]] || 0;
+            if(jaAlocado > prev * 0.5) continue;          // esse mês já foi pago
+            const razao = resta / prev;
+            if(razao < 0.5 || razao > 1.5) continue;
+            const dist = Math.abs(1 - razao);
+            if(dist < melhor){ melhor = dist; alvo = r; }
+            break;                                        // só o aberto mais recente de cada linha
+          }
+        }
+        const rAlvo = alvo || linhas[0];
+        (out[rAlvo.id] = out[rAlvo.id] || {})[m] = (out[rAlvo.id][m] || 0) + resta;
       }
     }
   }
