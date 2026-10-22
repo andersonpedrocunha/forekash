@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792679743"/>
+  <meta name="fk-build" content="forekash-v1792680661"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -18859,6 +18859,43 @@ td.mes.do-extrato{background:#ECFDF5}
 .rcb-li .a{text-align:right}
 .rcb-sobra{border-top:1px dashed var(--bd);margin-top:4px;padding-top:6px}
 .rcb-aviso{margin:8px 14px 0;font-size:.69rem;color:var(--txl);line-height:1.5}
+/* ── Adiantamentos (Pessoas) ── */
+.padt-wrap{margin-top:14px;border:1px solid var(--bd);border-radius:10px;background:var(--cd);overflow:hidden}
+.padt-hd{width:100%;display:flex;align-items:center;gap:10px;padding:10px 14px;background:none;border:0;
+  cursor:pointer;font-family:inherit;text-align:left}
+.padt-hd:hover{background:var(--bg)}
+.padt-tt{font-size:.78rem;font-weight:700;color:var(--tx);letter-spacing:.01em}
+.padt-resumo{font-size:.72rem;color:var(--txl);flex:1}
+.padt-seta{font-size:.7rem;color:var(--txl)}
+.padt-body{border-top:1px solid var(--bd);padding:4px 0 10px}
+.padt-tb{width:100%;border-collapse:collapse;font-size:.73rem}
+.padt-tb th{text-align:left;padding:7px 14px;font-weight:600;font-size:.66rem;color:var(--txl);
+  text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--bd)}
+.padt-tb th.n,.padt-tb td.n{text-align:right;font-variant-numeric:tabular-nums}
+.padt-tb td{padding:7px 14px;border-bottom:1px solid var(--bd)}
+.padt-row{cursor:pointer}
+.padt-row:hover{background:var(--bg)}
+.padt-nome{font-weight:600;color:var(--tx)}
+.padt-deve{color:#B45309;font-weight:700}
+.padt-quite{color:#059669}
+.padt-como{color:var(--txl);font-size:.7rem}
+.padt-na{color:var(--txl);font-style:italic}
+.padt-det td{background:var(--bg);padding:0}
+.padt-det-in{padding:8px 14px 10px}
+.padt-li{display:grid;grid-template-columns:52px 110px 1fr;gap:10px;align-items:center;padding:3px 0;
+  font-size:.71rem;color:var(--txl);font-variant-numeric:tabular-nums}
+.padt-li .v{text-align:right;font-weight:600}
+.padt-li.saiu .v{color:#B45309}
+.padt-li.volta .v{color:#059669}
+.padt-aviso{margin:8px 14px 0;font-size:.69rem;color:var(--txl);line-height:1.5}
+.padt-li.prop .v{color:#6D28D9}
+.padt-li.prop .t{color:var(--txm)}
+.padt-ok,.padt-undo{font-family:inherit;font-size:.65rem;font-weight:700;border-radius:7px;padding:1px 7px;
+  margin-left:6px;cursor:pointer;border:1px solid transparent}
+.padt-ok{background:#EDE9FE;color:#5B21B6;border-color:#DDD6FE}
+.padt-ok:hover{background:#DDD6FE}
+.padt-undo{background:none;color:var(--txl);border-color:var(--bd)}
+.padt-undo:hover{color:#B45309;border-color:#FCD34D}
 .rec-cell-ok{position:absolute;left:5px;top:2px;font-size:.62rem;color:#059669;
   opacity:.8;pointer-events:none;font-weight:800}
 .rec-cell-nope{animation:recNope .38s ease}
@@ -20995,6 +21032,9 @@ td.mes.do-extrato{background:#ECFDF5}
         <p style="font-size:.7rem;color:var(--txl);margin-top:10px;line-height:1.5">
           Desative uma pessoa pelo toggle; o nome recebe tachado e o salário não conta no total do mês.
         </p>
+
+        <!-- Adiantamentos · vale, antecipação e empréstimo ao colaborador -->
+        <div id="pes-adiantamentos"></div>
         <p class="formula-hint">
           <b>Fórmulas</b> — comece com <code>=</code> para calcular. Ex.: <code>=5000+500</code>, <code>=5000*1,08</code>, <code>=SOMA(100;200;300)</code>, <code>=MEDIA(a;b;c)</code>, <code>=MAX(...)</code>, <code>=MIN(...)</code>, <code>=ABS(-7)</code>, <code>=ROUND(3,14;1)</code>, <code>=10%</code>.
         </p>
@@ -108230,6 +108270,232 @@ try{ window.pesPagoExtrato = pesPagoExtrato; }catch(_){}
    folha sai num débito só ("FOLHA AGOSTO" pro banco), não há nome dentro do
    valor: esse dinheiro vai pra linha "pago não identificado", visível, em vez
    de ser rateado no chute. Mesmo caminho já aceito no Parcelamento. */
+/* ══ ADIANTAMENTOS ════════════════════════════════════════════════════════
+   Vale, antecipação de pagamento e empréstimo ao colaborador. Não precisa de
+   cadastro à parte: os três caminhos já estão no Extrato e o bloco acha
+   sozinho.
+
+   SAIU  — gasto pra uma pessoa com "vale", "adiantamento" ou "antecipação" na
+           descrição. Fica de fora o que é benefício da empresa (a ajuda do
+           notebook do Felipe Rico está em BENEFÍCIOS e não volta).
+   VOLTOU EM DINHEIRO — entrada da pessoa. O Rafa devolveu R$ 22.000 em duas
+           parcelas de 11.000, e o CPF dele vem na descrição do PIX.
+   VOLTOU EM DESCONTO — o mais comum, e o que ninguém enxergava: o dinheiro
+           nunca volta à conta, a nota do mês seguinte é que vem menor. Se a
+           folha previa 12.000 e o pagamento do serviço foi 9.700, os 2.300
+           que faltam amortizaram o adiantamento de julho.
+
+   Quem não tem folha (o Pedro Sebastian é sócio, a Unimed dele sai pela
+   empresa) não tem contratado pra comparar: o saldo dele só acumula até ser
+   cobrado em horas ou devolvido. Aparece como "sem acerto definido" em vez de
+   virar desconto inventado. */
+const _PES_RX_ADIANT = /\b(vale|adiantament\w*|antecipa\w*)\b/i;
+const _PES_CAT_NAO_VOLTA = new Set(['benefícios', 'beneficios', 'comercial']);
+
+function pesAdiantamentos(ano){
+  const y = String(ano || pesActiveYear || '');
+  const res = { porPessoa: {}, totalAberto: 0, totalAdiantado: 0 };
+  let lans = [];
+  try{ lans = (extratoData && extratoData.lancamentos) || []; }catch(_){ return res; }
+  if(!lans.length) return res;
+
+  const MES = [];
+  for(let i = 1; i <= 12; i++) MES.push(y + '-' + String(i).padStart(2, '0'));
+
+  const nomeDe = {};
+  const banco = {};   // nome normalizado -> { adiant:[], devol:[], pago:{ym:v} }
+  const pega = n => (banco[n] = banco[n] || { adiant: [], devol: [], pago: {} });
+
+  for(const l of lans){
+    if(!l || !l.contraparte) continue;
+    const ym = String(l.dataPagamento || l.data || '').slice(0, 7);
+    if(ym.slice(0, 4) !== y) continue;
+    const n = _pesNormTxt(l.contraparte);
+    if(!n) continue;
+    if(!nomeDe[n]) nomeDe[n] = String(l.contraparte).trim();
+    const cat = String(l.categoria || '').trim().toLowerCase();
+    const val = parseFloat(l.valorPago || l.valor) || 0;
+    if(val <= 0) continue;
+    if(l.tipo === 'gasto'){
+      const ehAdiant = _PES_RX_ADIANT.test(String(l.descricao || ''));
+      if(ehAdiant && !_PES_CAT_NAO_VOLTA.has(cat)){
+        pega(n).adiant.push({ id: l.id, data: l.dataPagamento || l.data, valor: val, desc: l.descricao || '' });
+      } else if(cat === 'folha (pessoas)'){
+        const b = pega(n); b.pago[ym] = (b.pago[ym] || 0) + val;
+      }
+    } else if(l.tipo === 'ganho' && cat === 'folha (pessoas)'){
+      pega(n).devol.push({ id: l.id, data: l.dataPagamento || l.data, valor: val, desc: l.descricao || '' });
+    }
+  }
+
+  for(const n of Object.keys(banco)){
+    const b = banco[n];
+    if(!b.adiant.length) continue;
+    const adiantado = b.adiant.reduce((s, x) => s + x.valor, 0);
+    const emDinheiro = b.devol.reduce((s, x) => s + x.valor, 0);
+
+    /* A régua do desconto NÃO pode ser a folha. A folha guarda o BRUTO e o
+       banco paga o LÍQUIDO: o Rafa tem 12.000 na folha e recebe 8.259,94 de
+       pró-labore todo mês, e contar essa diferença como amortização dava
+       R$ 18.685 de desconto que nunca existiram.
+
+       A régua é o que a pessoa COSTUMA receber — a mediana dos pagamentos de
+       serviço do ano, já descontados os adiantamentos do próprio mês. Mediana
+       e não média justamente porque os meses amortizados vêm menores e não
+       podem puxar a referência pra baixo. */
+    const servicoPorMes = {};
+    for(const ym of MES){
+      const adiantNoMes = b.adiant.filter(x => String(x.data).slice(0, 7) === ym)
+                                  .reduce((s, x) => s + x.valor, 0);
+      const srv = (b.pago[ym] || 0) - adiantNoMes;
+      if(srv > 0.5) servicoPorMes[ym] = srv;
+    }
+    const vals = Object.keys(servicoPorMes).map(k => servicoPorMes[k]).sort((a, c) => a - c);
+    const usual = vals.length ? vals[Math.floor(vals.length / 2)] : 0;
+    const temRegua = vals.length >= 3 && usual > 0;
+
+    /* Aqui o sistema PROPÕE, não afirma. Pagamento abaixo do habitual pode ser
+       amortização — ou reajuste, comissão que variou, mês com menos horas. No
+       Felipe Rico a leitura é limpa porque ele recebe valor fixo; no Jordano,
+       que tem comissão, a variação é natureza do pagamento e virava desconto
+       inventado. Então o candidato fica visível e só entra na conta quando
+       você confirma. O confirmado mora em pessoas.adtBaixas. */
+    const confirmadas = [];
+    try{
+      for(const bx of (pessoas.adtBaixas || [])){
+        if(bx && _pesNormTxt(bx.pessoa) === n && String(bx.ym || '').slice(0,4) === y)
+          confirmadas.push({ ym: bx.ym, valor: parseFloat(bx.valor) || 0 });
+      }
+    }catch(_){}
+    const jaConf = new Set(confirmadas.map(x => x.ym));
+    const candidatos = [];
+    if(temRegua){
+      const primeiro = b.adiant.map(x => String(x.data).slice(0, 7)).sort()[0];
+      for(const ym of MES){
+        if(ym < primeiro || jaConf.has(ym)) continue;
+        const srv = servicoPorMes[ym];
+        if(!srv) continue;                             // não pagou serviço nesse mês
+        const falta = usual - srv;
+        if(falta > Math.max(50, usual * 0.02)) candidatos.push({ ym: ym, valor: falta });
+      }
+    }
+    const descontos = confirmadas;
+    const emDesconto = confirmadas.reduce((s, x) => s + x.valor, 0);
+    const saldo = adiantado - emDinheiro - emDesconto;
+    res.porPessoa[n] = {
+      nome: nomeDe[n] || n,
+      adiant: b.adiant.sort((a, c) => String(a.data).localeCompare(String(c.data))),
+      devol: b.devol, descontos: descontos, candidatos: candidatos, usual: usual,
+      adiantado, emDinheiro, emDesconto, saldo: saldo,
+      semAcerto: !temRegua
+    };
+    res.totalAdiantado += adiantado;
+    if(saldo > 0.5) res.totalAberto += saldo;
+  }
+  return res;
+}
+try{ window.pesAdiantamentos = pesAdiantamentos; }catch(_){}
+
+/* Confirmar é o que transforma proposta em fato. Fica gravado em
+   pessoas.adtBaixas e entra no saldo; desfazer tira. */
+function pesAdtConfirmar(chave, ym, valor){
+  if(!pessoas.adtBaixas) pessoas.adtBaixas = [];
+  const nome = (pesAdiantamentos(pesActiveYear).porPessoa[chave] || {}).nome || chave;
+  pessoas.adtBaixas.push({ pessoa: nome, ym: ym, valor: Math.round(valor * 100) / 100,
+                           em: new Date().toISOString().slice(0, 10) });
+  try{ pessoasSave(); }catch(_){}
+  _pesRenderAdiantamentos();
+  if(typeof toast === 'function') toast('Amortização confirmada — o saldo foi abatido.', 3000);
+}
+function pesAdtDesfazer(chave, ym){
+  if(!Array.isArray(pessoas.adtBaixas)) return;
+  const nome = (pesAdiantamentos(pesActiveYear).porPessoa[chave] || {}).nome || chave;
+  pessoas.adtBaixas = pessoas.adtBaixas.filter(b =>
+    !(b && _pesNormTxt(b.pessoa) === _pesNormTxt(nome) && b.ym === ym));
+  try{ pessoasSave(); }catch(_){}
+  _pesRenderAdiantamentos();
+}
+try{ window.pesAdtConfirmar = pesAdtConfirmar; window.pesAdtDesfazer = pesAdtDesfazer; }catch(_){}
+
+let _pesAdtAberto = false;
+let _pesAdtDetalhe = '';
+function pesAdtToggle(){ _pesAdtAberto = !_pesAdtAberto; _pesRenderAdiantamentos(); }
+function pesAdtDetalhe(n){ _pesAdtDetalhe = (_pesAdtDetalhe === n) ? '' : n; _pesRenderAdiantamentos(); }
+function _pesRenderAdiantamentos(){
+  const box = document.getElementById('pes-adiantamentos');
+  if(!box) return;
+  let r;
+  try{ r = pesAdiantamentos(pesActiveYear); }catch(e){ console.warn('adiantamentos', e); box.innerHTML = ''; return; }
+  const fmt = (typeof fmtBRL === 'function') ? fmtBRL : (v => 'R$ ' + (v||0).toFixed(2));
+  const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x||''));
+  const gente = Object.keys(r.porPessoa).map(k => Object.assign({ chave: k }, r.porPessoa[k]))
+    .sort((a,b) => b.saldo - a.saldo || b.adiantado - a.adiantado);
+  if(!gente.length){ box.innerHTML = ''; return; }
+  const comSaldo = gente.filter(p => p.saldo > 0.5).length;
+  const nProp = gente.reduce((s2, p) => s2 + ((p.candidatos || []).length), 0);
+  const dia = d => String(d||'').slice(8,10) + '/' + String(d||'').slice(5,7);
+
+  let h = '<div class="padt-wrap' + (_pesAdtAberto ? ' is-open' : '') + '">'
+    + '<button type="button" class="padt-hd" onclick="pesAdtToggle()">'
+    +   '<span class="padt-tt">Adiantamentos</span>'
+    +   '<span class="padt-resumo">' + fmt(r.totalAberto) + ' em aberto'
+    +     (comSaldo ? ' · ' + comSaldo + ' pessoa' + (comSaldo > 1 ? 's' : '') : '')
+    +     ' · ' + fmt(r.totalAdiantado) + ' adiantados no ano'
+    +     (nProp ? ' · <b>' + nProp + ' a confirmar</b>' : '') + '</span>'
+    +   '<span class="padt-seta">' + (_pesAdtAberto ? '▴' : '▾') + '</span>'
+    + '</button>';
+  if(_pesAdtAberto){
+    h += '<div class="padt-body"><table class="padt-tb"><thead><tr>'
+      + '<th>Pessoa</th><th class="n">Adiantado</th><th class="n">Devolveu em dinheiro</th>'
+      + '<th class="n">Descontado do pagamento</th><th class="n">Saldo</th><th>Como acerta</th>'
+      + '</tr></thead><tbody>';
+    for(const p of gente){
+      const como = p.semAcerto ? '<span class="padt-na">sem acerto definido</span>'
+        : (p.emDinheiro > 0.5 && p.emDesconto > 0.5) ? 'dinheiro e desconto'
+        : (p.emDinheiro > 0.5) ? 'devolve em dinheiro'
+        : (p.emDesconto > 0.5) ? 'desconta do pagamento'
+        : '<span class="padt-na">ainda não acertou</span>';
+      h += '<tr class="padt-row" onclick="pesAdtDetalhe(\'' + p.chave + '\')">'
+        + '<td class="padt-nome">' + esc(p.nome) + '</td>'
+        + '<td class="n">' + fmt(p.adiantado) + '</td>'
+        + '<td class="n">' + (p.emDinheiro > 0.5 ? fmt(p.emDinheiro) : '—') + '</td>'
+        + '<td class="n">' + (p.emDesconto > 0.5 ? fmt(p.emDesconto) : '—') + '</td>'
+        + '<td class="n' + (p.saldo > 0.5 ? ' padt-deve' : ' padt-quite') + '">'
+        +   (p.saldo > 0.5 ? fmt(p.saldo) : (p.saldo < -0.5 ? fmt(-p.saldo) + ' a maior' : 'quitado')) + '</td>'
+        + '<td class="padt-como">' + como + '</td></tr>';
+      if(_pesAdtDetalhe === p.chave){
+        h += '<tr class="padt-det"><td colspan="6"><div class="padt-det-in">';
+        for(const a of p.adiant)
+          h += '<div class="padt-li saiu"><span class="d">' + dia(a.data) + '</span>'
+            + '<span class="v">− ' + fmt(a.valor) + '</span><span class="t">' + esc(a.desc) + '</span></div>';
+        for(const d of p.devol)
+          h += '<div class="padt-li volta"><span class="d">' + dia(d.data) + '</span>'
+            + '<span class="v">+ ' + fmt(d.valor) + '</span><span class="t">devolveu em dinheiro · ' + esc(d.desc) + '</span></div>';
+        for(const x of p.descontos)
+          h += '<div class="padt-li volta"><span class="d">' + x.ym.slice(5) + '/' + x.ym.slice(2,4) + '</span>'
+            + '<span class="v">+ ' + fmt(x.valor) + '</span><span class="t">amortizado no pagamento do mês'
+            + ' <button type="button" class="padt-undo" onclick="event.stopPropagation();pesAdtDesfazer(\'' + p.chave + '\',\'' + x.ym + '\')">desfazer</button></span></div>';
+        for(const x of (p.candidatos || []))
+          h += '<div class="padt-li prop"><span class="d">' + x.ym.slice(5) + '/' + x.ym.slice(2,4) + '</span>'
+            + '<span class="v">? ' + fmt(x.valor) + '</span><span class="t">pagamento veio abaixo do habitual ('
+            + fmt(p.usual) + ') — foi desconto do adiantamento?'
+            + ' <button type="button" class="padt-ok" onclick="event.stopPropagation();pesAdtConfirmar(\'' + p.chave + '\',\'' + x.ym + '\',' + x.valor + ')">confirmar</button></span></div>';
+        if(p.semAcerto)
+          h += '<p class="padt-aviso">Sem pagamento recorrente que sirva de referência — o saldo só acumula '
+            + 'até ser cobrado ou devolvido.</p>';
+        h += '</div></td></tr>';
+      }
+    }
+    h += '</tbody></table>'
+      + '<p class="padt-aviso">O bloco lê o Extrato: saída com "vale", "adiantamento" ou "antecipação" é adiantado, '
+      + 'e entrada da pessoa é devolução em dinheiro. Desconto no pagamento o sistema só <b>propõe</b> — '
+      + 'pagamento abaixo do habitual também pode ser reajuste, comissão ou mês com menos horas, '
+      + 'então entra no saldo quando você confirma. Benefício que não volta (BENEFÍCIOS) fica de fora.</p></div>';
+  }
+  box.innerHTML = h + '</div>';
+}
+try{ window.pesAdtToggle = pesAdtToggle; window.pesAdtDetalhe = pesAdtDetalhe; }catch(_){}
+
 function pesPagoPorPessoa(ano){
   const y = String(ano || pesActiveYear || '');
   /* diag: por que um pagamento de folha do Extrato NÃO entrou no ano aberto.
@@ -109498,6 +109764,8 @@ function renderPessoas(){
   try{ pesHistLockRender(); }catch(_){}
   updatePesTotals();
   updatePesReajSimButton();
+  // Adiantamentos: lê a folha e o Extrato, não guarda estado próprio
+  try{ _pesRenderAdiantamentos(); }catch(e){ console.warn('adiantamentos render', e); }
 }
 
 function renderPesStatusFilter(){
