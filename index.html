@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792685000"/>
+  <meta name="fk-build" content="forekash-v1792686115"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -14482,8 +14482,13 @@
     .pes-year-tab.active .rec-year-dup{display:inline-flex}
 
     /* Legenda */
-    .pes-legend{display:flex;gap:16px;font-size:.72rem;color:var(--txm);
+    .pes-legend{display:flex;gap:10px;font-size:.72rem;color:var(--txm);
                 margin-bottom:12px;align-items:center;flex-wrap:wrap}
+    /* O Adiantamentos abre relatório; os outros criam ou simulam. Mesmo grupo,
+       separado por filete — a barra não cabe numa linha só nesta largura, então
+       a quebra tem que parecer escolha e não sobra. */
+    .pes-adt-btn{margin-left:12px!important;padding-left:16px;
+      border-left:1px solid var(--bdr);border-radius:0 14px 14px 0}
     .pes-leg-item{display:flex;align-items:center;gap:6px}
     .pes-leg-sq{width:14px;height:14px;border-radius:3px;flex-shrink:0}
     .pes-leg-sq.reaj{background:#FEF9C3;border:1px solid #FDE68A}
@@ -21012,11 +21017,6 @@ td.mes.do-extrato{background:#ECFDF5}
               <svg viewBox="0 0 24 24"><path d="M12 20V4M5 11l7-7 7 7"/></svg>
               Contratação
             </button>
-            <button class="rec-tipo-filter-btn" id="btn-pes-adt" onclick="pesAdtOpen()" style="margin-left:4px"
-                    title="Vale, antecipação e empréstimo ao colaborador">
-              <svg viewBox="0 0 24 24"><path d="M3 12h13M11 7l5 5-5 5M20 5v14"/></svg>
-              Adiantamentos<span class="padt-badge" id="pes-adt-badge" style="display:none"></span>
-            </button>
             <button class="rec-tipo-filter-btn pes-sim-reaj-btn" id="btn-pes-reaj-sim" onclick="openPesReajSimModal()" style="margin-left:4px"
                     title="Configurar simulação de reajuste por tipo">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -21031,6 +21031,14 @@ td.mes.do-extrato{background:#ECFDF5}
               <span class="pes-sim-toggle-track"><span class="pes-sim-toggle-thumb"></span></span>
               <span class="pes-sim-toggle-lbl">Aplicar</span>
             </label>
+            <!-- Adiantamentos abre um relatório; os outros criam ou simulam.
+                 Vai no fim da fila, separado por um filete, pra não entrar na
+                 leitura como mais uma ação de cadastro. -->
+            <button class="rec-tipo-filter-btn pes-adt-btn" id="btn-pes-adt" onclick="pesAdtOpen()"
+                    title="Vale, antecipação e empréstimo ao colaborador">
+              <svg viewBox="0 0 24 24"><path d="M3 12h13M11 7l5 5-5 5M20 5v14"/></svg>
+              Adiantamentos<span class="padt-badge" id="pes-adt-badge" style="display:none"></span>
+            </button>
           </div>
         </div>
 
@@ -108436,7 +108444,52 @@ function pesAdtSet(chave, campo, ym, el){
   if(!Object.keys(mapa).length) delete alvo[campo];
   if(!Object.keys(alvo).length) delete pessoas.adtAcerto[chave];
   try{ pessoasSave(); }catch(_){}
-  _pesRenderAdiantamentos();
+  /* NÃO re-renderiza o painel. innerHTML destrói e recria todos os campos, e
+     quem tabulou pro mês seguinte passava a digitar num input já descartado —
+     as teclas não apareciam em lugar nenhum. Aqui só os números que mudaram
+     são reescritos, e os campos abertos continuam sendo os mesmos nós. */
+  _pesAdtAtualizaNumeros(chave, el);
+}
+
+/* Reescreve totais da linha, do topo e do selo sem tocar nos inputs. */
+function _pesAdtAtualizaNumeros(chave, el){
+  let r;
+  try{ r = pesAdiantamentos(pesActiveYear); }catch(_){ return; }
+  const fmt = (typeof fmtBRL === 'function') ? fmtBRL : (v => 'R$ ' + (v||0).toFixed(2));
+  const p = r.porCliente ? null : r.porPessoa[chave];
+  const box = document.getElementById('pes-adt-body');
+  if(box && p){
+    const tr = box.querySelector('.padt-row[data-chave="' + chave + '"]');
+    if(tr){
+      const cel = (i, v, zeroTxt) => {
+        const td = tr.children[i]; if(!td) return;
+        td.textContent = (v > 0.5) ? fmt(v) : (zeroTxt || '—');
+        td.classList.toggle('padt-zero', !(v > 0.5));
+      };
+      cel(2, p.emDinheiro); cel(3, p.emDesconto);
+      const td = tr.children[4];
+      if(td){
+        td.textContent = p.saldo > 0.5 ? fmt(p.saldo)
+                       : (p.saldo < -0.5 ? fmt(-p.saldo) + ' a maior' : 'quitado');
+        td.classList.toggle('padt-deve', p.saldo > 0.5);
+        td.classList.toggle('padt-quite', !(p.saldo > 0.5));
+      }
+    }
+    const topo = box.querySelector('.padt-topo b');
+    if(topo) topo.textContent = fmt(r.totalAberto);
+  }
+  if(el){
+    const v = parseFloat(String(el.value || '').replace(/\./g, '').replace(',', '.')) || 0;
+    el.classList.toggle('edit', v > 0.005);
+  }
+  const badge = document.getElementById('pes-adt-badge');
+  if(badge){
+    if(r.totalAberto > 0.5){
+      badge.textContent = Math.round(r.totalAberto).toLocaleString('pt-BR');
+      badge.title = fmt(r.totalAberto) + ' em aberto';
+      badge.style.display = '';
+    } else badge.style.display = 'none';
+  }
 }
 try{ window.pesAdtSet = pesAdtSet; }catch(_){}
 
@@ -108536,7 +108589,8 @@ function _pesRenderAdiantamentos(){
     + '<th class="n">Saldo</th></tr></thead><tbody>';
   for(const p of gente){
     const aberta = _pesAdtDetalhe === p.chave;
-    h += '<tr class="padt-row' + (aberta ? ' is-open' : '') + '" onclick="pesAdtDetalhe(\'' + p.chave + '\')">'
+    h += '<tr class="padt-row' + (aberta ? ' is-open' : '') + '" data-chave="' + p.chave + '"'
+      + ' onclick="pesAdtDetalhe(\'' + p.chave + '\')">'
       + '<td class="padt-nome"><span class="padt-caret">' + (aberta ? '▾' : '▸') + '</span>' + esc(p.nome) + '</td>'
       + '<td class="n padt-auto" title="Soma do que saiu segundo o Extrato">' + fmt(p.adiantado) + '</td>'
       + '<td class="n' + (p.emDinheiro > 0.5 ? '' : ' padt-zero') + '">'
