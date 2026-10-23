@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792728119"/>
+  <meta name="fk-build" content="forekash-v1792729364"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -25076,6 +25076,11 @@ td.mes.do-extrato{background:#ECFDF5}
               <label>API Key (BYOK)</label>
               <input type="password" id="llm-api-key" placeholder="sk-ant-... ou sk-..." style="width:100%;padding:9px 12px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#10B981;font-family:'JetBrains Mono',monospace;font-size:.82rem;margin-top:4px">
               <small style="color:#94A3B8;font-size:.72rem;display:block;margin-top:4px">Sua key fica APENAS no seu navegador. Forekash usa diretamente do client (fetch direto pra api.anthropic.com / api.openai.com).</small>
+            </div>
+            <div id="llm-ws-wrap" style="display:none;margin-top:10px">
+              <label>Workspace ID <span style="color:#94A3B8;font-weight:400">· só se a key começar com sk-ant-usr-</span></label>
+              <input type="text" id="llm-workspace" placeholder="wrkspc_..." style="width:100%;padding:9px 12px;background:#0F172A;border:1px solid #334155;border-radius:6px;color:#10B981;font-family:'JetBrains Mono',monospace;font-size:.82rem;margin-top:4px">
+              <small style="color:#94A3B8;font-size:.72rem;display:block;margin-top:4px">Chave de usuário não aponta pra um workspace sozinha. Ou você cria a chave já escolhendo um workspace, ou informa o ID aqui. Ele fica em Configurações → Workspaces no console.</small>
             </div>
             <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
               <button class="btn btn-p" onclick="llmSave()" style="padding:8px 14px;font-size:.84rem">Salvar</button>
@@ -130884,6 +130889,8 @@ function llmLoad(){
     if(pr) pr.value = LLM_CFG.provider || 'local';
     if(md && LLM_CFG.model) md.value = LLM_CFG.model;
     if(k && LLM_CFG.apiKey) k.value = LLM_CFG.apiKey;
+    const ws = document.getElementById('llm-workspace');
+    if(ws && LLM_CFG.workspaceId) ws.value = LLM_CFG.workspaceId;
     llmProviderChange();
     llmUpdateStatus();
   }, 500);
@@ -130895,6 +130902,9 @@ function llmProviderChange(){
   const wMd = document.getElementById('llm-model-wrap');
   if(wKey) wKey.style.display = showCustom ? '' : 'none';
   if(wMd) wMd.style.display = showCustom ? '' : 'none';
+  // Workspace só faz sentido na Anthropic
+  const wWs = document.getElementById('llm-ws-wrap');
+  if(wWs) wWs.style.display = (p === 'anthropic') ? '' : 'none';
   // Filtra modelos por provider
   const md = document.getElementById('llm-model');
   if(md){
@@ -130915,7 +130925,8 @@ function llmSave(){
   const p = (document.getElementById('llm-provider')||{}).value || 'local';
   const m = (document.getElementById('llm-model')||{}).value || '';
   const k = (document.getElementById('llm-api-key')||{}).value || '';
-  LLM_CFG = { provider:p, model:m, apiKey:k };
+  const ws = ((document.getElementById('llm-workspace')||{}).value || '').trim();
+  LLM_CFG = { provider:p, model:m, apiKey:k, workspaceId:ws };
   try{ localStorage.setItem(LLM_KEY, JSON.stringify(LLM_CFG)); }catch(_){}
   llmUpdateStatus();
   if(typeof fkToast === 'function') fkToast(p==='local' ? 'Modo local salvo · MR KASH usa regex' : `LLM ativado: ${m}`, 'ok', 3000);
@@ -130943,9 +130954,11 @@ async function llmTest(){
       /* max_tokens generoso de propósito: nos modelos atuais o raciocínio é
          sempre ligado e conta nesse teto, então um teto de 50 estourava antes
          de sair a primeira letra e o teste reprovava key boa. */
+      const ws = ((document.getElementById('llm-workspace')||{}).value || '').trim();
       res = await fetch('https://api.anthropic.com/v1/messages', {
         method:'POST',
-        headers:{ 'x-api-key':k, 'anthropic-version':'2026-10-21', 'content-type':'application/json', 'anthropic-dangerous-direct-browser-access':'true' },
+        headers: Object.assign({ 'x-api-key':k, 'anthropic-version':'2026-10-21', 'content-type':'application/json', 'anthropic-dangerous-direct-browser-access':'true' },
+                               ws ? { 'anthropic-workspace-id': ws } : {}),
         body: JSON.stringify({ model:m, max_tokens:2048, output_config:{ effort:'low' },
           messages:[{role:'user', content:'Responda apenas: ok'}] })
       });
@@ -130967,8 +130980,13 @@ async function llmTest(){
                   || 'sem resposta';
       if(typeof fkToast==='function') fkToast(`Conexão OK · resposta: "${txt.slice(0,30)}"`, 'ok', 4500);
     } else {
+      /* 80 caracteres cortavam a mensagem exatamente onde ela começava a
+         explicar o problema — sobrava só o envelope do erro. */
       const err = res ? await res.text() : 'fetch falhou';
-      if(typeof fkToast==='function') fkToast('Falha: ' + err.slice(0,80), 'err', 5000);
+      let msg = err;
+      try{ const j = JSON.parse(err); msg = (j.error && j.error.message) || err; }catch(_){}
+      console.error('llmTest:', err);
+      if(typeof fkToast==='function') fkToast('Falha: ' + msg.slice(0,400), 'err', 14000);
     }
   }catch(e){
     if(typeof fkToast==='function') fkToast('Erro: ' + e.message.slice(0,80), 'err', 5000);
@@ -131252,9 +131270,13 @@ async function llmAsk(prompt, contextData){
   if(LLM_CFG.provider === 'anthropic'){
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method:'POST',
-      headers:{ 'x-api-key':LLM_CFG.apiKey, 'anthropic-version':'2026-10-21',
+      /* Chave de usuário (sk-ant-usr-) não aponta pra workspace sozinha e a
+         API recusa sem este cabeçalho. Chave já criada dentro de um workspace
+         dispensa — por isso o campo é opcional. */
+      headers: Object.assign({ 'x-api-key':LLM_CFG.apiKey, 'anthropic-version':'2026-10-21',
                 'content-type':'application/json',
                 'anthropic-dangerous-direct-browser-access':'true' },
+                LLM_CFG.workspaceId ? { 'anthropic-workspace-id': LLM_CFG.workspaceId } : {}),
       /* O panorama não muda entre perguntas da mesma sessão. Marcado como
          cacheável, a segunda pergunta relê o prefixo por uma fração do preço —
          que é o que torna conversa longa viável no bolso dele. */
@@ -131269,7 +131291,7 @@ async function llmAsk(prompt, contextData){
     if(!res.ok){
       let det = '';
       try{ const j = await res.json(); det = (j.error && j.error.message) || ''; }catch(_){}
-      throw new Error('API ' + res.status + (det ? ' · ' + det.slice(0,140) : ''));
+      throw new Error('API ' + res.status + (det ? ' · ' + det.slice(0,400) : ''));
     }
     const data = await res.json();
     if(data.stop_reason === 'refusal') return 'Recusei essa. Pergunta de outro jeito.';
