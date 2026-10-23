@@ -9,7 +9,8 @@
    Tudo que não for /api/ cai em env.ASSETS.fetch — o site não muda de
    comportamento por existir um Worker na frente.                          */
 
-import { carregar, briefing, vocabulario, criarLancamento } from './forekash.js';
+import { carregar, briefing, vocabulario, criarLancamento,
+         grafico, GRAFICOS } from './forekash.js';
 import { perguntar, postar, assinaturaValida, podeLancar,
          LANCAR, separarLancamento, cartaoLancamento } from './mrkash.js';
 
@@ -109,6 +110,32 @@ async function comandoSlack(request, env, ctx){
 
      Vai pra lista, não pro público: perguntar é livre, mas disparar mensagem
      no canal da empresa inteira em nome do MR KASH, não. */
+  /* `/mrkash grafico` sem nada lista o que existe, com botão. Com o nome,
+     desenha direto. Ler é livre, então gráfico também é — o recorte de folha
+     e dívida vale aqui igual ao das respostas. */
+  if(/^(gr[áa]fico|graf)\b/i.test(texto)){
+    const qual = texto.replace(/^(gr[áa]fico|graf)\s*/i, '').trim().toLowerCase();
+    const achado = GRAFICOS.find(g => qual && (g.id === qual || g.titulo.toLowerCase().includes(qual)));
+    if(!achado){
+      return Response.json({ response_type:'ephemeral', text:'Qual deles?', blocks: [
+        { type:'section', text:{ type:'mrkdwn', text:'*Qual deles?*' } },
+        { type:'actions', block_id:'grafico', elements: GRAFICOS.map(g => ({
+            type:'button', action_id:'graf:' + g.id, value:g.id,
+            text:{ type:'plain_text', text:g.titulo } })) },
+        { type:'context', elements:[{ type:'mrkdwn',
+            text:'Ou direto: `/mrkash grafico ' + GRAFICOS.map(g=>g.id).join('` · `') + '`' }] }
+      ]});
+    }
+    ctx.waitUntil((async () => {
+      let txt;
+      try{ txt = montarGrafico(await carregar(env), achado.id, escopoSlack(env)); }
+      catch(e){ txt = 'Não desenhei: ' + (e && e.message || 'erro'); }
+      await fetch(p.get('response_url'), { method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ response_type:'in_channel', text: txt }) });
+    })());
+    return Response.json({ response_type:'ephemeral', text:'Desenhando...' });
+  }
+
   const teste = /^(testar|aviso|avisar)\b/i.exec(texto);
   if(teste){
     if(!podeLancar(env, user))
@@ -143,6 +170,14 @@ async function comandoSlack(request, env, ctx){
   return Response.json({ response_type: 'ephemeral', text: 'Lendo teus números...' });
 }
 
+/* O gráfico em bloco de código: é o que chega igual no celular e no desktop.
+   O rodapé fica FORA do bloco porque é fala, não dado. */
+function montarGrafico(d, id, op){
+  const g = grafico(d, id, op);
+  if(!g) return 'Não tenho dado pra desenhar isso.';
+  return '*' + g.titulo + '*\n```\n' + g.corpo + '\n```' + (g.rodape ? '\n' + g.rodape : '');
+}
+
 /* ── O clique nos botões ─────────────────────────────────────────────────
    É aqui, e só aqui, que algo é gravado. A proposta chega dentro do próprio
    botão, assinada pelo Slack; a permissão é conferida de novo, porque quem
@@ -161,6 +196,19 @@ async function interativoSlack(request, env, ctx){
   const url = p.response_url;
   const responder = (txt) => fetch(url, { method:'POST', headers:{'content-type':'application/json'},
     body: JSON.stringify({ replace_original: true, text: txt }) });
+
+  // gráfico não grava nada, então não passa pela lista
+  if(String(acao.action_id || '').startsWith('graf:')){
+    const id = acao.action_id.slice(5);
+    ctx.waitUntil((async () => {
+      let txt;
+      try{ txt = montarGrafico(await carregar(env), id, escopoSlack(env)); }
+      catch(e){ txt = 'Não desenhei: ' + (e && e.message || 'erro'); }
+      await fetch(url, { method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ replace_original: true, text: txt }) });
+    })());
+    return ok();
+  }
 
   if(!podeLancar(env, quem)){
     /* Diz o ID de quem clicou: o erro mais comum é um ID colado pela metade

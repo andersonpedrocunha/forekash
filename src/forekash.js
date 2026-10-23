@@ -379,4 +379,135 @@ export async function criarLancamento(env, dados, quem){
   throw new Error('não consegui um número livre de lançamento — tenta de novo');
 }
 
+/* ── Gráficos ───────────────────────────────────────────────────────────
+   Barra em texto monoespaçado, dentro de bloco de código. Não é consolo por
+   não ter imagem: é o formato que chega igual em todo cliente de Slack, no
+   celular e no desktop, sem upload, sem plano pago e sem mandar o
+   faturamento da casa pro servidor de ninguém.
+
+   Respeitam o mesmo recorte das respostas: o que não vai pro modelo também
+   não vira barra.                                                          */
+const BARRA = 18;
+function _barras(linhas, maxForcado){
+  const max = maxForcado || Math.max(...linhas.map(l => Math.abs(l.valor)), 1);
+  const larg = Math.max(...linhas.map(l => l.rotulo.length));
+  return linhas.map(l => {
+    const n = Math.max(0, Math.round(Math.abs(l.valor) / max * BARRA));
+    return l.rotulo.padEnd(larg) + '  ' + '█'.repeat(n).padEnd(BARRA, '·') + '  ' + _mil(l.valor);
+  }).join('\n');
+}
+function _mil(v){
+  const n = Number(v) || 0, a = Math.abs(n);
+  const s = a >= 1e6 ? (a/1e6).toFixed(1).replace('.', ',') + 'M'
+          : a >= 1000 ? Math.round(a/1000) + 'k'
+          : String(Math.round(a));
+  return ((n < 0 ? '-' : '') + 'R$ ' + s).padStart(9);
+}
+
+export const GRAFICOS = [
+  { id:'clientes',  titulo:'Top 10 clientes por receita',  dica:'quem mais faturou no ano' },
+  { id:'mes',       titulo:'Entrou × saiu, mês a mês',     dica:'o ano inteiro em duas colunas' },
+  { id:'categoria', titulo:'Para onde o dinheiro foi',     dica:'saída por categoria' },
+  { id:'aberto',    titulo:'Quem está devendo',            dica:'faturado que ainda não caiu' }
+];
+
+export function grafico(d, id, op){
+  op = op || {};
+  const ano = d.hoje.toISOString().slice(0,4);
+  const f = filtro(d, op);
+
+  if(id === 'clientes' || id === 'aberto'){
+    const cob = cobranca(d, ano);
+    const linhas = (id === 'aberto'
+        ? cob.filter(c => c.aberto > 0.5).sort((a,b) => b.aberto - a.aberto)
+        : cob)
+      .slice(0, 10)
+      .map(c => ({ rotulo: c.nome.slice(0,16), valor: id === 'aberto' ? c.aberto : c.faturado }));
+    if(!linhas.length) return null;
+    /* O rodapé não é legenda, é leitura. A conta é determinística — sai
+       daqui, não do modelo — mas a frase é dele. Gráfico sem leitura é
+       planilha colorida. */
+    let rodape;
+    if(id === 'aberto'){
+      const topo = linhas[0];
+      const soma = linhas.reduce((s,l) => s + l.valor, 0);
+      rodape = _mil(soma).trim() + ' parados. ' + topo.rotulo + ' sozinho segura ' +
+               Math.round(topo.valor / soma * 100) + '%.\n' +
+               'Parte disso é retenção e taxa de antecipação — não é calote. O resto é.';
+    } else {
+      const soma = cob.reduce((s,c) => s + c.faturado, 0);
+      const tres = linhas.slice(0,3);
+      const pct = Math.round(tres.reduce((s,l) => s + l.valor, 0) / soma * 100);
+      rodape = tres.map(t => t.rotulo).join(', ') + ' são ' + pct + '% do que tu fatura. ' +
+               (pct >= 60 ? 'Isso não é carteira de clientes, é dependência.'
+                          : 'Concentrado, mas respira.');
+    }
+    return { titulo: GRAFICOS.find(g => g.id === id).titulo + ' · ' + ano,
+             corpo: _barras(linhas), rodape };
+  }
+
+  if(id === 'mes'){
+    const m = {};
+    for(const l of d.ext){
+      if(String(l.data).slice(0,4) !== ano) continue;
+      if(l.tipo !== 'ganho' && l.tipo !== 'gasto') continue;
+      const k = String(l.data).slice(5,7);
+      const b = m[k] || (m[k] = { e:0, s:0 });
+      const v = Math.abs(Number(l.valor) || 0);
+      if(l.tipo === 'ganho') b.e += v; else b.s += v;
+    }
+    const ks = Object.keys(m).sort();
+    if(!ks.length) return null;
+    const max = Math.max(...ks.map(k => Math.max(m[k].e, m[k].s)), 1);
+    const bar = v => '█'.repeat(Math.max(0, Math.round(v / max * 12))).padEnd(12, '·');
+    const corpo = '      entrou            saiu\n' + ks.map(k =>
+      MES[+k - 1] + '  ' + bar(m[k].e) + _mil(m[k].e) + '  ' + bar(m[k].s) + _mil(m[k].s)).join('\n');
+    /* Lê o ano: qual mês sustenta, quantos fecharam no vermelho, e o que
+       sobra se tirar o melhor. É a pergunta que o gráfico provoca. */
+    const ent = ks.reduce((s,k) => s + m[k].e, 0), sai = ks.reduce((s,k) => s + m[k].s, 0);
+    const vermelhos = ks.filter(k => m[k].e < m[k].s).length;
+    const melhor = ks.reduce((a,k) => (m[k].e - m[k].s) > (m[a].e - m[a].s) ? k : a, ks[0]);
+    const semMelhor = (ent - sai) - (m[melhor].e - m[melhor].s);
+    const pe = [vermelhos + ' de ' + ks.length + ' meses fecharam no vermelho.'];
+    if(semMelhor < 0)
+      pe.push(MES[+melhor - 1] + ' carrega o ano sozinho. Tira ele e sobra ' + _mil(semMelhor).trim() + '.');
+    else
+      pe.push('O ano acumula ' + brlSgn(ent - sai) + '.');
+    return { titulo: 'Entrou × saiu · ' + ano, corpo, rodape: pe.join('\n') };
+  }
+
+  if(id === 'categoria'){
+    const porCat = {};
+    let folha = 0, total = 0;
+    for(const l of d.ext){
+      if(l.tipo !== 'gasto' || String(l.data).slice(0,4) !== ano) continue;
+      const c = String(l.categoria || 'Sem categoria').trim();
+      const v = Math.abs(Number(l.valor) || 0);
+      /* O total conta TUDO que saiu, inclusive o que não vira barra. Somando
+         só o que entra no gráfico, a folha dava 78% da saída em vez de 52%:
+         a dívida tinha saído do denominador e inflava o resto. */
+      total += v;
+      if(f.catFora(c)) continue;                 // mesmo recorte das respostas
+      /* A folha sai do gráfico e vira rótulo. Ela é metade da saída, então
+         dentro do gráfico achata todo o resto numa barrinha só e some com a
+         diferença entre Impostos, ADM e Despesas — que é justamente o que
+         alguém quer ver aqui. O número não se perde: vai escrito embaixo. */
+      if(/folha/i.test(c)){ folha += v; continue; }
+      porCat[c] = (porCat[c] || 0) + v;
+    }
+    const linhas = Object.entries(porCat).sort((a,b) => b[1] - a[1]).slice(0, 10)
+      .map(([c,v]) => ({ rotulo: c.slice(0,18), valor: v }));
+    if(!linhas.length) return null;
+    const pe = [];
+    if(folha) pe.push('A folha ficou fora: ' + _mil(folha).trim() + ', ' +
+      (total ? Math.round(folha/total*100) + '% de tudo que sai' : 'o maior gasto da casa') +
+      '. Dentro do gráfico ela achata o resto e tu não enxerga mais nada.');
+    if(linhas.length) pe.push('Do que sobrou, ' + linhas[0].rotulo + ' é o que pesa.');
+    if(op.semDivida) pe.push('Empréstimo não entra nesse recorte.');
+    return { titulo: 'Para onde o dinheiro foi · ' + ano, corpo: _barras(linhas),
+             rodape: pe.join('\n') };
+  }
+  return null;
+}
+
 export { brl, brlSgn, dia, MES };
