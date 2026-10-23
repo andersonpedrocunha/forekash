@@ -37,10 +37,30 @@ export default {
     if(url.pathname === '/api/slack/interativo' && request.method === 'POST')
       return interativoSlack(request, env, ctx);
     /* Só pra conferir que o Worker está no ar sem falar com o Slack.
-       Não devolve número nenhum: é diagnóstico de encanamento. */
-    if(url.pathname === '/api/mrkash/ping')
-      return Response.json({ ok: true, cron: !!env.SLACK_CANAL_EQUIPE,
-                             modelo: env.MRK_MODEL || 'claude-opus-5-5' });
+       Não devolve número nenhum: é diagnóstico de encanamento.
+
+       Com ?teste=1 ele tenta LER o banco e diz se conseguiu. Existe porque
+       descobrir que uma chave foi colada errada pelo erro que aparece no
+       Slack custa uma ida e volta inteira a cada tentativa — e chave longa
+       colada em campo de painel erra com frequência. Devolve "ok" ou o
+       motivo, nunca dado financeiro. */
+    if(url.pathname === '/api/mrkash/ping'){
+      const r = { ok: true, cron: !!env.SLACK_CANAL_EQUIPE,
+                  modelo: env.MRK_MODEL || 'claude-opus-5-5',
+                  temChaves: {
+                    anthropic: !!env.ANTHROPIC_API_KEY, supabase: !!env.SUPABASE_SERVICE_KEY,
+                    slackBot: !!env.SLACK_BOT_TOKEN, slackAssinatura: !!env.SLACK_SIGNING_SECRET
+                  } };
+      if(url.searchParams.get('teste')){
+        try{
+          const q = await fetch(env.SUPABASE_URL + '/rest/v1/module_blobs?select=module&limit=1',
+            { headers: { apikey: env.SUPABASE_SERVICE_KEY,
+                         Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY } });
+          r.supabase = q.ok ? 'ok' : ('erro ' + q.status + ': ' + (await q.text()).slice(0,120));
+        }catch(e){ r.supabase = 'erro: ' + (e && e.message || 'falhou'); }
+      }
+      return Response.json(r);
+    }
     return new Response('não existe', { status: 404 });
   },
 
