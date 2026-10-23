@@ -81,6 +81,28 @@ async function comandoSlack(request, env, ctx){
   if(!texto)
     return Response.json({ response_type: 'ephemeral', text: 'Pergunta alguma coisa.' });
 
+  /* Gatilho manual dos avisos. Existe porque o automático só dispara no dia
+     marcado, e descobrir daqui a uma semana que a postagem no canal falha é
+     tarde demais. Também serve no dia a dia: dá pra repetir um lembrete sem
+     esperar o mês virar. Usa a mesma permissão do resto — quem não está na
+     lista não chega aqui. */
+  const teste = /^(testar|aviso|avisar)\b/i.exec(texto);
+  if(teste){
+    const qual = texto.replace(/^(testar|aviso|avisar)\s*/i, '').trim().toLowerCase();
+    const canal = env.SLACK_CANAL_EQUIPE;
+    if(!canal) return Response.json({ response_type:'ephemeral', text:'SLACK_CANAL_EQUIPE não configurado.' });
+    ctx.waitUntil((async () => {
+      let msg;
+      try{
+        if(/benef/.test(qual)){ await avisoBeneficios(env, canal); msg = 'Aviso de benefícios postado no canal.'; }
+        else                  { await avisoNota(env, canal);       msg = 'Lembrete da nota postado no canal.'; }
+      }catch(e){ msg = 'Não consegui postar: ' + (e && e.message || 'erro'); }
+      await fetch(p.get('response_url'), { method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ response_type:'ephemeral', text: msg }) });
+    })());
+    return Response.json({ response_type:'ephemeral', text:'Postando...' });
+  }
+
   const responseUrl = p.get('response_url');
   ctx.waitUntil((async () => {
     let txt;
