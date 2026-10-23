@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792765020"/>
+  <meta name="fk-build" content="forekash-v1792765565"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -75598,6 +75598,10 @@ function extSaveModal(tipo){
     }
     if(okCount > 0){
       _extSave();
+      /* Este modal tem DOIS caminhos de salvar — este, dos itens, e o de
+         lançamento único lá embaixo. Enganchar só um fazia o boleto ser
+         salvo sem nenhuma confirmação no chat, que é por onde ele passa. */
+      try{ if(typeof mrkAnexoConfirmar === 'function') mrkAnexoConfirmar(); }catch(_){}
       extCloseModal();
       /* Leva a tela até o que acabou de ser criado. Salvar um lançamento de
          06/01/2026 com o Extrato em "Agosto de 2026" — ou com um cliente
@@ -95666,8 +95670,33 @@ function _anaPeriodoLabel(ym){
   const [y,mm] = ym.split('-').map(Number);
   return ANA_MESES[mm-1] + '/' + String(y).slice(2);
 }
+/* Mapa "cliente+mês → quitado", tirado do painel de Recebíveis (título ×
+   crédito no Extrato). Vale uma passada por render: `recRecebiveis` varre o
+   ano inteiro e isto é consultado uma vez por célula. */
+let _anaQuitCache = {};
+function _anaFoiQuitado(ano, nomeCli, mesAbrev, cell){
+  // respeita o carimbo manual, se um dia alguém usar
+  if(cell && cell.status === 'recebido') return true;
+  const y = String(ano);
+  if(!_anaQuitCache[y]){
+    const m = {};
+    try{
+      if(typeof recRecebiveis === 'function'){
+        const r = recRecebiveis(y) || {};
+        for(const k in (r.porCliente || {}))
+          for(const l of (r.porCliente[k].linhas || []))
+            if(l && l.quitado) m[k + '|' + l.mes] = true;
+      }
+    }catch(e){ console.warn('_anaFoiQuitado:', e); }
+    _anaQuitCache[y] = m;
+  }
+  const chave = (typeof recNomeChave === 'function') ? recNomeChave(nomeCli) : String(nomeCli || '').toUpperCase();
+  return !!_anaQuitCache[y][chave + '|' + mesAbrev];
+}
+
 function _anaCollectFacts(){
   const facts = [];
+  _anaQuitCache = {};   // dado do Extrato pode ter mudado desde o último render
   const includeMod = (id) => _anaState.modulos.includes(id);
   const stFilter = _anaState.statusFilter || 'all';
   // ─── RECEITA ───
@@ -95681,13 +95710,18 @@ function _anaCollectFacts(){
         if(!cell) continue;
         const v = parseFloat(cell.valor) || 0;
         if(v <= 0) continue;
-        const baixado = (cell.status === 'recebido');
+        /* "Baixado" aqui não é carimbo na célula. O realizado entra pelo
+           Extrato, então `cell.status` fica 'aberto' para sempre e o filtro
+           de baixados devolvia zero com o ano inteiro recebido. Quem sabe o
+           que foi quitado é o Recebíveis, que cruza título com crédito. */
+        const nomeCli = (cName && cName.nome) || cli.nome || '';
+        const baixado = _anaFoiQuitado(y, nomeCli, MESES_NM[m], cell);
         if(stFilter === 'baixado' && !baixado) continue;
         if(stFilter === 'aberto'  &&  baixado) continue;
         facts.push({
           ym, ano:String(y), modulo:'receita',
-          entidade: (cName && cName.nome) || '(cliente)',
-          categoria: cell.status || 'pendente',
+          entidade: nomeCli || '(cliente)',
+          categoria: baixado ? 'recebido' : 'aberto',
           baixado, valor: v
         });
       }
@@ -96932,7 +96966,9 @@ function _anaVazio(ctx, msg){
                        'justify-content:center;text-align:center;padding:16px';
     box.appendChild(ov);
   }
-  ov.innerHTML = msg;
+  /* Dentro de um <div> próprio: solto no flex, cada <b> virava item e os
+     espaços entre eles sumiam — "entreJAN/26eDEZ/26". */
+  ov.innerHTML = '<div>' + msg + '</div>';
 }
 function _anaVazioLimpa(ctx){
   if(!ctx || !ctx.parentElement) return;
@@ -131352,12 +131388,16 @@ const MRK_PERSONA =
   'foge do padrão ou parece cobrança repetida.\n' +
   '- Diz em que módulo do Forekash cada coisa se resolve.\n' +
   'O que você NÃO faz: salvar, apagar ou alterar qualquer registro por conta própria, e emitir ' +
-  'documento fiscal.\n\n' +
+  'documento fiscal.\n' +
+  'Cuidado com uma confusão: "eu não salvo sozinho" não é a mesma coisa que "não foi salvo". ' +
+  'Se ele perguntar se algo já foi lançado, OLHE os últimos lançamentos antes de responder — ' +
+  'se o lançamento está lá, diga que está e com que data. Responder "não" sobre algo que ele ' +
+  'acabou de salvar é o pior erro que você pode cometer nessa conversa.\n\n' +
   'Nunca diga a palavra "panorama", nem "contexto", nem "os dados que me foram fornecidos". ' +
   'Isso é encanamento, e encanamento não se mostra. Fale "os teus números", "o que passou pela ' +
   'tua conta", "o teu extrato" — ou simplesmente diga o número.\n\n' +
   'Regra que não se quebra: **todo número que você disser tem que estar no ' +
-  'PANORAMA abaixo**. Você não estima, não extrapola e não completa de cabeça. ' +
+  'quadro abaixo**. Você não estima, não extrapola e não completa de cabeça. ' +
   'Se a pergunta pede algo que não está lá, diga exatamente o que falta e em ' +
   'qual módulo do app ele preenche isso. Chutar número de dinheiro é o pior ' +
   'erro que você pode cometer aqui.\n\n' +
@@ -131450,7 +131490,7 @@ async function mrkDocPerguntar(file, instrucao, comPanorama){
 
   let system = MRK_PERSONA;
   if(comPanorama){
-    try{ system += '\n\n# PANORAMA — a única fonte de números que você pode usar\n\n' +
+    try{ system += '\n\n# OS NÚMEROS DESTA EMPRESA — única fonte do que você pode afirmar\n\n' +
                    mrkBriefing(mrkGatherContext()); }catch(_){}
   }
 
@@ -131891,7 +131931,7 @@ async function llmAsk(prompt, contextData){
     panorama = mrkBriefing(contextData && contextData.extrato ? contextData : mrkGatherContext());
   }catch(e){ console.warn('briefing:', e); }
   if(!panorama) throw new Error('não consegui montar o panorama dos seus números');
-  const system = MRK_PERSONA + '\n\n# PANORAMA — a única fonte de números que você pode usar\n\n' + panorama;
+  const system = MRK_PERSONA + '\n\n# OS NÚMEROS DESTA EMPRESA — única fonte do que você pode afirmar\n\n' + panorama;
   const msgs = _mrkHistParaApi(10);
   msgs.push({ role:'user', content: prompt });
 
