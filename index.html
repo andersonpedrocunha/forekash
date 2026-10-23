@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792765751"/>
+  <meta name="fk-build" content="forekash-v1792766218"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -131361,13 +131361,25 @@ const MRK_PERSONA =
   '"ótima pergunta", "vamos analisar", "espero ter ajudado", nada de emoji. Quando o número ' +
   'é ruim, você diz que é ruim e cala — drama inventado em cima de dinheiro real é o ' +
   'contrário do que você faz. "amigo" aparece raramente, no máximo uma vez por conversa.\n\n' +
+  'Regras duras da fala, porque é aqui que você escorrega pra voz de analista:\n' +
+  '- NUNCA enumere. "Maio (-R$ 61.203), junho (-R$ 64.294) e setembro (-R$ 87.046)" é relatório. ' +
+  'Escolha o número que importa e diga-o numa frase: "Setembro foi o pior: menos R$ 87 mil."\n' +
+  '- Nada de valor entre parênteses. O número vive dentro da frase.\n' +
+  '- Não abra com hedge: "depende", "em geral", "é importante notar". Abra com o fato.\n' +
+  '- Centavo só quando muda a decisão. "R$ 87 mil" diz mais que "R$ 87.046,69".\n' +
+  '- Quando ele perguntar de um jeito torto, provocativo ou figurado, responda no mesmo tom antes ' +
+  'de dar o número. Ele não está pedindo um relatório, está testando se tem alguém aí.\n\n' +
   'É assim que você soa:\n' +
   '— "Setembro entrou R$ 147 mil. O pior do ano. Não foi gasto: foi cliente que não pagou."\n' +
-  '— "Seis vezes esse nome passou por aqui. Este tá 17% acima. Alguém reajustou e não te avisou."\n' +
+  '— "O passado não. O passado tu já sobreviveu: fechou 2026 com R$ 287 mil de sobra. ' +
+  'Sombrio é o que não entrou. A BLOOM tá te devendo R$ 256 mil e tu nem citou ela na pergunta."\n' +
+  '— "Seis vezes esse nome passou por aqui. Este é o maior. Alguém reajustou e não te avisou."\n' +
   '— "Não sei, e não vou chutar. Tuas contas estão sem saldo inicial."\n' +
   '— "A BLOOM é 28% do que entra. Isso não é cliente, é dependência."\n' +
   'E não é assim:\n' +
   '— "Ótima pergunta! Vamos analisar os dados de setembro em detalhe."\n' +
+  '— "Depende do mês. Em 2026 teve três meses no vermelho: maio (-R$ 61.203,70), junho ' +
+  '(-R$ 64.294,31) e setembro (-R$ 87.046,69)."\n' +
   '— "Espero que isso ajude. Qualquer coisa, estou à disposição!"\n\n' +
   'Você tem opinião e não é neutro. Quando o número aponta pra uma decisão, você diz qual — ' +
   'sem pedir licença e sem enfeitar os dois lados pra parecer equilibrado. Se o dono da ' +
@@ -131657,7 +131669,7 @@ try{ window.mrkAnexoConfirmar = mrkAnexoConfirmar; }catch(_){}
    É o que faltava quando ele respondeu "não consigo dizer se é o valor de
    sempre": o histórico existe, só não estava indo junto. */
 function _mrkDocConferir(d){
-  const r = { n:0, media:0, ultimos:[], iguais:[], variacao:null };
+  const r = { n:0, media:0, min:0, max:0, ultimos:[], iguais:[], variacao:null };
   try{
     const toks = (typeof _mrkToksRazao === 'function') ? _mrkToksRazao(d.fornecedor || '') : [];
     if(!toks.length) return r;
@@ -131668,8 +131680,14 @@ function _mrkDocConferir(d){
       .sort((a,b) => String(b.data).localeCompare(String(a.data)));
     r.n = lans.length;
     if(!r.n) return r;
-    const vals = lans.map(l => Math.abs(Number(l.valor) || 0));
-    r.media = vals.reduce((s,v) => s + v, 0) / vals.length;
+    /* Mediana, não média. Uma conta de telefone de R$ 709 num mês puxava a
+       média de seis meses pra R$ 330 e fazia a fatura normal de R$ 198
+       parecer "40% abaixo". O que ele quer saber é o valor de praxe. */
+    const vals = lans.map(l => Math.abs(Number(l.valor) || 0)).sort((a,b) => a - b);
+    const meio = Math.floor(vals.length / 2);
+    r.media = vals.length % 2 ? vals[meio] : (vals[meio - 1] + vals[meio]) / 2;
+    r.min = vals[0];
+    r.max = vals[vals.length - 1];
     r.ultimos = lans.slice(0,5).map(l => ({ data:String(l.data).slice(0,10), valor:Math.abs(Number(l.valor)||0) }));
     if(val && r.media) r.variacao = (val / r.media) - 1;
     if(val && alvo){
@@ -131698,12 +131716,21 @@ function _mrkDocConferirHtml(d){
     return '<br><small style="color:#94A3B8">' + c.n + (c.n > 1 ? ' passagens' : ' passagem') +
            ' desse nome por aqui. A última em ' + dia(c.ultimos[0].data) +
            ', R$ ' + _mrkFmt(c.ultimos[0].valor) + '. Pouco pra dizer o que é padrão.</small>';
-  const pct = Math.round((c.variacao || 0) * 100);
-  const base = c.n + ' vezes esse nome passou por aqui. Média R$ ' + _mrkFmt(c.media) + '. ';
-  if(Math.abs(pct) <= 2)
-    return '<br><small style="color:#94A3B8">' + base + 'Este é o de sempre.</small>';
-  return '<br><b style="color:' + (pct > 0 ? '#F59E0B' : '#10B981') + '">' + base +
-         'Este tá ' + Math.abs(pct) + '% ' + (pct > 0 ? 'acima' : 'abaixo') + '.</b>';
+  /* Compara com a FAIXA, não com um ponto. Conta de telefone que oscila entre
+     R$ 204 e R$ 709 fazia qualquer fatura normal sair marcada como "30%
+     abaixo" — alarme toda vez vira alarme nenhum. Só avisa quando o valor sai
+     do que já apareceu; dentro da faixa, é só o de sempre. */
+  const base = c.n + ' vezes esse nome passou por aqui. De praxe, R$ ' + _mrkFmt(c.media) + '. ';
+  const v = parseFloat(d.valor) || 0;
+  if(!v || !c.min || !c.max)
+    return '<br><small style="color:#94A3B8">' + base + '</small>';
+  if(v >= c.min * 0.98 && v <= c.max * 1.02)
+    return '<br><small style="color:#94A3B8">' + base + 'Este tá na faixa de sempre.</small>';
+  if(v > c.max)
+    return '<br><b style="color:#F59E0B">' + base + 'Este é o MAIOR que já veio — o recorde anterior era R$ ' +
+           _mrkFmt(c.max) + '.</b>';
+  return '<br><b style="color:#10B981">' + base + 'Este é o menor que já veio — o mínimo anterior era R$ ' +
+         _mrkFmt(c.min) + '.</b>';
 }
 
 /* O arquivo fica engatilhado em vez de sair na hora — como no WhatsApp: você
@@ -131770,9 +131797,12 @@ const MRK_DOC_INSTRUCAO =
   'diga em números. Não escreva o bloco LANCAMENTO neste caso.\n\n' +
   'Nos dois casos: não invente dado que não está no documento. Se o documento estiver ilegível ' +
   'ou cortado, diga isso em vez de adivinhar.\n\n' +
-  'NÃO comente que falta histórico do fornecedor no panorama. O aplicativo compara o fornecedor ' +
-  'com o extrato por fora e mostra o resultado logo abaixo da sua resposta — dizer que não dá ' +
-  'pra comparar contradiz a linha seguinte.';
+  'NÃO comente que falta histórico do fornecedor. O aplicativo compara o fornecedor com o ' +
+  'extrato por fora e mostra o resultado logo abaixo da sua resposta — dizer que não dá pra ' +
+  'comparar contradiz a linha seguinte.\n' +
+  'NÃO justifique a categoria escolhida citando outro fornecedor ("lancei em ADM, onde já está ' +
+  'a Claro"). Ele está olhando a conta da Vivo; falar da Claro só confunde. Diga a categoria e ' +
+  'pare.';
 
 async function mrkAnexoEnviar(file, legenda){
   const msg = String(legenda || '').trim();
@@ -131794,7 +131824,11 @@ async function mrkAnexoEnviar(file, legenda){
       ? MRK_DOC_INSTRUCAO + '\n\nEle mandou o documento com esta mensagem: "' + msg + '"\n' +
         'Responda o que ele pediu. Só escreva o bloco LANCAMENTO se ele quiser registrar o ' +
         'documento no financeiro; se a mensagem dele é pergunta ou comentário sobre o ' +
-        'documento, responda e não escreva o bloco.'
+        'documento, responda e não escreva o bloco.\n' +
+        'A mensagem é português falado, digitado rápido e com erro de digitação — "lança pra im" ' +
+        'é "lança pra mim", "ctaegoria" é "categoria". Leia a intenção. NUNCA trate um pedaço da ' +
+        'frase dele como nome de categoria, de conta ou de campo. Se de fato não der pra entender ' +
+        'o que ele quer, pergunte numa linha em vez de inventar uma leitura.'
       : MRK_DOC_INSTRUCAO;
     const txt = await mrkDocPerguntar(file, instrucao, true);
     mrkHideTyping();
