@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792727852"/>
+  <meta name="fk-build" content="forekash-v1792728119"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -130940,10 +130940,14 @@ async function llmTest(){
   try{
     let res;
     if(p === 'anthropic'){
+      /* max_tokens generoso de propósito: nos modelos atuais o raciocínio é
+         sempre ligado e conta nesse teto, então um teto de 50 estourava antes
+         de sair a primeira letra e o teste reprovava key boa. */
       res = await fetch('https://api.anthropic.com/v1/messages', {
         method:'POST',
-        headers:{ 'x-api-key':k, 'anthropic-version':'2023-06-01', 'content-type':'application/json', 'anthropic-dangerous-direct-browser-access':'true' },
-        body: JSON.stringify({ model:m, max_tokens:50, messages:[{role:'user', content:'Diga apenas "ok" se você está funcionando'}] })
+        headers:{ 'x-api-key':k, 'anthropic-version':'2026-10-21', 'content-type':'application/json', 'anthropic-dangerous-direct-browser-access':'true' },
+        body: JSON.stringify({ model:m, max_tokens:2048, output_config:{ effort:'low' },
+          messages:[{role:'user', content:'Responda apenas: ok'}] })
       });
     } else if(p === 'openai'){
       res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -130954,7 +130958,13 @@ async function llmTest(){
     }
     if(res && res.ok){
       const data = await res.json();
-      const txt = (data.content && data.content[0] && data.content[0].text) || (data.choices && data.choices[0] && data.choices[0].message.content) || 'sem resposta';
+      /* content[0] é bloco de raciocínio nos modelos atuais, não texto —
+         ler pelo índice devolvia "sem resposta" com a conexão funcionando. */
+      const txt = (Array.isArray(data.content)
+                    ? data.content.filter(b => b && b.type === 'text').map(b => b.text).join(' ').trim()
+                    : '')
+                  || (data.choices && data.choices[0] && data.choices[0].message.content)
+                  || 'sem resposta';
       if(typeof fkToast==='function') fkToast(`Conexão OK · resposta: "${txt.slice(0,30)}"`, 'ok', 4500);
     } else {
       const err = res ? await res.text() : 'fetch falhou';
@@ -130969,7 +130979,14 @@ function llmGetKey(){
   let url, instr;
   if(p === 'anthropic'){
     url = 'https://console.anthropic.com/settings/keys';
-    instr = '1. Acesse console.anthropic.com\n2. Settings → API Keys\n3. Crie nova key e cole aqui\n\nPlano free tem $5 de crédito · Haiku custa ~$0.25 por 1M tokens (muito barato)';
+    instr = 'ATENÇÃO: a API é cobrada à parte. Assinatura do Claude (Pro/Max) NÃO dá crédito de API.\n\n' +
+            '1. Acesse console.anthropic.com e entre\n' +
+            '2. Billing → adiciona crédito (o mínimo costuma ser US$ 5)\n' +
+            '3. API Keys → Create Key → copia (só aparece uma vez)\n' +
+            '4. Cola aqui e Salvar\n\n' +
+            'Cada pergunta ao MR KASH custa por volta de 1 a 2 centavos de dólar, e a ' +
+            'segunda em diante sai mais barato porque o panorama vai em cache. ' +
+            'Vale pôr um limite de gasto na key, no próprio console.';
   } else if(p === 'openai'){
     url = 'https://platform.openai.com/api-keys';
     instr = '1. Acesse platform.openai.com\n2. API Keys → Create new\n3. Cole aqui\n\nGPT-4o-mini é o mais barato · $0.15 por 1M tokens';
