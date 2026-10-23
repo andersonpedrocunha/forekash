@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792765565"/>
+  <meta name="fk-build" content="forekash-v1792765751"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -74901,7 +74901,7 @@ function extCloseModal(){
   /* Fechou sem salvar: esquece o boleto pendente, senão o PRÓXIMO lançamento
      que ele salvar — outro, digitado à mão — seria anunciado como se fosse
      aquele. No caminho do salvar isto já foi limpo pela confirmação. */
-  try{ _mrkAguardandoSalvar = null; }catch(_){}
+  try{ _mrkAguardandoSalvar = null; mrkTarefaCancelar('lancamento'); }catch(_){}
 }
 // ─── Auto-propagação Extrato → módulo de origem ───
 // Detecta se o lançamento manual cabe em Estrutura/Receita e cria/atualiza lá.
@@ -131595,12 +131595,40 @@ try{ window.mrkDocExtrair = mrkDocExtrair; window.mrkDocPerguntar = mrkDocPergun
 let _mrkAnexoPendente = null;      // extração aguardando virar lançamento
 let _mrkAguardandoSalvar = null;   // lançamento aberto por ele, esperando o Salvar
 
-/* Fecha o ciclo no chat: ele abriu o lançamento, você salvou, ele confirma.
-   Sem isso o boleto some do chat e não fica registro de que virou lançamento. */
+/* ── Aviso de tarefa concluída ────────────────────────────────────────
+   Toda tarefa que o MR KASH começa e TERMINA FORA do chat — um lançamento
+   que ele abriu e você salva no modal, um arquivo que sobe, o que vier — tem
+   que voltar pro chat quando termina. Sem isso ele dispara a ação e some, e
+   não há como saber se foi feito. Primitiva única: quem criar ação nova
+   registra com `mrkTarefaAbrir` e avisa com `mrkTarefaFeita`. */
+function mrkAvisar(html){
+  try{
+    const painel = document.getElementById('mrk-chat-panel');
+    if(painel && !painel.classList.contains('open')) mrkChatToggle();
+  }catch(_){}
+  try{
+    mrkAddBotMsg(html);
+    const body = document.getElementById('mrk-chat-body');
+    if(body) body.scrollTop = body.scrollHeight;
+  }catch(e){ console.warn('mrkAvisar:', e); }
+}
+const _mrkTarefas = {};
+function mrkTarefaAbrir(id, dados){ _mrkTarefas[id] = dados || {}; }
+function mrkTarefaCancelar(id){ delete _mrkTarefas[id]; }
+function mrkTarefaFeita(id, html){
+  if(!_mrkTarefas[id]) return false;   // ninguém pediu: não anuncia nada
+  delete _mrkTarefas[id];
+  mrkAvisar(html);
+  return true;
+}
+try{ window.mrkAvisar = mrkAvisar; window.mrkTarefaFeita = mrkTarefaFeita; }catch(_){}
+
+/* Fecha o ciclo do boleto: ele abriu o lançamento, você salvou, ele confirma. */
 function mrkAnexoConfirmar(){
   const p = _mrkAguardandoSalvar;
   if(!p) return;
   _mrkAguardandoSalvar = null;
+  mrkTarefaCancelar('lancamento');
   const d = p.dados || {};
   const v = parseFloat(d.valor) || 0;
   const dia = s => { const x = String(s || '').split('-'); return x.length === 3 ? x[2] + '/' + x[1] : ''; };
@@ -131613,11 +131641,12 @@ function mrkAnexoConfirmar(){
     else if(dias <= 3)  txt += '<br><b style="color:#F59E0B">Vence em ' + dias + ' dia' + (dias > 1 ? 's' : '') + '</b>, ' + dia(d.data) + '.';
     else                txt += ' Vence ' + dia(d.data) + '.';
   }
-  try{
-    const painel = document.getElementById('mrk-chat-panel');
-    if(painel && !painel.classList.contains('open')) mrkChatToggle();
-  }catch(_){}
-  mrkAddBotMsg(txt);
+  /* O anexo sobe em paralelo. Se falhou, ele precisa saber agora — descobrir
+     depois que o boleto não ficou preso ao lançamento é tarde. */
+  if(p.anexoStatus === 'ok')            txt += '<br><small style="opacity:.75">Boleto anexado ao lançamento.</small>';
+  else if(p.anexoStatus === 'base64')   txt += '<br><small style="opacity:.75">Boleto anexado — dentro do registro, porque o anexo na nuvem não está ligado.</small>';
+  else if(p.anexoStatus)                txt += '<br><b style="color:#F59E0B">Não consegui anexar o boleto:</b> ' + mrkEscape(String(p.anexoStatus));
+  mrkAvisar(txt);
 }
 try{ window.mrkAnexoConfirmar = mrkAnexoConfirmar; }catch(_){}
 
@@ -131833,6 +131862,7 @@ async function mrkAnexoLancar(){
     return;
   }
   _mrkAguardandoSalvar = p;   // o Salvar dele dispara a confirmação no chat
+  mrkTarefaAbrir('lancamento', p);
   const pronto = await _mrkEsperar(() => document.getElementById('ext-it-counter-0')
                                       && document.getElementById('ext-fld-data'));
   if(!pronto){ mrkAddBotMsg('<b style="color:#EF4444">O lançamento abriu, mas não consegui preencher.</b>'); return; }
@@ -131863,7 +131893,8 @@ async function mrkAnexoLancar(){
          não é o base64 solto dentro da linha que já nos mordeu antes. */
       if(p.file && typeof fkAnexoIngest === 'function'){
         fkAnexoIngest(p.file, 'extrato').then(a => {
-          if(!a) return;
+          if(!a){ p.anexoStatus = 'o arquivo voltou vazio'; return; }
+          p.anexoStatus = a.path ? 'ok' : 'base64';   // path = foi pro Storage
           _dkbAnexoData = [a];
           const w = document.getElementById('dkb-anexo-wrap');
           if(w && typeof _dkbRenderAnexoUI === 'function') w.innerHTML = _dkbRenderAnexoUI([a], 'doc');
@@ -131876,7 +131907,8 @@ async function mrkAnexoLancar(){
             badge.textContent = (nDoc ? 'nº ' + String(nDoc).slice(0,14) + ' · ' : '') + '1 anexo';
             badge.classList.add('on');
           }
-        }).catch(e => console.warn('anexo no lançamento:', e && e.message));
+        }).catch(e => { p.anexoStatus = (e && e.message) || 'falhou';
+                        console.warn('anexo no lançamento:', p.anexoStatus); });
       }
     }catch(e){ console.warn('mrkAnexoLancar:', e); }
   };
