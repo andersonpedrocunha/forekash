@@ -9,8 +9,9 @@
    Tudo que não for /api/ cai em env.ASSETS.fetch — o site não muda de
    comportamento por existir um Worker na frente.                          */
 
-import { carregar, briefing } from './forekash.js';
-import { perguntar, postar, assinaturaValida, podePerguntar } from './mrkash.js';
+import { carregar, briefing, vocabulario, criarLancamento } from './forekash.js';
+import { perguntar, postar, assinaturaValida, podeLancar,
+         LANCAR, separarLancamento, cartaoLancamento } from './mrkash.js';
 
 const ok = (t) => new Response(t || '', { status: 200 });
 
@@ -33,6 +34,8 @@ export default {
       return eventosSlack(request, env, ctx);
     if(url.pathname === '/api/slack/comando' && request.method === 'POST')
       return comandoSlack(request, env, ctx);
+    if(url.pathname === '/api/slack/interativo' && request.method === 'POST')
+      return interativoSlack(request, env, ctx);
     /* Só pra conferir que o Worker está no ar sem falar com o Slack.
        Não devolve número nenhum: é diagnóstico de encanamento. */
     if(url.pathname === '/api/mrkash/ping')
@@ -76,18 +79,21 @@ async function comandoSlack(request, env, ctx){
   if(!assinado) return new Response('assinatura inválida', { status: 401 });
   const p = new URLSearchParams(corpo);
   const user = p.get('user_id'), texto = (p.get('text') || '').trim();
-  if(!podePerguntar(env, user))
-    return Response.json({ response_type: 'ephemeral', text: 'Essa conversa não é tua.' });
   if(!texto)
     return Response.json({ response_type: 'ephemeral', text: 'Pergunta alguma coisa.' });
 
   /* Gatilho manual dos avisos. Existe porque o automático só dispara no dia
      marcado, e descobrir daqui a uma semana que a postagem no canal falha é
      tarde demais. Também serve no dia a dia: dá pra repetir um lembrete sem
-     esperar o mês virar. Usa a mesma permissão do resto — quem não está na
-     lista não chega aqui. */
+     esperar o mês virar.
+
+     Vai pra lista, não pro público: perguntar é livre, mas disparar mensagem
+     no canal da empresa inteira em nome do MR KASH, não. */
   const teste = /^(testar|aviso|avisar)\b/i.exec(texto);
   if(teste){
+    if(!podeLancar(env, user))
+      return Response.json({ response_type:'ephemeral',
+        text:'Disparar aviso no canal não é pra ti.\n_(teu id é `' + user + '`)_' });
     const qual = texto.replace(/^(testar|aviso|avisar)\s*/i, '').trim().toLowerCase();
     const canal = env.SLACK_CANAL_EQUIPE;
     if(!canal) return Response.json({ response_type:'ephemeral', text:'SLACK_CANAL_EQUIPE não configurado.' });
@@ -117,16 +123,69 @@ async function comandoSlack(request, env, ctx){
   return Response.json({ response_type: 'ephemeral', text: 'Lendo teus números...' });
 }
 
+/* ── O clique nos botões ─────────────────────────────────────────────────
+   É aqui, e só aqui, que algo é gravado. A proposta chega dentro do próprio
+   botão, assinada pelo Slack; a permissão é conferida de novo, porque quem
+   clica não é necessariamente quem pediu — num canal, qualquer um vê o
+   cartão. */
+async function interativoSlack(request, env, ctx){
+  const corpo = await request.text();
+  const assinado = await assinaturaValida(env, request.headers.get('x-slack-signature'),
+                                          request.headers.get('x-slack-request-timestamp'), corpo);
+  if(!assinado) return new Response('assinatura inválida', { status: 401 });
+  const p = JSON.parse(new URLSearchParams(corpo).get('payload') || '{}');
+  if(p.type !== 'block_actions') return ok();
+
+  const acao = (p.actions || [])[0] || {};
+  const quem = (p.user || {}).id;
+  const url = p.response_url;
+  const responder = (txt) => fetch(url, { method:'POST', headers:{'content-type':'application/json'},
+    body: JSON.stringify({ replace_original: true, text: txt }) });
+
+  if(!podeLancar(env, quem)){
+    /* Diz o ID de quem clicou: o erro mais comum é um ID colado pela metade
+       na variável, e dizer a alguém o próprio ID não entrega nada. */
+    ctx.waitUntil(responder('Lançar no financeiro não é pra ti.\n_(teu id é `' + quem + '`)_'));
+    return ok();
+  }
+  if(acao.action_id === 'cancelar'){
+    ctx.waitUntil(responder('Cancelado. Nada foi gravado.'));
+    return ok();
+  }
+  if(acao.action_id !== 'confirmar') return ok();
+
+  ctx.waitUntil((async () => {
+    try{
+      const c = JSON.parse(acao.value || '{}');
+      const l = await criarLancamento(env, {
+        tipo: c.t === 'g' ? 'ganho' : 'gasto', valor: c.v, data: c.dt,
+        descricao: c.ds, categoria: c.c, contraparte: c.cp, conta: c.ct
+      }, quem);
+      const v = (Math.abs(Number(c.v)||0)).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+      await responder('*Lançado.* ' + (c.cp || c.ds || 'sem fornecedor') + ', R$ ' + v +
+        '. Está no Extrato Financeiro como pendente, nº ' + (l.local_id || '?') + '.');
+    }catch(e){
+      await responder('Não gravei: ' + (e && e.message || 'erro') + '\n_Nada foi alterado._');
+    }
+  })());
+  return ok();
+}
+
 async function responder(env, m){
   const texto = String(m.text || '').replace(/<@[^>]+>/g, '').trim();
   if(!texto) return;
-  if(!podePerguntar(env, m.user)){
-    await postar(env, m.channel, 'Essa conversa não é tua.', { thread_ts: m.thread_ts || m.ts });
-    return;
-  }
   const d = await carregar(env);
-  const resp = await perguntar(env, texto, briefing(d, escopoSlack(env)));
-  await postar(env, m.channel, resp, { thread_ts: m.thread_ts || m.ts });
+  const resp = await perguntar(env, texto, briefing(d, escopoSlack(env)), null,
+                               LANCAR + '\n\n' + vocabulario(d));
+  const { prosa, dados } = separarLancamento(resp);
+  const thread = { thread_ts: m.thread_ts || m.ts };
+  if(dados && dados.valor){
+    /* Proposta, não gravação. O cartão é o modal que o Slack não tem. */
+    await postar(env, m.channel, prosa || 'Confere antes de eu gravar:',
+                 Object.assign({ blocks: cartaoLancamento(dados) }, thread));
+  } else {
+    await postar(env, m.channel, prosa || resp, thread);
+  }
 }
 
 // ── Avisos do mês ───────────────────────────────────────────────────────

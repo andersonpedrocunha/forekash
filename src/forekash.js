@@ -312,4 +312,71 @@ export function folhaDoMes(d, ym){
   };
 }
 
+/* O que já existe na casa, pra ele devolver categoria e contraparte que
+   EXISTEM aqui em vez de inventar rótulo novo a cada lançamento. */
+export function vocabulario(d){
+  const cats = [...new Set(((d.catmap && d.catmap.categorias) || [])
+    .map(c => c && c.nome).filter(Boolean))];
+  const nomes = [...new Set(((d.pessoas && d.pessoas.registry) || [])
+    .map(r => r && r.nome).filter(Boolean))].slice(0, 120);
+  const contas = [...new Set(d.ext.map(l => l && l.conta).filter(Boolean))];
+  const L = [];
+  if(cats.length)   L.push('Categorias existentes (use uma destas, exatamente como escrita): ' + cats.join(' · '));
+  if(contas.length) L.push('Contas existentes: ' + contas.join(' · '));
+  if(nomes.length)  L.push('Fornecedores e clientes já cadastrados: ' + nomes.join(' · '));
+  return L.join('\n');
+}
+
+/* ── Escrita ────────────────────────────────────────────────────────────
+   O único ponto deste servidor que grava. Tudo mais aqui é leitura.
+
+   `local_id` não tem default no banco — quem cria escolhe o número. Existe
+   índice único em (org_id, local_id), então uma corrida com o app falha em
+   vez de sobrescrever: o pior caso é "não lançou", nunca "lançou por cima".
+   Por isso a tentativa é repetida: se o número foi tomado no meio do
+   caminho, pega o próximo e tenta de novo.                                */
+export async function criarLancamento(env, dados, quem){
+  const org = env.FOREKASH_ORG_ID;
+  const base = {
+    apikey: env.SUPABASE_SERVICE_KEY,
+    Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY,
+    'content-type': 'application/json'
+  };
+  for(let tentativa = 0; tentativa < 4; tentativa++){
+    const r0 = await fetch(env.SUPABASE_URL +
+      `/rest/v1/extrato_lancamentos?org_id=eq.${org}&select=local_id&order=local_id.desc&limit=1`,
+      { headers: base });
+    if(!r0.ok) throw new Error('Supabase leu mal o último id: ' + r0.status);
+    const topo = await r0.json();
+    const proximo = ((topo[0] && topo[0].local_id) || 0) + 1 + tentativa;
+
+    const linha = {
+      org_id: org,
+      local_id: proximo,
+      data: dados.data,
+      valor: Math.abs(Number(dados.valor) || 0),
+      descricao: String(dados.descricao || '').slice(0, 300),
+      categoria: dados.categoria || null,
+      contraparte: dados.contraparte || null,
+      conta: dados.conta || null,
+      /* Nasce PENDENTE, nunca pago. Conta a pagar não é dinheiro que saiu —
+         a baixa continua vindo do extrato, como em todo o resto do app. */
+      status: 'pendente',
+      tipo: dados.tipo === 'ganho' ? 'ganho' : 'gasto',
+      importado_de: 'slack',          // dá pra auditar ou desfazer em bloco
+      metadata: { criadoPor: quem || 'slack', criadoEm: new Date().toISOString() }
+    };
+    const r = await fetch(env.SUPABASE_URL + '/rest/v1/extrato_lancamentos', {
+      method: 'POST',
+      headers: Object.assign({ Prefer: 'return=representation' }, base),
+      body: JSON.stringify(linha)
+    });
+    if(r.ok){ const j = await r.json(); return j[0] || linha; }
+    const txt = await r.text();
+    if(r.status === 409 || /duplicate|unique/i.test(txt)) continue;   // número tomado: tenta o próximo
+    throw new Error('Supabase recusou: ' + txt.slice(0, 200));
+  }
+  throw new Error('não consegui um número livre de lançamento — tenta de novo');
+}
+
 export { brl, brlSgn, dia, MES };

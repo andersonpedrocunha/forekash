@@ -32,7 +32,25 @@ const SO_NUMEROS =
   'líquida de retenção, então o crédito nunca bate com a nota; a folha é indexada pelo mês do ' +
   'PAGAMENTO, não o da competência; realizado vem do Extrato, o resto é projeção.';
 
-export async function perguntar(env, pergunta, quadro, historico){
+/* Quando ele pede pra REGISTRAR algo, a resposta deixa de ser prosa e passa a
+   ter um bloco de dados. Mesmo padrão usado no app para boleto: uma frase do
+   que entendeu, e o JSON no fim. O servidor nunca grava direto o que o modelo
+   devolve — o JSON vira um cartão com botão, e só o clique grava. */
+export const LANCAR =
+  '\n\n# QUANDO ELE PEDIR PRA LANÇAR ALGO\n' +
+  'Se a mensagem for um pedido de registrar despesa ou receita ("lança 180 de uber", ' +
+  '"recebi 5 mil da DOT ontem", "anota 300 de almoço"), responda em UMA frase curta ' +
+  'dizendo o que entendeu e depois escreva, em linha isolada, LANCAMENTO: seguido ' +
+  'apenas deste JSON:\n' +
+  '{"tipo":"gasto ou ganho","valor":180.00,"data":"AAAA-MM-DD","descricao":"curta",' +
+  '"categoria":"uma das categorias existentes","contraparte":"quem recebe ou quem paga",' +
+  '"conta":"uma das contas existentes, ou vazio"}\n' +
+  'Data: "hoje" é a data do quadro, "ontem" é o dia anterior. Sem data dita, use hoje. ' +
+  'Campo que ele não disse vai vazio — não invente fornecedor nem conta. ' +
+  'Se o valor não estiver claro, NÃO escreva o bloco: pergunte o valor em uma linha.\n' +
+  'Para qualquer outra mensagem, responda normalmente e não escreva o bloco.';
+
+export async function perguntar(env, pergunta, quadro, historico, extra){
   const msgs = (historico || []).slice(-8);
   msgs.push({ role: 'user', content: pergunta });
   const r = await fetch('https://api.anthropic.com/v1/messages', {
@@ -47,7 +65,8 @@ export async function perguntar(env, pergunta, quadro, historico){
       output_config: { effort: 'medium' },
       /* O quadro é igual entre perguntas do mesmo dia: marcado como cacheável,
          a segunda em diante lê o prefixo por uma fração do preço. */
-      system: [{ type: 'text', text: VOZ + SO_NUMEROS + '\n\n# OS NÚMEROS DESTA EMPRESA\n\n' + quadro,
+      system: [{ type: 'text', text: VOZ + SO_NUMEROS + (extra || '') +
+                 '\n\n# OS NÚMEROS DESTA EMPRESA\n\n' + quadro,
                  cache_control: { type: 'ephemeral' } }],
       messages: msgs
     })
@@ -96,6 +115,68 @@ export async function redigirAviso(env, instrucao){
   return (j.content || []).filter(b => b && b.type === 'text').map(b => b.text).join('\n').trim();
 }
 
+/* Tira o JSON do fim da resposta. Pega o último `{...}` equilibrado porque o
+   modelo às vezes omite a cerca ```json e às vezes cola o bloco na marca. */
+export function extrairJson(txt){
+  const s = String(txt || '');
+  const i = s.lastIndexOf('{');
+  if(i < 0) return null;
+  let nivel = 0, str = false, esc = false;
+  for(let j = i; j < s.length; j++){
+    const c = s[j];
+    if(esc){ esc = false; continue; }
+    if(c === '\\'){ esc = true; continue; }
+    if(c === '"'){ str = !str; continue; }
+    if(str) continue;
+    if(c === '{') nivel++;
+    else if(c === '}'){ nivel--; if(!nivel){ try{ return JSON.parse(s.slice(i, j + 1)); }catch(_){ return null; } } }
+  }
+  return null;
+}
+
+export function separarLancamento(txt){
+  const m = /^[ \t]*LANCAMENTO[ \t]*:/mi.exec(String(txt || ''));
+  if(!m) return { prosa: txt, dados: null };
+  const dados = extrairJson(txt.slice(m.index));
+  const prosa = txt.slice(0, m.index).replace(/```[a-z]*/gi, '').trim();
+  return { prosa, dados };
+}
+
+/* O cartão de confirmação. É o que substitui o modal do app: ele vê o que
+   foi entendido e decide. Nada vai pro banco antes do clique. */
+/* A proposta viaja DENTRO do botão. Sem isso seria preciso guardar estado
+   em algum lugar entre a mensagem e o clique, e um Worker não tem memória
+   entre requisições. O payload do clique vem assinado pelo Slack, então
+   ninguém altera o valor pelo caminho — e se alterasse, a assinatura cai. */
+export function cartaoLancamento(d){
+  const idProposta = JSON.stringify({
+    t: d.tipo === 'ganho' ? 'g' : 'd', v: Math.abs(Number(d.valor) || 0),
+    dt: d.data || '', ds: String(d.descricao || '').slice(0,120),
+    c: d.categoria || '', cp: d.contraparte || '', ct: d.conta || ''
+  }).slice(0, 1900);                       // o Slack corta o value em 2000
+  const brlf = v => (Math.abs(Number(v) || 0)).toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 });
+  const dia = s => { const p = String(s || '').split('-'); return p.length === 3 ? p[2]+'/'+p[1]+'/'+p[0] : (s || '—'); };
+  const linhas = [
+    '*' + (d.tipo === 'ganho' ? 'Receita' : 'Despesa') + '*  ·  R$ ' + brlf(d.valor),
+    '*Quando:* ' + dia(d.data),
+    '*O quê:* ' + (d.descricao || '—'),
+    '*Categoria:* ' + (d.categoria || '—'),
+    (d.tipo === 'ganho' ? '*Cliente:* ' : '*Fornecedor:* ') + (d.contraparte || '—'),
+    '*Conta:* ' + (d.conta || '— a definir —')
+  ];
+  return [
+    { type: 'section', text: { type: 'mrkdwn', text: linhas.join('\n') } },
+    { type: 'context', elements: [{ type: 'mrkdwn',
+        text: 'Nasce como _pendente_. Nada foi gravado ainda.' }] },
+    { type: 'actions', block_id: 'lancamento', elements: [
+      { type: 'button', action_id: 'confirmar', style: 'primary',
+        text: { type: 'plain_text', text: 'Confirmar' }, value: idProposta },
+      { type: 'button', action_id: 'cancelar',
+        text: { type: 'plain_text', text: 'Cancelar' }, value: idProposta }
+    ]}
+  ];
+}
+
 // ── Slack ───────────────────────────────────────────────────────────────
 export async function postar(env, canal, texto, extra){
   const r = await fetch('https://slack.com/api/chat.postMessage', {
@@ -125,7 +206,12 @@ export async function assinaturaValida(env, assinatura, ts, corpo){
   return dif === 0;
 }
 
-export function podePerguntar(env, userId){
+/* Perguntar é livre: a proteção mora no dado, não na porta. O quadro que vai
+   pro modelo já não contém pagamento individual nem dívida, então qualquer um
+   do canal pode perguntar quanto entrou sem ver o que não deve.
+
+   GRAVAR é outra coisa — isso mexe no financeiro e fica na lista. */
+export function podeLancar(env, userId){
   const lista = String(env.MRK_SLACK_USERS || '').split(/[\s,]+/).filter(Boolean);
   return lista.includes(userId);
 }
