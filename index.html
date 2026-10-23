@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792766218"/>
+  <meta name="fk-build" content="forekash-v1792774339"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -46673,7 +46673,16 @@ function diagSnapshot(){
             // Realizado: meses fechados (i <= closedMIdx). Projetado: mes corrente + futuros.
             if(i <= closedMIdx) snap.receita.realizadoAno += v;
             else                snap.receita.projetadoAno += v;
-            if(c.status === 'recebido'){
+            /* O carimbo 'recebido' na célula não existe mais — `recMigrarBaixaManual`
+               apaga todos de propósito, porque o realizado passou a vir do Extrato.
+               Continuar perguntando por ele fazia o diagnóstico ler o ano inteiro
+               como NÃO recebido: R$ 2,2 mi falsos "em atraso", e o score despencava
+               por uma inadimplência que não existe. Quem sabe o que entrou é o
+               cruzamento título × crédito. */
+            const _pago = (typeof _anaFoiQuitado === 'function')
+              ? _anaFoiQuitado(curYear, (clienteView(r) || {}).nome || '', k, c)
+              : (c.status === 'recebido');
+            if(_pago){
               snap.receita.totalRecebido += v;
             } else {
               snap.receita.totalEmAberto += v;
@@ -49381,14 +49390,14 @@ function mrcashRenderGreeting(){
   if(!body) return;
   body.innerHTML = '';
   const pick = arr => arr[Math.floor(Math.random() * arr.length)];
-  const opener = pick(['Olá, amigo.', 'Bom te ver de volta.', 'Bem-vindo de volta.', 'Hello, friend.']);
+  const opener = pick(['Olá, amigo.', 'Hello, friend.', 'Voltou.', 'De novo aqui.']);
 
   const r = diagLastResult;
   if(!r){
     const noData = pick([
-      `${opener} Rode o diagnóstico. Com os números na mesa, a gente encontra os caminhos.`,
-      `${opener} Me dê os dados e eu te mostro onde estão as oportunidades.`,
-      `${opener} Todo plano começa com clareza. Rode o diagnóstico — a partir daí, agimos.`
+      `${opener} Roda o diagnóstico. Sem número eu não falo.`,
+      `${opener} Não tem diagnóstico carregado. Roda um e eu te digo o que tem embaixo.`,
+      `${opener} Nada pra ler ainda. Roda o diagnóstico.`
     ]);
     mrcashAppend('bot', noData);
     return;
@@ -49402,21 +49411,21 @@ function mrcashRenderGreeting(){
   let scoreMsg;
   if(score >= 75){
     scoreMsg = pick([
-      `Score <b>${score}/100</b> — <em>${h.label}</em>. Você construiu algo sólido. Agora é escalar o que já funciona.`,
-      `Score <b>${score}/100</b> — <em>${h.label}</em>. Está à frente da maioria. Use essa vantagem enquanto ela é sua.`,
-      `Seus números estão respirando. Score <b>${score}/100</b> — <em>${h.label}</em>. O próximo nível está ao alcance.`
+      `Score <b>${score}/100</b> — <em>${h.label}</em>. Tá de pé. Não confunde isso com estar seguro.`,
+      `Score <b>${score}/100</b> — <em>${h.label}</em>. Os números te favorecem agora. Agora é a palavra que importa.`,
+      `Score <b>${score}/100</b> — <em>${h.label}</em>. Bom. Então pergunta o que tu não quer ouvir.`
     ]);
   } else if(score >= 50){
     scoreMsg = pick([
-      `Score <b>${score}/100</b> — <em>${h.label}</em>. A base está aí. Falta transformar potencial em resultado — e você vai.`,
-      `Score <b>${score}/100</b> — <em>${h.label}</em>. Cada número aqui é uma alavanca. Você decide quais puxar primeiro.`,
-      `O sistema está vivo. Score <b>${score}/100</b> — <em>${h.label}</em>. Dá pra subir esse número. E a gente vai subir.`
+      `Score <b>${score}/100</b> — <em>${h.label}</em>. Meio do caminho. É onde a maioria para.`,
+      `Score <b>${score}/100</b> — <em>${h.label}</em>. Nem bom nem ruim. Indefinido — e indefinido também é escolha.`,
+      `Score <b>${score}/100</b> — <em>${h.label}</em>. Dá pra consertar. Depende do que tu decidir nos próximos meses.`
     ]);
   } else {
     scoreMsg = pick([
-      `Score <b>${score}/100</b> — <em>${h.label}</em>. Você está olhando pro problema de frente. Isso já é metade da virada.`,
-      `Score <b>${score}/100</b> — <em>${h.label}</em>. Toda grande recuperação começa com clareza. Você a tem agora.`,
-      `Score <b>${score}/100</b> — <em>${h.label}</em>. Não é sentença — é ponto de partida. Vamos subir esse número.`
+      `Score <b>${score}/100</b> — <em>${h.label}</em>. Tá ruim. E tu já sabia antes de abrir essa tela.`,
+      `Score <b>${score}/100</b> — <em>${h.label}</em>. O número é feio. Feio e real.`,
+      `Score <b>${score}/100</b> — <em>${h.label}</em>. Não é sentença. Também não é ruído.`
     ]);
   }
 
@@ -49424,25 +49433,24 @@ function mrcashRenderGreeting(){
   let alertMsg;
   if(alertasAlta > 0){
     alertMsg = pick([
-      `Identifiquei <b>${alertasAlta}</b> ${alertasAlta===1?'ponto':'pontos'} pra endereçar. Cada um é uma alavanca pra subir o score.`,
-      `<b>${alertasAlta}</b> ${alertasAlta===1?'sinal':'sinais'} pedindo atenção. Resolver qualquer um deles já muda o jogo.`,
-      `${alertasAlta} ${alertasAlta===1?'padrão':'padrões'} pra atacar. E cada ataque é um passo de progresso real.`
+      `<b>${alertasAlta}</b> ${alertasAlta===1?'sinal':'sinais'} pedindo atenção. Nenhum deles apareceu ontem.`,
+      `Achei <b>${alertasAlta}</b> ${alertasAlta===1?'coisa':'coisas'} aqui. Nenhuma é surpresa pra ti.`,
+      `<b>${alertasAlta}</b> ${alertasAlta===1?'ponto':'pontos'} que tu vem adiando.`
     ]);
   } else {
     alertMsg = pick([
-      `Nenhum alerta crítico. Isso é conquista — e também é terreno pra crescer.`,
-      `Os alertas estão silenciosos. Momento raro. Use bem.`,
-      `Sem sinais vermelhos agora. Espaço perfeito pra planejar o próximo salto.`
+      `Nenhum alerta crítico. Aproveita, porque isso não dura.`,
+      `Os alertas estão calados. Momento raro.`,
+      `Sem sinal vermelho agora.`
     ]);
   }
 
   // Convite final — motivador
   const closing = pick([
-    'Me pergunte qualquer coisa. Os números estão aqui. As oportunidades também.',
-    'Qual alavanca você quer puxar primeiro?',
-    'Diga o que quer otimizar. Eu mostro o caminho.',
-    'Cada pergunta é um passo à frente. Bora.',
-    'Estou aqui. Pergunte sem medo.'
+    'Pergunta.',
+    'Me pergunta o que tu tá evitando.',
+    'Os números estão aqui. Pergunta.',
+    'Pergunta o que importa.'
   ]);
 
   mrcashAppend('bot', `${opener} ${scoreMsg} ${alertMsg} ${closing}`);
@@ -49517,7 +49525,40 @@ function mrcashRemoveTyping(){
   if(el) el.remove();
 }
 
-function mrcashSend(){
+/* O diagnóstico em texto, pra ir junto da pergunta. É o que esta tela tem e o
+   widget flutuante não: score, alertas e o período que a análise cobre —
+   inclusive quando ela está velha, que é informação, não detalhe. */
+function _mrkDiagTexto(){
+  const r = (typeof diagLastResult !== 'undefined') ? diagLastResult : null;
+  if(!r || !r.ind) return '';
+  const L = ['# DIAGNÓSTICO JÁ RODADO (use como leitura, não como fonte de número novo)'];
+  try{
+    L.push('Score: ' + r.ind.score + '/100' +
+           (typeof diagHealthLabel === 'function' ? ' — ' + diagHealthLabel(r.ind.score).label : ''));
+    if(r.snap && r.snap.periodoLabel) L.push('Período coberto: ' + r.snap.periodoLabel);
+    if(r.geradoEm) L.push('Gerado em: ' + r.geradoEm);
+    const al = (r.alerts || []).filter(a => a && (a.titulo || a.title));
+    if(al.length){
+      L.push('Alertas (' + al.length + '):');
+      al.slice(0, 12).forEach(a => {
+        const corpo = a.msg || a.desc || a.texto || '';
+        L.push('- [' + String(a.sev || '').replace('sev-', '') + '] ' + (a.titulo || a.title) +
+               (corpo ? ': ' + String(corpo).replace(/<[^>]+>/g, '').slice(0, 240) : ''));
+      });
+    }
+    if(r.ind){
+      const i = r.ind;
+      const num = (k, lbl) => { if(i[k] != null && isFinite(i[k])) L.push('- ' + lbl + ': ' + i[k]); };
+      num('margem', 'margem operacional (%)'); num('runway', 'runway (meses)');
+      num('concentracao', 'concentração no maior cliente (%)'); num('dscr', 'DSCR');
+    }
+  }catch(e){ console.warn('_mrkDiagTexto:', e); }
+  L.push('Se a análise cobre um período que já passou, diga isso antes de comentá-la — ' +
+         'o que vale hoje são os números acima dela.');
+  return L.join('\n');
+}
+
+async function mrcashSend(){
   const input = document.getElementById('mrcash-input');
   const btn   = document.querySelector('.diag-mrcash-send');
   if(!input) return;
@@ -49527,6 +49568,26 @@ function mrcashSend(){
   if(btn){ btn.disabled = true; }
   mrcashAppend('user', esc(q));
   mrcashShowTyping();
+
+  /* Esta caixa tinha motor próprio de regex enquanto a outra já pensava.
+     Mesmo cérebro nas duas — com o diagnóstico junto, que só existe aqui.
+     O motor antigo fica de queda: sem key, ou se a chamada falhar, responde
+     como respondia antes em vez de morrer. */
+  try{
+    if(typeof LLM_CFG !== 'undefined' && LLM_CFG.provider !== 'local' && LLM_CFG.apiKey
+       && typeof llmAsk === 'function'){
+      const ctx = (typeof mrkGatherContext === 'function') ? mrkGatherContext() : {};
+      const resp = await llmAsk(q, ctx, _mrkDiagTexto());
+      if(resp){
+        mrcashRemoveTyping();
+        mrcashAppend('bot', (typeof _mrkMdParaHtml === 'function') ? _mrkMdParaHtml(resp) : esc(resp));
+        if(btn){ btn.disabled = false; }
+        input.focus();
+        return;
+      }
+    }
+  }catch(e){ console.warn('diag llm:', e && e.message); }
+
   const delay = 380 + Math.random()*320;
   setTimeout(()=>{
     mrcashRemoveTyping();
@@ -131990,14 +132051,15 @@ function _mrkHistParaApi(limite){
 }
 
 // Função pra MR KASH chamar LLM real (substitui mrkLocalRespond se LLM ativo)
-async function llmAsk(prompt, contextData){
+async function llmAsk(prompt, contextData, extra){
   if(LLM_CFG.provider === 'local' || !LLM_CFG.apiKey) return null;
   let panorama = '';
   try{
     panorama = mrkBriefing(contextData && contextData.extrato ? contextData : mrkGatherContext());
   }catch(e){ console.warn('briefing:', e); }
   if(!panorama) throw new Error('não consegui montar o panorama dos seus números');
-  const system = MRK_PERSONA + '\n\n# OS NÚMEROS DESTA EMPRESA — única fonte do que você pode afirmar\n\n' + panorama;
+  const system = MRK_PERSONA + '\n\n# OS NÚMEROS DESTA EMPRESA — única fonte do que você pode afirmar\n\n' +
+                 panorama + (extra ? '\n\n' + extra : '');
   const msgs = _mrkHistParaApi(10);
   msgs.push({ role:'user', content: prompt });
 
