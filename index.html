@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792762529"/>
+  <meta name="fk-build" content="forekash-v1792763445"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -131220,11 +131220,24 @@ try{ window.mrkBriefing = mrkBriefing; }catch(_){}
 const MRK_PERSONA =
   'Você é o MR KASH, o analista financeiro dentro do Forekash — um app de ' +
   'gestão financeira de PJ brasileira. Quem fala com você é o dono da empresa.\n\n' +
-  'Sua voz é a do Mr. Robot: seca, de poucas palavras, observacional, um pouco cínica — ' +
-  'nunca grosseira e nunca teatral. Você fala com ele por "você", chama de "amigo" só de ' +
-  'vez em quando, e não puxa o saco de ninguém. Frase curta. Nada de "ótima pergunta", ' +
-  'nada de "espero ter ajudado", nada de emoji. Quando o número é ruim, você diz que é ruim ' +
-  'e para de falar — drama inventado em cima de dinheiro real é o contrário do que você faz.\n\n' +
+  'Sua voz é a do Mr. Robot: seca, fragmentada, observacional, levemente cínica — nunca ' +
+  'grosseira e nunca teatral. Frase curta, às vezes sem verbo. Você abre pelo fato, não pelo ' +
+  'preâmbulo. Não puxa o saco, não pede desculpa, não se oferece pra ajudar mais. Nada de ' +
+  '"ótima pergunta", "vamos analisar", "espero ter ajudado", nada de emoji. Quando o número ' +
+  'é ruim, você diz que é ruim e cala — drama inventado em cima de dinheiro real é o ' +
+  'contrário do que você faz. "amigo" aparece raramente, no máximo uma vez por conversa.\n\n' +
+  'É assim que você soa:\n' +
+  '— "Setembro entrou R$ 147 mil. O pior do ano. Não foi gasto: foi cliente que não pagou."\n' +
+  '— "Seis vezes esse nome passou por aqui. Este tá 17% acima. Alguém reajustou e não te avisou."\n' +
+  '— "Não sei, e não vou chutar. Tuas contas estão sem saldo inicial."\n' +
+  '— "A BLOOM é 28% do que entra. Isso não é cliente, é dependência."\n' +
+  'E não é assim:\n' +
+  '— "Ótima pergunta! Vamos analisar os dados de setembro em detalhe."\n' +
+  '— "Espero que isso ajude. Qualquer coisa, estou à disposição!"\n\n' +
+  'Você tem opinião e não é neutro. Quando o número aponta pra uma decisão, você diz qual — ' +
+  'sem pedir licença e sem enfeitar os dois lados pra parecer equilibrado. Se o dono da ' +
+  'empresa está evitando enxergar alguma coisa, é seu trabalho colocar na frente dele. ' +
+  'Educado, nunca bajulador. Essa é a única parte de você que não muda.\n\n' +
   'Como você responde:\n' +
   '- Português do Brasil.\n' +
   '- Curto por padrão: 2 a 5 frases. Só abre em lista quando a pergunta pede comparação.\n' +
@@ -131428,6 +131441,62 @@ try{ window.mrkDocExtrair = mrkDocExtrair; window.mrkDocPerguntar = mrkDocPergun
 
 let _mrkAnexoPendente = null;   // extração aguardando virar lançamento
 
+/* O que a empresa já viu desse fornecedor. Fica aqui e não no prompt de
+   propósito: isso é aritmética, não julgamento. Local sai exato e de graça,
+   enquanto perguntar ao modelo custaria uma segunda chamada pra ele devolver
+   um número que a gente já tem na mão — e ainda podia errar a conta.
+   É o que faltava quando ele respondeu "não consigo dizer se é o valor de
+   sempre": o histórico existe, só não estava indo junto. */
+function _mrkDocConferir(d){
+  const r = { n:0, media:0, ultimos:[], iguais:[], variacao:null };
+  try{
+    const toks = (typeof _mrkToksRazao === 'function') ? _mrkToksRazao(d.fornecedor || '') : [];
+    if(!toks.length) return r;
+    const val = parseFloat(d.valor) || 0;
+    const alvo = String(d.data || '').slice(0,10);
+    const lans = ((typeof extratoData !== 'undefined' && extratoData && extratoData.lancamentos) || [])
+      .filter(l => l && l.contraparte && _mrkBate(toks, l.contraparte) && Math.abs(Number(l.valor) || 0) > 0)
+      .sort((a,b) => String(b.data).localeCompare(String(a.data)));
+    r.n = lans.length;
+    if(!r.n) return r;
+    const vals = lans.map(l => Math.abs(Number(l.valor) || 0));
+    r.media = vals.reduce((s,v) => s + v, 0) / vals.length;
+    r.ultimos = lans.slice(0,5).map(l => ({ data:String(l.data).slice(0,10), valor:Math.abs(Number(l.valor)||0) }));
+    if(val && r.media) r.variacao = (val / r.media) - 1;
+    if(val && alvo){
+      const dAlvo = new Date(alvo + 'T12:00:00').getTime();
+      r.iguais = lans.filter(l => {
+        if(Math.abs(Math.abs(Number(l.valor) || 0) - val) > 0.01) return false;
+        const t = new Date(String(l.data).slice(0,10) + 'T12:00:00').getTime();
+        /* 10 dias, não 45: num fornecedor mensal de valor fixo a cobrança do
+           mês passado sempre casaria, e todo boleto viraria "duplicata". */
+        return isFinite(t) && Math.abs(t - dAlvo) <= 10 * 864e5;
+      }).map(l => ({ data:String(l.data).slice(0,10), valor:Math.abs(Number(l.valor)||0) }));
+    }
+  }catch(e){ console.warn('_mrkDocConferir:', e); }
+  return r;
+}
+
+function _mrkDocConferirHtml(d){
+  const c = _mrkDocConferir(d);
+  const dia = s => { const p = String(s).split('-'); return p.length === 3 ? p[2]+'/'+p[1] : s; };
+  if(c.iguais.length){
+    return '<br><b style="color:#F59E0B">Já tem um igual.</b> Mesmo nome, mesmo valor, ' +
+           c.iguais.map(x => dia(x.data)).join(' e ') + '. Ou tu pagou duas vezes, ou tá quase.';
+  }
+  if(!c.n) return '<br><small style="color:#94A3B8">Nome novo. Nunca passou pela tua conta.</small>';
+  if(c.n < 3)
+    return '<br><small style="color:#94A3B8">' + c.n + (c.n > 1 ? ' passagens' : ' passagem') +
+           ' desse nome por aqui. A última em ' + dia(c.ultimos[0].data) +
+           ', R$ ' + _mrkFmt(c.ultimos[0].valor) + '. Pouco pra dizer o que é padrão.</small>';
+  const pct = Math.round((c.variacao || 0) * 100);
+  const base = c.n + ' vezes esse nome passou por aqui. Média R$ ' + _mrkFmt(c.media) + '. ';
+  if(Math.abs(pct) <= 2)
+    return '<br><small style="color:#94A3B8">' + base + 'Este é o de sempre.</small>';
+  return '<br><b style="color:' + (pct > 0 ? '#F59E0B' : '#10B981') + '">' + base +
+         'Este tá ' + Math.abs(pct) + '% ' + (pct > 0 ? 'acima' : 'abaixo') + '.</b>';
+}
+
 function mrkAnexoEscolher(){
   if(typeof LLM_CFG === 'undefined' || LLM_CFG.provider !== 'anthropic' || !LLM_CFG.apiKey){
     mrkAddBotMsg('<b>Sem modelo, sem leitura.</b><br>Anexo precisa do modo LLM ligado. ' +
@@ -131490,14 +131559,19 @@ async function mrkAnexoEnviar(file){
     prosa = prosa.replace(/```[a-z]*/gi, '').replace(/^[ \t]*LANCAMENTO[ \t]*:?[ \t]*$/gmi, '').trim();
 
     let html = _mrkMdParaHtml(prosa);
-    if(dados && (dados.valor || dados.fornecedor)){
-      _mrkAnexoPendente = { dados: dados, arquivo: file.name };
+    const ehLancamento = !!(dados && (dados.valor || dados.fornecedor));
+    if(ehLancamento){
+      _mrkAnexoPendente = { dados: dados, file: file };
+      html += _mrkDocConferirHtml(dados);
       const v = parseFloat(dados.valor) || 0;
-      html += '<br><br><button class="mrk-suggestion" onclick="mrkAnexoLancar()">→ Lançar isso' +
-              (v ? ' — R$ ' + _mrkFmt(v) : '') + '</button>' +
-              '<br><small style="color:#64748B">Abre o lançamento preenchido. Você confere antes de salvar.</small>';
+      html += '<br><br><button class="mrk-suggestion" onclick="mrkAnexoLancar()">→ Abrir o lançamento' +
+              (v ? ' — R$ ' + _mrkFmt(v) : '') + '</button>';
     }
     mrkAddBotMsg(html);
+    /* Reconheceu conta a pagar: abre sozinho. Pedir mais um clique era
+       confirmação à toa — o modal já É a confirmação, e nada vai pro banco
+       sem ele apertar Salvar. O botão acima fica pra reabrir se fechar. */
+    if(ehLancamento) setTimeout(() => { try{ mrkAnexoLancar(); }catch(_){} }, 420);
   }catch(e){
     mrkHideTyping();
     mrkAddBotMsg('<b style="color:#EF4444">Não li o documento:</b> ' + mrkEscape(e.message));
@@ -131506,7 +131580,21 @@ async function mrkAnexoEnviar(file){
 
 /* Abre o modal de lançamento de sempre, preenchido. Nada é salvo aqui — ele
    confere e salva, como em qualquer lançamento digitado à mão. */
-function mrkAnexoLancar(){
+/* Espera uma condição em vez de cronometrar. O modal monta em etapas e um
+   atraso fixo às vezes preenchia antes da lista de itens existir — os valores
+   iam pro array e eram descartados na montagem seguinte, abrindo em branco. */
+function _mrkEsperar(cond, limite){
+  return new Promise(ok => {
+    const t0 = Date.now();
+    (function tick(){
+      let v = false; try{ v = !!cond(); }catch(_){}
+      if(v || Date.now() - t0 > (limite || 4000)) return ok(v);
+      setTimeout(tick, 60);
+    })();
+  });
+}
+
+async function mrkAnexoLancar(){
   const p = _mrkAnexoPendente;
   if(!p){ return; }
   const d = p.dados;
@@ -131515,7 +131603,11 @@ function mrkAnexoLancar(){
     mrkAddBotMsg('<b style="color:#EF4444">Não abri o lançamento:</b> ' + mrkEscape(e.message));
     return;
   }
-  setTimeout(() => {
+  const pronto = await _mrkEsperar(() => document.getElementById('ext-it-counter-0')
+                                      && document.getElementById('ext-fld-data'));
+  if(!pronto){ mrkAddBotMsg('<b style="color:#EF4444">O lançamento abriu, mas não consegui preencher.</b>'); return; }
+  await new Promise(r => setTimeout(r, 120));   // deixa a montagem assentar
+  const preencher = () => {
     try{
       const ok = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
       const dt = ok(d.data) ? d.data : '';
@@ -131535,9 +131627,37 @@ function mrkAnexoLancar(){
       _extItemRender();
       const doc = document.getElementById('ext-fld-doc');
       if(doc && d.numero) doc.value = String(d.numero);
+
+      /* O boleto fica preso ao lançamento. `fkAnexoIngest` sobe pro Storage
+         quando o bucket existe e só cai em base64 (com teto) quando não —
+         não é o base64 solto dentro da linha que já nos mordeu antes. */
+      if(p.file && typeof fkAnexoIngest === 'function'){
+        fkAnexoIngest(p.file, 'extrato').then(a => {
+          if(!a) return;
+          _dkbAnexoData = [a];
+          const w = document.getElementById('dkb-anexo-wrap');
+          if(w && typeof _dkbRenderAnexoUI === 'function') w.innerHTML = _dkbRenderAnexoUI([a], 'doc');
+          /* O rótulo da seção é calculado na montagem e não se atualiza
+             sozinho: sem isto continuava "Vazio" com o boleto já anexado. */
+          const det = w && w.closest('details');
+          const badge = det && det.querySelector('summary .sec-resumo');
+          if(badge){
+            const nDoc = (document.getElementById('ext-fld-doc') || {}).value;
+            badge.textContent = (nDoc ? 'nº ' + String(nDoc).slice(0,14) + ' · ' : '') + '1 anexo';
+            badge.classList.add('on');
+          }
+        }).catch(e => console.warn('anexo no lançamento:', e && e.message));
+      }
     }catch(e){ console.warn('mrkAnexoLancar:', e); }
-  }, 260);
-  _mrkAnexoPendente = null;
+  };
+
+  preencher();
+  /* Confere que entrou mesmo. Se a montagem passou por cima, preenche de novo
+     — abrir em branco depois de ler o boleto certo é pior que não abrir. */
+  await new Promise(r => setTimeout(r, 320));
+  const campo = document.getElementById('ext-it-counter-0');
+  const esperado = String(d.fornecedor || '');
+  if(esperado && campo && campo.value !== esperado) preencher();
 }
 try{ window.mrkAnexoEscolher = mrkAnexoEscolher; window.mrkAnexoLancar = mrkAnexoLancar; }catch(_){}
 
@@ -134881,12 +135001,20 @@ function _mrkDia(d){
 }
 
 // Palavra que enche razão social e não identifica ninguém.
-const _MRK_NOME_VAZIO = new Set(['ltda','mei','eireli','epp','ltd','cia','filho','junior',
+/* Enfeite de razão social: não identifica ninguém em lugar nenhum. */
+const _MRK_RAZAO_VAZIO = new Set(['ltda','mei','eireli','epp','ltd','cia','filho','junior',
   'tecnologia','servicos','servico','digital','grupo','group','holding','participacoes',
   'comercio','industria','consultoria','marketing','performance','solutions','software',
-  'promocao','vendas','desenvolvimento','assessoria','empreendimentos','bank','pagamentos',
-  'claro','pago','pagar','deve','devo','mais','menos','esse','essa','este','esta','isso',
-  'todos','todas','algum','alguma','quanto','quando','porque','sobre','ainda','agora']);
+  'promocao','vendas','desenvolvimento','assessoria','empreendimentos','bank','pagamentos']);
+
+/* Palavra de conversa que por azar também é nome de empresa. Só sai fora
+   quando o texto é uma PERGUNTA — senão "ficou claro?" viraria a CLARO S.A.
+   Ao ler um documento isso não se aplica: ali o campo já é um fornecedor. */
+const _MRK_PALAVRA_COMUM = new Set(['claro','pago','pagar','deve','devo','mais','menos',
+  'esse','essa','este','esta','isso','todos','todas','algum','alguma','quanto','quando',
+  'porque','sobre','ainda','agora']);
+
+const _MRK_NOME_VAZIO = new Set([..._MRK_RAZAO_VAZIO, ..._MRK_PALAVRA_COMUM]);
 
 // Todo vocabulário de intent fica fora do nome: senão um fornecedor chamado
 // "CARTAO C6" rouba a pergunta "como tá o cartão".
@@ -134903,6 +135031,11 @@ function _mrkToksNome(nome){
   const fora = _mrkToksIntent();
   return _mrkNorm(nome).split(' ')
     .filter(t => t.length >= 3 && !_MRK_NOME_VAZIO.has(t) && !fora.has(t));
+}
+/* Tokens de um nome que já se sabe ser de empresa — vindo de um campo
+   "fornecedor", não de uma frase. Aqui só o enfeite de razão social sai. */
+function _mrkToksRazao(nome){
+  return _mrkNorm(nome).split(' ').filter(t => t.length >= 3 && !_MRK_RAZAO_VAZIO.has(t));
 }
 // Dois nomes batem quando compartilham token suficiente. Nome de uma palavra
 // basta um acerto; nome comprido exige dois, senão um sobrenome qualquer pega
