@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792729853"/>
+  <meta name="fk-build" content="forekash-v1792762529"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -10631,6 +10631,9 @@
                            cursor:pointer;display:flex;align-items:center;justify-content:center;
                            font-size:1rem;font-weight:800;transition:all .12s;flex-shrink:0}
     .mrk-chat-input button:hover{background:#059669;transform:translateY(-1px)}
+    /* O clipe é ação secundária: mesmo tamanho do enviar, peso bem menor. */
+    .mrk-chat-input button.mrk-anexo-btn{background:transparent;color:#64748B;border:1.5px solid #334155}
+    .mrk-chat-input button.mrk-anexo-btn:hover{background:#0F172A;color:#10B981;border-color:#10B981}
     .mrk-chat-input button:disabled{opacity:.4;cursor:not-allowed;transform:none}
 
     @media (max-width:480px){
@@ -83134,11 +83137,22 @@ function _ecapRenderProcessing(){
 
 // Extração principal · roteia por tipo de arquivo
 async function _ecapExtract(file){
+  /* Com o modelo ligado, o documento vai inteiro — inclusive foto de boleto,
+     que aqui nunca teve OCR e só era adivinhada pelo nome do arquivo. O
+     regex continua de pé como queda: sem key, ou se a chamada falhar, a
+     Captura IA segue funcionando como antes em vez de morrer. */
+  try{
+    if(typeof mrkDocExtrair === 'function' && typeof LLM_CFG !== 'undefined'
+       && LLM_CFG.provider === 'anthropic' && LLM_CFG.apiKey){
+      return await mrkDocExtrair(file);
+    }
+  }catch(e){ console.warn('captura via modelo falhou, caindo no regex:', e); }
+
   let text = '';
   if(file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')){
     text = await _ecapExtractPDFText(file);
   } else {
-    // Imagem · sem OCR no browser ainda. Mas pega hint do nome do arquivo.
+    // Imagem · sem OCR no browser. Pega hint do nome do arquivo.
     text = file.name.replace(/[._-]/g, ' ');
   }
   return _ecapParseText(text, file);
@@ -131221,6 +131235,15 @@ const MRK_PERSONA =
   'Se a pergunta pede algo que não está lá, diga exatamente o que falta e em ' +
   'qual módulo do app ele preenche isso. Chutar número de dinheiro é o pior ' +
   'erro que você pode cometer aqui.\n\n' +
+  'O Forekash, pra você saber apontar onde cada coisa se faz:\n' +
+  '- Disponibilidades: as contas, o saldo inicial de cada uma e o saldo mês a mês.\n' +
+  '- Extrato Financeiro: todo lançamento que passou pela conta. É a fonte do realizado. ' +
+  'Importa OFX/CSV, concilia, e a Captura IA lê um boleto ou nota e preenche o lançamento.\n' +
+  '- Receita: o faturado por cliente, mês a mês, com o painel de Recebíveis cruzando título e crédito.\n' +
+  '- Pessoas: folha, contratação, reajuste e o bloco de Vale/Adiantamento.\n' +
+  '- Impostos, Empréstimos, Cartões, Estrutura de Custos, Demonstrativo, KASHboard.\n' +
+  'Se ele perguntar como fazer algo, diga o módulo e o caminho. O que você não souber do app, ' +
+  'diga que não sabe — não invente nome de botão nem de tela.\n\n' +
   'Contabilidade da casa, pra você não ler errado:\n' +
   '- Transferência entre contas da própria empresa não é receita nem despesa.\n' +
   '- Cartão, aplicação e consórcio são CONTAS. Pagar fatura é transferência, não despesa.\n' +
@@ -131229,6 +131252,295 @@ const MRK_PERSONA =
   '- Realizado vem do Extrato; o resto é projeção e deve ser chamado de projeção.';
 
 // Função pra MR KASH chamar LLM real (substitui mrkLocalRespond se LLM ativo)
+// ═════════════════════════════════════════════════════════════════════
+// DOCUMENTO — o MR KASH passa a ler papel, não só número
+// ═════════════════════════════════════════════════════════════════════
+// A Captura IA lia PDF por regex e, em imagem, só chutava pelo nome do
+// arquivo: não havia OCR. Com o modelo ligado o documento vai inteiro e ele
+// enxerga de verdade. Um motor só, usado em dois lugares — a Captura IA do
+// Extrato e o anexo do chat — pra não existirem duas verdades sobre o mesmo
+// boleto.
+//
+// O que torna a leitura útil em vez de genérica é ir junto o que a empresa já
+// sabe: as categorias que ele usa, os fornecedores cadastrados e, na análise,
+// o panorama inteiro. Fornecedor volta com o nome que já existe no cadastro,
+// não com a razão social crua da nota.
+
+const MRK_DOC_MAX   = 9 * 1024 * 1024;        // a API corta imagem em 10MB
+const MRK_DOC_MIMES = { 'application/pdf':'document', 'image/jpeg':'image',
+  'image/png':'image', 'image/gif':'image', 'image/webp':'image' };
+
+function _mrkDocMime(file){
+  const t = String(file.type || '').toLowerCase();
+  if(MRK_DOC_MIMES[t]) return t;
+  if(/\.pdf$/i.test(file.name)) return 'application/pdf';
+  if(/\.jpe?g$/i.test(file.name)) return 'image/jpeg';
+  if(/\.png$/i.test(file.name)) return 'image/png';
+  if(/\.webp$/i.test(file.name)) return 'image/webp';
+  if(/\.gif$/i.test(file.name)) return 'image/gif';
+  return '';
+}
+function _mrkFileBase64(file){
+  return new Promise((ok, erro) => {
+    const r = new FileReader();
+    r.onload  = () => ok(String(r.result).split(',')[1] || '');
+    r.onerror = () => erro(new Error('não consegui ler o arquivo'));
+    r.readAsDataURL(file);
+  });
+}
+
+/* O que a empresa já sabe, em texto curto, pra ele devolver categoria e
+   fornecedor que EXISTEM aqui em vez de inventar rótulo novo. */
+function _mrkDocConhecido(){
+  const L = [];
+  try{
+    const cats = ((typeof catmapData !== 'undefined' && catmapData && catmapData.categorias) || [])
+      .map(c => c && c.nome).filter(Boolean);
+    if(cats.length) L.push('Categorias que esta empresa usa (escolha uma destas, exatamente como escrita): ' +
+                           [...new Set(cats)].join(' · '));
+  }catch(_){}
+  try{
+    const nomes = ((typeof pessoas !== 'undefined' && pessoas && pessoas.registry) || [])
+      .map(r => r && r.nome).filter(Boolean);
+    if(nomes.length) L.push('Fornecedores e clientes já cadastrados (se o documento for de um destes, ' +
+                            'devolva o nome EXATAMENTE como está aqui): ' + [...new Set(nomes)].slice(0,120).join(' · '));
+  }catch(_){}
+  return L.join('\n\n');
+}
+
+/* Uma chamada com documento. `instrucao` é o texto que vai depois do arquivo —
+   imagem antes do texto é o que o modelo lê melhor. */
+async function mrkDocPerguntar(file, instrucao, comPanorama){
+  if(typeof LLM_CFG === 'undefined' || LLM_CFG.provider !== 'anthropic' || !LLM_CFG.apiKey)
+    throw new Error('o modo LLM não está ligado — configure em Configurações');
+  const mime = _mrkDocMime(file);
+  if(!mime) throw new Error('formato não suportado: mande PDF, JPG, PNG, GIF ou WebP');
+  if(file.size > MRK_DOC_MAX) throw new Error('arquivo grande demais (máximo 9 MB)');
+
+  const b64 = await _mrkFileBase64(file);
+  const bloco = MRK_DOC_MIMES[mime] === 'document'
+    ? { type:'document', source:{ type:'base64', media_type:'application/pdf', data:b64 } }
+    : { type:'image',    source:{ type:'base64', media_type:mime,              data:b64 } };
+
+  let system = MRK_PERSONA;
+  if(comPanorama){
+    try{ system += '\n\n# PANORAMA — a única fonte de números que você pode usar\n\n' +
+                   mrkBriefing(mrkGatherContext()); }catch(_){}
+  }
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers: Object.assign({ 'x-api-key':LLM_CFG.apiKey, 'anthropic-version':'2026-10-21',
+      'content-type':'application/json', 'anthropic-dangerous-direct-browser-access':'true' },
+      LLM_CFG.workspaceId ? { 'anthropic-workspace-id': LLM_CFG.workspaceId } : {}),
+    body: JSON.stringify({
+      model: LLM_CFG.model || MRK_MODELO_PADRAO,
+      max_tokens: 16000,
+      output_config: { effort:'medium' },
+      system: [{ type:'text', text: system, cache_control:{ type:'ephemeral' } }],
+      messages: [{ role:'user', content: [ bloco, { type:'text', text: instrucao } ] }]
+    })
+  });
+  if(!res.ok){
+    let det = '';
+    try{ const j = await res.json(); det = (j.error && j.error.message) || ''; }catch(_){}
+    throw new Error('API ' + res.status + (det ? ' · ' + det.slice(0,400) : ''));
+  }
+  const data = await res.json();
+  if(data.stop_reason === 'refusal') throw new Error('o modelo recusou ler esse documento');
+  return (data.content || []).filter(b => b && b.type === 'text').map(b => b.text).join('\n').trim();
+}
+
+/* Tira o JSON de dentro da resposta. O modelo escreve prosa e depois o bloco;
+   pegar o último `{...}` equilibrado é mais robusto que exigir cerca ```json,
+   que ele às vezes omite. */
+function _mrkDocJson(txt){
+  const s = String(txt || '');
+  const i = s.lastIndexOf('{');
+  if(i < 0) return null;
+  let nivel = 0, dentroStr = false, escape = false;
+  for(let j = i; j < s.length; j++){
+    const c = s[j];
+    if(escape){ escape = false; continue; }
+    if(c === '\\'){ escape = true; continue; }
+    if(c === '"'){ dentroStr = !dentroStr; continue; }
+    if(dentroStr) continue;
+    if(c === '{') nivel++;
+    else if(c === '}'){ nivel--; if(!nivel){
+      try{ return JSON.parse(s.slice(i, j + 1)); }catch(_){ return null; }
+    }}
+  }
+  return null;
+}
+
+const MRK_DOC_CAMPOS =
+  '{"tipo":"gasto ou ganho","valor":1234.56,"data":"AAAA-MM-DD (vencimento; se não houver, a emissão)",' +
+  '"competencia":"AAAA-MM-DD do mês a que o serviço se refere, se o documento disser; senão vazio",' +
+  '"fornecedor":"quem recebe o dinheiro, ou quem paga se for ganho","cnpj":"só dígitos, vazio se não houver",' +
+  '"numero":"número da nota ou do documento","categoria":"uma das categorias listadas","descricao":"curta, do que se trata",' +
+  '"confianca":"hi, md ou lo"}';
+
+/* Extração para a Captura IA: devolve no formato que o review do Extrato já
+   espera, pra nada mudar da revisão em diante. */
+async function mrkDocExtrair(file){
+  const instrucao =
+    'Este documento é uma nota fiscal, boleto, recibo, fatura ou comprovante de pagamento de uma ' +
+    'empresa brasileira. Extraia os campos para lançar no financeiro.\n\n' +
+    _mrkDocConhecido() + '\n\n' +
+    'Regras: valor é o total a pagar (número puro, ponto decimal, sem "R$" e sem separador de milhar). ' +
+    'Data no formato AAAA-MM-DD. Se um campo não estiver no documento, devolva string vazia — ' +
+    'não invente. `confianca` é sua confiança na LEITURA do valor e da data.\n\n' +
+    'Responda com UMA frase dizendo o que é o documento e, em seguida, apenas este JSON:\n' +
+    MRK_DOC_CAMPOS;
+
+  const txt = await mrkDocPerguntar(file, instrucao, false);
+  const j = _mrkDocJson(txt);
+  if(!j) throw new Error('não consegui ler os campos desse documento');
+
+  const conf = (j.confianca === 'hi' || j.confianca === 'md' || j.confianca === 'lo') ? j.confianca : 'md';
+  const valor = (j.valor === '' || j.valor == null) ? null : (parseFloat(j.valor) || null);
+  const data  = /^\d{4}-\d{2}-\d{2}$/.test(String(j.data || '')) ? j.data : new Date().toISOString().slice(0,10);
+  const forn  = String(j.fornecedor || '').trim();
+  return {
+    tipo: (j.tipo === 'ganho') ? 'ganho' : 'gasto',
+    valor: valor,      valorConf: valor ? conf : 'no',
+    data: data,        dataConf: /^\d{4}-\d{2}-\d{2}$/.test(String(j.data || '')) ? conf : 'no',
+    fornecedor: forn || null, fornConf: forn ? conf : 'no', fornKnown: null,
+    cnpj: String(j.cnpj || '').replace(/\D/g,'') || null,
+    numero: String(j.numero || '').trim() || null,
+    categoria: String(j.categoria || '').trim() || null,
+    catConf: String(j.categoria || '').trim() ? conf : 'no',
+    descricao: String(j.descricao || '').trim(),
+    cc: null,
+    textPreview: String(txt).split(/\n/)[0].slice(0, 300)
+  };
+}
+try{ window.mrkDocExtrair = mrkDocExtrair; window.mrkDocPerguntar = mrkDocPerguntar; }catch(_){}
+
+// ═════════════════════════════════════════════════════════════════════
+// ANEXO NO CHAT — papel vira resposta, e nota vira lançamento
+// ═════════════════════════════════════════════════════════════════════
+// Dois destinos, decididos pelo próprio documento. Nota, boleto, recibo ou
+// comprovante viram um botão que abre O MODAL DE SEMPRE já preenchido — não
+// nasce tela nova. Contrato, proposta ou qualquer outra coisa vira análise no
+// chat, com o panorama da empresa junto: é isso que separa "li um contrato" de
+// "este contrato, com o seu caixa, é um problema".
+
+let _mrkAnexoPendente = null;   // extração aguardando virar lançamento
+
+function mrkAnexoEscolher(){
+  if(typeof LLM_CFG === 'undefined' || LLM_CFG.provider !== 'anthropic' || !LLM_CFG.apiKey){
+    mrkAddBotMsg('<b>Sem modelo, sem leitura.</b><br>Anexo precisa do modo LLM ligado. ' +
+                 'Configurações → MR KASH com LLM Real.');
+    return;
+  }
+  let inp = document.getElementById('mrk-anexo-input');
+  if(!inp){
+    inp = document.createElement('input');
+    inp.type = 'file'; inp.id = 'mrk-anexo-input';
+    inp.accept = '.pdf,.jpg,.jpeg,.png,.gif,.webp,application/pdf,image/*';
+    inp.style.display = 'none';
+    inp.addEventListener('change', e => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = '';           // permite reenviar o mesmo arquivo
+      if(f) mrkAnexoEnviar(f);
+    });
+    document.body.appendChild(inp);
+  }
+  inp.click();
+}
+
+const MRK_DOC_INSTRUCAO =
+  'Leia o documento anexado. Você conhece os números desta empresa — use isso.\n\n' +
+  'SE for nota fiscal, boleto, recibo, fatura ou comprovante de pagamento:\n' +
+  'diga em uma ou duas frases o que é, de quem, quanto e quando vence. Se algo destoar do que ' +
+  'você sabe da empresa (valor fora do padrão desse fornecedor, cobrança repetida, vencimento ' +
+  'já passado), diga numa frase. Depois escreva, em uma linha isolada, exatamente ' +
+  'LANCAMENTO: e em seguida apenas este JSON:\n' + MRK_DOC_CAMPOS + '\n\n' +
+  'SE for contrato, proposta, planilha, apólice, parcelamento ou qualquer outro documento:\n' +
+  'analise para quem vai assinar ou já assinou. Diga o que ele obriga, quanto custa no total e ' +
+  'por mês, qual a taxa real se houver juros, o que trava (prazo, multa, rescisão, garantia, ' +
+  'reajuste) e onde está o risco. Cruze com o panorama: se o compromisso não couber no que entra, ' +
+  'diga em números. Não escreva o bloco LANCAMENTO neste caso.\n\n' +
+  'Nos dois casos: não invente dado que não está no documento. Se o documento estiver ilegível ' +
+  'ou cortado, diga isso em vez de adivinhar.';
+
+async function mrkAnexoEnviar(file){
+  mrkAddUserMsg('Anexo · ' + mrkEscape(file.name));
+  mrkShowTyping();
+  try{
+    const txt = await mrkDocPerguntar(file, MRK_DOC_INSTRUCAO, true);
+    mrkHideTyping();
+    /* A marca pode vir sozinha na linha ou colada no JSON — exigir linha
+       isolada deixava o JSON cru vazar na bolha e sumia com o botão. E se ele
+       esquecer a marca, um JSON com tipo e valor ainda vale como lançamento. */
+    const m = /^[ \t]*LANCAMENTO[ \t]*:/mi.exec(txt);
+    let prosa = txt, dados = null;
+    if(m){
+      prosa = txt.slice(0, m.index);
+      dados = _mrkDocJson(txt.slice(m.index));
+    } else {
+      const j = _mrkDocJson(txt);
+      if(j && j.tipo && j.valor != null){
+        dados = j;
+        const i = txt.lastIndexOf('{');
+        if(i > 0) prosa = txt.slice(0, i);
+      }
+    }
+    prosa = prosa.replace(/```[a-z]*/gi, '').replace(/^[ \t]*LANCAMENTO[ \t]*:?[ \t]*$/gmi, '').trim();
+
+    let html = _mrkMdParaHtml(prosa);
+    if(dados && (dados.valor || dados.fornecedor)){
+      _mrkAnexoPendente = { dados: dados, arquivo: file.name };
+      const v = parseFloat(dados.valor) || 0;
+      html += '<br><br><button class="mrk-suggestion" onclick="mrkAnexoLancar()">→ Lançar isso' +
+              (v ? ' — R$ ' + _mrkFmt(v) : '') + '</button>' +
+              '<br><small style="color:#64748B">Abre o lançamento preenchido. Você confere antes de salvar.</small>';
+    }
+    mrkAddBotMsg(html);
+  }catch(e){
+    mrkHideTyping();
+    mrkAddBotMsg('<b style="color:#EF4444">Não li o documento:</b> ' + mrkEscape(e.message));
+  }
+}
+
+/* Abre o modal de lançamento de sempre, preenchido. Nada é salvo aqui — ele
+   confere e salva, como em qualquer lançamento digitado à mão. */
+function mrkAnexoLancar(){
+  const p = _mrkAnexoPendente;
+  if(!p){ return; }
+  const d = p.dados;
+  const tipo = (d.tipo === 'ganho') ? 'ganho' : 'gasto';
+  try{ extOpenModal(tipo); }catch(e){
+    mrkAddBotMsg('<b style="color:#EF4444">Não abri o lançamento:</b> ' + mrkEscape(e.message));
+    return;
+  }
+  setTimeout(() => {
+    try{
+      const ok = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+      const dt = ok(d.data) ? d.data : '';
+      /* Competência é quando o serviço aconteceu, vencimento é quando se paga.
+         Honorário de outubro vence em novembro — copiar o vencimento nos dois
+         jogava o custo no mês errado no Demonstrativo. */
+      const cp = ok(d.competencia) ? d.competencia : dt;
+      const venc = document.getElementById('ext-fld-data');
+      const comp = document.getElementById('ext-fld-comp');
+      if(dt && venc){ venc.value = dt; venc.dispatchEvent(new Event('change', {bubbles:true})); }
+      if(cp && comp){ comp.value = cp; comp.dispatchEvent(new Event('change', {bubbles:true})); }
+      _extItemsTipo = tipo;
+      _extItemUpdate(0, 'descricao',   String(d.descricao || '').slice(0,120));
+      _extItemUpdate(0, 'valor',       parseFloat(d.valor) || 0);
+      _extItemUpdate(0, 'categoria',   String(d.categoria || ''));
+      _extItemUpdate(0, 'contraparte', String(d.fornecedor || ''));
+      _extItemRender();
+      const doc = document.getElementById('ext-fld-doc');
+      if(doc && d.numero) doc.value = String(d.numero);
+    }catch(e){ console.warn('mrkAnexoLancar:', e); }
+  }, 260);
+  _mrkAnexoPendente = null;
+}
+try{ window.mrkAnexoEscolher = mrkAnexoEscolher; window.mrkAnexoLancar = mrkAnexoLancar; }catch(_){}
+
 const MRK_MODELO_PADRAO = 'claude-opus-5-5';
 
 /* Histórico do chat vira turno de conversa, senão "e o mês anterior?" chega
@@ -141351,6 +141663,9 @@ try {
   <div class="mrk-chat-input">
     <textarea id="mrk-chat-textarea" placeholder="Pergunta aí — Enter envia" rows="1"
               onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();mrkChatSend()}"></textarea>
+    <button class="mrk-anexo-btn" onclick="mrkAnexoEscolher()" title="Anexar nota, boleto ou contrato">
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+    </button>
     <button onclick="mrkChatSend()" title="Enviar">→</button>
   </div>
 </div>
