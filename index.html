@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792726041"/>
+  <meta name="fk-build" content="forekash-v1792726455"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -133995,8 +133995,9 @@ function mrkChatToggle(){
         '<li>MRR · churn · health · upsell · pricing</li>' +
         '<li>Pipeline · contratos · NF · patrimônio</li>' +
         '<li>Vencimentos da semana · anomalias · investor deck</li>' +
+        '<li><b>Nome de gente</b> — cliente, fornecedor ou quem tá na folha</li>' +
         '</ul>' +
-        'Manda a pergunta. Sem rodeio.'
+        'Manda a pergunta. Sem rodeio. Ou manda um nome: <i>quanto o G Muller me deve</i>.'
       );
     }
     setTimeout(() => {
@@ -134198,6 +134199,207 @@ function mrkPickSuggestion(s){
 // ═════════════════════════════════════════════════════════════════════
 let MRK_LAST_INTENT = null;       // pra "e o anterior?", "mais detalhes"
 let MRK_LAST_CTX_HINT = null;     // ex: 'mes_anterior', 'cliente_X'
+// ═════════════════════════════════════════════════════════════════════
+// CAMADA DE NOMES — o MR KASH passa a reconhecer gente
+// ═════════════════════════════════════════════════════════════════════
+// Ele respondia por categoria ("quanto gastei") e não respondia por nome
+// ("quanto o G Muller me deve"), mesmo com o dado já na mão: Recebíveis tem
+// título × crédito por cliente, Adiantamentos tem vale por pessoa e o Extrato
+// tem contraparte. Aqui ele monta o elenco a partir dos dados reais e, quando
+// a pergunta cita alguém, responde sobre essa pessoa em vez de chutar intent.
+
+function _mrkNorm(s){
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+function _mrkDia(d){
+  const p = String(d || '').slice(0,10).split('-');
+  return p.length === 3 ? p[2] + '/' + p[1] : String(d || '');
+}
+
+// Palavra que enche razão social e não identifica ninguém.
+const _MRK_NOME_VAZIO = new Set(['ltda','mei','eireli','epp','ltd','cia','filho','junior',
+  'tecnologia','servicos','servico','digital','grupo','group','holding','participacoes',
+  'comercio','industria','consultoria','marketing','performance','solutions','software',
+  'promocao','vendas','desenvolvimento','assessoria','empreendimentos','bank','pagamentos',
+  'claro','pago','pagar','deve','devo','mais','menos','esse','essa','este','esta','isso',
+  'todos','todas','algum','alguma','quanto','quando','porque','sobre','ainda','agora']);
+
+// Todo vocabulário de intent fica fora do nome: senão um fornecedor chamado
+// "CARTAO C6" rouba a pergunta "como tá o cartão".
+let _MRK_TOKS_INTENT = null;
+function _mrkToksIntent(){
+  if(_MRK_TOKS_INTENT) return _MRK_TOKS_INTENT;
+  const s = new Set();
+  try{ MRK_INTENTS.forEach(i => i.keys.forEach(k =>
+    _mrkNorm(k).split(' ').forEach(t => { if(t) s.add(t); }))); }catch(_){}
+  _MRK_TOKS_INTENT = s;
+  return s;
+}
+function _mrkToksNome(nome){
+  const fora = _mrkToksIntent();
+  return _mrkNorm(nome).split(' ')
+    .filter(t => t.length >= 3 && !_MRK_NOME_VAZIO.has(t) && !fora.has(t));
+}
+// Dois nomes batem quando compartilham token suficiente. Nome de uma palavra
+// basta um acerto; nome comprido exige dois, senão um sobrenome qualquer pega
+// a pessoa errada.
+function _mrkBate(toks, nome){
+  const at = new Set(_mrkNorm(nome).split(' '));
+  let n = 0;
+  toks.forEach(t => { if(at.has(t)) n++; });
+  return toks.length > 1 ? n >= 2 : n >= 1;
+}
+
+// Elenco: cliente da Receita, gente do Pessoas, cadastro e contraparte do Extrato.
+function mrkElenco(ctx){
+  const porChave = {};
+  const add = (nome, tipo) => {
+    const toks = _mrkToksNome(nome);
+    if(!toks.length) return;
+    const chave = toks.join(' ');
+    const e = porChave[chave] || (porChave[chave] =
+      { nome: String(nome), chave: chave, toks: toks, tipos: {} });
+    e.tipos[tipo] = true;
+    // fica com o nome mais curto — é o que ele reconhece na tela
+    if(String(nome).length < e.nome.length) e.nome = String(nome);
+  };
+  try{
+    if(ctx.receitaKanban && ctx.receitaKanban.years)
+      Object.values(ctx.receitaKanban.years).forEach(y =>
+        ((y && y.clients) || []).forEach(c => { if(c && c.nome) add(c.nome, 'cliente'); }));
+  }catch(_){}
+  try{
+    if(typeof pessoas !== 'undefined' && pessoas){
+      (pessoas.people || []).forEach(p => { if(p && p.nome) add(p.nome, 'pessoa'); });
+      (pessoas.registry || []).forEach(r => { if(r && r.nome) add(r.nome, 'cadastro'); });
+    }
+  }catch(_){}
+  try{
+    (ctx.extrato || []).forEach(l => { if(l && l.contraparte) add(l.contraparte, 'extrato'); });
+  }catch(_){}
+  return Object.values(porChave);
+}
+
+// Acha o nome citado na pergunta.
+function mrkAchaEntidade(q, ctx){
+  const qt = new Set(_mrkNorm(q).split(' '));
+  if(!qt.size) return null;
+  let melhor = null;
+  mrkElenco(ctx).forEach(e => {
+    let n = 0, chars = 0;
+    e.toks.forEach(t => { if(qt.has(t)){ n++; chars += t.length; } });
+    if(!n) return;
+    if(e.toks.length > 1 && n < 2) return;
+    if(!melhor || n > melhor.n || (n === melhor.n && chars > melhor.chars))
+      melhor = { ent: e, n: n, chars: chars };
+  });
+  return melhor ? melhor.ent : null;
+}
+
+// Dossiê de um nome: o que passou pela conta, o que ele deve (Recebíveis) e o
+// vale em aberto (Adiantamentos). Cada bloco só aparece se tiver dado.
+function mrkAnswerEntidade(ent, ctx){
+  const blocos = [];
+
+  // 1) EXTRATO — dinheiro que de fato passou pela conta
+  let entrou = 0, saiu = 0, nMov = 0, ultima = '', ultimaVal = 0, ultimaTipo = '';
+  try{
+    (ctx.extrato || []).forEach(l => {
+      if(!l || !l.contraparte || !_mrkBate(ent.toks, l.contraparte)) return;
+      const v = Math.abs(Number(l.valor) || 0);
+      if(!v) return;
+      nMov++;
+      if(l.tipo === 'ganho') entrou += v;
+      else if(l.tipo === 'gasto') saiu += v;
+      const d = String(l.data || '');
+      if(d > ultima){ ultima = d; ultimaVal = v; ultimaTipo = l.tipo || ''; }
+    });
+  }catch(_){}
+  if(nMov){
+    let b = '<b>No extrato</b> · ' + nMov + ' lançamento' + (nMov > 1 ? 's' : '') + '<ul>';
+    if(entrou) b += '<li>entrou R$ ' + _mrkFmt(entrou) + '</li>';
+    if(saiu)   b += '<li>saiu R$ ' + _mrkFmt(saiu) + '</li>';
+    if(ultima) b += '<li>último em ' + _mrkDia(ultima) + ', R$ ' + _mrkFmt(ultimaVal) +
+                    (ultimaTipo === 'ganho' ? ' entrando' :
+                     ultimaTipo === 'gasto' ? ' saindo' : ' em transferência') + '</li>';
+    blocos.push(b + '</ul>');
+  }
+
+  // 2) COBRANÇA — título × crédito, do painel de Recebíveis
+  try{
+    if(typeof recRecebiveis === 'function'){
+      const ano = (typeof recActiveYear !== 'undefined' && recActiveYear) || ctx.ymNow.slice(0,4);
+      const r = recRecebiveis(ano) || {};
+      const c = Object.values(r.porCliente || {}).find(x => x && _mrkBate(ent.toks, x.nome));
+      if(c && (c.faturado || c.recebido)){
+        let b = '<b>Cobrança ' + ano + '</b><ul>' +
+                '<li>faturado R$ ' + _mrkFmt(c.faturado) + '</li>' +
+                '<li>recebido R$ ' + _mrkFmt(c.recebido) + '</li>';
+        if(c.aberto > 0.5)
+          b += '<li><b style="color:#F59E0B">em aberto R$ ' + _mrkFmt(c.aberto) + '</b></li>';
+        if(c.deducao > 0.5)
+          b += '<li>retenção e taxa R$ ' + _mrkFmt(c.deducao) + '</li>';
+        if(c.atrasoMedio != null){
+          const a = Math.round(c.atrasoMedio);
+          b += '<li>' + (a > 0 ? 'paga ' + a + ' dia' + (a > 1 ? 's' : '') + ' atrasado em média'
+                              : a < 0 ? 'antecipa ' + Math.abs(a) + ' dia' + (Math.abs(a) > 1 ? 's' : '')
+                                      : 'paga no dia') + '</li>';
+        }
+        b += '</ul>';
+        const abertas = (c.linhas || []).filter(l => !l.quitado && l.valor > 0.5);
+        if(abertas.length){
+          b += '<small style="color:#94A3B8">Parcela aberta:</small><ul>';
+          abertas.slice(0,5).forEach(l => {
+            b += '<li>' + l.mes + ' — R$ ' + _mrkFmt(l.valor - (l.creditoVal || 0)) +
+                 (l.venc ? ' (vencia ' + _mrkDia(l.venc) + ')' : ' (sem vencimento)') +
+                 (l.atraso > 0 ? ' · ' + l.atraso + 'd' : '') + '</li>';
+          });
+          if(abertas.length > 5) b += '<li>e mais ' + (abertas.length - 5) + '</li>';
+          b += '</ul>';
+        }
+        blocos.push(b);
+      }
+    }
+  }catch(_){}
+
+  // 3) ADIANTAMENTO — vale em aberto, do bloco do Pessoas
+  try{
+    if(typeof pesAdiantamentos === 'function'){
+      const ano = (typeof pesActiveYear !== 'undefined' && pesActiveYear) || ctx.ymNow.slice(0,4);
+      const a = pesAdiantamentos(ano) || {};
+      const p = Object.values(a.porPessoa || {}).find(x => x && _mrkBate(ent.toks, x.nome));
+      if(p && p.adiantado > 0.5){
+        let b = '<b>Adiantamento ' + ano + '</b><ul>' +
+                '<li>pegou R$ ' + _mrkFmt(p.adiantado) + ' em ' + (p.adiant || []).length +
+                ' vez' + ((p.adiant || []).length > 1 ? 'es' : '') + '</li>';
+        if(p.emDinheiro > 0.5)  b += '<li>devolveu em dinheiro R$ ' + _mrkFmt(p.emDinheiro) + '</li>';
+        if(p.emDesconto > 0.5)  b += '<li>descontado do pagamento R$ ' + _mrkFmt(p.emDesconto) + '</li>';
+        b += '<li><b style="color:' + (p.saldo > 0.5 ? '#F59E0B' : '#10B981') + '">' +
+             (p.saldo > 0.5 ? 'ainda deve R$ ' + _mrkFmt(p.saldo) : 'quitado') +
+             '</b></li></ul>';
+        if(!p.devolEditado && !p.descEditado && p.saldo > 0.5)
+          b += '<small style="color:#94A3B8">Ninguém marcou baixa — o número é o adiantado puro. ' +
+               'Abre Adiantamentos no Pessoas e lança o que já voltou.</small>';
+        blocos.push(b);
+      }
+    }
+  }catch(_){}
+
+  let html = '<b>' + mrkEscape(ent.nome) + '</b>';
+  const comoVi = [];
+  if(ent.tipos.cliente)  comoVi.push('cliente na Receita');
+  if(ent.tipos.pessoa)   comoVi.push('gente na folha');
+  if(ent.tipos.cadastro) comoVi.push('cadastrado');
+  if(ent.tipos.extrato && !comoVi.length) comoVi.push('aparece no extrato');
+  if(comoVi.length) html += '<br><small style="color:#94A3B8">' + comoVi.join(' · ') + '</small>';
+  if(!blocos.length){
+    return html + '<br><br>Conheço o nome e não tenho número nenhum no período. ' +
+           'Ou nada passou pela conta, ou o lançamento tá sem contraparte.';
+  }
+  return html + '<br><br>' + blocos.join('<br>');
+}
+
 function mrkLocalRespond(text){
   const q = text.toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g,''); // sem acentos
@@ -134216,6 +134418,20 @@ function mrkLocalRespond(text){
   }
 
   const intent = mrkDetectIntent(q);
+  const forca = _MRK_INTENT_SCORE;
+
+  /* Nome citado manda: "quanto a DOT me deve" é sobre a DOT, não sobre "deve"
+     em geral. O elenco já exclui todo vocabulário de intent, então um acerto
+     aqui quer dizer que ele escreveu um nome mesmo. A exceção é nome curto de
+     uma palavra só contra um intent explícito — aí o intent ganha. */
+  const ent = mrkAchaEntidade(q, ctx);
+  const nomeFraco = ent && ent.toks.length === 1 && ent.toks[0].length <= 5;
+  if(ent && !(nomeFraco && intent && forca >= 7)){
+    MRK_LAST_INTENT = null;
+    MRK_LAST_CTX_HINT = null;
+    return mrkAnswerEntidade(ent, ctx);
+  }
+
   MRK_LAST_INTENT = intent;
   MRK_LAST_CTX_HINT = null;
   return mrkRunIntent(intent, ctx, text);
@@ -134229,7 +134445,7 @@ const MRK_INTENTS = [
   { id:'runway',      keys:['runway','quanto tempo','caixa aguenta','quando fecho','quando quebro','quantos meses','sobrevivo','queima de caixa','quanto tempo de caixa'] },
   { id:'entrada',     keys:['entrou','recebido','receita','faturei','faturamento','faturou','entrada','recebimento','recebimentos','recebeu','quanto recebi','quanto entrou','receita do mes','quanto faturei'] },
   { id:'saida',       keys:['saiu','sair','gastei','gasto','despesa','despesas','saida','quanto gastei','quanto paguei','quanto custou','custos do mes','onde gastei'] },
-  { id:'saldo',       keys:['saldo','disponivel','caixa','tem quanto','quanto tem na conta','quanto tem no banco','disponibilidade','saldo das contas'] },
+  { id:'saldo',       keys:['saldo','disponivel','caixa','tem quanto','quanto tem na conta','quanto tem no banco','disponibilidade','saldo das contas','todas as contas','nas contas','saldo total'] },
   { id:'cliente_top', keys:['cliente top','cliente que mais paga','maior cliente','top cliente','concentracao cliente','melhor cliente','quem mais paga','cliente principal'] },
   { id:'cat_gasto',   keys:['categoria gasto','maior gasto','onde gastei','gasto maior','maior despesa','top categoria','onde foi a grana','categoria que mais gasto'] },
   { id:'anomalia',    keys:['anomalia','estranho','incomum','alerta','suspeito','anomalo','anomalias','tem anomalia','fora do padrao','algo errado'] },
@@ -134267,15 +134483,23 @@ const MRK_INTENTS = [
   // Sobre o MR KASH
   { id:'identidade',  keys:['quem e voce','quem voce e','o que voce e','seu nome','voce e humano','voce e robo','voce e ia']  }
 ];
+/* Guarda a força do último match pra quem precisa desempatar com um nome. */
+let _MRK_INTENT_SCORE = 0;
 function mrkDetectIntent(q){
+  /* Palavra curta tem que bater inteira. Solta no meio de outra ela mentia:
+     "depois" virava saudação por causa do "oi", "todas" virava imposto por
+     causa do "das" e "simples" virava patrimônio por causa do "pl". */
+  const qt = new Set(_mrkNorm(q).split(' '));
   let best = { id:null, score:0 };
   MRK_INTENTS.forEach(intent => {
     let score = 0;
     intent.keys.forEach(k => {
-      if(q.includes(k)) score += k.length; // mais longa = mais específica
+      const bate = k.length <= 4 ? qt.has(_mrkNorm(k)) : q.includes(k);
+      if(bate) score += k.length; // mais longa = mais específica
     });
     if(score > best.score) best = { id:intent.id, score };
   });
+  _MRK_INTENT_SCORE = best.score;
   return best.id;
 }
 function mrkRunIntent(intent, ctx, originalText){
