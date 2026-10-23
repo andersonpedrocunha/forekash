@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792726977"/>
+  <meta name="fk-build" content="forekash-v1792727852"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -25064,8 +25064,9 @@ td.mes.do-extrato{background:#ECFDF5}
               <div class="cfg-field" id="llm-model-wrap" style="display:none">
                 <label>Modelo</label>
                 <select id="llm-model">
-                  <option value="claude-3-5-sonnet-20241022">claude-3-5-sonnet (Anthropic)</option>
-                  <option value="claude-3-5-haiku-20241022">claude-3-5-haiku (rápido + barato)</option>
+                  <option value="claude-opus-5-5">claude-opus-5-5 (Anthropic · o mais capaz)</option>
+                  <option value="claude-sonnet-5-5">claude-sonnet-5-5 (metade do preço)</option>
+                  <option value="claude-haiku-5-5">claude-haiku-5-5 (rápido + barato)</option>
                   <option value="gpt-4o">gpt-4o (OpenAI)</option>
                   <option value="gpt-4o-mini">gpt-4o-mini (barato)</option>
                 </select>
@@ -130980,34 +130981,302 @@ function llmGetKey(){
     window.open(url, '_blank');
   });
 }
+// ═════════════════════════════════════════════════════════════════════
+// BRIEFING — o pacote de números que vai junto com a pergunta pro LLM
+// ═════════════════════════════════════════════════════════════════════
+// O modo LLM mandava `JSON.stringify(contexto).slice(0,3000)`: o modelo recebia
+// um JSON cortado no meio da terceira chave, com uns dez lançamentos e nada
+// mais. Daí respondia genérico ou inventava número. Aqui o contexto vira texto
+// agregado e fechado — e o system proíbe número que não esteja nele.
+//
+// O Extrato é a espinha: ele é o dinheiro que de fato passou pela conta. A
+// projeção vem dos módulos e entra rotulada como projeção, nunca misturada.
+
+const _MRK_MES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+
+function mrkBriefing(ctx){
+  const L = [];
+  const fmt = v => _mrkFmt(v);
+  /* `_mrkFmt` aplica Math.abs — correto onde ele é usado nas respostas, que já
+     são magnitudes, e errado aqui: sem sinal, um mês de prejuízo chega ao
+     modelo como lucro. Onde o número pode ser negativo, usa este. */
+  const sgn = v => { const n = Number(v) || 0; return (n < 0 ? '-' : '') + _mrkFmt(n); };
+  const ano = String(ctx.ymNow).slice(0,4);
+  const hoje = ctx.ymNow + '-' + String(ctx.now.getDate()).padStart(2,'0');
+  const doAno = d => String(d || '').slice(0,4) === ano;
+
+  L.push('# FOREKASH — panorama financeiro em ' + hoje);
+  L.push('Valores em reais. Ano corrente: ' + ano + '.');
+
+  // ── CAIXA ───────────────────────────────────────────────────────────
+  try{
+    const contas = (typeof dispo !== 'undefined' && dispo && Array.isArray(dispo.contas)) ? dispo.contas : [];
+    const linhas = []; let total = 0;
+    contas.forEach(c => {
+      if(!c || c.ativo === false) return;
+      const s = (typeof dispoCalcSaldoEsperado === 'function') ? dispoCalcSaldoEsperado(c, ctx.ymNow) : null;
+      if(s == null) return;
+      const nome = (typeof _dispoNomeConta === 'function' && _dispoNomeConta(c)) || c.nome || 'Conta';
+      linhas.push('- ' + nome + ': ' + sgn(s));
+      total += s;
+    });
+    if(linhas.length)
+      L.push('\n## CAIXA (saldo calculado em ' + ctx.ymNow + ')\n' + linhas.join('\n') + '\nTotal em caixa: ' + sgn(total));
+    else if(contas.length)
+      /* Silêncio aqui seria pior que a ausência: o modelo somaria o Extrato e
+         chamaria de saldo. Diz o que falta e onde se preenche. */
+      L.push('\n## CAIXA\nINDISPONÍVEL: nenhuma das ' + contas.length + ' contas tem saldo inicial ' +
+             'preenchido, então o saldo não é calculável. Se perguntarem de saldo ou caixa, ' +
+             'responda que falta informar o saldo inicial de cada conta no módulo ' +
+             'Disponibilidades — e NÃO estime caixa somando o extrato.');
+  }catch(_){}
+
+  // ── ENTROU × SAIU, mês a mês (Extrato, sem transferência entre contas) ──
+  const porMes = {}, porCat = {}, porCliente = {};
+  let totEnt = 0, totSai = 0;
+  try{
+    (ctx.extrato || []).forEach(l => {
+      if(!l || !doAno(l.data)) return;
+      if(l.tipo !== 'ganho' && l.tipo !== 'gasto') return;   // transferência não é resultado
+      const v = Math.abs(Number(l.valor) || 0);
+      if(!v) return;
+      const m = String(l.data).slice(0,7);
+      const b = porMes[m] || (porMes[m] = { ent:0, sai:0 });
+      if(l.tipo === 'ganho'){
+        b.ent += v; totEnt += v;
+        const cli = String(l.contraparte || '').trim();
+        if(cli) porCliente[cli] = (porCliente[cli] || 0) + v;
+      } else {
+        b.sai += v; totSai += v;
+        const c = String(l.categoria || 'Sem categoria').trim();
+        porCat[c] = (porCat[c] || 0) + v;
+      }
+    });
+  }catch(_){}
+  const meses = Object.keys(porMes).sort();
+  if(meses.length){
+    const ls = meses.map(m => {
+      const b = porMes[m];
+      return '- ' + _MRK_MES[+m.slice(5,7) - 1] + ': entrou ' + fmt(b.ent) +
+             ' · saiu ' + fmt(b.sai) + ' · resultado ' + sgn(b.ent - b.sai);
+    });
+    L.push('\n## REALIZADO ' + ano + ' — mês a mês (o que passou pela conta)\n' + ls.join('\n') +
+           '\nAcumulado: entrou ' + fmt(totEnt) + ' · saiu ' + fmt(totSai) +
+           ' · resultado ' + sgn(totEnt - totSai));
+  }
+
+  // ── SAÍDA por categoria ─────────────────────────────────────────────
+  const cats = Object.entries(porCat).sort((a,b) => b[1] - a[1]).slice(0, 18);
+  if(cats.length)
+    L.push('\n## SAÍDA ' + ano + ' por categoria\n' +
+           cats.map(([c,v]) => '- ' + c + ': ' + fmt(v) +
+             (totSai ? ' (' + Math.round(v / totSai * 100) + '%)' : '')).join('\n'));
+
+  // ── ENTRADA por pagador ─────────────────────────────────────────────
+  const clis = Object.entries(porCliente).sort((a,b) => b[1] - a[1]).slice(0, 15);
+  if(clis.length)
+    L.push('\n## ENTRADA ' + ano + ' por pagador (extrato)\n' +
+           clis.map(([c,v]) => '- ' + c + ': ' + fmt(v) +
+             (totEnt ? ' (' + Math.round(v / totEnt * 100) + '%)' : '')).join('\n'));
+
+  // ── COBRANÇA — título × crédito, do painel de Recebíveis ────────────
+  try{
+    if(typeof recRecebiveis === 'function'){
+      const r = recRecebiveis(ano) || {};
+      const cl = Object.values(r.porCliente || {})
+        .filter(c => c && (c.faturado || c.recebido))
+        .sort((a,b) => (b.faturado || 0) - (a.faturado || 0)).slice(0, 25);
+      if(cl.length){
+        const ls = cl.map(c => {
+          let s = '- ' + c.nome + ': faturado ' + fmt(c.faturado) + ' · recebido ' + fmt(c.recebido);
+          if(c.aberto > 0.5)  s += ' · EM ABERTO ' + fmt(c.aberto);
+          if(c.deducao > 0.5) s += ' · retenção/taxa ' + fmt(c.deducao);
+          if(c.atrasoMedio != null){
+            const a = Math.round(c.atrasoMedio);
+            s += ' · ' + (a > 0 ? 'atrasa ' + a + 'd em média'
+                                : a < 0 ? 'antecipa ' + Math.abs(a) + 'd' : 'paga no dia');
+          }
+          const ab = (c.linhas || []).filter(x => !x.quitado && x.valor > 0.5)
+            .map(x => _MRK_MES[+String(x.mes).slice(0,2) - 1] || x.mes);
+          if(ab.length) s += ' · meses abertos: ' + ab.join(',');
+          return s;
+        });
+        L.push('\n## COBRANÇA ' + ano + ' por cliente (título faturado × crédito recebido)\n' +
+               ls.join('\n') +
+               '\nOBS: a diferença entre faturado e recebido NÃO é só inadimplência — ' +
+               'inclui retenção de imposto e taxa de antecipação de boleto. ' +
+               'O campo EM ABERTO já é líquido disso.');
+      }
+    }
+  }catch(_){}
+
+  // ── FOLHA ───────────────────────────────────────────────────────────
+  try{
+    const gente = (typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.people)) ? pessoas.people : [];
+    const ls = []; let custo = 0;
+    gente.forEach(p => {
+      if(!p) return;
+      const sal = p.salarios || {};
+      const doAnoKeys = Object.keys(sal).filter(k => String(k).slice(0,4) === ano).sort();
+      if(!doAnoKeys.length) return;
+      const soma = doAnoKeys.reduce((s,k) => s + (Number(sal[k]) || 0), 0);
+      const ultimo = Number(sal[doAnoKeys[doAnoKeys.length - 1]]) || 0;
+      custo += soma;
+      ls.push('- ' + (p.nome || '?') + ': ' + fmt(ultimo) + '/mês · ' +
+              doAnoKeys.length + ' meses pagos em ' + ano + ' · total ' + fmt(soma) +
+              (p.ativo === false ? ' (DESLIGADO)' : ''));
+    });
+    if(ls.length)
+      L.push('\n## FOLHA ' + ano + ' (indexada pelo mês do PAGAMENTO, não da competência)\n' +
+             ls.join('\n') + '\nTotal de folha no ano: ' + fmt(custo) +
+             '\nOBS: sócio e CLT entram pelo líquido; comissão e hora extra ficam fora da folha.');
+  }catch(_){}
+
+  // ── ADIANTAMENTOS ───────────────────────────────────────────────────
+  try{
+    if(typeof pesAdiantamentos === 'function'){
+      const a = pesAdiantamentos(ano) || {};
+      const ls = Object.values(a.porPessoa || {})
+        .filter(p => p && p.adiantado > 0.5)
+        .sort((x,y) => (y.saldo || 0) - (x.saldo || 0))
+        .map(p => '- ' + p.nome + ': pegou ' + fmt(p.adiantado) +
+                  ' · devolveu em dinheiro ' + fmt(p.emDinheiro) +
+                  ' · descontado do pagamento ' + fmt(p.emDesconto) +
+                  ' · saldo ' + sgn(p.saldo));
+      if(ls.length)
+        L.push('\n## VALE / ADIANTAMENTO ' + ano + '\n' + ls.join('\n') +
+               '\nTotal em aberto: ' + fmt(a.totalAberto || 0));
+    }
+  }catch(_){}
+
+  // ── ÚLTIMOS LANÇAMENTOS ─────────────────────────────────────────────
+  try{
+    const ult = (ctx.extrato || []).filter(l => l && l.data)
+      .sort((a,b) => String(b.data).localeCompare(String(a.data))).slice(0, 12)
+      .map(l => '- ' + String(l.data).slice(0,10) + ' · ' +
+                (l.tipo === 'ganho' ? '+' : l.tipo === 'gasto' ? '-' : '~') +
+                fmt(Math.abs(Number(l.valor) || 0)) + ' · ' +
+                (l.contraparte || l.descricao || '?') +
+                (l.categoria ? ' [' + l.categoria + ']' : ''));
+    if(ult.length) L.push('\n## ÚLTIMOS LANÇAMENTOS\n' + ult.join('\n'));
+  }catch(_){}
+
+  return L.join('\n');
+}
+try{ window.mrkBriefing = mrkBriefing; }catch(_){}
+
+// O que o MR KASH é e o que ele não pode fazer. Separado do briefing de
+// propósito: esse texto é fixo e o briefing muda, e o cache da API cobra o
+// prefixo estável uma vez só.
+const MRK_PERSONA =
+  'Você é o MR KASH, o analista financeiro dentro do Forekash — um app de ' +
+  'gestão financeira de PJ brasileira. Quem fala com você é o dono da empresa.\n\n' +
+  'Como você responde:\n' +
+  '- Português do Brasil, direto, sem rodeio e sem bajulação. Nada de "ótima pergunta".\n' +
+  '- Curto por padrão: 2 a 5 frases. Só abre em lista quando a pergunta pede comparação.\n' +
+  '- Tom seco e observacional. Você aponta o problema, não enfeita.\n' +
+  '- Valores sempre como R$ 1.234,56.\n\n' +
+  'Regra que não se quebra: **todo número que você disser tem que estar no ' +
+  'PANORAMA abaixo**. Você não estima, não extrapola e não completa de cabeça. ' +
+  'Se a pergunta pede algo que não está lá, diga exatamente o que falta e em ' +
+  'qual módulo do app ele preenche isso. Chutar número de dinheiro é o pior ' +
+  'erro que você pode cometer aqui.\n\n' +
+  'Contabilidade da casa, pra você não ler errado:\n' +
+  '- Transferência entre contas da própria empresa não é receita nem despesa.\n' +
+  '- Cartão, aplicação e consórcio são CONTAS. Pagar fatura é transferência, não despesa.\n' +
+  '- Receita entra líquida de retenção, então o crédito no banco nunca bate com a nota.\n' +
+  '- A folha é indexada pelo mês do pagamento, não pelo da competência.\n' +
+  '- Realizado vem do Extrato; o resto é projeção e deve ser chamado de projeção.';
+
+// Função pra MR KASH chamar LLM real (substitui mrkLocalRespond se LLM ativo)
+const MRK_MODELO_PADRAO = 'claude-opus-5-5';
+
+/* Histórico do chat vira turno de conversa, senão "e o mês anterior?" chega
+   sem o mês anterior. A pergunta atual já foi empilhada pelo mrkChatSend
+   antes de chegar aqui, então as mensagens de usuário do fim são descartadas
+   e a pergunta é recolocada uma vez só. */
+function _mrkHistParaApi(limite){
+  const bruto = [];
+  try{
+    const h = (typeof MRK_HISTORY !== 'undefined' && Array.isArray(MRK_HISTORY)) ? MRK_HISTORY : [];
+    h.slice(-(limite || 10)).forEach(m => {
+      const txt = String(m.html || '')
+        /* Quebra também nas tags de ABERTURA: sem isso "<b>Agosto</b><ul>"
+           chegava ao modelo como "Agostoentrou". */
+        .replace(/<\s*(br|\/?li|\/?p|\/?ul|\/?ol|\/?div|\/b|\/h[1-6])\s*\/?>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+        .replace(/\n{2,}/g, '\n').trim();
+      if(txt) bruto.push({ role: m.role === 'user' ? 'user' : 'assistant', content: txt.slice(0, 1500) });
+    });
+  }catch(_){}
+  while(bruto.length && bruto[0].role !== 'user') bruto.shift();   // tem que abrir em user
+  const msgs = [];
+  bruto.forEach(m => {
+    if(msgs.length && msgs[msgs.length - 1].role === m.role) msgs[msgs.length - 1].content += '\n' + m.content;
+    else msgs.push({ role: m.role, content: m.content });
+  });
+  while(msgs.length && msgs[msgs.length - 1].role === 'user') msgs.pop();
+  return msgs;
+}
+
 // Função pra MR KASH chamar LLM real (substitui mrkLocalRespond se LLM ativo)
 async function llmAsk(prompt, contextData){
   if(LLM_CFG.provider === 'local' || !LLM_CFG.apiKey) return null;
-  const system = `Você é o MR KASH, assistente financeiro PJ do app Forekash. Tom: direto, observacional, voz Mr Robot (cínico mas não grosso). Responda em PT-BR, curto, sem floreio. Use os dados do contexto se relevante. Não invente números.\n\nContexto: ${JSON.stringify(contextData||{}).slice(0,3000)}`;
+  let panorama = '';
   try{
-    if(LLM_CFG.provider === 'anthropic'){
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method:'POST',
-        headers:{ 'x-api-key':LLM_CFG.apiKey, 'anthropic-version':'2023-06-01', 'content-type':'application/json', 'anthropic-dangerous-direct-browser-access':'true' },
-        body: JSON.stringify({ model:LLM_CFG.model||'claude-3-5-haiku-20241022', max_tokens:500, system, messages:[{role:'user', content:prompt}] })
-      });
-      if(!res.ok) throw new Error('http '+res.status);
-      const data = await res.json();
-      return data.content[0].text;
-    } else if(LLM_CFG.provider === 'openai'){
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method:'POST',
-        headers:{ 'Authorization':'Bearer '+LLM_CFG.apiKey, 'Content-Type':'application/json' },
-        body: JSON.stringify({ model:LLM_CFG.model||'gpt-4o-mini', max_tokens:500, messages:[{role:'system', content:system}, {role:'user', content:prompt}] })
-      });
-      if(!res.ok) throw new Error('http '+res.status);
-      const data = await res.json();
-      return data.choices[0].message.content;
+    panorama = mrkBriefing(contextData && contextData.extrato ? contextData : mrkGatherContext());
+  }catch(e){ console.warn('briefing:', e); }
+  if(!panorama) throw new Error('não consegui montar o panorama dos seus números');
+  const system = MRK_PERSONA + '\n\n# PANORAMA — a única fonte de números que você pode usar\n\n' + panorama;
+  const msgs = _mrkHistParaApi(10);
+  msgs.push({ role:'user', content: prompt });
+
+  if(LLM_CFG.provider === 'anthropic'){
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST',
+      headers:{ 'x-api-key':LLM_CFG.apiKey, 'anthropic-version':'2026-10-21',
+                'content-type':'application/json',
+                'anthropic-dangerous-direct-browser-access':'true' },
+      /* O panorama não muda entre perguntas da mesma sessão. Marcado como
+         cacheável, a segunda pergunta relê o prefixo por uma fração do preço —
+         que é o que torna conversa longa viável no bolso dele. */
+      body: JSON.stringify({
+        model: LLM_CFG.model || MRK_MODELO_PADRAO,
+        max_tokens: 16000,
+        output_config: { effort: 'medium' },
+        system: [{ type:'text', text: system, cache_control:{ type:'ephemeral' } }],
+        messages: msgs
+      })
+    });
+    if(!res.ok){
+      let det = '';
+      try{ const j = await res.json(); det = (j.error && j.error.message) || ''; }catch(_){}
+      throw new Error('API ' + res.status + (det ? ' · ' + det.slice(0,140) : ''));
     }
-  }catch(e){
-    console.warn('llmAsk:', e);
-    return null;
+    const data = await res.json();
+    if(data.stop_reason === 'refusal') return 'Recusei essa. Pergunta de outro jeito.';
+    const txt = (data.content || []).filter(b => b && b.type === 'text')
+                  .map(b => b.text).join('\n').trim();
+    return txt || null;
   }
+
+  if(LLM_CFG.provider === 'openai'){
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method:'POST',
+      headers:{ 'Authorization':'Bearer '+LLM_CFG.apiKey, 'Content-Type':'application/json' },
+      body: JSON.stringify({ model:LLM_CFG.model||'gpt-4o-mini', max_tokens:4000,
+        messages:[{role:'system', content:system}].concat(msgs) })
+    });
+    if(!res.ok){
+      let det = '';
+      try{ const j = await res.json(); det = (j.error && j.error.message) || ''; }catch(_){}
+      throw new Error('API ' + res.status + (det ? ' · ' + det.slice(0,140) : ''));
+    }
+    const data = await res.json();
+    return (data.choices && data.choices[0] && data.choices[0].message.content) || null;
+  }
+  return null;
 }
 try{ window.llmLoad = llmLoad; window.llmSave = llmSave; window.llmTest = llmTest; window.llmProviderChange = llmProviderChange; window.llmGetKey = llmGetKey; window.llmAsk = llmAsk; window.LLM_CFG = LLM_CFG; }catch(_){}
 
@@ -134161,12 +134430,16 @@ async function mrkChatSend(){
       const resp = await llmAsk(text, ctx);
       mrkHideTyping();
       if(resp){
-        mrkAddBotMsg(resp.replace(/\n/g,'<br>'));
+        mrkAddBotMsg(_mrkMdParaHtml(resp));
         return;
       }
     }catch(e){
+      /* Cair calado no modo local escondia key errada, crédito acabado e
+         modelo inexistente — ele achava que era burrice do MR KASH. */
       console.warn('llm fallback:', e);
       mrkHideTyping();
+      mrkAddBotMsg('<b style="color:#EF4444">LLM não respondeu:</b> ' + mrkEscape(e.message) +
+                   '<br><small style="color:#94A3B8">Respondo no modo local abaixo.</small>');
     }
   }
   // Modo local: intent parser
@@ -134177,6 +134450,15 @@ async function mrkChatSend(){
   mrkAddBotMsg(response);
 }
 function _mrkSleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+/* O LLM devolve texto com markdown leve. Escapa primeiro e só depois vira
+   HTML: o que volta da API é texto, não marcação pra confiar. */
+function _mrkMdParaHtml(txt){
+  let s = mrkEscape(String(txt || ''));
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+  s = s.replace(/(^|\n)\s*[-*]\s+/g, '$1• ');
+  return s.replace(/\n/g, '<br>');
+}
 
 // ─── Sugestões dinâmicas ────────────────────────────────────────────
 function mrkRenderSuggestions(){
@@ -134620,9 +134902,13 @@ function mrkGatherContext(){
   }catch(_){}
   // DISPONIBILIDADES
   try{
-    if(typeof dispoData !== 'undefined' && dispoData){
-      ctx.dispo = dispoData;
-      if(Array.isArray(dispoData.contas)) ctx.dispo.contas = dispoData.contas;
+    /* A variável do módulo é `dispo`. Lendo só `dispoData`, o contexto saía
+       sem conta nenhuma e o saldo respondia R$ 0,00 com as contas cheias. */
+    const d = (typeof dispo !== 'undefined' && dispo && Array.isArray(dispo.contas)) ? dispo
+            : (typeof dispoData !== 'undefined' && dispoData) ? dispoData : null;
+    if(d){
+      ctx.dispo = d;
+      if(Array.isArray(d.contas)) ctx.dispo.contas = d.contas;
     }
   }catch(_){}
   // PESSOAS
@@ -134770,10 +135056,16 @@ function mrkAnswerSaldo(ctx){
   let total = 0;
   let html = '<b>Saldo nas contas</b>';
   let listHtml = '<ul>';
+  /* `saldoAtual`/`saldo` não existem na conta — o saldo é calculado da âncora
+     mais as movimentações. Lendo os campos errados isso respondia R$ 0,00. */
   (ctx.dispo.contas || []).forEach(c => {
-    const s = Number(c.saldoAtual || c.saldo || 0);
+    if(!c || c.ativo === false) return;
+    const s = (typeof dispoCalcSaldoEsperado === 'function')
+      ? dispoCalcSaldoEsperado(c, ctx.ymNow) : null;
+    if(s == null) return;
     total += s;
-    listHtml += '<li><b>' + (c.banco || c.nome || 'Conta') + '</b>: R$ ' + _mrkFmt(s) + '</li>';
+    const nome = (typeof _dispoNomeConta === 'function' && _dispoNomeConta(c)) || c.banco || c.nome || 'Conta';
+    listHtml += '<li><b>' + mrkEscape(nome) + '</b>: R$ ' + _mrkFmt(s) + '</li>';
   });
   listHtml += '</ul>';
   html += '<span class="mrk-num-big">R$ ' + _mrkFmt(total) + '</span>' + listHtml;
