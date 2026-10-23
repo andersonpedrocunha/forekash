@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792763833"/>
+  <meta name="fk-build" content="forekash-v1792764289"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -95583,10 +95583,21 @@ window.cloudAnaliseFetch = cloudAnaliseFetch;
 /* ─── Inicialização do filtro de período ─── */
 function _anaInitPeriodo(){
   const today = new Date();
-  if(_anaState.anoDe == null)  _anaState.anoDe  = today.getFullYear();
-  if(_anaState.anoAte == null) _anaState.anoAte = today.getFullYear();
-  if(_anaState.mesDe == null)  _anaState.mesDe  = 0;
-  if(_anaState.mesAte == null) _anaState.mesAte = today.getMonth();
+  /* Testar só `== null` deixava NaN passar — e NaN entra fácil: um select de
+     ano ainda sem opções faz parseInt('') virar NaN. Com o ano NaN o laço do
+     período não roda nenhuma volta, nenhum módulo gera fato, e TODO gráfico
+     fica "sem dados no período" com a base cheia. */
+  const ano = v => Number.isFinite(v) && v > 1900 && v < 3000;
+  const mes = v => Number.isFinite(v) && v >= 0 && v <= 11;
+  if(!ano(_anaState.anoDe))  _anaState.anoDe  = today.getFullYear();
+  if(!ano(_anaState.anoAte)) _anaState.anoAte = today.getFullYear();
+  if(!mes(_anaState.mesDe))  _anaState.mesDe  = 0;
+  if(!mes(_anaState.mesAte)) _anaState.mesAte = today.getMonth();
+  // período invertido não devolve nada; endireita em vez de mostrar vazio
+  if(_anaState.anoDe*12 + _anaState.mesDe > _anaState.anoAte*12 + _anaState.mesAte){
+    [_anaState.anoDe, _anaState.anoAte] = [_anaState.anoAte, _anaState.anoDe];
+    [_anaState.mesDe, _anaState.mesAte] = [_anaState.mesAte, _anaState.mesDe];
+  }
 }
 function anaSetFilter(field, val){
   if(field === 'mesDe' || field === 'mesAte') _anaState[field] = parseInt(val,10);
@@ -95632,8 +95643,11 @@ try {
 
 /* ─── Fact extractor — gera linhas planas a partir de todos módulos ─── */
 function _anaIterPeriodo(cb){
+  // quem chama nem sempre passou pelo render — garante o período aqui também
+  if(!Number.isFinite(_anaState.anoDe) || !Number.isFinite(_anaState.anoAte)) _anaInitPeriodo();
   const idxDe = _anaState.anoDe*12 + _anaState.mesDe;
   const idxAte = _anaState.anoAte*12 + _anaState.mesAte;
+  if(!Number.isFinite(idxDe) || !Number.isFinite(idxAte)) return;
   for(let idx = idxDe; idx <= idxAte; idx++){
     const y = String(Math.floor(idx/12));
     const m = idx % 12;
@@ -96964,31 +96978,51 @@ function _anaChRender_ltv(facts, _canvas){
   if(!ctx) return;
   const _key = (ctx.id || 'ltv');
   _anaDestroyChart(_key);
-  // LTV proxy: SOMENTE receitas FECHADAS (status='recebido')
-  // (receita média mensal por cliente, considerando só meses com recebimento) × 12
+  /* LTV proxy: média mensal do que o cliente REALMENTE pagou × 12.
+     Antes exigia status 'recebido' na célula da Receita — carimbo que nesta
+     casa ninguém dá, porque o realizado entra pelo Extrato e não por marcação
+     manual. Resultado: o gráfico vivia vazio com a conta cheia. Agora o
+     recebido sai de onde ele está: o crédito que caiu na conta. */
   const map = new Map();
   const monthsSeen = new Map();
-  for(const f of facts){
-    if(f.modulo !== 'receita') continue;
-    if(f.categoria !== 'recebido') continue;  // só fechado
-    const cur = map.get(f.entidade) || 0;
-    map.set(f.entidade, cur + (parseFloat(f.valor)||0));
-    if(!monthsSeen.has(f.entidade)) monthsSeen.set(f.entidade, new Set());
-    monthsSeen.get(f.entidade).add(f.ym);
-  }
-  const ltvs = Array.from(map.entries()).map(([nome,total]) => {
-    const mc = monthsSeen.get(nome).size || 1;
+  const nomeDe = new Map();
+  const ini = _anaState.anoDe*12 + _anaState.mesDe;
+  const fim = _anaState.anoAte*12 + _anaState.mesAte;
+  try{
+    const cats = (typeof _recCatsOperacionais === 'function') ? _recCatsOperacionais() : new Set();
+    const lans = (typeof extratoData !== 'undefined' && extratoData && extratoData.lancamentos) || [];
+    for(const l of lans){
+      if(!l || l.tipo !== 'ganho' || !l.contraparte) continue;
+      if(cats.size && !cats.has(String(l.categoria || '').trim().toLowerCase())) continue;
+      const d = String((l.dataPagamento || l.data) || '').slice(0,10);
+      if(!/^\d{4}-\d{2}/.test(d)) continue;
+      const idx = (+d.slice(0,4))*12 + (+d.slice(5,7) - 1);
+      if(idx < ini || idx > fim) continue;
+      const v = Math.abs(Number(l.valorPago != null ? l.valorPago : l.valor) || 0);
+      if(!v) continue;
+      // agrupa pela mesma chave da Receita: "BLOOM TECNOLOGIA LTDA" e "BLOOM" são um só
+      const k = (typeof recNomeChave === 'function') ? recNomeChave(l.contraparte) : String(l.contraparte).toUpperCase();
+      if(!k) continue;
+      const nome = String(l.contraparte).trim();
+      if(!nomeDe.has(k) || nome.length < nomeDe.get(k).length) nomeDe.set(k, nome);
+      map.set(k, (map.get(k) || 0) + v);
+      if(!monthsSeen.has(k)) monthsSeen.set(k, new Set());
+      monthsSeen.get(k).add(d.slice(0,7));
+    }
+  }catch(e){ console.warn('ltv:', e); }
+  const ltvs = Array.from(map.entries()).map(([k,total]) => {
+    const mc = monthsSeen.get(k).size || 1;
     const avgMes = total / mc;
-    return { nome, ltv: avgMes * 12, total, mc };
+    return { nome: nomeDe.get(k) || k, ltv: avgMes * 12, total, mc };
   }).sort((a,b) => b.ltv - a.ltv).slice(0, 10);
   if(ltvs.length === 0){
-    ctx.parentElement.innerHTML = '<div class="ana-chart-empty">Sem receitas <b>fechadas</b> (status recebido) pra calcular LTV.</div>';
+    ctx.parentElement.innerHTML = '<div class="ana-chart-empty">Nenhum crédito de cliente no período.</div>';
     return;
   }
   // Atualiza subtitle pra deixar claro
   const card = ctx.closest('.ana-chart-card');
   const sub = card && card.querySelector('.ana-chart-sub');
-  if(sub) sub.textContent = 'só receitas fechadas · média mensal × 12';
+  if(sub) sub.textContent = 'do que entrou na conta · média mensal × 12';
   _anaChartInstances[_key] = new Chart(ctx, {
     type:'bar', data:{
       labels: ltvs.map(l => l.nome),
