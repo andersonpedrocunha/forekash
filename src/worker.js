@@ -1,0 +1,149 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   MR KASH FORA DA ABA
+   ═══════════════════════════════════════════════════════════════════════
+   Duas bocas, uma cabeça:
+   - scheduled()  → os avisos do mês no canal da empresa
+   - fetch()      → responde quando chamam no Slack; o resto do site segue
+                    sendo servido pelos assets, exatamente como antes
+
+   Tudo que não for /api/ cai em env.ASSETS.fetch — o site não muda de
+   comportamento por existir um Worker na frente.                          */
+
+import { carregar, briefing } from './forekash.js';
+import { perguntar, postar, assinaturaValida, podePerguntar } from './mrkash.js';
+
+const ok = (t) => new Response(t || '', { status: 200 });
+
+/* O que o MR KASH pode ver quando responde PELO SLACK. Trava ligada por
+   padrão: se a variável não existir, ele fica no modo restrito em vez de
+   abrir tudo — esquecer de configurar não pode virar vazamento.
+   `MRK_SLACK_LIBERAR="pessoa"` solta o individual; `"divida"` solta a dívida;
+   `"pessoa divida"` solta as duas. */
+function escopoSlack(env){
+  const livre = String(env.MRK_SLACK_LIBERAR || '').toLowerCase();
+  return { semPessoa: !livre.includes('pessoa'), semDivida: !livre.includes('divida') };
+}
+
+export default {
+  async fetch(request, env, ctx){
+    const url = new URL(request.url);
+    if(!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
+
+    if(url.pathname === '/api/slack/events' && request.method === 'POST')
+      return eventosSlack(request, env, ctx);
+    if(url.pathname === '/api/slack/comando' && request.method === 'POST')
+      return comandoSlack(request, env, ctx);
+    /* Só pra conferir que o Worker está no ar sem falar com o Slack.
+       Não devolve número nenhum: é diagnóstico de encanamento. */
+    if(url.pathname === '/api/mrkash/ping')
+      return Response.json({ ok: true, cron: !!env.SLACK_CANAL_EQUIPE,
+                             modelo: env.MRK_MODEL || 'claude-opus-5-5' });
+    return new Response('não existe', { status: 404 });
+  },
+
+  async scheduled(event, env, ctx){
+    ctx.waitUntil(avisosDoMes(env).catch(e => console.error('aviso mensal:', e && e.message)));
+  }
+};
+
+// ── Interação ───────────────────────────────────────────────────────────
+async function eventosSlack(request, env, ctx){
+  const corpo = await request.text();
+  const assinado = await assinaturaValida(env, request.headers.get('x-slack-signature'),
+                                          request.headers.get('x-slack-request-timestamp'), corpo);
+  if(!assinado) return new Response('assinatura inválida', { status: 401 });
+  const ev = JSON.parse(corpo);
+  if(ev.type === 'url_verification') return ok(ev.challenge);   // handshake da instalação
+
+  const m = ev.event || {};
+  if(m.bot_id || m.subtype) return ok();          // não responde a si mesmo nem a edição
+  if(m.type !== 'app_mention' && !(m.type === 'message' && m.channel_type === 'im')) return ok();
+
+  /* O Slack reenvia se não receber 200 em 3 segundos, e o modelo pensa mais
+     que isso. Responde já e manda a resposta depois. */
+  ctx.waitUntil(responder(env, m).catch(async e => {
+    console.error('responder:', e && e.message);
+    try{ await postar(env, m.channel, 'Deu ruim aqui: ' + (e && e.message || 'erro'),
+                      { thread_ts: m.thread_ts || m.ts }); }catch(_){}
+  }));
+  return ok();
+}
+
+async function comandoSlack(request, env, ctx){
+  const corpo = await request.text();
+  const assinado = await assinaturaValida(env, request.headers.get('x-slack-signature'),
+                                          request.headers.get('x-slack-request-timestamp'), corpo);
+  if(!assinado) return new Response('assinatura inválida', { status: 401 });
+  const p = new URLSearchParams(corpo);
+  const user = p.get('user_id'), texto = (p.get('text') || '').trim();
+  if(!podePerguntar(env, user))
+    return Response.json({ response_type: 'ephemeral', text: 'Essa conversa não é tua.' });
+  if(!texto)
+    return Response.json({ response_type: 'ephemeral', text: 'Pergunta alguma coisa.' });
+
+  const responseUrl = p.get('response_url');
+  ctx.waitUntil((async () => {
+    let txt;
+    try{
+      const d = await carregar(env);
+      txt = await perguntar(env, texto, briefing(d, escopoSlack(env)));
+    }catch(e){ txt = 'Deu ruim aqui: ' + (e && e.message || 'erro'); }
+    await fetch(responseUrl, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ response_type: 'ephemeral', text: txt }) });
+  })());
+  // ack imediato: o Slack mostra isso enquanto ele pensa
+  return Response.json({ response_type: 'ephemeral', text: 'Lendo teus números...' });
+}
+
+async function responder(env, m){
+  const texto = String(m.text || '').replace(/<@[^>]+>/g, '').trim();
+  if(!texto) return;
+  if(!podePerguntar(env, m.user)){
+    await postar(env, m.channel, 'Essa conversa não é tua.', { thread_ts: m.thread_ts || m.ts });
+    return;
+  }
+  const d = await carregar(env);
+  const resp = await perguntar(env, texto, briefing(d, escopoSlack(env)));
+  await postar(env, m.channel, resp, { thread_ts: m.thread_ts || m.ts });
+}
+
+// ── Avisos do mês ───────────────────────────────────────────────────────
+/* O cron dispara todo dia; quem decide se é dia de falar é esta função.
+   Fazer assim em vez de um cron por aviso mantém a regra de "quando" no
+   código, onde dá pra ler, em vez de espalhada na configuração. */
+async function avisosDoMes(env){
+  const canal = env.SLACK_CANAL_EQUIPE;
+  if(!canal) throw new Error('SLACK_CANAL_EQUIPE não configurado');
+  const agora = new Date();
+  const diaDoMes = Number(new Intl.DateTimeFormat('pt-BR', { timeZone:'America/Sao_Paulo', day:'numeric' }).format(agora));
+  const diaNota = Number(env.MRK_DIA_NOTA || 1);
+  const diaBenef = Number(env.MRK_DIA_BENEFICIOS || 7);
+
+  if(diaDoMes === diaNota)  await avisoNota(env, canal);
+  if(diaDoMes === diaBenef) await avisoBeneficios(env, canal);
+}
+
+/* Estes dois avisos não dependem de dado nenhum: o texto é o mesmo todo mês.
+   Gerar com o modelo a cada disparo não compra nada e arrisca uma invenção
+   nova por mês — nos testes ele produziu "metade do time não usa nenhum" e
+   "sem nota o pagamento fica parado", duas coisas que ninguém mediu nem
+   escreveu. Em canal de empresa isso vira fato repetido. Texto fixo, escrito
+   na voz dele. O `redigirAviso` continua existindo para o dia em que o aviso
+   reagir a número de verdade — aí o modelo tem o que dizer. */
+const AVISO_NOTA =
+  'Virou o mês. Ritual de sempre.\n' +
+  'Quem presta serviço como *PJ*: a nota fiscal do mês vai pro financeiro.';
+
+const AVISO_BENEFICIOS =
+  'Lembrete do mês. Dois benefícios ativos:\n' +
+  '*Wellhub* — academias e bem-estar. Tem teto de usuários cadastrados, então não ativa ' +
+  'sozinho: quem quiser começar, avisa o financeiro.\n' +
+  '*StarBem* — desconto em consultas e saúde. Vale pra todo mundo, é só baixar o app.';
+
+async function avisoNota(env, canal){
+  await postar(env, canal, env.MRK_TEXTO_NOTA || AVISO_NOTA);
+}
+
+async function avisoBeneficios(env, canal){
+  await postar(env, canal, env.MRK_TEXTO_BENEFICIOS || AVISO_BENEFICIOS);
+}
