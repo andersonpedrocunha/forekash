@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792764686"/>
+  <meta name="fk-build" content="forekash-v1792765020"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -74898,6 +74898,10 @@ function extCloseModal(){
   const ov = document.getElementById('ext-modal-ov');
   if(ov) ov.remove();
   _extEditingId = null;
+  /* Fechou sem salvar: esquece o boleto pendente, senão o PRÓXIMO lançamento
+     que ele salvar — outro, digitado à mão — seria anunciado como se fosse
+     aquele. No caminho do salvar isto já foi limpo pela confirmação. */
+  try{ _mrkAguardandoSalvar = null; }catch(_){}
 }
 // ─── Auto-propagação Extrato → módulo de origem ───
 // Detecta se o lançamento manual cabe em Estrutura/Receita e cria/atualiza lá.
@@ -75662,6 +75666,8 @@ function extSaveModal(tipo){
   }
   try{ impParcConcInvalidar(); }catch(_){}
   _extSave();
+  // se este lançamento nasceu de um boleto no chat, ele fecha o ciclo lá
+  try{ if(typeof mrkAnexoConfirmar === 'function') mrkAnexoConfirmar(); }catch(_){}
   extCloseModal();
   renderExtrato();
   if(typeof toast === 'function') toast('✓ Lançamento salvo');
@@ -96765,6 +96771,7 @@ function _anaChRender_receita(facts, _canvas){
   if(!ctx) return;
   const _key = (ctx.id || 'receita');
   _anaDestroyChart(_key);
+  _anaVazioLimpa(ctx);   // tira a camada de vazio se o dado voltou
   const labels = _anaPeriodLabels();
   const yms = _anaPeriodYms();
   const data = _anaSeriesPorMes(facts, 'receita');
@@ -96797,6 +96804,7 @@ function _anaChRender_ebitda(facts, _canvas){
   if(!ctx) return;
   const _key = (ctx.id || 'ebitda');
   _anaDestroyChart(_key);
+  _anaVazioLimpa(ctx);   // tira a camada de vazio se o dado voltou
   const labels = _anaPeriodLabels();
   const yms = _anaPeriodYms();
   const cut = _anaCurMonthIdx(yms);
@@ -96842,6 +96850,7 @@ function _anaChRender_folha_rec(facts, _canvas){
   if(!ctx) return;
   const _key = (ctx.id || 'folha-rec');
   _anaDestroyChart(_key);
+  _anaVazioLimpa(ctx);   // tira a camada de vazio se o dado voltou
   const labels = _anaPeriodLabels();
   const rec = _anaSeriesPorMes(facts, 'receita');
   const fol = _anaSeriesPorMes(facts, 'pessoas');
@@ -96866,6 +96875,7 @@ function _anaChRender_custos(facts, _canvas){
   if(!ctx) return;
   const _key = (ctx.id || 'custos');
   _anaDestroyChart(_key);
+  _anaVazioLimpa(ctx);   // tira a camada de vazio se o dado voltou
   const cats = [
     { lbl:'Folha',       mod:'pessoas',   color:ANA_CH_COLOR.folha },
     { lbl:'Estrutura',   mod:'estrutura', color:ANA_CH_COLOR.estrutura },
@@ -96879,7 +96889,7 @@ function _anaChRender_custos(facts, _canvas){
                        .filter(c => c.valor > 0)
                        .sort((a,b) => b.valor - a.valor);
   if(filtered.length === 0){
-    ctx.parentElement.innerHTML = '<div class="ana-chart-empty">Sem dados de custo no período.</div>';
+    _anaVazio(ctx, _anaPorQueVazio('estrutura', 'custo lançado'));
     return;
   }
   const total = filtered.reduce((s,c) => s + c.valor, 0);
@@ -96904,11 +96914,49 @@ function _anaChRender_custos(facts, _canvas){
                y:{ ticks:{ font:{size:11, weight:'600'} }, grid:{ display:false } } } }
   });
 }
+/* Estado vazio que NÃO destrói o gráfico.
+   Trocar o innerHTML do pai apagava o <canvas>: depois de aparecer a mensagem
+   uma vez, o gráfico não voltava nem com o dado certo, porque o renderizador
+   seguinte não achava mais o elemento e saía calado. Só recarregando a página.
+   Aqui a mensagem é uma camada por cima, e o canvas continua lá. */
+function _anaVazio(ctx, msg){
+  if(!ctx || !ctx.parentElement) return;
+  const box = ctx.parentElement;
+  if(getComputedStyle(box).position === 'static') box.style.position = 'relative';
+  ctx.style.visibility = 'hidden';
+  let ov = box.querySelector(':scope > .ana-chart-empty');
+  if(!ov){
+    ov = document.createElement('div');
+    ov.className = 'ana-chart-empty';
+    ov.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;' +
+                       'justify-content:center;text-align:center;padding:16px';
+    box.appendChild(ov);
+  }
+  ov.innerHTML = msg;
+}
+function _anaVazioLimpa(ctx){
+  if(!ctx || !ctx.parentElement) return;
+  const ov = ctx.parentElement.querySelector(':scope > .ana-chart-empty');
+  if(ov) ov.remove();
+  ctx.style.visibility = '';
+}
+/* Por que não há dado — em vez de "sem receita no período" e ponto final. */
+function _anaPorQueVazio(mod, oQue){
+  if(mod && Array.isArray(_anaState.modulos) && !_anaState.modulos.includes(mod))
+    return 'O módulo <b>' + mod + '</b> está desmarcado no filtro acima.';
+  const L = (typeof ANA_MESES !== 'undefined') ? ANA_MESES : [];
+  const de  = (L[_anaState.mesDe]  || '?') + '/' + String(_anaState.anoDe).slice(2);
+  const ate = (L[_anaState.mesAte] || '?') + '/' + String(_anaState.anoAte).slice(2);
+  return 'Sem ' + oQue + ' entre <b>' + de + '</b> e <b>' + ate + '</b>.<br>' +
+         '<small style="opacity:.7">Confere o período no filtro acima.</small>';
+}
+
 function _anaChRender_top_clientes(facts, _canvas){
   const ctx = _canvas || document.getElementById('ana-chart-top-clientes');
   if(!ctx) return;
   const _key = (ctx.id || 'top-clientes');
   _anaDestroyChart(_key);
+  _anaVazioLimpa(ctx);   // tira a camada de vazio se o dado voltou
   // Acumula recebido + em aberto por cliente
   const mapRec = new Map(), mapAbe = new Map(), mapTot = new Map();
   for(const f of facts){
@@ -96921,7 +96969,7 @@ function _anaChRender_top_clientes(facts, _canvas){
   }
   const top = Array.from(mapTot.entries()).sort((a,b) => b[1]-a[1]).slice(0, 10);
   if(top.length === 0){
-    ctx.parentElement.innerHTML = '<div class="ana-chart-empty">Sem receita no período.</div>';
+    _anaVazio(ctx, _anaPorQueVazio('receita', 'receita'));
     return;
   }
   const labels = top.map(t => t[0]);
@@ -96978,6 +97026,7 @@ function _anaChRender_ltv(facts, _canvas){
   if(!ctx) return;
   const _key = (ctx.id || 'ltv');
   _anaDestroyChart(_key);
+  _anaVazioLimpa(ctx);   // tira a camada de vazio se o dado voltou
   /* LTV proxy: média mensal do que o cliente REALMENTE pagou × 12.
      Antes exigia status 'recebido' na célula da Receita — carimbo que nesta
      casa ninguém dá, porque o realizado entra pelo Extrato e não por marcação
@@ -97016,7 +97065,7 @@ function _anaChRender_ltv(facts, _canvas){
     return { nome: nomeDe.get(k) || k, ltv: avgMes * 12, total, mc };
   }).sort((a,b) => b.ltv - a.ltv).slice(0, 10);
   if(ltvs.length === 0){
-    ctx.parentElement.innerHTML = '<div class="ana-chart-empty">Nenhum crédito de cliente no período.</div>';
+    _anaVazio(ctx, _anaPorQueVazio(null, 'crédito de cliente no extrato'));
     return;
   }
   // Atualiza subtitle pra deixar claro
@@ -97043,6 +97092,7 @@ function _anaChRender_headcount(facts, _canvas){
   if(!ctx) return;
   const _key = (ctx.id || 'headcount');
   _anaDestroyChart(_key);
+  _anaVazioLimpa(ctx);   // tira a camada de vazio se o dado voltou
   const yms = _anaPeriodYms();
   const labels = _anaPeriodLabels();
   const data = yms.map(ym => {
@@ -97078,6 +97128,7 @@ function _anaChRender_turnover(facts, _canvas){
   if(!ctx) return;
   const _key = (ctx.id || 'turnover');
   _anaDestroyChart(_key);
+  _anaVazioLimpa(ctx);   // tira a camada de vazio se o dado voltou
   const yms = _anaPeriodYms();
   const labels = _anaPeriodLabels();
   // Coleta arrays absolutos de entradas, saídas e headcount por mês
@@ -97138,6 +97189,7 @@ function _anaChRender_churn(facts, _canvas){
   if(!ctx) return;
   const _key = (ctx.id || 'churn');
   _anaDestroyChart(_key);
+  _anaVazioLimpa(ctx);   // tira a camada de vazio se o dado voltou
   const yms = _anaPeriodYms();
   const labels = _anaPeriodLabels();
   // Set de clientes ativos por mês
@@ -97180,6 +97232,7 @@ function _anaChRender_mom(facts, _canvas){
   if(!ctx) return;
   const _key = (ctx.id || 'mom');
   _anaDestroyChart(_key);
+  _anaVazioLimpa(ctx);   // tira a camada de vazio se o dado voltou
   const labels = _anaPeriodLabels();
   const rec = _anaSeriesPorMes(facts, 'receita');
   const mom = rec.map((v, i) => i === 0 ? 0 : (rec[i-1] > 0 ? ((v - rec[i-1]) / rec[i-1] * 100) : 0));
@@ -97248,6 +97301,7 @@ function _anaChRender_saldo(facts, _canvas){
   if(!ctx) return;
   const _key = (ctx.id || 'saldo');
   _anaDestroyChart(_key);
+  _anaVazioLimpa(ctx);   // tira a camada de vazio se o dado voltou
   const yms = _anaPeriodYms();
   const labels = _anaPeriodLabels();
   // Saldo REAL: snapshot das contas em cada mês (de Disponibilidades)
@@ -97305,6 +97359,7 @@ function _anaChRender_endiv(facts, _canvas){
   if(!ctx) return;
   const _key = (ctx.id || 'endiv');
   _anaDestroyChart(_key);
+  _anaVazioLimpa(ctx);   // tira a camada de vazio se o dado voltou
   const map = new Map();
   if(typeof loans !== 'undefined' && Array.isArray(loans)){
     for(const ln of loans){
@@ -97316,7 +97371,7 @@ function _anaChRender_endiv(facts, _canvas){
   }
   const items = Array.from(map.entries()).sort((a,b) => b[1]-a[1]);
   if(items.length === 0){
-    ctx.parentElement.innerHTML = '<div class="ana-chart-empty">Nenhum empréstimo com saldo devedor.</div>';
+    _anaVazio(ctx, 'Nenhum empréstimo com saldo devedor.');
     return;
   }
   const palette = ['#DC2626','#F59E0B','#7C3AED','#0891B2','#10B981','#EC4899','#0F766E','#B91C1C','#9333EA','#0EA5E9'];
@@ -131497,7 +131552,34 @@ try{ window.mrkDocExtrair = mrkDocExtrair; window.mrkDocPerguntar = mrkDocPergun
 // chat, com o panorama da empresa junto: é isso que separa "li um contrato" de
 // "este contrato, com o seu caixa, é um problema".
 
-let _mrkAnexoPendente = null;   // extração aguardando virar lançamento
+let _mrkAnexoPendente = null;      // extração aguardando virar lançamento
+let _mrkAguardandoSalvar = null;   // lançamento aberto por ele, esperando o Salvar
+
+/* Fecha o ciclo no chat: ele abriu o lançamento, você salvou, ele confirma.
+   Sem isso o boleto some do chat e não fica registro de que virou lançamento. */
+function mrkAnexoConfirmar(){
+  const p = _mrkAguardandoSalvar;
+  if(!p) return;
+  _mrkAguardandoSalvar = null;
+  const d = p.dados || {};
+  const v = parseFloat(d.valor) || 0;
+  const dia = s => { const x = String(s || '').split('-'); return x.length === 3 ? x[2] + '/' + x[1] : ''; };
+  let txt = '<b>Lançado.</b> ' + mrkEscape(String(d.fornecedor || '').trim() || 'sem fornecedor') +
+            (v ? ', R$ ' + _mrkFmt(v) : '') + '. Tá no Extrato Financeiro.';
+  if(/^\d{4}-\d{2}-\d{2}$/.test(String(d.data || ''))){
+    const dias = Math.round((new Date(d.data + 'T12:00:00') - new Date(new Date().toDateString())) / 864e5);
+    if(dias < 0)       txt += '<br><b style="color:#EF4444">Venceu ' + dia(d.data) + '.</b> Já tá atrasado.';
+    else if(dias === 0) txt += '<br><b style="color:#F59E0B">Vence hoje.</b>';
+    else if(dias <= 3)  txt += '<br><b style="color:#F59E0B">Vence em ' + dias + ' dia' + (dias > 1 ? 's' : '') + '</b>, ' + dia(d.data) + '.';
+    else                txt += ' Vence ' + dia(d.data) + '.';
+  }
+  try{
+    const painel = document.getElementById('mrk-chat-panel');
+    if(painel && !painel.classList.contains('open')) mrkChatToggle();
+  }catch(_){}
+  mrkAddBotMsg(txt);
+}
+try{ window.mrkAnexoConfirmar = mrkAnexoConfirmar; }catch(_){}
 
 /* O que a empresa já viu desse fornecedor. Fica aqui e não no prompt de
    propósito: isso é aritmética, não julgamento. Local sai exato e de graça,
@@ -131710,6 +131792,7 @@ async function mrkAnexoLancar(){
     mrkAddBotMsg('<b style="color:#EF4444">Não abri o lançamento:</b> ' + mrkEscape(e.message));
     return;
   }
+  _mrkAguardandoSalvar = p;   // o Salvar dele dispara a confirmação no chat
   const pronto = await _mrkEsperar(() => document.getElementById('ext-it-counter-0')
                                       && document.getElementById('ext-fld-data'));
   if(!pronto){ mrkAddBotMsg('<b style="color:#EF4444">O lançamento abriu, mas não consegui preencher.</b>'); return; }
