@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792724798"/>
+  <meta name="fk-build" content="forekash-v1792725440"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -31999,6 +31999,58 @@ function recRealizadoExtrato(ano){
   return out;
 }
 
+
+/* ══ MARCADOR DE LINHA DA RECEITA ═════════════════════════════════════════
+   O extrato sabe DE QUEM veio o dinheiro, não de QUAL linha do contrato. Num
+   cliente com contrato + adicional o sistema tinha que adivinhar por valor, e
+   adivinhava errado: o SETUP de R$ 6.000 do G Muller caiu na linha do disparo
+   de whatsapp, que fatura R$ 1.250.
+
+   Então quem sabe diz. O campo só aparece quando faz sentido — receita de um
+   cliente que tem mais de uma linha no ano. Cliente com uma linha só não tem
+   ambiguidade e não ganha pergunta.                                        */
+function _extLinhasDoCliente(nomeCli){
+  const out = [];
+  try{
+    if(typeof receita === 'undefined' || !receita) return out;
+    const ano = (typeof recActiveYear !== 'undefined' && recActiveYear) ? recActiveYear : null;
+    const anos = ano ? [ano] : Object.keys(receita.years || {});
+    const chave = (typeof recNomeChave === 'function') ? recNomeChave(nomeCli) : String(nomeCli||'').toUpperCase();
+    if(!chave) return out;
+    const vistos = {};
+    for(const y of anos){
+      for(const r of ((receita.years[y] || {}).clients || [])){
+        if(!r) continue;
+        const cli = (receita.clientes || []).find(c => c.id === r.clienteId);
+        const nome = cli ? (cli.nome || r.nome || '') : (r.nome || '');
+        if(((typeof recNomeChave === 'function') ? recNomeChave(nome) : nome.toUpperCase()) !== chave) continue;
+        if(vistos[r.id]) continue;
+        vistos[r.id] = 1;
+        // o rótulo da linha mora em `projeto` (é a coluna DESCRIÇÃO da planilha)
+        out.push({ id: r.id, rotulo: (r.projeto || r.descricao || '').trim()
+                                     || ((r.tipo || '').trim() || 'Linha principal') });
+      }
+    }
+  }catch(_){}
+  return out;
+}
+function _extItemProjetoHtml(i, it, tipo){
+  if(tipo !== 'ganho') return '';
+  const linhas = _extLinhasDoCliente(it.contraparte || '');
+  if(linhas.length < 2) return '';     // uma linha só não é ambíguo
+  const atual = it.receitaRowId != null ? String(it.receitaRowId) : '';
+  return '<div class="ext-item-row2 ext-item-proj">'
+    + '<div style="grid-column:1 / -1"><span class="ext-item-lbl">Projeto na Receita '
+    +   '<em style="font-style:normal;opacity:.65">esse cliente tem ' + linhas.length + ' linhas — diga qual recebeu</em></span>'
+    +   '<select id="ext-it-proj-' + i + '" onchange="_extItemUpdate(' + i + ',\'receitaRowId\', this.value ? +this.value : null)">'
+    +     '<option value=""' + (atual ? '' : ' selected') + '>— deixar o sistema distribuir —</option>'
+    +     linhas.map(l => '<option value="' + l.id + '"' + (atual === String(l.id) ? ' selected' : '') + '>'
+    +       _extEsc(l.rotulo) + '</option>').join('')
+    +   '</select>'
+    + '</div></div>';
+}
+try{ window._extItemProjetoHtml = _extItemProjetoHtml; }catch(_){}
+
 /* ══ RECEBÍVEIS · título × crédito ═════════════════════════════════════════
    A célula da Receita diz quanto foi faturado e quando vencia; o Extrato diz
    quando o dinheiro entrou. Faltava a ligação entre os dois — e ela não pede
@@ -32262,11 +32314,54 @@ function recRealizadoPorLinha(ano, mapa){
     (porCliente[chave] = porCliente[chave] || []).push(r);
   }
   const meses = (typeof REC_MESES !== 'undefined') ? REC_MESES : [];
+
+  /* MARCADOR MANDA. Quando o lançamento diz a qual linha pertence, não há o
+     que distribuir: aquele valor é daquela linha e sai da conta antes da
+     cascata. O resto segue sendo rateado como antes. */
+  const marcado = {};        // chaveCliente -> mes -> { rowId: valor }
+  try{
+    const cats = _recCatsOperacionais();
+    for(const l of ((extratoData && extratoData.lancamentos) || [])){
+      if(!l || l.tipo !== 'ganho') continue;
+      if(!cats.has(String(l.categoria || '').trim().toLowerCase())) continue;
+      const chave = recNomeChave(l.contraparte);
+      if(!chave) continue;
+      const itens = Array.isArray(l.itens) && l.itens.length
+        ? l.itens : [{ valor: l.valorPago || l.valor, receitaRowId: l.receitaRowId }];
+      for(const it of itens){
+        const rid = it && it.receitaRowId;
+        if(rid == null || rid === '') continue;
+        const d = String(l.dataPagamento || l.data || '');
+        if(d.slice(0, 4) !== y) continue;
+        const mi = parseInt(d.slice(5, 7), 10) - 1;
+        if(!(mi >= 0 && mi < 12)) continue;
+        const m = meses[mi];
+        const v = parseFloat(it.valor) || 0;
+        if(v <= 0) continue;
+        const porMes = marcado[chave] = marcado[chave] || {};
+        const porRow = porMes[m] = porMes[m] || {};
+        porRow[rid] = (porRow[rid] || 0) + v;
+      }
+    }
+  }catch(_){}
+
   for(const chave of Object.keys(porCliente)){
     const linhas = porCliente[chave];
     for(const m of meses){
       let resta = (mapa && mapa[chave] && mapa[chave][m]) || 0;
       if(!resta) continue;
+      const fixos = (marcado[chave] || {})[m];
+      if(fixos){
+        for(const rid of Object.keys(fixos)){
+          const alvo = linhas.find(r => String(r.id) === String(rid));
+          if(!alvo) continue;
+          const v = Math.min(fixos[rid], resta);
+          if(v <= 0.005) continue;
+          (out[alvo.id] = out[alvo.id] || {})[m] = (out[alvo.id][m] || 0) + v;
+          resta -= v;
+        }
+        if(resta <= 0.005) continue;
+      }
       if(linhas.length === 1){
         (out[linhas[0].id] = out[linhas[0].id] || {})[m] = resta;
         continue;
@@ -71796,6 +71891,7 @@ function _extItemRender(){
           + '</div>'
         + '</div>'
       + '</div>'
+      + _extItemProjetoHtml(i, it, tipo)
       + (isMulti ? '<button type="button" class="ext-item-x" onclick="_extItemRemove(' + i + ')" title="Remover este item">×</button>' : '')
     + '</div>';
   }
@@ -71923,7 +72019,18 @@ function _extItemRemove(i){
 
 function _extItemUpdate(i, field, value){
   if(!_extItems[i]) return;
+  const antes = (field === 'contraparte') ? _extLinhasDoCliente(_extItems[i].contraparte || '').length : 0;
   _extItems[i][field] = value;
+  /* Trocar o cliente muda se o marcador faz sentido: cliente com uma linha só
+     não ganha pergunta. Só redesenha quando a resposta muda de verdade —
+     redesenhar a cada tecla tirava o foco do campo de quem estava digitando. */
+  if(field === 'contraparte'){
+    const depois = _extLinhasDoCliente(value || '').length;
+    if((antes >= 2) !== (depois >= 2)){
+      if(depois < 2) _extItems[i].receitaRowId = null;
+      try{ _extItemRender(); }catch(_){}
+    }
+  }
 }
 
 function _extItemRecalcTotal(){
@@ -75265,7 +75372,8 @@ function extSaveModal(tipo){
       descricao: (it.descricao || '').trim(),
       valor: parseFloat(it.valor) || 0,
       categoria: (it.categoria || '').trim(),
-      contraparte: (it.contraparte || '').trim()
+      contraparte: (it.contraparte || '').trim(),
+      receitaRowId: (it.receitaRowId != null && it.receitaRowId !== '') ? +it.receitaRowId : null
     }));
     if(itensList.length === 0){
       return _extRecusaSalvar('nenhum item com valor maior que zero',
