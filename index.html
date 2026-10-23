@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792725440"/>
+  <meta name="fk-build" content="forekash-v1792726041"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -32037,11 +32037,17 @@ function _extLinhasDoCliente(nomeCli){
 function _extItemProjetoHtml(i, it, tipo){
   if(tipo !== 'ganho') return '';
   const linhas = _extLinhasDoCliente(it.contraparte || '');
-  if(linhas.length < 2) return '';     // uma linha só não é ambíguo
+  // Mostra sempre que o cliente tiver linha na Receita. Escondendo quando só
+  // há uma, o campo virava invisível — ninguém descobre um campo que nunca
+  // apareceu, e aí nem nos casos ambíguos ele era usado.
+  if(!linhas.length) return '';
   const atual = it.receitaRowId != null ? String(it.receitaRowId) : '';
+  const dica = linhas.length > 1
+    ? 'esse cliente tem ' + linhas.length + ' linhas — diga qual recebeu'
+    : 'cliente de linha única — já cai no lugar certo';
   return '<div class="ext-item-row2 ext-item-proj">'
     + '<div style="grid-column:1 / -1"><span class="ext-item-lbl">Projeto na Receita '
-    +   '<em style="font-style:normal;opacity:.65">esse cliente tem ' + linhas.length + ' linhas — diga qual recebeu</em></span>'
+    +   '<em style="font-style:normal;opacity:.65">' + dica + '</em></span>'
     +   '<select id="ext-it-proj-' + i + '" onchange="_extItemUpdate(' + i + ',\'receitaRowId\', this.value ? +this.value : null)">'
     +     '<option value=""' + (atual ? '' : ' selected') + '>— deixar o sistema distribuir —</option>'
     +     linhas.map(l => '<option value="' + l.id + '"' + (atual === String(l.id) ? ' selected' : '') + '>'
@@ -72019,15 +72025,16 @@ function _extItemRemove(i){
 
 function _extItemUpdate(i, field, value){
   if(!_extItems[i]) return;
-  const antes = (field === 'contraparte') ? _extLinhasDoCliente(_extItems[i].contraparte || '').length : 0;
+  const sig = (n) => _extLinhasDoCliente(n || '').map(l => l.id).join(',');
+  const antes = (field === 'contraparte') ? sig(_extItems[i].contraparte) : '';
   _extItems[i][field] = value;
-  /* Trocar o cliente muda se o marcador faz sentido: cliente com uma linha só
-     não ganha pergunta. Só redesenha quando a resposta muda de verdade —
-     redesenhar a cada tecla tirava o foco do campo de quem estava digitando. */
+  /* Trocar o cliente troca as opções do marcador. Só redesenha quando as
+     linhas mudam de verdade — redesenhar a cada tecla tirava o foco de quem
+     estava digitando, e enquanto o nome está pela metade não há linha nenhuma. */
   if(field === 'contraparte'){
-    const depois = _extLinhasDoCliente(value || '').length;
-    if((antes >= 2) !== (depois >= 2)){
-      if(depois < 2) _extItems[i].receitaRowId = null;
+    const depois = sig(value);
+    if(antes !== depois){
+      _extItems[i].receitaRowId = null;   // linha de outro cliente não serve
       try{ _extItemRender(); }catch(_){}
     }
   }
