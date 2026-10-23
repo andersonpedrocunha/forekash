@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792763445"/>
+  <meta name="fk-build" content="forekash-v1792763833"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -10622,7 +10622,17 @@
     .mrk-suggestion:hover{background:#0F2027;color:#10B981;border-color:#10B981}
 
     .mrk-chat-input{padding:12px 16px 14px;background:#0B1220;border-top:1px solid #1E293B;
-                    display:flex;gap:8px;align-items:flex-end}
+                    display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+    /* Anexo engatilhado, como no WhatsApp: ocupa a linha inteira acima do
+       campo e fica esperando a legenda. Some quando a mensagem vai. */
+    .mrk-anexo-chip{flex-basis:100%;display:flex;align-items:center;gap:8px;
+        padding:7px 9px;margin-bottom:2px;background:#0F172A;border:1.5px solid #10B981;
+        border-radius:9px;font-family:'JetBrains Mono',monospace;font-size:.72rem;color:#CBD5E1}
+    .mrk-anexo-chip svg{width:14px;height:14px;flex-shrink:0;color:#10B981}
+    .mrk-anexo-chip .nome{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .mrk-anexo-chip .tira{background:transparent;border:0;color:#64748B;cursor:pointer;
+        font-size:1rem;line-height:1;padding:0 2px;width:auto;height:auto}
+    .mrk-anexo-chip .tira:hover{color:#EF4444;background:transparent;transform:none}
     .mrk-chat-input textarea{flex:1;background:#0F172A;border:1.5px solid #334155;color:#F1F5F9;
         padding:9px 12px;border-radius:9px;font-family:'JetBrains Mono',monospace;font-size:.82rem;
         resize:none;min-height:38px;max-height:120px;line-height:1.4;outline:none;transition:border-color .12s}
@@ -131243,6 +131253,20 @@ const MRK_PERSONA =
   '- Curto por padrão: 2 a 5 frases. Só abre em lista quando a pergunta pede comparação.\n' +
   '- Valores sempre como R$ 1.234,56.\n' +
   '- Termina quando acabou de responder. Não oferece ajuda extra nem resume o que já disse.\n\n' +
+  'O que você faz, quando ele perguntar quem você é ou o que você sabe fazer:\n' +
+  '- Lê os números da empresa e responde sobre eles, por mês, por cliente, por pessoa, por categoria.\n' +
+  '- Lê documento que ele anexa — nota, boleto, recibo, contrato, proposta — inclusive foto.\n' +
+  '- De um boleto ou nota, **abre o lançamento já preenchido** pra ele conferir e salvar. ' +
+  'Você não salva nada sozinho: quem aperta Salvar é ele. Dizer que você "não lança nada no app" ' +
+  'é falso — você monta o lançamento, ele confirma.\n' +
+  '- Compara o fornecedor do documento com o que já passou pela conta e avisa quando o valor ' +
+  'foge do padrão ou parece cobrança repetida.\n' +
+  '- Diz em que módulo do Forekash cada coisa se resolve.\n' +
+  'O que você NÃO faz: salvar, apagar ou alterar qualquer registro por conta própria, e emitir ' +
+  'documento fiscal.\n\n' +
+  'Nunca diga a palavra "panorama", nem "contexto", nem "os dados que me foram fornecidos". ' +
+  'Isso é encanamento, e encanamento não se mostra. Fale "os teus números", "o que passou pela ' +
+  'tua conta", "o teu extrato" — ou simplesmente diga o número.\n\n' +
   'Regra que não se quebra: **todo número que você disser tem que estar no ' +
   'PANORAMA abaixo**. Você não estima, não extrapola e não completa de cabeça. ' +
   'Se a pergunta pede algo que não está lá, diga exatamente o que falta e em ' +
@@ -131497,6 +131521,30 @@ function _mrkDocConferirHtml(d){
          'Este tá ' + Math.abs(pct) + '% ' + (pct > 0 ? 'acima' : 'abaixo') + '.</b>';
 }
 
+/* O arquivo fica engatilhado em vez de sair na hora — como no WhatsApp: você
+   anexa, escreve o que quer junto, e os dois vão na mesma mensagem. Mandar no
+   clique tirava a chance de dizer o que fazer com o documento. */
+let _mrkAnexoEngatilhado = null;
+
+function _mrkAnexoChipRender(){
+  const el = document.getElementById('mrk-anexo-chip');
+  if(!el) return;
+  if(!_mrkAnexoEngatilhado){ el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = '';
+  const kb = Math.max(1, Math.round(_mrkAnexoEngatilhado.size / 1024));
+  el.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>' +
+    '<span class="nome">' + mrkEscape(_mrkAnexoEngatilhado.name) + '</span>' +
+    '<span style="color:#64748B">' + kb + ' kB</span>' +
+    '<button class="tira" onclick="mrkAnexoTirar()" title="Tirar o anexo">&times;</button>';
+}
+function mrkAnexoTirar(){
+  _mrkAnexoEngatilhado = null;
+  _mrkAnexoChipRender();
+  const ta = document.getElementById('mrk-chat-textarea');
+  if(ta) ta.focus();
+}
+
 function mrkAnexoEscolher(){
   if(typeof LLM_CFG === 'undefined' || LLM_CFG.provider !== 'anthropic' || !LLM_CFG.apiKey){
     mrkAddBotMsg('<b>Sem modelo, sem leitura.</b><br>Anexo precisa do modo LLM ligado. ' +
@@ -131512,7 +131560,11 @@ function mrkAnexoEscolher(){
     inp.addEventListener('change', e => {
       const f = e.target.files && e.target.files[0];
       e.target.value = '';           // permite reenviar o mesmo arquivo
-      if(f) mrkAnexoEnviar(f);
+      if(!f) return;
+      _mrkAnexoEngatilhado = f;
+      _mrkAnexoChipRender();
+      const ta = document.getElementById('mrk-chat-textarea');
+      if(ta) ta.focus();             // o próximo passo é escrever, não clicar
     });
     document.body.appendChild(inp);
   }
@@ -131532,13 +131584,25 @@ const MRK_DOC_INSTRUCAO =
   'reajuste) e onde está o risco. Cruze com o panorama: se o compromisso não couber no que entra, ' +
   'diga em números. Não escreva o bloco LANCAMENTO neste caso.\n\n' +
   'Nos dois casos: não invente dado que não está no documento. Se o documento estiver ilegível ' +
-  'ou cortado, diga isso em vez de adivinhar.';
+  'ou cortado, diga isso em vez de adivinhar.\n\n' +
+  'NÃO comente que falta histórico do fornecedor no panorama. O aplicativo compara o fornecedor ' +
+  'com o extrato por fora e mostra o resultado logo abaixo da sua resposta — dizer que não dá ' +
+  'pra comparar contradiz a linha seguinte.';
 
-async function mrkAnexoEnviar(file){
-  mrkAddUserMsg('Anexo · ' + mrkEscape(file.name));
+async function mrkAnexoEnviar(file, legenda){
+  const msg = String(legenda || '').trim();
+  mrkAddUserMsg('Anexo · ' + mrkEscape(file.name) + (msg ? '<br>' + mrkEscape(msg) : ''));
   mrkShowTyping();
   try{
-    const txt = await mrkDocPerguntar(file, MRK_DOC_INSTRUCAO, true);
+    /* A legenda manda. Se ele perguntou algo sobre o documento, a resposta é a
+       pergunta dele — e aí não se abre lançamento nenhum por conta própria. */
+    const instrucao = msg
+      ? MRK_DOC_INSTRUCAO + '\n\nEle mandou o documento com esta mensagem: "' + msg + '"\n' +
+        'Responda o que ele pediu. Só escreva o bloco LANCAMENTO se ele quiser registrar o ' +
+        'documento no financeiro; se a mensagem dele é pergunta ou comentário sobre o ' +
+        'documento, responda e não escreva o bloco.'
+      : MRK_DOC_INSTRUCAO;
+    const txt = await mrkDocPerguntar(file, instrucao, true);
     mrkHideTyping();
     /* A marca pode vir sozinha na linha ou colada no JSON — exigir linha
        isolada deixava o JSON cru vazar na bolha e sumia com o botão. E se ele
@@ -131659,7 +131723,8 @@ async function mrkAnexoLancar(){
   const esperado = String(d.fornecedor || '');
   if(esperado && campo && campo.value !== esperado) preencher();
 }
-try{ window.mrkAnexoEscolher = mrkAnexoEscolher; window.mrkAnexoLancar = mrkAnexoLancar; }catch(_){}
+try{ window.mrkAnexoEscolher = mrkAnexoEscolher; window.mrkAnexoLancar = mrkAnexoLancar;
+     window.mrkAnexoTirar = mrkAnexoTirar; }catch(_){}
 
 const MRK_MODELO_PADRAO = 'claude-opus-5-5';
 
@@ -134782,6 +134847,8 @@ function mrkChatClear(){
   mrkSave();
   const body = document.getElementById('mrk-chat-body');
   if(body) body.innerHTML = '';
+  // anexo engatilhado morre com a conversa, senão sobra apontando pro nada
+  try{ _mrkAnexoEngatilhado = null; _mrkAnexoChipRender(); _mrkAnexoPendente = null; }catch(_){}
   if(typeof showToast === 'function') showToast('Conversa limpa', 'ok');
 }
 
@@ -134851,6 +134918,15 @@ async function mrkChatSend(){
   const ta = document.getElementById('mrk-chat-textarea');
   if(!ta) return;
   const text = ta.value.trim();
+  /* Com anexo engatilhado, o enviar manda os dois juntos — e a legenda pode
+     ser vazia, igual a mandar um arquivo seco no WhatsApp. */
+  if(_mrkAnexoEngatilhado){
+    const f = _mrkAnexoEngatilhado;
+    _mrkAnexoEngatilhado = null;
+    _mrkAnexoChipRender();
+    ta.value = ''; ta.style.height = 'auto';
+    return mrkAnexoEnviar(f, text);
+  }
   if(!text) return;
   ta.value = '';
   ta.style.height = 'auto';
@@ -141794,6 +141870,7 @@ try {
   <div class="mrk-chat-body" id="mrk-chat-body"></div>
   <div class="mrk-suggestions" id="mrk-suggestions"></div>
   <div class="mrk-chat-input">
+    <div id="mrk-anexo-chip" class="mrk-anexo-chip" style="display:none"></div>
     <textarea id="mrk-chat-textarea" placeholder="Pergunta aí — Enter envia" rows="1"
               onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();mrkChatSend()}"></textarea>
     <button class="mrk-anexo-btn" onclick="mrkAnexoEscolher()" title="Anexar nota, boleto ou contrato">
