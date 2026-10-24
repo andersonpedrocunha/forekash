@@ -173,8 +173,15 @@ export function briefing(d, op){
     const b = porMes[m] || (porMes[m] = { e:0, s:0 });
     if(l.tipo === 'ganho'){
       b.e += v; ent += v;
+      /* A dívida sai da LISTA, nunca dos TOTAIS. Tirar dos dois lados fazia o
+         ano fechar com R$ 912 mil de sobra em vez dos R$ 287 mil reais —
+         esconder dívida não pode deixar a empresa mais bonita do que é.
+         Aqui some só quem ela identifica: o empréstimo tomado na UNILOS
+         aparecia como R$ 223 mil de "pagador", porque o nome da cooperativa
+         não parece empréstimo e eu só filtrava por nome. */
       const c = String(l.contraparte || '').trim();
-      if(c && !f.pagadorFora(c)) porPagador[c] = (porPagador[c] || 0) + v;
+      if(c && !f.pagadorFora(c) && !f.catFora(l.categoria))
+        porPagador[c] = (porPagador[c] || 0) + v;
     } else {
       b.s += v; sai += v;
       const c = String(l.categoria || 'Sem categoria').trim();
