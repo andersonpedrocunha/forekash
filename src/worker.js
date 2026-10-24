@@ -11,7 +11,7 @@
 
 import { carregar, briefing, vocabulario, criarLancamento,
          salvarMemoria, grafico, GRAFICOS } from './forekash.js';
-import { perguntar, postar, assinaturaValida, podeLancar, APRENDER,
+import { perguntar, postar, assinaturaValida, APRENDER,
          LANCAR, GRAFICAR, separarLancamento, separarMemoria,
          cartaoLancamento } from './mrkash.js';
 
@@ -19,7 +19,7 @@ import { perguntar, postar, assinaturaValida, podeLancar, APRENDER,
    A marca sai do texto SEMPRE; gravar é que depende de quem falou — memória
    muda toda resposta seguinte, inclusive as que o time inteiro lê, então
    ensinar é escrita e segue a mesma trava do lançamento. */
-async function colher(env, resp, quem){
+async function colher(env, cfg, resp, quem){
   const { prosa, fatos } = separarMemoria(resp);
   const texto = prosa || resp;
   if(!fatos.length) return texto;
@@ -27,7 +27,7 @@ async function colher(env, resp, quem){
      quem não pode ensinar precisa saber que não pegou, senão repete a
      correção pra sempre achando que funcionou. O id vai junto porque o
      erro mais comum aqui é um id colado pela metade na variável. */
-  if(!podeLancar(env, quem))
+  if(!podeEscrever(cfg, quem))
     return texto + '\n\n_Isso eu não guardo: ensinar é só pra quem pode escrever no ' +
            'Forekash, e teu id (`' + quem + '`) não está na lista._';
   /* Gravar é esperado, não disparado e esquecido. Memória que falhou em
@@ -54,13 +54,48 @@ async function colher(env, resp, quem){
 
 const ok = (t) => new Response(t || '', { status: 200 });
 
+/* ── A configuração do Slack mora no Forekash ─────────────────────────
+   Canal padrão e quem pode escrever eram variável do Cloudflare: pra
+   trocar de canal era preciso editar um arquivo e publicar o Worker.
+   Agora ficam num blob como qualquer outro módulo, editável na tela.
+
+   As variáveis continuam valendo como fallback — se o blob não existe ou
+   veio quebrado, ele não fica sem canal nenhum.
+
+   O token do Slack NÃO vem pra cá e não vai vir: é credencial do
+   workspace inteiro, e blob é coisa que o navegador lê. Segredo continua
+   sendo segredo. */
+async function cfgSlack(env){
+  const padrao = {
+    canal: env.SLACK_CANAL_EQUIPE || '',
+    quemPode: String(env.MRK_SLACK_USERS || '').split(/[\s,]+/).filter(Boolean),
+    liberar: String(env.MRK_SLACK_LIBERAR || '')
+  };
+  try{
+    const r = await fetch(env.SUPABASE_URL +
+      `/rest/v1/module_blobs?org_id=eq.${env.FOREKASH_ORG_ID}&module=eq.slack_cfg&select=data`,
+      { headers: { apikey: env.SUPABASE_SERVICE_KEY,
+                   Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY } });
+    if(!r.ok) return padrao;
+    const j = await r.json();
+    const d = j[0] && j[0].data;
+    if(!d) return padrao;
+    return {
+      canal: String(d.canal || '').trim() || padrao.canal,
+      quemPode: Array.isArray(d.quemPode) && d.quemPode.length ? d.quemPode : padrao.quemPode,
+      liberar: typeof d.liberar === 'string' ? d.liberar : padrao.liberar
+    };
+  }catch(_){ return padrao; }
+}
+const podeEscrever = (cfg, quem) => !!quem && cfg.quemPode.includes(quem);
+
 /* O que o MR KASH pode ver quando responde PELO SLACK. Trava ligada por
    padrão: se a variável não existir, ele fica no modo restrito em vez de
    abrir tudo — esquecer de configurar não pode virar vazamento.
    `MRK_SLACK_LIBERAR="pessoa"` solta o individual; `"divida"` solta a dívida;
    `"pessoa divida"` solta as duas. */
-function escopoSlack(env){
-  const livre = String(env.MRK_SLACK_LIBERAR || '').toLowerCase();
+function escopoSlack(cfg){
+  const livre = String((cfg && cfg.liberar) || '').toLowerCase();
   return { semPessoa: !livre.includes('pessoa'), semDivida: !livre.includes('divida') };
 }
 
@@ -86,7 +121,8 @@ export default {
        colada em campo de painel erra com frequência. Devolve "ok" ou o
        motivo, nunca dado financeiro. */
     if(url.pathname === '/api/mrkash/ping'){
-      const r = { ok: true, cron: !!env.SLACK_CANAL_EQUIPE,
+      const cfg = await cfgSlack(env);
+      const r = { ok: true, cron: !!cfg.canal, canal: cfg.canal,
                   modelo: env.MRK_MODEL || 'claude-opus-5-5',
                   temChaves: {
                     anthropic: !!env.ANTHROPIC_API_KEY, supabase: !!env.SUPABASE_SERVICE_KEY,
@@ -111,10 +147,19 @@ export default {
           r.memoria = { fatos: lista.length,
                         ultimo: lista.length ? String(lista[lista.length-1].fato).slice(0,80) : null };
         }catch(e){ r.memoria = 'erro: ' + (e && e.message || 'falhou'); }
-        r.quemPodeEnsinar = String(env.MRK_SLACK_USERS || '').split(/[\s,]+/).filter(Boolean);
+        r.quemPodeEnsinar = cfg.quemPode;
       }
       return Response.json(r);
     }
+    /* Lista os canais pra escolher na tela do Forekash. Só os que o MR KASH
+       já é membro: postar num canal onde ele não entrou falha com
+       not_in_channel, e oferecer na lista o que não funciona é pior que não
+       oferecer. */
+    if(url.pathname === '/api/mrkash/canais') return canaisSlack(request, env);
+    /* Quem está no workspace, pra escolher na tela quem pode escrever pelo
+       Slack em vez de colar id na mão. */
+    if(url.pathname === '/api/mrkash/pessoas') return pessoasSlack(request, env);
+
     return new Response('não existe', { status: 404 });
   },
 
@@ -174,6 +219,8 @@ async function comandoSlack(request, env, ctx){
   if(!texto)
     return Response.json({ response_type: 'ephemeral', text: 'Pergunta alguma coisa.' });
 
+  const cfg = await cfgSlack(env);
+
   /* Gatilho manual dos avisos. Existe porque o automático só dispara no dia
      marcado, e descobrir daqui a uma semana que a postagem no canal falha é
      tarde demais. Também serve no dia a dia: dá pra repetir um lembrete sem
@@ -199,7 +246,7 @@ async function comandoSlack(request, env, ctx){
     }
     ctx.waitUntil((async () => {
       let txt;
-      try{ txt = montarGrafico(await carregar(env), achado.id, escopoSlack(env)); }
+      try{ txt = montarGrafico(await carregar(env), achado.id, escopoSlack(cfg)); }
       catch(e){ txt = 'Não desenhei: ' + (e && e.message || 'erro'); }
       await fetch(p.get('response_url'), { method:'POST', headers:{'content-type':'application/json'},
         /* Sem `replace_original:false` o Slack troca a efêmera do "Desenhando..."
@@ -211,11 +258,11 @@ async function comandoSlack(request, env, ctx){
 
   const teste = /^(testar|aviso|avisar)\b/i.exec(texto);
   if(teste){
-    if(!podeLancar(env, user))
+    if(!podeEscrever(cfg, user))
       return Response.json({ response_type:'ephemeral',
         text:'Disparar aviso no canal não é pra ti.\n_(teu id é `' + user + '`)_' });
     const qual = texto.replace(/^(testar|aviso|avisar)\s*/i, '').trim().toLowerCase();
-    const canal = env.SLACK_CANAL_EQUIPE;
+    const canal = cfg.canal;
     if(!canal) return Response.json({ response_type:'ephemeral', text:'SLACK_CANAL_EQUIPE não configurado.' });
     ctx.waitUntil((async () => {
       let msg;
@@ -249,8 +296,8 @@ async function comandoSlack(request, env, ctx){
       const d = await carregar(env);
       /* APRENDER vai junto aqui também: corrigir ele por comando tem que
          valer tanto quanto corrigir por menção. */
-      txt = await colher(env,
-        await perguntar(env, texto, briefing(d, escopoSlack(env)), null, APRENDER),
+      txt = await colher(env, cfg,
+        await perguntar(env, texto, briefing(d, escopoSlack(cfg)), null, APRENDER),
         user);
     }catch(e){ txt = 'Deu ruim aqui: ' + (e && e.message || 'erro'); deuCerto = false; }
     /* Resposta vai pro canal: a regra de não atender no privado vale aqui
@@ -283,14 +330,78 @@ async function avisoAgora(request, env){
     headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: 'Bearer ' + jwt } });
   if(!quem.ok) return erro('sessão inválida', 401);
 
-  const canal = env.SLACK_CANAL_EQUIPE;
+  let texto = '', pedido = '';
+  try{ const b = (await request.json()) || {};
+       texto = String(b.texto || '').trim(); pedido = String(b.canal || '').trim(); }catch(_){}
+  const canal = pedido || (await cfgSlack(env)).canal;
   if(!canal) return erro('canal não configurado');
-  let texto = '';
-  try{ texto = String(((await request.json()) || {}).texto || '').trim(); }catch(_){}
   if(!texto) return erro('sem texto');
   try{ await postar(env, canal, texto); }
   catch(e){ return erro((e && e.message) || 'falhou', 502); }
   return Response.json({ ok:true });
+}
+
+/* Só sessão do Forekash passa: estes dois endereços expõem o quadro de
+   pessoas e de canais do workspace, que não é coisa pra ficar aberta. */
+async function sessaoValida(request, env){
+  const jwt = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  if(!jwt) return false;
+  const r = await fetch(env.SUPABASE_URL + '/auth/v1/user', {
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: 'Bearer ' + jwt } });
+  return r.ok;
+}
+
+async function pessoasSlack(request, env){
+  const erro = (e, st) => Response.json({ ok:false, erro:e }, { status: st || 400 });
+  if(!await sessaoValida(request, env)) return erro('sem sessão', 401);
+  if(!env.SLACK_BOT_TOKEN) return erro('sem token do Slack');
+  try{
+    const r = await fetch('https://slack.com/api/users.list?limit=400', {
+      headers: { Authorization: 'Bearer ' + env.SLACK_BOT_TOKEN } });
+    const j = await r.json();
+    if(!j.ok) return Response.json({ ok:false, erro: j.error || 'slack recusou',
+      escopo: j.error === 'missing_scope' ? 'users:read' : null }, { status: 502 });
+    const gente = (j.members || [])
+      .filter(m => m && !m.deleted && !m.is_bot && m.id !== 'USLACKBOT')
+      .map(m => ({ id: m.id,
+                   nome: (m.profile && (m.profile.real_name || m.profile.display_name)) || m.name }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    return Response.json({ ok:true, pessoas: gente });
+  }catch(e){ return erro((e && e.message) || 'falhou', 502); }
+}
+
+async function canaisSlack(request, env){
+  const erro = (e, st) => Response.json({ ok:false, erro:e }, { status: st || 400 });
+  if(!await sessaoValida(request, env)) return erro('sem sessão', 401);
+  if(!env.SLACK_BOT_TOKEN) return erro('sem token do Slack');
+
+  const achados = [];
+  let cursor = '';
+  try{
+    /* Até 4 páginas. Mais que isso é workspace grande o bastante pra que uma
+       lista rolável já não resolva, e aí o certo é digitar o id. */
+    for(let i = 0; i < 4; i++){
+      const q = new URLSearchParams({ limit: '200', exclude_archived: 'true',
+        types: 'public_channel,private_channel' });
+      if(cursor) q.set('cursor', cursor);
+      const r = await fetch('https://slack.com/api/users.conversations?' + q, {
+        headers: { Authorization: 'Bearer ' + env.SLACK_BOT_TOKEN } });
+      const j = await r.json();
+      if(!j.ok){
+        /* missing_scope é o caso comum e tem conserto conhecido — devolve o
+           nome do escopo em vez de "deu erro". */
+        return Response.json({ ok:false, erro: j.error || 'slack recusou',
+          escopo: j.error === 'missing_scope' ? 'channels:read,groups:read' : null }, { status: 502 });
+      }
+      for(const c of (j.channels || []))
+        achados.push({ id: c.id, nome: c.name, privado: !!c.is_private });
+      cursor = (j.response_metadata && j.response_metadata.next_cursor) || '';
+      if(!cursor) break;
+    }
+  }catch(e){ return erro((e && e.message) || 'falhou', 502); }
+
+  achados.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  return Response.json({ ok:true, padrao: (await cfgSlack(env)).canal, canais: achados });
 }
 
 /* O gráfico em bloco de código: é o que chega igual no celular e no desktop.
@@ -325,7 +436,7 @@ async function interativoSlack(request, env, ctx){
     const id = acao.action_id.slice(5);
     ctx.waitUntil((async () => {
       let txt;
-      try{ txt = montarGrafico(await carregar(env), id, escopoSlack(env)); }
+      try{ txt = montarGrafico(await carregar(env), id, escopoSlack(await cfgSlack(env))); }
       catch(e){ txt = 'Não desenhei: ' + (e && e.message || 'erro'); }
       /* O menu era efêmero. Substituir ele deixava o gráfico privado — some
          com o menu e manda o gráfico como mensagem do canal. */
@@ -337,7 +448,7 @@ async function interativoSlack(request, env, ctx){
     return ok();
   }
 
-  if(!podeLancar(env, quem)){
+  if(!podeEscrever(await cfgSlack(env), quem)){
     /* Diz o ID de quem clicou: o erro mais comum é um ID colado pela metade
        na variável, e dizer a alguém o próprio ID não entrega nada. */
     ctx.waitUntil(responder('Lançar no financeiro não é pra ti.\n_(teu id é `' + quem + '`)_'));
@@ -374,9 +485,10 @@ async function responder(env, m){
      "para qualquer outra mensagem, responda normalmente e não escreva o
      bloco", e com a regra de aprender logo atrás disso ela ficava lida
      como mais uma exceção que não vale. */
-  const bruto = await perguntar(env, texto, briefing(d, escopoSlack(env)), null,
+  const cfg = await cfgSlack(env);
+  const bruto = await perguntar(env, texto, briefing(d, escopoSlack(cfg)), null,
                                 APRENDER + LANCAR + GRAFICAR + '\n\n' + vocabulario(d));
-  const resp = await colher(env, bruto, m.user);
+  const resp = await colher(env, cfg, bruto, m.user);
   const thread = { thread_ts: m.thread_ts || m.ts };
 
   /* Gráfico pedido por menção sai no canal, não efêmero — é mensagem de
@@ -386,7 +498,7 @@ async function responder(env, m){
     /* `reply_broadcast` manda o gráfico pra thread E pro canal. Resposta de
        pergunta pode ficar na thread; gráfico é feito pra todo mundo ver, e
        thread colapsada esconde de quem não abrir. */
-    await postar(env, m.channel, montarGrafico(d, g[1].toLowerCase(), escopoSlack(env)),
+    await postar(env, m.channel, montarGrafico(d, g[1].toLowerCase(), escopoSlack(cfg)),
                  Object.assign({ reply_broadcast: true }, thread));
     return;
   }
@@ -406,7 +518,7 @@ async function responder(env, m){
    Fazer assim em vez de um cron por aviso mantém a regra de "quando" no
    código, onde dá pra ler, em vez de espalhada na configuração. */
 async function avisosDoMes(env){
-  const canal = env.SLACK_CANAL_EQUIPE;
+  const canal = (await cfgSlack(env)).canal;
   if(!canal) throw new Error('SLACK_CANAL_EQUIPE não configurado');
   const t = agoraSP();
   const lista = await listaDeAvisos(env);
