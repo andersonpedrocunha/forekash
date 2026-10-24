@@ -386,24 +386,29 @@ async function avisoAgora(request, env){
   const canal = pedido || (await cfgSlack(env)).canal;
   if(!canal) return erro('canal não configurado');
   if(!texto) return erro('sem texto');
+  let check = '';
   try{
     const r = await postar(env, canal, texto);
     /* O "Testar" tinha que fazer exatamente o que o disparo faz, e não
        fazia: o ✅ só era marcado no caminho do cron. Testar uma coisa e
        mandar outra é pior que não ter teste — ele conferiu e concluiu que
        a reação estava quebrada, quando só faltava aqui. */
-    if(id && r && r.ts){
+    if(!id) check = 'o app não mandou o id do aviso (recarregue a página)';
+    else if(!r || !r.ts) check = 'o Slack não devolveu o id da mensagem';
+    else {
       const aviso = (await listaDeAvisos(env)).find(a => Number(a.id) === id);
-      if(aviso && aviso.confirmar){
+      if(!aviso) check = 'não achei o aviso ' + id + ' na nuvem';
+      else if(!aviso.confirmar) check = 'este aviso não está pedindo confirmação';
+      else {
         const onde = r.channel || canal;
-        await poeCheck(env, onde, r.ts);
+        check = await poeCheck(env, onde, r.ts);
         /* Marca de teste, não a do ciclo: gravar o horário real faria este
            teste cancelar o disparo de verdade mais tarde. */
-        await gravarDisparo(env, id, 'teste-' + Date.now(), onde, r.ts);
+        if(check === 'ok') await gravarDisparo(env, id, 'teste-' + Date.now(), onde, r.ts);
       }
     }
   }catch(e){ return erro((e && e.message) || 'falhou', 502); }
-  return Response.json({ ok:true });
+  return Response.json({ ok:true, check });
 }
 
 /* Só sessão do Forekash passa: estes dois endereços expõem o quadro de
@@ -693,16 +698,19 @@ async function gravarDisparo(env, avisoId, slot, canal, ts){
 }
 
 async function poeCheck(env, canal, ts){
-  const r = await fetch('https://slack.com/api/reactions.add', {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + env.SLACK_BOT_TOKEN, 'content-type': 'application/json' },
-    body: JSON.stringify({ channel: canal, timestamp: ts, name: CONF_EMOJI })
-  });
-  const j = await r.json();
-  /* Falhar aqui não pode derrubar o aviso: a mensagem já foi, e sem a
-     pílula as pessoas ainda conseguem reagir pelo seletor de emoji. */
-  if(!j.ok && j.error !== 'already_reacted')
-    console.warn('check no aviso:', j.error || 'falhou');
+  try{
+    const r = await fetch('https://slack.com/api/reactions.add', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + env.SLACK_BOT_TOKEN, 'content-type': 'application/json' },
+      body: JSON.stringify({ channel: canal, timestamp: ts, name: CONF_EMOJI })
+    });
+    const j = await r.json();
+    /* Falhar aqui não derruba o aviso: a mensagem já foi, e sem a pílula as
+       pessoas ainda conseguem reagir pelo seletor. Mas DEVOLVE o motivo —
+       engolir isso me fez caçar o defeito três vezes às cegas. */
+    if(j.ok || j.error === 'already_reacted') return 'ok';
+    return j.error || 'recusou';
+  }catch(e){ return (e && e.message) || 'falhou'; }
 }
 
 /* Quem reagiu em cada disparo guardado. O próprio bot sai da conta. */

@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792858870"/>
+  <meta name="fk-build" content="forekash-v1792859083"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -132150,8 +132150,14 @@ async function avisoTestar(id){
       body: JSON.stringify({ id: x.id, texto: avisoResolve(x.texto, new Date(), x), canal: x.canal || '' })
     });
     const j = await r.json().catch(() => ({}));
-    if(typeof toast === 'function')
-      toast(r.ok && j.ok ? '✓ Postado no canal' : 'Não foi: ' + (j.erro || ('erro ' + r.status)));
+    if(typeof toast === 'function'){
+      if(!(r.ok && j.ok)) toast('Não foi: ' + (j.erro || ('erro ' + r.status)));
+      /* O Worker diz o que houve com o ✅. Antes ele postava e calava, e a
+         única forma de saber se a reação pegou era olhar o Slack — que foi
+         exatamente onde o defeito se escondeu. */
+      else if(j.check && j.check !== 'ok') toast('Postado, mas sem o ✅: ' + j.check, 6000);
+      else toast('✓ Postado no canal' + (j.check === 'ok' ? ' com o ✅' : ''));
+    }
   }catch(e){
     if(typeof toast === 'function') toast('Não foi: ' + (e && e.message || 'erro'));
   }
