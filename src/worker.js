@@ -265,7 +265,11 @@ async function responder(env, m){
      verdade, não resposta de comando. */
   const g = /^[ \t]*GRAFICO[ \t]*:[ \t]*([a-z]+)/mi.exec(resp);
   if(g){
-    await postar(env, m.channel, montarGrafico(d, g[1].toLowerCase(), escopoSlack(env)), thread);
+    /* `reply_broadcast` manda o gráfico pra thread E pro canal. Resposta de
+       pergunta pode ficar na thread; gráfico é feito pra todo mundo ver, e
+       thread colapsada esconde de quem não abrir. */
+    await postar(env, m.channel, montarGrafico(d, g[1].toLowerCase(), escopoSlack(env)),
+                 Object.assign({ reply_broadcast: true }, thread));
     return;
   }
 
