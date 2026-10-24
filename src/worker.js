@@ -81,7 +81,17 @@ async function eventosSlack(request, env, ctx){
 
   const m = ev.event || {};
   if(m.bot_id || m.subtype) return ok();          // não responde a si mesmo nem a edição
-  if(m.type !== 'app_mention' && !(m.type === 'message' && m.channel_type === 'im')) return ok();
+
+  /* Nada de DM. Conversa sobre o dinheiro da empresa fica no canal, onde
+     tem testemunha e histórico — no privado ninguém sabe o que foi
+     perguntado nem o que foi respondido. Quem chamar na DM leva um recado
+     curto e nenhum número. */
+  if(m.type === 'message' && m.channel_type === 'im'){
+    ctx.waitUntil(postar(env, m.channel,
+      'No privado eu não falo de número. Me chama no canal.').catch(() => {}));
+    return ok();
+  }
+  if(m.type !== 'app_mention') return ok();
 
   /* O Slack reenvia se não receber 200 em 3 segundos, e o modelo pensa mais
      que isso. Responde já e manda a resposta depois. */
