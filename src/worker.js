@@ -99,7 +99,15 @@ async function comandoSlack(request, env, ctx){
                                           request.headers.get('x-slack-request-timestamp'), corpo);
   if(!assinado) return new Response('assinatura inválida', { status: 401 });
   const p = new URLSearchParams(corpo);
-  const user = p.get('user_id'), texto = (p.get('text') || '').trim();
+  const user = p.get('user_id');
+  let texto = (p.get('text') || '').trim();
+
+  /* `/grafico` é comando próprio, não um argumento escondido dentro de
+     `/mrkash`. Enterrado lá, ninguém descobre que existe; como comando, o
+     autocomplete do Slack mostra as opções enquanto a pessoa digita.
+     Os dois caem aqui — o que muda é só o prefixo. */
+  if((p.get('command') || '').replace('/','') === 'grafico') texto = 'grafico ' + texto;
+
   if(!texto)
     return Response.json({ response_type: 'ephemeral', text: 'Pergunta alguma coisa.' });
 
@@ -123,7 +131,7 @@ async function comandoSlack(request, env, ctx){
             type:'button', action_id:'graf:' + g.id, value:g.id,
             text:{ type:'plain_text', text:g.titulo } })) },
         { type:'context', elements:[{ type:'mrkdwn',
-            text:'Ou direto: `/mrkash grafico ' + GRAFICOS.map(g=>g.id).join('` · `') + '`' }] }
+            text:'Ou direto: ' + GRAFICOS.map(g => '`/grafico ' + g.id + '`').join(' · ') }] }
       ]});
     }
     ctx.waitUntil((async () => {
