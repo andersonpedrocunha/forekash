@@ -400,9 +400,10 @@ async function canaisSlack(request, env){
   const achados = [];
   let cursor = '';
   try{
-    /* Até 4 páginas. Mais que isso é workspace grande o bastante pra que uma
-       lista rolável já não resolva, e aí o certo é digitar o id. */
-    for(let i = 0; i < 4; i++){
+    /* 12 páginas = 2400 canais. O limite anterior, de 4, cortava em 800 —
+       e num workspace deste tamanho o que ficava de fora sumia em silêncio,
+       sem a tela ter como saber que a lista estava incompleta. */
+    for(let i = 0; i < 12; i++){
       const q = new URLSearchParams({ limit: '200', exclude_archived: 'true',
         types: 'public_channel,private_channel' });
       if(cursor) q.set('cursor', cursor);
@@ -427,8 +428,12 @@ async function canaisSlack(request, env){
     }
   }catch(e){ return erro((e && e.message) || 'falhou', 502); }
 
-  achados.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-  return Response.json({ ok:true, padrao: (await cfgSlack(env)).canal, canais: achados });
+  /* Onde ele já está vem primeiro. Num workspace de centenas de canais, o
+     punhado em que o MR KASH foi convidado é o que alguém procura em 99%
+     das vezes — e era justamente o que ficava perdido no meio do alfabeto. */
+  achados.sort((a, b) => (b.membro - a.membro) || a.nome.localeCompare(b.nome, 'pt-BR'));
+  return Response.json({ ok:true, padrao: (await cfgSlack(env)).canal,
+                         truncou: !!cursor, canais: achados });
 }
 
 /* O gráfico em bloco de código: é o que chega igual no celular e no desktop.

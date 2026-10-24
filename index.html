@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792853773"/>
+  <meta name="fk-build" content="forekash-v1792854197"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -10683,6 +10683,11 @@
         line-height:1;padding:0 2px;font-family:inherit}
     .slk-chip button:hover{color:#DC2626}
     .slk-ninguem{font-size:.79rem;color:#94A3B8;margin-bottom:8px}
+    .slk-dica{font-size:.76rem;color:#64748B;line-height:1.5;padding:9px 12px;border-radius:8px;
+        background:#F8FAFC;border:1px solid #E2E8F0}
+    .slk-dica code{background:#E2E8F0;padding:1px 5px;border-radius:4px;font-size:.74rem}
+    [data-theme="dark"] .slk-dica{background:#0B1220;border-color:#1E293B;color:#94A3B8}
+    [data-theme="dark"] .slk-dica code{background:#1E293B}
     .slk-add{max-width:260px;background:#fff;border:1.5px dashed #CBD5E1;color:#64748B;
         padding:7px 11px;border-radius:8px;font-family:inherit;font-size:.79rem;cursor:pointer}
     [data-theme="dark"] .slk-chip{background:#1E293B;border-color:#334155;color:#E2E8F0}
@@ -131377,6 +131382,19 @@ async function _slkFetch(rota, opts){
   return j;
 }
 
+/* Monta as opções em dois grupos. Num workspace de centenas de canais,
+   jogar tudo numa lista alfabética faz o canal que importa — aquele em que
+   o MR KASH foi convidado — sumir no meio de #dogs e #filmes-series. */
+function _slkOpcoes(cs, atual){
+  const op = c => '<option value="' + c.id + '"' + (c.id === atual ? ' selected' : '') +
+    '>#' + mrkEscape(c.nome) + (c.privado ? ' · privado' : '') + '</option>';
+  const dentro = cs.filter(c => c.membro), fora = cs.filter(c => !c.membro);
+  return (dentro.length ? '<optgroup label="Onde o MR KASH já está">' +
+            dentro.map(op).join('') + '</optgroup>' : '') +
+         (fora.length ? '<optgroup label="Outros canais — ele entra ao postar">' +
+            fora.map(op).join('') + '</optgroup>' : '');
+}
+
 /* Lista de canais e de pessoas vem do Slack, não de um campo de texto.
    Id colado na mão é o erro mais comum deste setup inteiro. */
 async function slackCanais(forcar){
@@ -131401,8 +131419,18 @@ async function slackRender(){
   const el = document.getElementById('slack-painel');
   if(!el) return;
   slackLoad();
+  /* Com a sessão. Sem ela o diagnóstico devolve só "as chaves existem" e
+     omite o canal em uso — foi o que fez a tela escolher o primeiro canal
+     da lista em ordem alfabética e dizer que os avisos iam pro #5amclub
+     enquanto o servidor mandava pro #gestao-financeiro. Tela que mostra
+     uma coisa e sistema que faz outra é pior que tela sem informação. */
   let ping = null;
-  try{ ping = await (await fetch('/api/mrkash/ping?teste=1')).json(); }catch(_){}
+  try{
+    let jwt = '';
+    try{ jwt = ((await window.sb.auth.getSession()).data.session || {}).access_token || ''; }catch(_){}
+    ping = await (await fetch('/api/mrkash/ping?teste=1',
+      jwt ? { headers:{ Authorization:'Bearer ' + jwt } } : undefined)).json();
+  }catch(_){}
 
   const falta = [];
   if(ping && ping.temChaves){
@@ -131421,9 +131449,10 @@ async function slackRender(){
     '</div>';
 
   html += '<div class="slk-campo"><label>Canal padrão<span>onde os avisos caem quando você não escolhe outro</span></label>' +
-    '<select id="slk-canal" onchange="slackCanalMuda()"><option value="">' +
-    (canalAtual ? mrkEscape(_slkNomeCanal(canalAtual) || canalAtual) : '— carregando —') +
-    '</option></select></div>';
+    '<select id="slk-canal" onchange="slackCanalMuda()"><option value="">— carregando —</option></select>' +
+    '<div id="slk-canal-nota" class="av-nota"></div></div>';
+
+  html += '<div class="slk-campo" id="slk-privados"></div>';
 
   html += '<div class="slk-campo"><label>Quem pode escrever pelo Slack' +
     '<span>lançar despesa, disparar aviso e ensinar o MR KASH. Perguntar é livre pra todo mundo.</span></label>' +
@@ -131443,6 +131472,7 @@ async function slackRender(){
   el.innerHTML = html;
   _slkPreencheCanais(canalAtual);
   _slkPreencheGente();
+  _slkAvisoPrivados();
 }
 
 async function _slkPreencheCanais(atual){
@@ -131450,10 +131480,16 @@ async function _slkPreencheCanais(atual){
   if(!sel) return;
   try{
     const cs = await slackCanais();
-    sel.innerHTML = cs.map(c => '<option value="' + c.id + '"' +
-      (c.id === atual ? ' selected' : '') + '>#' + mrkEscape(c.nome) +
-      (c.privado ? ' · privado' : '') + '</option>').join('')
-      || '<option value="">o MR KASH não está em nenhum canal</option>';
+    /* Relê DEPOIS da chamada: é ela que descobre o canal em uso no servidor
+       quando a tela ainda não tem nenhum salvo. Usar o valor de antes
+       deixava o select sem nada marcado, e sem nada marcado o navegador
+       mostra a primeira opção como se fosse a escolhida. */
+    const emUso = SLACK_CFG.canal || atual || '';
+    sel.innerHTML =
+      (emUso ? '' : '<option value="" selected>— escolhe um canal —</option>') +
+      _slkOpcoes(cs, emUso);
+    if(!cs.length) sel.innerHTML = '<option value="">nenhum canal no workspace</option>';
+    _slkCanalNota();
   }catch(e){
     sel.innerHTML = '<option value="' + mrkEscape(atual) + '">' + mrkEscape(atual || '—') + '</option>';
     sel.insertAdjacentHTML('afterend', '<div class="slk-erro">Não consegui listar os canais: ' +
@@ -131466,6 +131502,23 @@ async function _slkPreencheCanais(atual){
    formulário. Aqui aparece só quem TEM permissão, e o resto do workspace
    fica atrás de um "adicionar". A lista curta é a mensagem: por padrão
    ninguém escreve, e cada nome ali foi uma decisão. */
+/* Canal privado o Slack só mostra se o MR KASH for membro — não existe API
+   que liste privado onde o bot não foi convidado, e isso é de propósito.
+   Então a resposta pra "cadê o canal privado X" é sempre a mesma, e é
+   melhor estar escrita na tela do que ser perguntada. */
+async function _slkAvisoPrivados(){
+  const el = document.getElementById('slk-privados');
+  if(!el) return;
+  let cs = [];
+  try{ cs = await slackCanais(); }catch(_){ el.innerHTML = ''; return; }
+  const priv = cs.filter(c => c.privado).length;
+  el.innerHTML = '<div class="slk-dica">Canal privado só aparece aqui se o MR KASH ' +
+    'estiver dentro dele — o Slack não deixa nem listar os outros. Pra trazer um, ' +
+    'abre o canal e manda <code>/invite @mr kash</code>.' +
+    (priv ? ' Hoje ele está em ' + priv + (priv === 1 ? ' privado.' : ' privados.') : '') +
+    '</div>';
+}
+
 async function _slkPreencheGente(){
   const el = document.getElementById('slk-gente');
   if(!el) return;
@@ -131512,7 +131565,21 @@ function slackCanalMuda(){
   SLACK_CFG.canal = v;
   SLACK_CFG.canalNome = _slkNomeCanal(v);
   slackSalvaSilencio();
+  _slkCanalNota();
   if(typeof toast === 'function' && v) toast('Avisos vão pro ' + _slkNomeCanal(v));
+}
+/* Mesma conversa do modal: canal onde ele não está é problema de amanhã se
+   ninguém disser hoje. */
+function _slkCanalNota(){
+  const sel = document.getElementById('slk-canal');
+  const nota = document.getElementById('slk-canal-nota');
+  if(!sel || !nota) return;
+  const c = (_slkCanais || []).find(x => x.id === sel.value);
+  if(!c || c.membro){ nota.textContent = ''; nota.className = 'av-nota'; return; }
+  nota.className = 'av-nota ' + (c.privado ? 'ruim' : '');
+  nota.textContent = c.privado
+    ? 'O MR KASH não está no #' + c.nome + ' e canal privado não aceita entrada sozinho. Convida ele lá: /invite @mr kash'
+    : 'Ele não está no #' + c.nome + ' ainda — entra sozinho no primeiro disparo.';
 }
 function slackLiberarMuda(){
   const p = (document.getElementById('slk-pessoa')||{}).checked;
@@ -131531,6 +131598,7 @@ try{
   window.slackLoad = slackLoad; window.slackRender = slackRender;
   window.slackCanalMuda = slackCanalMuda;
   window.slackPoe = slackPoe; window.slackTira = slackTira;
+  window._slkCanalNota = _slkCanalNota;
   window.slackLiberarMuda = slackLiberarMuda; window.slackCanais = slackCanais;
   window._slkNomeCanal = _slkNomeCanal;
 }catch(_){}
@@ -131758,9 +131826,7 @@ async function _avCanais(atual){
     const nomePadrao = cs.find(c => c.id === padrao);
     sel.innerHTML = '<option value="">— o padrão' +
         (nomePadrao ? ' (#' + mrkEscape(nomePadrao.nome) + ')' : '') + ' —</option>' +
-      cs.map(c => '<option value="' + c.id + '"' + (c.id === atual ? ' selected' : '') +
-        '>#' + mrkEscape(c.nome) + (c.privado ? ' · privado' : '') +
-        (c.membro ? '' : ' · ele ainda não entrou') + '</option>').join('');
+      _slkOpcoes(cs, atual);
     sel.onchange = _avCanalNota;
     _avCanalNota();
   }catch(_){
