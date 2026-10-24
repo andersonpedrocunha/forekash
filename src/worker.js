@@ -122,13 +122,35 @@ export default {
        motivo, nunca dado financeiro. */
     if(url.pathname === '/api/mrkash/ping'){
       const cfg = await cfgSlack(env);
-      const r = { ok: true, cron: !!cfg.canal, canal: cfg.canal,
+      /* O básico é aberto porque a tela consulta antes de ter sessão e
+         porque "as chaves existem?" não diz nada de ninguém. O detalhe NÃO:
+         id de canal, id de quem pode escrever e um pedaço de um fato da
+         memória são coisa da casa, e este endereço está na internet aberta.
+         Antes isso saía pra qualquer um com a URL. */
+      const r = { ok: true, cron: !!cfg.canal,
                   modelo: env.MRK_MODEL || 'claude-opus-5-5',
                   temChaves: {
                     anthropic: !!env.ANTHROPIC_API_KEY, supabase: !!env.SUPABASE_SERVICE_KEY,
                     slackBot: !!env.SLACK_BOT_TOKEN, slackAssinatura: !!env.SLACK_SIGNING_SECRET
                   } };
-      if(url.searchParams.get('teste')){
+      /* "O token tem permissão de listar canal?" não diz nada da empresa —
+         responde 'ok' ou 'missing_scope'. Fica aberto porque é justamente a
+         pergunta de quem ainda não conseguiu entrar na tela. */
+      if(url.searchParams.get('teste') && env.SLACK_BOT_TOKEN){
+        try{
+          const q = await fetch('https://slack.com/api/users.conversations?limit=1', {
+            headers: { Authorization: 'Bearer ' + env.SLACK_BOT_TOKEN } });
+          const j = await q.json();
+          r.escopos = j.ok ? 'ok' : (j.error || 'recusou');
+          /* O Slack devolve no cabeçalho os escopos que ESTE token tem. É o
+             que separa "esqueceu de reinstalar" de "reinstalou e o token
+             mudou, mas o segredo aqui ainda é o antigo" — os dois dão
+             missing_scope e têm conserto diferente. */
+          if(!j.ok) r.escoposDoToken = q.headers.get('x-oauth-scopes') || '(não veio)';
+        }catch(e){ r.escopos = 'erro: ' + (e && e.message || 'falhou'); }
+      }
+      if(url.searchParams.get('teste') && await sessaoValida(request, env)){
+        r.canal = cfg.canal;
         try{
           const q = await fetch(env.SUPABASE_URL + '/rest/v1/module_blobs?select=module&limit=1',
             { headers: { apikey: env.SUPABASE_SERVICE_KEY,
@@ -384,7 +406,11 @@ async function canaisSlack(request, env){
       const q = new URLSearchParams({ limit: '200', exclude_archived: 'true',
         types: 'public_channel,private_channel' });
       if(cursor) q.set('cursor', cursor);
-      const r = await fetch('https://slack.com/api/users.conversations?' + q, {
+      /* `conversations.list` e não `users.conversations`: aquele só devolvia
+         os canais onde o MR KASH já tinha entrado, então o #taller nunca
+         aparecia pra escolher. Aqui vem o workspace todo, e cada um diz se
+         ele é membro — quem não é, ele entra na hora de postar. */
+      const r = await fetch('https://slack.com/api/conversations.list?' + q, {
         headers: { Authorization: 'Bearer ' + env.SLACK_BOT_TOKEN } });
       const j = await r.json();
       if(!j.ok){
@@ -394,7 +420,8 @@ async function canaisSlack(request, env){
           escopo: j.error === 'missing_scope' ? 'channels:read,groups:read' : null }, { status: 502 });
       }
       for(const c of (j.channels || []))
-        achados.push({ id: c.id, nome: c.name, privado: !!c.is_private });
+        achados.push({ id: c.id, nome: c.name, privado: !!c.is_private,
+                       membro: c.is_member !== false });
       cursor = (j.response_metadata && j.response_metadata.next_cursor) || '';
       if(!cursor) break;
     }

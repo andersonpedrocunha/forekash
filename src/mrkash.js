@@ -337,8 +337,36 @@ export async function postar(env, canal, texto, extra){
   const j = await r.json();
   /* A API do Slack devolve 200 com ok:false — tratar só o status HTTP faz
      erro de permissão passar por sucesso e a mensagem simplesmente sumir. */
-  if(!j.ok) throw new Error('Slack: ' + (j.error || 'falhou'));
-  return j;
+  if(j.ok) return j;
+
+  /* Canal escolhido na tela onde o MR KASH ainda não entrou: ele entra e
+     tenta de novo. Sem isto, escolher o #taller salvava bonitinho e só
+     falhava no dia do disparo — uma semana depois, calado. Vale só pra
+     canal público; em privado quem convida é uma pessoa. */
+  if(j.error === 'not_in_channel'){
+    const e = await fetch('https://slack.com/api/conversations.join', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + env.SLACK_BOT_TOKEN, 'content-type': 'application/json' },
+      body: JSON.stringify({ channel: canal })
+    });
+    const ej = await e.json();
+    if(ej.ok){
+      const r2 = await fetch('https://slack.com/api/chat.postMessage', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + env.SLACK_BOT_TOKEN, 'content-type': 'application/json' },
+        body: JSON.stringify(Object.assign({ channel: canal, text: texto, unfurl_links: false }, extra || {}))
+      });
+      const j2 = await r2.json();
+      if(j2.ok) return j2;
+      throw new Error('Slack: ' + (j2.error || 'falhou'));
+    }
+    throw new Error(ej.error === 'missing_scope'
+      ? 'o MR KASH não está nesse canal e não tem permissão pra entrar sozinho — ' +
+        'convida ele lá com /invite @mr kash'
+      : 'não consegui entrar nesse canal (' + (ej.error || 'erro') + ') — ' +
+        'convida o MR KASH lá com /invite @mr kash');
+  }
+  throw new Error('Slack: ' + (j.error || 'falhou'));
 }
 
 /* Assinatura do Slack. Sem isso qualquer um que descubra a URL fala pelo bot. */

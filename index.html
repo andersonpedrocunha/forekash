@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792852518"/>
+  <meta name="fk-build" content="forekash-v1792853773"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -10605,6 +10605,10 @@
     .av-previa-tag{display:block;font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;
         color:#94A3B8;margin-bottom:6px;white-space:normal}
     .av-previa code{background:#E2E8F0;padding:1px 5px;border-radius:4px;font-size:.78rem}
+    .av-nota{margin-top:6px;font-size:.74rem;color:#64748B;line-height:1.45}
+    .av-nota.ruim{color:#B45309}
+    [data-theme="dark"] .av-nota{color:#64748B}
+    [data-theme="dark"] .av-nota.ruim{color:#FBBF24}
     .av-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:14px}
     .av-quando{margin-top:12px;padding:9px 12px;border-radius:8px;background:#ECFDF5;
         border:1px solid #A7F3D0;color:#047857;font-size:.78rem}
@@ -10670,7 +10674,19 @@
     .slk-campo select{width:100%;max-width:380px;background:#fff;border:1.5px solid #E2E8F0;
         color:#0F172A;padding:9px 12px;border-radius:8px;font-family:inherit;font-size:.84rem}
     .slk-campo select:focus{border-color:#10B981;outline:none}
-    .slk-gente,.slk-chks{display:flex;flex-wrap:wrap;gap:6px 16px}
+    .slk-chks{display:flex;flex-wrap:wrap;gap:6px 16px}
+    .slk-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+    .slk-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 7px 4px 11px;
+        border-radius:999px;background:#F1F5F9;border:1px solid #E2E8F0;
+        font-size:.79rem;color:#1E293B}
+    .slk-chip button{background:none;border:none;color:#94A3B8;cursor:pointer;font-size:1rem;
+        line-height:1;padding:0 2px;font-family:inherit}
+    .slk-chip button:hover{color:#DC2626}
+    .slk-ninguem{font-size:.79rem;color:#94A3B8;margin-bottom:8px}
+    .slk-add{max-width:260px;background:#fff;border:1.5px dashed #CBD5E1;color:#64748B;
+        padding:7px 11px;border-radius:8px;font-family:inherit;font-size:.79rem;cursor:pointer}
+    [data-theme="dark"] .slk-chip{background:#1E293B;border-color:#334155;color:#E2E8F0}
+    [data-theme="dark"] .slk-add{background:#0B1220;border-color:#334155;color:#94A3B8}
     .slk-chk{display:inline-flex!important;align-items:center;gap:6px;font-size:.81rem;
         font-weight:400!important;color:#475569;margin:0!important;cursor:pointer}
     .slk-chk input{width:auto;margin:0}
@@ -10694,8 +10710,17 @@
     .mem-pad-ex b{color:#0F172A;font-family:inherit}
     .mem-sumiu{margin-top:12px;padding:10px 12px;border-radius:8px;background:#FFF7ED;
         border:1px solid #FED7AA;font-size:.78rem;color:#9A3412;line-height:1.6}
-    .mem-sumiu b{display:block;margin-bottom:4px;font-size:.72rem;text-transform:uppercase;
-        letter-spacing:.05em;color:#C2410C}
+    .mem-sumiu b{display:flex;align-items:baseline;gap:8px;margin-bottom:5px;font-size:.72rem;
+        text-transform:uppercase;letter-spacing:.05em;color:#C2410C}
+    .mem-mais{background:none;border:none;padding:0;font-family:inherit;font-size:.7rem;
+        text-transform:none;letter-spacing:0;color:#C2410C;cursor:pointer;
+        text-decoration:underline;opacity:.75}
+    .mem-mais:hover{opacity:1}
+    .mem-resto{opacity:.7;font-style:italic}
+    .mem-vertudo{margin-top:9px;background:none;border:none;padding:0;font-family:inherit;
+        font-size:.76rem;color:#64748B;cursor:pointer;text-decoration:underline}
+    .mem-vertudo:hover{color:#0F172A}
+    [data-theme="dark"] .mem-vertudo:hover{color:#F1F5F9}
     [data-theme="dark"] .mem-sep{color:#F1F5F9}
     [data-theme="dark"] .mem-pad{background:#0F172A;border-color:#1E293B}
     [data-theme="dark"] .mem-pad-top,[data-theme="dark"] .mem-pad-ex div{color:#94A3B8}
@@ -131437,19 +131462,49 @@ async function _slkPreencheCanais(atual){
           '</code> em OAuth &amp; Permissions e reinstala.' : '') + '</div>');
   }
 }
+/* Trinta caixinhas marcadas em branco não leem como restrição — leem como
+   formulário. Aqui aparece só quem TEM permissão, e o resto do workspace
+   fica atrás de um "adicionar". A lista curta é a mensagem: por padrão
+   ninguém escreve, e cada nome ali foi uma decisão. */
 async function _slkPreencheGente(){
   const el = document.getElementById('slk-gente');
   if(!el) return;
-  try{
-    const ps = await slackPessoas();
-    el.innerHTML = ps.map(p => '<label class="slk-chk"><input type="checkbox" value="' + p.id + '"' +
-      (SLACK_CFG.quemPode.includes(p.id) ? ' checked' : '') +
-      ' onchange="slackGenteMuda()"> ' + mrkEscape(p.nome) + '</label>').join('');
-  }catch(e){
+  let ps = null;
+  try{ ps = await slackPessoas(); }
+  catch(e){
     el.innerHTML = '<div class="slk-erro">Não consegui listar o time: ' + mrkEscape(e.message) +
       (e.escopo ? '. Falta <code>' + mrkEscape(e.escopo) + '</code> no app do Slack.' : '') +
       '<br>Quem pode hoje: <code>' + mrkEscape(SLACK_CFG.quemPode.join(', ') || '—') + '</code></div>';
+    return;
   }
+  const nome = id => (ps.find(p => p.id === id) || {}).nome || id;
+  const temPermissao = SLACK_CFG.quemPode;
+  const fora = ps.filter(p => !temPermissao.includes(p.id));
+
+  el.innerHTML =
+    (temPermissao.length
+      ? '<div class="slk-chips">' + temPermissao.map(id =>
+          '<span class="slk-chip">' + mrkEscape(nome(id)) +
+          '<button onclick="slackTira(\'' + id + '\')" title="Tirar a permissão">&times;</button></span>').join('') +
+        '</div>'
+      : '<div class="slk-ninguem">Ninguém. Hoje o Slack só pergunta — não escreve nada no Forekash.</div>') +
+    (fora.length
+      ? '<select class="slk-add" onchange="slackPoe(this.value); this.value=\'\'">' +
+        '<option value="">+ dar permissão a alguém</option>' +
+        fora.map(p => '<option value="' + p.id + '">' + mrkEscape(p.nome) + '</option>').join('') +
+        '</select>'
+      : '');
+}
+function slackPoe(id){
+  if(!id || SLACK_CFG.quemPode.includes(id)) return;
+  SLACK_CFG.quemPode = SLACK_CFG.quemPode.concat(id);
+  slackSalvaSilencio();
+  _slkPreencheGente();
+}
+function slackTira(id){
+  SLACK_CFG.quemPode = SLACK_CFG.quemPode.filter(x => x !== id);
+  slackSalvaSilencio();
+  _slkPreencheGente();
 }
 
 function slackCanalMuda(){
@@ -131458,10 +131513,6 @@ function slackCanalMuda(){
   SLACK_CFG.canalNome = _slkNomeCanal(v);
   slackSalvaSilencio();
   if(typeof toast === 'function' && v) toast('Avisos vão pro ' + _slkNomeCanal(v));
-}
-function slackGenteMuda(){
-  SLACK_CFG.quemPode = [...document.querySelectorAll('#slk-gente input:checked')].map(i => i.value);
-  slackSalvaSilencio();
 }
 function slackLiberarMuda(){
   const p = (document.getElementById('slk-pessoa')||{}).checked;
@@ -131478,7 +131529,8 @@ function slackSalvaSilencio(){
 }
 try{
   window.slackLoad = slackLoad; window.slackRender = slackRender;
-  window.slackCanalMuda = slackCanalMuda; window.slackGenteMuda = slackGenteMuda;
+  window.slackCanalMuda = slackCanalMuda;
+  window.slackPoe = slackPoe; window.slackTira = slackTira;
   window.slackLiberarMuda = slackLiberarMuda; window.slackCanais = slackCanais;
   window._slkNomeCanal = _slkNomeCanal;
 }catch(_){}
@@ -131668,9 +131720,10 @@ function _avisoModal(x){
             '<input id="av-data" type="date" value="' + _avEsc(x.data) + '" oninput="_avPrevia()"></div>' +
           '<div><label>Hora</label>' +
             '<input id="av-hora" type="time" value="' + _avEsc(x.hora||'17:30') + '" oninput="_avPrevia()"></div>' +
-          '<div><label>Canal</label>' +
-            '<select id="av-canal"><option value="">— o padrão —</option></select></div>' +
         '</div>' +
+        '<div style="margin-top:12px"><label>Canal <span class="hint">— onde este aviso cai</span></label>' +
+          '<select id="av-canal"><option value="">— o padrão —</option></select>' +
+          '<div id="av-canal-nota" class="av-nota"></div></div>' +
         '<div class="av-quando" id="av-quando"></div>' +
       '</div>' +
       '<div class="aviso-ft">' +
@@ -131706,11 +131759,27 @@ async function _avCanais(atual){
     sel.innerHTML = '<option value="">— o padrão' +
         (nomePadrao ? ' (#' + mrkEscape(nomePadrao.nome) + ')' : '') + ' —</option>' +
       cs.map(c => '<option value="' + c.id + '"' + (c.id === atual ? ' selected' : '') +
-        '>#' + mrkEscape(c.nome) + '</option>').join('');
+        '>#' + mrkEscape(c.nome) + (c.privado ? ' · privado' : '') +
+        (c.membro ? '' : ' · ele ainda não entrou') + '</option>').join('');
+    sel.onchange = _avCanalNota;
+    _avCanalNota();
   }catch(_){
     /* Sem lista, o aviso continua indo pro padrão — não é motivo pra
        impedir de salvar. */
   }
+}
+/* Canal público ele entra sozinho na hora de postar. Privado precisa de
+   convite, e descobrir isso só no dia do disparo seria tarde. */
+function _avCanalNota(){
+  const sel = document.getElementById('av-canal');
+  const nota = document.getElementById('av-canal-nota');
+  if(!sel || !nota) return;
+  const c = (_slkCanais || []).find(x => x.id === sel.value);
+  if(!c || c.membro){ nota.textContent = ''; nota.className = 'av-nota'; return; }
+  nota.className = 'av-nota ' + (c.privado ? 'ruim' : '');
+  nota.textContent = c.privado
+    ? 'O MR KASH não está no #' + c.nome + ' e canal privado não aceita entrada sozinho. Convida ele lá: /invite @mr kash'
+    : 'Ele não está no #' + c.nome + ' ainda — entra sozinho no primeiro disparo.';
 }
 
 function _avFreqMuda(){
@@ -132167,11 +132236,29 @@ function memPadroesRender(){
     '</div><div class="mem-pad-ex">' + amostra + '</div>';
 
   if(p.parou.length){
-    html += '<div class="mem-sumiu"><b>Era todo mês e parou</b>' +
-      p.parou.slice(0, 6).map(x => mrkEscape(x.nome) + ' — nada desde ' +
-        _memDiaBr(x.ultimo) + ' (' + x.diasParado + ' dias)').join('<br>') + '</div>';
+    /* Fechado por padrão e com contagem no rótulo. Esta lista só cresce, e
+       um painel que empurra o resto da tela pra baixo a cada mês deixa de
+       ser painel. */
+    const abre = _memAberto.parou;
+    const mostra = abre ? p.parou : p.parou.slice(0, 3);
+    html += '<div class="mem-sumiu">' +
+      '<b>' + p.parou.length + (p.parou.length === 1 ? ' parou de aparecer' : ' pararam de aparecer') +
+      '<button class="mem-mais" onclick="memAlterna(\'parou\')">' +
+        (abre ? 'esconder' : 'ver ' + (p.parou.length > 3 ? 'todos' : '')) + '</button></b>' +
+      mostra.map(x => mrkEscape(x.nome) + ' — nada desde ' +
+        _memDiaBr(x.ultimo) + ' (' + x.diasParado + ' dias)').join('<br>') +
+      (!abre && p.parou.length > 3
+        ? '<br><span class="mem-resto">e mais ' + (p.parou.length - 3) + '</span>' : '') +
+      '</div>';
   }
   el.innerHTML = html + '</div>';
+}
+/* Quais blocos estão abertos. Em memória só, não em disco: estado de
+   acordeão não é preferência que mereça viajar pra nuvem. */
+const _memAberto = { parou:false, lista:false };
+function memAlterna(qual){
+  _memAberto[qual] = !_memAberto[qual];
+  if(qual === 'parou') memPadroesRender(); else memRender();
 }
 function _memDiaBr(d){
   const p = String(d || '').split('-');
@@ -132193,8 +132280,12 @@ function memRender(){
       'e o que não der pra tirar do extrato ele guarda aqui.</div>';
     return;
   }
-  /* Mais novo primeiro: o que ele aprendeu hoje é o que você quer conferir. */
-  el.innerHTML = MRK_MEM.lista.slice().reverse().map(m =>
+  /* Mais novo primeiro: o que ele aprendeu hoje é o que você quer conferir.
+     Teto de 6 com "ver todas" pelo mesmo motivo do bloco acima: isso chega
+     a 60 fatos e não pode virar uma coluna de texto no meio da tela. */
+  const todas = MRK_MEM.lista.slice().reverse();
+  const visiveis = _memAberto.lista ? todas : todas.slice(0, 6);
+  el.innerHTML = visiveis.map(m =>
     '<div class="mem-item">' +
       '<div class="mem-corpo">' +
         (m.tag ? '<span class="mem-tag">' + mrkEscape(m.tag) + '</span>' : '') +
@@ -132204,7 +132295,11 @@ function memRender(){
         '<span class="mem-quando">' + _memQuando(m) + '</span>' +
         '<button class="mem-x" onclick="memRemover(' + m.id + ')" title="Fazer ele esquecer isto">esquecer</button>' +
       '</div>' +
-    '</div>').join('');
+    '</div>').join('') +
+    (todas.length > 6
+      ? '<button class="mem-vertudo" onclick="memAlterna(\'lista\')">' +
+        (_memAberto.lista ? 'mostrar menos' : 'ver as outras ' + (todas.length - 6)) + '</button>'
+      : '');
 }
 function _memQuando(m){
   const o = m.origem === 'slack' ? 'pelo Slack' : m.origem === 'manual' ? 'escrito por você' : 'no chat';
@@ -132226,6 +132321,7 @@ try{
   window.memTexto = memTexto; window.memRender = memRender; window.memNovo = memNovo;
   window._memColher = _memColher; window.memAplicar = memAplicar;
   window.memSincroniza = memSincroniza; window.memPadroesRender = memPadroesRender;
+  window.memAlterna = memAlterna;
 }catch(_){}
 
 function llmLoad(){
