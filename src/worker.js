@@ -178,13 +178,21 @@ async function comandoSlack(request, env, ctx){
 
   const responseUrl = p.get('response_url');
   ctx.waitUntil((async () => {
-    let txt;
+    let txt, deuCerto = true;
     try{
       const d = await carregar(env);
       txt = await perguntar(env, texto, briefing(d, escopoSlack(env)));
-    }catch(e){ txt = 'Deu ruim aqui: ' + (e && e.message || 'erro'); }
+    }catch(e){ txt = 'Deu ruim aqui: ' + (e && e.message || 'erro'); deuCerto = false; }
+    /* Resposta vai pro canal: a regra de não atender no privado vale aqui
+       também. Efêmera fica num canal mas só quem perguntou lê e não sobra
+       histórico — é a DM com outra roupa. O Slack mostra junto o comando
+       que a pessoa digitou, então fica o par pergunta-resposta.
+       Erro continua privado: não é resposta, é defeito, e encher o canal
+       com pilha de erro não registra nada que sirva. */
     await fetch(responseUrl, { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ response_type: 'ephemeral', text: txt }) });
+      body: JSON.stringify(deuCerto
+        ? { response_type: 'in_channel', replace_original: false, text: txt }
+        : { response_type: 'ephemeral', text: txt }) });
   })());
   // ack imediato: o Slack mostra isso enquanto ele pensa
   return Response.json({ response_type: 'ephemeral', text: 'Lendo teus números...' });
