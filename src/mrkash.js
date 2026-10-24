@@ -50,6 +50,21 @@ export const LANCAR =
   'Se o valor não estiver claro, NÃO escreva o bloco: pergunte o valor em uma linha.\n' +
   'Para qualquer outra mensagem, responda normalmente e não escreva o bloco.';
 
+/* Pedir gráfico em linguagem natural. Mesmo padrão do LANCAR: o modelo não
+   desenha nada, só diz QUAL — quem desenha é o código, com o número certo. */
+export const GRAFICAR =
+  '\n\n# QUANDO ELE PEDIR UM GRÁFICO\n' +
+  'Se a mensagem pedir gráfico, desenho, barra ou "me mostra" de um destes temas, ' +
+  'responda SÓ com a linha GRAFICO: seguida do id, sem mais nada:\n' +
+  '- `clientes` — quem mais faturou no ano\n' +
+  '- `mes` — entrou × saiu mês a mês\n' +
+  '- `categoria` — para onde o dinheiro foi\n' +
+  '- `aberto` — quem está devendo\n' +
+  '- `projecao` — o que falta entrar, mês a mês\n' +
+  'Exemplo: "me mostra num gráfico quem tá devendo" → GRAFICO: aberto\n' +
+  'Se o pedido não casar com nenhum desses cinco, responda normalmente em texto ' +
+  'e não escreva a linha.';
+
 export async function perguntar(env, pergunta, quadro, historico, extra){
   const msgs = (historico || []).slice(-8);
   msgs.push({ role: 'user', content: pergunta });

@@ -12,7 +12,7 @@
 import { carregar, briefing, vocabulario, criarLancamento,
          grafico, GRAFICOS } from './forekash.js';
 import { perguntar, postar, assinaturaValida, podeLancar,
-         LANCAR, separarLancamento, cartaoLancamento } from './mrkash.js';
+         LANCAR, GRAFICAR, separarLancamento, cartaoLancamento } from './mrkash.js';
 
 const ok = (t) => new Response(t || '', { status: 200 });
 
@@ -139,7 +139,9 @@ async function comandoSlack(request, env, ctx){
       try{ txt = montarGrafico(await carregar(env), achado.id, escopoSlack(env)); }
       catch(e){ txt = 'Não desenhei: ' + (e && e.message || 'erro'); }
       await fetch(p.get('response_url'), { method:'POST', headers:{'content-type':'application/json'},
-        body: JSON.stringify({ response_type:'in_channel', text: txt }) });
+        /* Sem `replace_original:false` o Slack troca a efêmera do "Desenhando..."
+           e o gráfico nasce privado, em vez de aparecer pro canal. */
+        body: JSON.stringify({ response_type:'in_channel', replace_original:false, text: txt }) });
     })());
     return Response.json({ response_type:'ephemeral', text:'Desenhando...' });
   }
@@ -212,8 +214,12 @@ async function interativoSlack(request, env, ctx){
       let txt;
       try{ txt = montarGrafico(await carregar(env), id, escopoSlack(env)); }
       catch(e){ txt = 'Não desenhei: ' + (e && e.message || 'erro'); }
+      /* O menu era efêmero. Substituir ele deixava o gráfico privado — some
+         com o menu e manda o gráfico como mensagem do canal. */
       await fetch(url, { method:'POST', headers:{'content-type':'application/json'},
-        body: JSON.stringify({ replace_original: true, text: txt }) });
+        body: JSON.stringify({ delete_original: true }) });
+      await fetch(url, { method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ response_type:'in_channel', replace_original:false, text: txt }) });
     })());
     return ok();
   }
@@ -252,9 +258,18 @@ async function responder(env, m){
   if(!texto) return;
   const d = await carregar(env);
   const resp = await perguntar(env, texto, briefing(d, escopoSlack(env)), null,
-                               LANCAR + '\n\n' + vocabulario(d));
-  const { prosa, dados } = separarLancamento(resp);
+                               LANCAR + GRAFICAR + '\n\n' + vocabulario(d));
   const thread = { thread_ts: m.thread_ts || m.ts };
+
+  /* Gráfico pedido por menção sai no canal, não efêmero — é mensagem de
+     verdade, não resposta de comando. */
+  const g = /^[ \t]*GRAFICO[ \t]*:[ \t]*([a-z]+)/mi.exec(resp);
+  if(g){
+    await postar(env, m.channel, montarGrafico(d, g[1].toLowerCase(), escopoSlack(env)), thread);
+    return;
+  }
+
+  const { prosa, dados } = separarLancamento(resp);
   if(dados && dados.valor){
     /* Proposta, não gravação. O cartão é o modal que o Slack não tem. */
     await postar(env, m.channel, prosa || 'Confere antes de eu gravar:',
