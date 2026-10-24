@@ -289,18 +289,21 @@ export function cobranca(d, ano){
    Mesma regra do painel de Recebíveis do app: um título por mês por cliente,
    e o enésimo crédito quita o enésimo título em aberto. É FIFO, que é como
    recebível funciona — o dinheiro que chega paga a conta mais velha.        */
-export function abertoPorMes(d, ano){
-  const porMes = {};                       // 'jan' -> quanto falta entrar
-  if(!d.receita || !d.receita.years || !d.receita.years[ano]) return porMes;
+export function abertoDetalhado(d, ano){
+  const porMes = {};        // 'jan' -> quanto falta entrar
+  const porCliente = {};    // nome -> { total, vencido, aFalar }
+  const vazio = { porMes, porCliente };
+  if(!d.receita || !d.receita.years || !d.receita.years[ano]) return vazio;
   const cats = catsReceita(d);
 
   // títulos por cliente, em ordem de competência
   const titulos = {}, nomes = {};
   for(const r of (d.receita.years[ano].clients || [])){
     const cli = (d.receita.clientes || []).find(c => c.id === r.clienteId);
-    const k = nomeChave((cli && cli.nome) || r.nome || '');
+    const nome = (cli && cli.nome) || r.nome || '';
+    const k = nomeChave(nome);
     if(!k) continue;
-    nomes[k] = true;
+    nomes[k] = nome;
     for(let i = 0; i < 12; i++){
       const c = (r.meses || {})[MES[i]];
       const v = c ? (Number(c.valor) || 0) : 0;
@@ -325,6 +328,7 @@ export function abertoPorMes(d, ano){
   }
   for(const k in creditos) creditos[k].sort((a,b) => a.dt.localeCompare(b.dt));
 
+  const mesAtual = Number(d.hoje.toISOString().slice(5,7));   // 1..12
   for(const k in titulos){
     let caixa = (creditos[k] || []).reduce((s,c) => s + c.v, 0);
     for(const t of titulos[k]){
@@ -333,11 +337,20 @@ export function abertoPorMes(d, ano){
       const falta = t.valor - usa;
       /* 1,5% de folga: crédito vem líquido de retenção e taxa, então quase
          nunca bate o centavo. Sem isso todo título ficaria "aberto por R$ 40". */
-      if(falta > t.valor * 0.015) porMes[MES[t.i]] = (porMes[MES[t.i]] || 0) + falta;
+      if(falta <= t.valor * 0.015) continue;
+      porMes[MES[t.i]] = (porMes[MES[t.i]] || 0) + falta;
+      /* Mesma apuração, outro corte: saber que dezembro traz R$ 279 mil não
+         diz de quem cobrar. O vencido vai separado porque é o que precisa de
+         telefonema, não de calendário. */
+      const c = porCliente[k] || (porCliente[k] = { nome: nomes[k] || k, total:0, vencido:0, aVencer:0 });
+      c.total += falta;
+      if(t.i < mesAtual - 1) c.vencido += falta; else c.aVencer += falta;
     }
   }
-  return porMes;
+  return { porMes, porCliente };
 }
+// compat: quem só quer o recorte por mês
+export function abertoPorMes(d, ano){ return abertoDetalhado(d, ano).porMes; }
 
 export function folhaDoAno(d, ano){
   const out = [];
@@ -549,7 +562,8 @@ export function grafico(d, id, op){
      só esconde justamente o que precisa de ação. */
   if(id === 'projecao'){
     const mesAtual = Number(d.hoje.toISOString().slice(5,7));   // 1..12
-    const falta = abertoPorMes(d, ano);
+    const det = abertoDetalhado(d, ano);
+    const falta = det.porMes;
     /* Vencido é a soma dos meses JÁ PASSADOS que seguem em aberto, apurada
        título a título. Derivar isso de totais do ano dava R$ 1 mil num ano
        com quase R$ 600 mil parados. */
@@ -565,15 +579,28 @@ export function grafico(d, id, op){
     }
     if(!linhas.length) return null;
 
+    /* Mês responde "quando"; cliente responde "de quem". Separar o vencido
+       por cliente é o que transforma o gráfico em lista de ligação. */
+    const clis = Object.values(det.porCliente).sort((a,b) => b.total - a.total).slice(0, 10);
+    const larg = Math.max(...clis.map(c => c.nome.length), 8);
+    const porCliente = clis.length
+      ? '\n\nde quem\n' + clis.map(c => c.nome.slice(0,16).padEnd(larg) + '  ' +
+          _mil(c.total) + (c.vencido > 0.5 ? '   ' + _mil(c.vencido).trim() + ' vencido' : '')).join('\n')
+      : '';
+
     const pe = [];
-    if(vencido > 0.5)
-      pe.push(_mil(vencido).trim() + ' já passou do vencimento. Isso não entra sozinho — ' +
-              'alguém tem que cobrar.');
+    if(vencido > 0.5){
+      const atrasados = clis.filter(c => c.vencido > 0.5).sort((a,b) => b.vencido - a.vencido);
+      pe.push(_mil(vencido).trim() + ' já passou do vencimento' +
+        (atrasados.length ? ' — ' + atrasados.slice(0,3).map(c => c.nome).join(', ') : '') +
+        '. Isso não entra sozinho, alguém tem que cobrar.');
+    }
     if(somaFuturo > 0.5)
       pe.push(_mil(somaFuturo).trim() + ' ainda vai vencer até dezembro.');
     pe.push('É o que está faturado na Receita e não caiu na conta. Não é previsão de ' +
             'venda nova — nada aqui foi estimado.');
-    return { titulo: 'Projeção de entradas · ' + ano, corpo: _barras(linhas), rodape: pe.join('\n') };
+    return { titulo: 'Projeção de entradas · ' + ano,
+             corpo: _barras(linhas) + porCliente, rodape: pe.join('\n') };
   }
 
   if(id === 'categoria'){
