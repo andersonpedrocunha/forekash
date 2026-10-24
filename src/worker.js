@@ -37,6 +37,8 @@ export default {
       return comandoSlack(request, env, ctx);
     if(url.pathname === '/api/slack/interativo' && request.method === 'POST')
       return interativoSlack(request, env, ctx);
+    if(url.pathname === '/api/mrkash/aviso-agora' && request.method === 'POST')
+      return avisoAgora(request, env);
     /* Só pra conferir que o Worker está no ar sem falar com o Slack.
        Não devolve número nenhum: é diagnóstico de encanamento.
 
@@ -167,8 +169,21 @@ async function comandoSlack(request, env, ctx){
     ctx.waitUntil((async () => {
       let msg;
       try{
-        if(/benef/.test(qual)){ await avisoBeneficios(env, canal); msg = 'Aviso de benefícios postado no canal.'; }
-        else                  { await avisoNota(env, canal);       msg = 'Lembrete da nota postado no canal.'; }
+        /* Agora os avisos são uma lista editável, então `/mrkash testar`
+           acha pelo título em vez de escolher entre dois textos fixos. */
+        const lista = await listaDeAvisos(env);
+        const alvo = qual
+          ? lista.find(a => String(a.titulo || '').toLowerCase().includes(qual) ||
+                            String(a.texto  || '').toLowerCase().includes(qual))
+          : lista.find(a => a.ativo !== false);
+        if(!alvo){
+          msg = lista.length
+            ? 'Não achei esse aviso. Tem: ' + lista.map(a => '"' + (a.titulo||'?') + '"').join(', ')
+            : 'Não tem aviso cadastrado. Cria em Configurações › Avisos no Slack.';
+        } else {
+          await postar(env, alvo.canal || canal, alvo.texto);
+          msg = '"' + (alvo.titulo || 'aviso') + '" postado no canal.';
+        }
       }catch(e){ msg = 'Não consegui postar: ' + (e && e.message || 'erro'); }
       await fetch(p.get('response_url'), { method:'POST', headers:{'content-type':'application/json'},
         body: JSON.stringify({ response_type:'ephemeral', text: msg }) });
@@ -196,6 +211,31 @@ async function comandoSlack(request, env, ctx){
   })());
   // ack imediato: o Slack mostra isso enquanto ele pensa
   return Response.json({ response_type: 'ephemeral', text: 'Lendo teus números...' });
+}
+
+/* O botão "Testar" da tela de avisos. Posta agora, sem esperar o horário.
+
+   Exige o token da sessão do Supabase e confere com o Supabase antes de
+   postar: sem isso este endereço seria uma porta aberta pra qualquer um
+   despejar mensagem no canal da empresa — basta conhecer a URL. O token do
+   Slack fica no servidor, então o navegador não tem como postar sozinho;
+   por isso o caminho passa por aqui. */
+async function avisoAgora(request, env){
+  const erro = (e, st) => Response.json({ ok:false, erro:e }, { status: st || 400 });
+  const jwt = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  if(!jwt) return erro('sem sessão', 401);
+  const quem = await fetch(env.SUPABASE_URL + '/auth/v1/user', {
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: 'Bearer ' + jwt } });
+  if(!quem.ok) return erro('sessão inválida', 401);
+
+  const canal = env.SLACK_CANAL_EQUIPE;
+  if(!canal) return erro('canal não configurado');
+  let texto = '';
+  try{ texto = String(((await request.json()) || {}).texto || '').trim(); }catch(_){}
+  if(!texto) return erro('sem texto');
+  try{ await postar(env, canal, texto); }
+  catch(e){ return erro((e && e.message) || 'falhou', 502); }
+  return Response.json({ ok:true });
 }
 
 /* O gráfico em bloco de código: é o que chega igual no celular e no desktop.
@@ -308,36 +348,53 @@ async function responder(env, m){
 async function avisosDoMes(env){
   const canal = env.SLACK_CANAL_EQUIPE;
   if(!canal) throw new Error('SLACK_CANAL_EQUIPE não configurado');
-  const agora = new Date();
-  const diaDoMes = Number(new Intl.DateTimeFormat('pt-BR', { timeZone:'America/Sao_Paulo', day:'numeric' }).format(agora));
-  const diaNota = Number(env.MRK_DIA_NOTA || 1);
-  const diaBenef = Number(env.MRK_DIA_BENEFICIOS || 7);
-
-  if(diaDoMes === diaNota)  await avisoNota(env, canal);
-  if(diaDoMes === diaBenef) await avisoBeneficios(env, canal);
+  const t = agoraSP();
+  const lista = await listaDeAvisos(env);
+  for(const a of lista){
+    if(!vaiDisparar(a, t)) continue;
+    /* Um aviso que falhe não pode derrubar os outros do mesmo horário. */
+    try{ await postar(env, a.canal || canal, a.texto); }
+    catch(e){ console.error('aviso "' + (a.titulo || '?') + '":', e && e.message); }
+  }
 }
 
-/* Estes dois avisos não dependem de dado nenhum: o texto é o mesmo todo mês.
-   Gerar com o modelo a cada disparo não compra nada e arrisca uma invenção
-   nova por mês — nos testes ele produziu "metade do time não usa nenhum" e
-   "sem nota o pagamento fica parado", duas coisas que ninguém mediu nem
-   escreveu. Em canal de empresa isso vira fato repetido. Texto fixo, escrito
-   na voz dele. O `redigirAviso` continua existindo para o dia em que o aviso
-   reagir a número de verdade — aí o modelo tem o que dizer. */
-const AVISO_NOTA =
-  'Virou o mês. Ritual de sempre.\n' +
-  'Quem presta serviço como *PJ*: a nota fiscal do mês vai pro financeiro.';
-
-const AVISO_BENEFICIOS =
-  'Lembrete do mês. Dois benefícios ativos:\n' +
-  '*Wellhub* — academias e bem-estar. Tem teto de usuários cadastrados, então não ativa ' +
-  'sozinho: quem quiser começar, avisa o financeiro.\n' +
-  '*StarBem* — desconto em consultas e saúde. Vale pra todo mundo, é só baixar o app.';
-
-async function avisoNota(env, canal){
-  await postar(env, canal, env.MRK_TEXTO_NOTA || AVISO_NOTA);
+/* O texto dos avisos saiu do código: mora no módulo `avisos`, editado na
+   tela de Configurações do Forekash. Mudar um lembrete era deploy; agora é
+   dois cliques. O que continua aqui é só QUANDO disparar, e essa conta é a
+   mesma escrita no app — se as duas divergirem, a tela promete uma data e a
+   mensagem chega noutra. */
+async function listaDeAvisos(env){
+  const r = await fetch(env.SUPABASE_URL +
+    `/rest/v1/module_blobs?org_id=eq.${env.FOREKASH_ORG_ID}&module=eq.avisos&select=data`,
+    { headers: { apikey: env.SUPABASE_SERVICE_KEY,
+                 Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY } });
+  if(!r.ok) throw new Error('não li os avisos: ' + r.status);
+  const j = await r.json();
+  const d = (j[0] || {}).data || {};
+  return Array.isArray(d.lista) ? d.lista : [];
 }
 
-async function avisoBeneficios(env, canal){
-  await postar(env, canal, env.MRK_TEXTO_BENEFICIOS || AVISO_BENEFICIOS);
+/* Agora em São Paulo, decomposto. O cron roda em UTC e a conta feita lá
+   erra o dia perto da meia-noite. */
+export function agoraSP(){
+  const f = new Intl.DateTimeFormat('en-CA', { timeZone:'America/Sao_Paulo',
+    year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit',
+    hour12:false, weekday:'short' });
+  const p = {}; for(const x of f.formatToParts(new Date())) p[x.type] = x.value;
+  const semana = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 }[p.weekday] ?? 0;
+  return { ano:+p.year, mes:+p.month, dia:+p.day, hora:+p.hour, minuto:+p.minute, semana,
+           iso: p.year + '-' + p.month + '-' + p.day };
+}
+
+/* Dispara agora? O cron roda de hora em hora, então basta bater a hora —
+   a janela do minuto fica solta de propósito: se o cron atrasar três
+   minutos, o aviso do mês não pode simplesmente não acontecer. */
+export function vaiDisparar(a, t){
+  if(!a || a.ativo === false || !String(a.texto || '').trim()) return false;
+  if(Number(String(a.hora || '17:30').slice(0,2)) !== t.hora) return false;
+  if(a.frequencia === 'unica')  return String(a.data || '') === t.iso;
+  if(a.frequencia === 'semanal') return Number(a.diaSemana ?? 1) === t.semana;
+  // mensal: dia 31 em mês de 30 cai no último dia, em vez de sumir
+  const ultimo = new Date(t.ano, t.mes, 0).getDate();
+  return Math.min(Number(a.dia || 1), ultimo) === t.dia;
 }
