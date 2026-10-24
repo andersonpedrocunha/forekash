@@ -301,7 +301,7 @@ async function comandoSlack(request, env, ctx){
             ? 'Não achei esse aviso. Tem: ' + lista.map(a => '"' + (a.titulo||'?') + '"').join(', ')
             : 'Não tem aviso cadastrado. Cria em Configurações › Avisos no Slack.';
         } else {
-          await postar(env, alvo.canal || canal, alvo.texto);
+          await postar(env, alvo.canal || canal, avisoResolve(alvo.texto, agoraSP()));
           msg = '"' + (alvo.titulo || 'aviso') + '" postado no canal.';
         }
       }catch(e){ msg = 'Não consegui postar: ' + (e && e.message || 'erro'); }
@@ -549,6 +549,38 @@ async function responder(env, m){
 /* O cron dispara todo dia; quem decide se é dia de falar é esta função.
    Fazer assim em vez de um cron por aviso mantém a regra de "quando" no
    código, onde dá pra ler, em vez de espalhada na configuração. */
+/* Gêmeo do avisoResolve() do app. Se os dois resolverem diferente, a prévia
+   mente — e a prévia é a única coisa que alguém olha antes de deixar um
+   lembrete rodando sozinho por um ano. */
+const AV_MES_CURTO = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const AV_MES_LONGO = ['janeiro','fevereiro','março','abril','maio','junho',
+                      'julho','agosto','setembro','outubro','novembro','dezembro'];
+function avisoResolve(txt, quando){
+  const d = (quando instanceof Date && !isNaN(quando)) ? quando : new Date();
+  const mes = (delta, longo) => {
+    const x = new Date(d.getFullYear(), d.getMonth() + delta, 1);
+    return longo ? AV_MES_LONGO[x.getMonth()]
+                 : AV_MES_CURTO[x.getMonth()] + '/' + String(x.getFullYear()).slice(2);
+  };
+  const dois = n => String(n).padStart(2, '0');
+  return String(txt || '').replace(/\{([^}\n]{1,40})\}/g, (todo, dentro) => {
+    const k = dentro.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    const longo = /\bextenso\b/.test(k);
+    const base = k.replace(/\bextenso\b/, '').replace(/\s+/g, ' ').trim();
+    if(base === 'mes') return mes(0, longo);
+    if(base === 'mes passado' || base === 'mes anterior') return mes(-1, longo);
+    if(base === 'mes que vem' || base === 'proximo mes') return mes(1, longo);
+    if(base === 'ano') return String(d.getFullYear());
+    if(base === 'data') return dois(d.getDate()) + '/' + dois(d.getMonth()+1) + '/' + d.getFullYear();
+    const m = base.match(/^dia\s+(\d{1,2})$/);
+    if(m){
+      const n = Math.min(31, Math.max(1, Number(m[1])));
+      return dois(n) + '/' + dois(d.getMonth() + 1);
+    }
+    return todo;
+  });
+}
+
 async function avisosDoMes(env){
   const canal = (await cfgSlack(env)).canal;
   if(!canal) throw new Error('SLACK_CANAL_EQUIPE não configurado');
@@ -557,7 +589,7 @@ async function avisosDoMes(env){
   for(const a of lista){
     if(!vaiDisparar(a, t)) continue;
     /* Um aviso que falhe não pode derrubar os outros do mesmo horário. */
-    try{ await postar(env, a.canal || canal, a.texto); }
+    try{ await postar(env, a.canal || canal, avisoResolve(a.texto, t)); }
     catch(e){ console.error('aviso "' + (a.titulo || '?') + '":', e && e.message); }
   }
 }

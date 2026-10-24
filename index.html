@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792854197"/>
+  <meta name="fk-build" content="forekash-v1792854946"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -10600,6 +10600,13 @@
     .aviso-modal label .hint{font-weight:400;color:#94A3B8}
     /* A prévia mostra o texto como o Slack vai renderizar — ninguém acerta
        o negrito de um asterisco de primeira. */
+    .av-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+    .av-chip{background:#F1F5F9;border:1px solid #E2E8F0;color:#475569;padding:3px 8px;
+        border-radius:6px;font-size:.71rem;font-family:'JetBrains Mono',monospace;
+        cursor:pointer;line-height:1.5}
+    .av-chip:hover{border-color:#10B981;color:#059669;background:#ECFDF5}
+    [data-theme="dark"] .av-chip{background:#1E293B;border-color:#334155;color:#94A3B8}
+    [data-theme="dark"] .av-chip:hover{background:#064E3B33;border-color:#10B98155;color:#6EE7B7}
     .av-previa{margin-top:8px;padding:10px 12px;border-radius:8px;background:#F8FAFC;
         border:1px solid #E2E8F0;font-size:.82rem;color:#1E293B;line-height:1.55;white-space:pre-wrap}
     .av-previa-tag{display:block;font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;
@@ -25219,39 +25226,12 @@ td.mes.do-extrato{background:#ECFDF5}
           </div>
         </div>
 
-        <!-- ── GATEWAYS DE PAGAMENTO (MP + PagSeguro) ───────────── -->
-        <div data-cfg-tab="integracoes" class="cfg-section" id="cfg-gateways-section">
-          <div class="cfg-section-hd">
-            <div class="cfg-section-ico" style="background:#10B981">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
-            </div>
-            <h3>Gateways de Pagamento</h3>
-          </div>
-          <p class="cfg-section-sub">Conecte múltiplos gateways além do Asaas. Mercado Pago e PagSeguro são os mais comuns no Brasil. Cada cobrança nasce no Forekash e é enviada pro gateway escolhido.</p>
-          <div class="cfg-section-body">
-            <div id="gateways-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px"></div>
-          </div>
-        </div>
-
-        <!-- ── IMPORT OFX/CSV BANCÁRIO ──────────────────────────── -->
-        <div data-cfg-tab="integracoes" class="cfg-section" id="cfg-ofx-section">
-          <div class="cfg-section-hd">
-            <div class="cfg-section-ico" style="background:#3B82F6">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            </div>
-            <h3>Import OFX / CSV Bancário</h3>
-          </div>
-          <p class="cfg-section-sub">Arraste o arquivo OFX (formato padrão de todos os bancos brasileiros) ou CSV. Forekash extrai os lançamentos e cria no Extrato automaticamente. Funciona com Itaú, BB, Bradesco, Santander, Caixa, Nubank, Inter...</p>
-          <div class="cfg-section-body">
-            <div id="ofx-dropzone" style="border:2px dashed #CBD5E1;border-radius:12px;padding:32px;text-align:center;color:#64748B;cursor:pointer;transition:all .15s" onclick="document.getElementById('ofx-file-input').click()">
-              <div style="font-size:36px;margin-bottom:8px" class="fkico fkico-folder"></div>
-              <div style="font-weight:600;color:#0F172A;margin-bottom:4px">Arraste o arquivo aqui ou clique pra selecionar</div>
-              <small>Aceita .ofx, .csv e .txt · até 5MB</small>
-              <input type="file" id="ofx-file-input" accept=".ofx,.csv,.txt" style="display:none" onchange="ofxImportFile(this.files[0])">
-            </div>
-            <div id="ofx-result" style="margin-top:14px"></div>
-          </div>
-        </div>
+        <!-- Gateways de pagamento e o Import OFX saíram daqui. Os gateways
+             não são usados, e importar extrato já tem lugar próprio no
+             Extrato Financeiro — ter o mesmo dropzone em duas telas só
+             fazia perguntar qual das duas é a de verdade.
+             O código do import continua no arquivo: é o mesmo que a tela
+             do Extrato chama. -->
 
         <!-- ── MR KASH com LLM real (BYOK) ──────────────────────── -->
         <div data-cfg-tab="integracoes" class="cfg-section" id="cfg-llm-section">
@@ -131754,6 +131734,71 @@ function avisoExcluir(id){
   else if(confirm('Excluir "' + (x.titulo||'aviso') + '"?')) apaga();
 }
 
+/* ── Variáveis no texto do aviso ──────────────────────────────────────
+   Um lembrete mensal quase nunca é a mesma frase: "serviços prestados em
+   jan/26, pagamento dia 05/02" vira "out/26, dia 05/11" no mês seguinte.
+   Sem isto, alguém tinha que lembrar de reescrever todo mês — e ninguém
+   lembra, então o canal recebe a data errada.
+
+   O texto guarda a marca; quem resolve é a hora do disparo. Aqui a prévia
+   usa a data do PRÓXIMO envio, então o que você lê é literalmente o que o
+   time vai ler.
+
+   Marca que ele não conhece fica como está, visível. Apagar em silêncio
+   faria um erro de digitação virar um buraco no meio da frase.          */
+const AVISO_MES_CURTO = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const AVISO_MES_LONGO = ['janeiro','fevereiro','março','abril','maio','junho',
+                         'julho','agosto','setembro','outubro','novembro','dezembro'];
+const AVISO_VARS = [
+  ['{mês passado}',  'out/26',    'o mês anterior ao disparo'],
+  ['{mês}',          'nov/26',    'o mês do disparo'],
+  ['{mês que vem}',  'dez/26',    'o mês seguinte'],
+  ['{dia 5}',        '05/11',     'esse dia, no mês do disparo'],
+  ['{data}',         '01/11/2026','o dia do disparo'],
+  ['{ano}',          '2026',      'o ano']
+];
+
+function avisoResolve(txt, quando){
+  const d = (quando instanceof Date && !isNaN(quando)) ? quando : new Date();
+  const mes = (delta, longo) => {
+    const x = new Date(d.getFullYear(), d.getMonth() + delta, 1);
+    return longo ? AVISO_MES_LONGO[x.getMonth()]
+                 : AVISO_MES_CURTO[x.getMonth()] + '/' + String(x.getFullYear()).slice(2);
+  };
+  const dois = n => String(n).padStart(2, '0');
+  return String(txt || '').replace(/\{([^}\n]{1,40})\}/g, (todo, dentro) => {
+    const k = dentro.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+    const longo = /\bextenso\b/.test(k);
+    const base = k.replace(/\bextenso\b/, '').replace(/\s+/g, ' ').trim();
+    if(base === 'mes') return mes(0, longo);
+    if(base === 'mes passado' || base === 'mes anterior') return mes(-1, longo);
+    if(base === 'mes que vem' || base === 'proximo mes') return mes(1, longo);
+    if(base === 'ano') return String(d.getFullYear());
+    if(base === 'data') return dois(d.getDate()) + '/' + dois(d.getMonth()+1) + '/' + d.getFullYear();
+    const m = base.match(/^dia\s+(\d{1,2})$/);
+    if(m){
+      const n = Math.min(31, Math.max(1, Number(m[1])));
+      return dois(n) + '/' + dois(d.getMonth() + 1);
+    }
+    return todo;
+  });
+}
+
+/* Insere a marca onde o cursor está. Clicar num chip e ter que procurar
+   onde o texto caiu seria pior que digitar à mão. */
+function avisoPoeVar(marca){
+  const ta = document.getElementById('av-texto');
+  if(!ta) return;
+  const i = ta.selectionStart ?? ta.value.length, f = ta.selectionEnd ?? i;
+  ta.value = ta.value.slice(0, i) + marca + ta.value.slice(f);
+  const fim = i + marca.length;
+  ta.focus();
+  try{ ta.setSelectionRange(fim, fim); }catch(_){}
+  _avPrevia();
+}
+try{ window.avisoResolve = avisoResolve; window.avisoPoeVar = avisoPoeVar;
+     window.AVISO_VARS = AVISO_VARS; }catch(_){}
+
 function _avisoModal(x){
   const novo = !x;
   x = x || { id:0, titulo:'', texto:'', frequencia:'mensal', dia:1, diaSemana:1, data:'', hora:'17:30', ativo:true };
@@ -131770,6 +131815,11 @@ function _avisoModal(x){
         '<input id="av-titulo" type="text" value="' + _avEsc(x.titulo) + '" placeholder="Lembrete da nota fiscal">' +
         '<label style="margin-top:12px">Mensagem <span class="hint">— *negrito* com um asterisco, como no Slack</span></label>' +
         '<textarea id="av-texto" rows="5" oninput="_avPrevia()" placeholder="Virou o mês. Quem presta serviço como *PJ*: a nota vai pro financeiro.">' + _avEsc(x.texto) + '</textarea>' +
+        '<div class="av-chips">' +
+          AVISO_VARS.map(v => '<button type="button" class="av-chip" title="' + _avEsc(v[2]) +
+            ' — vira ' + _avEsc(v[1]) + '" onclick="avisoPoeVar(\'' + v[0] + '\')">' +
+            _avEsc(v[0]) + '</button>').join('') +
+        '</div>' +
         '<div class="av-previa" id="av-previa"></div>' +
         '<div class="av-grade">' +
           '<div><label>Frequência</label>' +
@@ -131862,18 +131912,23 @@ function _avFreqMuda(){
    disparo, calculada pela MESMA função que o Worker usa. */
 function _avPrevia(){
   const v = id => (document.getElementById(id)||{}).value;
+  const a = { ativo:true, frequencia: v('av-freq'), dia: v('av-dia'),
+              diaSemana: v('av-sem'), data: v('av-data'), hora: v('av-hora') };
+  const p = avisoProximo(a);
   const prev = document.getElementById('av-previa');
   if(prev){
     const t = String(v('av-texto') || '');
+    /* Resolve com a data do PRÓXIMO disparo, não com hoje: é a única forma
+       de a prévia ser a mensagem de verdade e não um ensaio. */
     prev.innerHTML = t.trim()
-      ? '<span class="av-previa-tag">no Slack vai sair assim</span>' + _avSlackHtml(t)
+      ? '<span class="av-previa-tag">' +
+          (p ? 'no dia ' + _avDataBR(p.toISOString().slice(0,10)) + ' vai sair assim'
+             : 'no Slack vai sair assim') + '</span>' +
+        _avSlackHtml(avisoResolve(t, p))
       : '<span class="av-previa-tag">escreva a mensagem acima</span>';
   }
   const q = document.getElementById('av-quando');
   if(q){
-    const a = { ativo:true, frequencia: v('av-freq'), dia: v('av-dia'),
-                diaSemana: v('av-sem'), data: v('av-data'), hora: v('av-hora') };
-    const p = avisoProximo(a);
     q.textContent = p ? _avProxTexto(a) : 'sem data válida — não vai disparar';
     q.className = 'av-quando' + (p ? '' : ' ruim');
   }
@@ -131933,7 +131988,10 @@ async function avisoTestar(id){
     const r = await fetch('/api/mrkash/aviso-agora', {
       method:'POST',
       headers:{ 'content-type':'application/json', Authorization:'Bearer ' + jwt },
-      body: JSON.stringify({ texto: x.texto, canal: x.canal || '' })
+      /* Resolve aqui também: "Testar" tem que mandar pro canal exatamente o
+         que o disparo mandaria, senão testa outra mensagem. Com a data de
+         HOJE, que é quando este teste está acontecendo. */
+      body: JSON.stringify({ texto: avisoResolve(x.texto, new Date()), canal: x.canal || '' })
     });
     const j = await r.json().catch(() => ({}));
     if(typeof toast === 'function')
