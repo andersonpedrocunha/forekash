@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792854946"/>
+  <meta name="fk-build" content="forekash-v1792855755"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -131753,13 +131753,17 @@ const AVISO_VARS = [
   ['{mês passado}',  'out/26',    'o mês anterior ao disparo'],
   ['{mês}',          'nov/26',    'o mês do disparo'],
   ['{mês que vem}',  'dez/26',    'o mês seguinte'],
+  ['{pagamento}',    '05/11',     'o dia do pagamento, no mês do disparo'],
+  ['{pagamento que vem}', '05/11', 'o dia do pagamento, no mês seguinte'],
   ['{dia 5}',        '05/11',     'esse dia, no mês do disparo'],
+  ['{dia 5 que vem}','05/11',     'esse dia, no mês seguinte'],
   ['{data}',         '01/11/2026','o dia do disparo'],
   ['{ano}',          '2026',      'o ano']
 ];
 
-function avisoResolve(txt, quando){
+function avisoResolve(txt, quando, aviso){
   const d = (quando instanceof Date && !isNaN(quando)) ? quando : new Date();
+  const diaPag = Number((aviso || {}).diaPagamento) || 0;
   const mes = (delta, longo) => {
     const x = new Date(d.getFullYear(), d.getMonth() + delta, 1);
     return longo ? AVISO_MES_LONGO[x.getMonth()]
@@ -131775,13 +131779,57 @@ function avisoResolve(txt, quando){
     if(base === 'mes que vem' || base === 'proximo mes') return mes(1, longo);
     if(base === 'ano') return String(d.getFullYear());
     if(base === 'data') return dois(d.getDate()) + '/' + dois(d.getMonth()+1) + '/' + d.getFullYear();
-    const m = base.match(/^dia\s+(\d{1,2})$/);
-    if(m){
-      const n = Math.min(31, Math.max(1, Number(m[1])));
-      return dois(n) + '/' + dois(d.getMonth() + 1);
-    }
+
+    /* Um aviso que dispara dia 28 fala do pagamento do mês SEGUINTE. Sem
+       isto, "dia {pagamento}" num aviso de 28/10 saía 05/10 — uma data que
+       já passou, anunciada pro canal inteiro como se fosse o combinado.
+       O sufixo diz de que mês é o dia; sem sufixo, é o mês do disparo. */
+    const q = _avQualifica(base);
+    if(q.base === 'pagamento' || q.base === 'dia do pagamento')
+      return diaPag ? _avDiaEm(d, diaPag, q.delta) : todo;
+    const m = q.base.match(/^dia\s+(\d{1,2})$/);
+    if(m) return _avDiaEm(d, Math.min(31, Math.max(1, Number(m[1]))), q.delta);
     return todo;
   });
+}
+/* Separa "pagamento que vem" em base + deslocamento de mês. */
+function _avQualifica(base){
+  let delta = 0, b = base;
+  const tira = (rx, d) => { if(rx.test(b)){ b = b.replace(rx, '').trim(); delta = d; } };
+  tira(/\s*(do\s+)?(mes\s+)?que\s+vem$/, 1);
+  tira(/\s*(do\s+)?proximo\s+mes$/, 1);
+  tira(/\s*(do\s+)?(mes\s+)?passado$/, -1);
+  tira(/\s*(do\s+)?mes\s+anterior$/, -1);
+  return { base: b.replace(/\s+/g, ' ').trim(), delta };
+}
+/* Dia N no mês do disparo deslocado de `delta`. Via Date pra virada de ano
+   não produzir mês 13. */
+function _avDiaEm(d, n, delta){
+  const x = new Date(d.getFullYear(), d.getMonth() + (delta || 0), 1);
+  return String(n).padStart(2,'0') + '/' + String(x.getMonth() + 1).padStart(2,'0');
+}
+
+/* Ele não quis regra automática de dia útil, e com razão: a decisão é dele.
+   Mas anunciar pro canal inteiro um pagamento num sábado sem ninguém notar
+   é outra coisa — então a tela avisa e deixa ele decidir. */
+const AVISO_SEMANA = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
+function avisoFimDeSemana(diaPag, quando, delta){
+  const n = Number(diaPag) || 0;
+  if(!n || !(quando instanceof Date) || isNaN(quando)) return '';
+  const base = new Date(quando.getFullYear(), quando.getMonth() + (delta || 0), 1);
+  const x = new Date(base.getFullYear(), base.getMonth(), n);
+  if(x.getMonth() !== base.getMonth()) return 'esse mês não tem dia ' + n;
+  const w = x.getDay();
+  if(w !== 0 && w !== 6) return '';
+  return String(n).padStart(2,'0') + '/' + String(base.getMonth()+1).padStart(2,'0') +
+         ' cai num ' + AVISO_SEMANA[w];
+}
+/* De que mês o texto está falando quando usa {pagamento}. */
+function _avPagtoDelta(txt){
+  const m = /\{\s*(?:dia do )?pagamento([^}]*)\}/i.exec(String(txt || ''));
+  if(!m) return null;
+  const r = String(m[1] || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  return /que\s+vem|proximo/.test(r) ? 1 : /passado|anterior/.test(r) ? -1 : 0;
 }
 
 /* Insere a marca onde o cursor está. Clicar num chip e ter que procurar
@@ -131838,10 +131886,14 @@ function _avisoModal(x){
             '<input id="av-data" type="date" value="' + _avEsc(x.data) + '" oninput="_avPrevia()"></div>' +
           '<div><label>Hora</label>' +
             '<input id="av-hora" type="time" value="' + _avEsc(x.hora||'17:30') + '" oninput="_avPrevia()"></div>' +
+          '<div><label>Dia do pagamento <span class="hint">— pro {pagamento}</span></label>' +
+            '<input id="av-pagto" type="number" min="1" max="31" placeholder="—" value="' +
+              (x.diaPagamento || '') + '" oninput="_avPrevia()"></div>' +
         '</div>' +
         '<div style="margin-top:12px"><label>Canal <span class="hint">— onde este aviso cai</span></label>' +
           '<select id="av-canal"><option value="">— o padrão —</option></select>' +
           '<div id="av-canal-nota" class="av-nota"></div></div>' +
+        '<div id="av-pagto-nota" class="av-nota"></div>' +
         '<div class="av-quando" id="av-quando"></div>' +
       '</div>' +
       '<div class="aviso-ft">' +
@@ -131913,7 +131965,8 @@ function _avFreqMuda(){
 function _avPrevia(){
   const v = id => (document.getElementById(id)||{}).value;
   const a = { ativo:true, frequencia: v('av-freq'), dia: v('av-dia'),
-              diaSemana: v('av-sem'), data: v('av-data'), hora: v('av-hora') };
+              diaSemana: v('av-sem'), data: v('av-data'), hora: v('av-hora'),
+              diaPagamento: Number(v('av-pagto')) || 0 };
   const p = avisoProximo(a);
   const prev = document.getElementById('av-previa');
   if(prev){
@@ -131924,8 +131977,21 @@ function _avPrevia(){
       ? '<span class="av-previa-tag">' +
           (p ? 'no dia ' + _avDataBR(p.toISOString().slice(0,10)) + ' vai sair assim'
              : 'no Slack vai sair assim') + '</span>' +
-        _avSlackHtml(avisoResolve(t, p))
+        _avSlackHtml(avisoResolve(t, p, a))
       : '<span class="av-previa-tag">escreva a mensagem acima</span>';
+  }
+  const alerta = document.getElementById('av-pagto-nota');
+  if(alerta){
+    const delta = _avPagtoDelta(v('av-texto'));
+    const usa = delta !== null;
+    const fds = avisoFimDeSemana(a.diaPagamento, p, delta || 0);
+    if(usa && !a.diaPagamento){
+      alerta.className = 'av-nota ruim';
+      alerta.textContent = 'O texto usa {pagamento} mas o dia está em branco — vai sair a marca crua.';
+    } else if(fds){
+      alerta.className = 'av-nota ruim';
+      alerta.textContent = 'No próximo disparo, ' + fds + '. Você decide — só não passe batido.';
+    } else { alerta.textContent = ''; alerta.className = 'av-nota'; }
   }
   const q = document.getElementById('av-quando');
   if(q){
@@ -131956,6 +132022,7 @@ function avisoSalvar(id){
     diaSemana: Number(v('av-sem')) || 0,
     data: v('av-data') || '',
     hora: v('av-hora') || '17:30',
+    diaPagamento: Number(v('av-pagto')) || 0,
     canal: v('av-canal') || '',
     ativo: true
   };
@@ -131991,7 +132058,7 @@ async function avisoTestar(id){
       /* Resolve aqui também: "Testar" tem que mandar pro canal exatamente o
          que o disparo mandaria, senão testa outra mensagem. Com a data de
          HOJE, que é quando este teste está acontecendo. */
-      body: JSON.stringify({ texto: avisoResolve(x.texto, new Date()), canal: x.canal || '' })
+      body: JSON.stringify({ texto: avisoResolve(x.texto, new Date(), x), canal: x.canal || '' })
     });
     const j = await r.json().catch(() => ({}));
     if(typeof toast === 'function')

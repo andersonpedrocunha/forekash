@@ -301,7 +301,7 @@ async function comandoSlack(request, env, ctx){
             ? 'Não achei esse aviso. Tem: ' + lista.map(a => '"' + (a.titulo||'?') + '"').join(', ')
             : 'Não tem aviso cadastrado. Cria em Configurações › Avisos no Slack.';
         } else {
-          await postar(env, alvo.canal || canal, avisoResolve(alvo.texto, agoraSP()));
+          await postar(env, alvo.canal || canal, avisoResolve(alvo.texto, agoraSP(), alvo));
           msg = '"' + (alvo.titulo || 'aviso') + '" postado no canal.';
         }
       }catch(e){ msg = 'Não consegui postar: ' + (e && e.message || 'erro'); }
@@ -555,8 +555,9 @@ async function responder(env, m){
 const AV_MES_CURTO = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const AV_MES_LONGO = ['janeiro','fevereiro','março','abril','maio','junho',
                       'julho','agosto','setembro','outubro','novembro','dezembro'];
-function avisoResolve(txt, quando){
+function avisoResolve(txt, quando, aviso){
   const d = (quando instanceof Date && !isNaN(quando)) ? quando : new Date();
+  const diaPag = Number((aviso || {}).diaPagamento) || 0;
   const mes = (delta, longo) => {
     const x = new Date(d.getFullYear(), d.getMonth() + delta, 1);
     return longo ? AV_MES_LONGO[x.getMonth()]
@@ -572,13 +573,28 @@ function avisoResolve(txt, quando){
     if(base === 'mes que vem' || base === 'proximo mes') return mes(1, longo);
     if(base === 'ano') return String(d.getFullYear());
     if(base === 'data') return dois(d.getDate()) + '/' + dois(d.getMonth()+1) + '/' + d.getFullYear();
-    const m = base.match(/^dia\s+(\d{1,2})$/);
-    if(m){
-      const n = Math.min(31, Math.max(1, Number(m[1])));
-      return dois(n) + '/' + dois(d.getMonth() + 1);
-    }
+    /* Aviso que dispara dia 28 fala do pagamento do mês SEGUINTE. Sem o
+       sufixo, saía a data do próprio mês — já vencida. */
+    const q = _avQualifica(base);
+    if(q.base === 'pagamento' || q.base === 'dia do pagamento')
+      return diaPag ? _avDiaEm(d, diaPag, q.delta) : todo;
+    const m = q.base.match(/^dia\s+(\d{1,2})$/);
+    if(m) return _avDiaEm(d, Math.min(31, Math.max(1, Number(m[1]))), q.delta);
     return todo;
   });
+}
+function _avQualifica(base){
+  let delta = 0, b = base;
+  const tira = (rx, dd) => { if(rx.test(b)){ b = b.replace(rx, '').trim(); delta = dd; } };
+  tira(/\s*(do\s+)?(mes\s+)?que\s+vem$/, 1);
+  tira(/\s*(do\s+)?proximo\s+mes$/, 1);
+  tira(/\s*(do\s+)?(mes\s+)?passado$/, -1);
+  tira(/\s*(do\s+)?mes\s+anterior$/, -1);
+  return { base: b.replace(/\s+/g, ' ').trim(), delta };
+}
+function _avDiaEm(d, n, delta){
+  const x = new Date(d.getFullYear(), d.getMonth() + (delta || 0), 1);
+  return String(n).padStart(2,'0') + '/' + String(x.getMonth() + 1).padStart(2,'0');
 }
 
 async function avisosDoMes(env){
@@ -589,7 +605,7 @@ async function avisosDoMes(env){
   for(const a of lista){
     if(!vaiDisparar(a, t)) continue;
     /* Um aviso que falhe não pode derrubar os outros do mesmo horário. */
-    try{ await postar(env, a.canal || canal, avisoResolve(a.texto, t)); }
+    try{ await postar(env, a.canal || canal, avisoResolve(a.texto, t, a)); }
     catch(e){ console.error('aviso "' + (a.titulo || '?') + '":', e && e.message); }
   }
 }
