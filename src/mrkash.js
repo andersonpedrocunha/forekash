@@ -131,6 +131,63 @@ export const GRAFICAR =
   'Se o pedido não casar com nenhum desses cinco, responda normalmente em texto ' +
   'e não escreva a linha.';
 
+/* Como ele aprende. Gêmeo do MRK_APRENDER do app — se as duas regras
+   divergirem, o MR KASH do Slack e o do chat viram duas pessoas.
+   Diferença de lá pra cá: no Slack, só quem pode escrever no Forekash pode
+   ensinar. Memória muda TODA resposta seguinte, inclusive as que o time
+   inteiro lê — não é coisa que qualquer um grava. */
+export const APRENDER =
+  '\n\n# VOCÊ APRENDE\n' +
+  'O quadro de números é refeito a cada pergunta e só sabe o que está lançado. ' +
+  'Tudo que a empresa é e os números não contam, você só fica sabendo porque ele conta. ' +
+  'Quando isso acontecer, guarde.\n' +
+  'Guarde quando ele: te corrigir sobre um nome, um cliente, uma conta ou uma categoria; ' +
+  'explicar por que um número é daquele jeito; te contar uma regra da casa, um combinado ou ' +
+  'um prazo; ou pedir em qualquer palavra pra você lembrar de alguma coisa.\n' +
+  'NÃO guarde: o que já está nos números, pergunta dele, o que você mesmo deduziu, nem valor ' +
+  'em reais de um mês específico — isso envelhece em trinta dias e vira mentira.\n' +
+  'Pra guardar, responda normal e DEPOIS, no fim, numa linha só:\n' +
+  'MEMORIA: {"fato":"...","tag":"...","corrige":false}\n' +
+  '- fato: uma frase fechada, que se entenda sozinha daqui a seis meses, sem "ele disse que".\n' +
+  '- tag: o nome do que o fato trata, em uma ou duas palavras — "UNILOS", "folha", "Vivo".\n' +
+  '- corrige: true só quando isto DERRUBA o que você sabia com essa mesma tag. Em dúvida, false.\n' +
+  'A marca não aparece pra ninguém. Nunca escreva "vou anotar" ou "registrei isso" no meio da ' +
+  'resposta: você já anotou, e anunciar que anotou é coisa de assistente genérico.';
+
+/* Tira as marcas MEMORIA de dentro da resposta. Roda SEMPRE, mesmo pra quem
+   não pode ensinar — o que não é gravado tem que sumir do texto do mesmo
+   jeito, senão o canal inteiro vê JSON cru. */
+export function separarMemoria(txt){
+  const s = String(txt || '');
+  const rx = /^[ \t]*MEMORIA[ \t]*:/gmi;
+  const fatos = [], cortes = [];
+  let m;
+  while((m = rx.exec(s))){
+    const i = s.indexOf('{', m.index);
+    if(i < 0) continue;
+    let nivel = 0, str = false, esc = false, fim = -1;
+    for(let j = i; j < s.length; j++){
+      const c = s[j];
+      if(esc){ esc = false; continue; }
+      if(c === '\\'){ esc = true; continue; }
+      if(c === '"'){ str = !str; continue; }
+      if(str) continue;
+      if(c === '{') nivel++;
+      else if(c === '}' && !--nivel){ fim = j + 1; break; }
+    }
+    if(fim < 0) continue;
+    try{ const o = JSON.parse(s.slice(i, fim)); if(o && o.fato) fatos.push(o); }catch(_){}
+    cortes.push([m.index, fim]);
+    rx.lastIndex = fim;
+  }
+  let prosa = s;
+  for(let k = cortes.length - 1; k >= 0; k--) prosa = prosa.slice(0, cortes[k][0]) + prosa.slice(cortes[k][1]);
+  prosa = prosa.replace(/```[a-z]*/gi, '')
+               .replace(/^[ \t]*MEMORIA[ \t]*:?[ \t]*$/gmi, '')
+               .replace(/\n{3,}/g, '\n\n').trim();
+  return { prosa, fatos };
+}
+
 export async function perguntar(env, pergunta, quadro, historico, extra){
   const msgs = (historico || []).slice(-8);
   msgs.push({ role: 'user', content: pergunta });

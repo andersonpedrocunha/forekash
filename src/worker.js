@@ -10,9 +10,30 @@
    comportamento por existir um Worker na frente.                          */
 
 import { carregar, briefing, vocabulario, criarLancamento,
-         grafico, GRAFICOS } from './forekash.js';
-import { perguntar, postar, assinaturaValida, podeLancar,
-         LANCAR, GRAFICAR, separarLancamento, cartaoLancamento } from './mrkash.js';
+         salvarMemoria, grafico, GRAFICOS } from './forekash.js';
+import { perguntar, postar, assinaturaValida, podeLancar, APRENDER,
+         LANCAR, GRAFICAR, separarLancamento, separarMemoria,
+         cartaoLancamento } from './mrkash.js';
+
+/* Toda resposta do modelo passa por aqui antes de virar mensagem.
+   A marca sai do texto SEMPRE; gravar é que depende de quem falou — memória
+   muda toda resposta seguinte, inclusive as que o time inteiro lê, então
+   ensinar é escrita e segue a mesma trava do lançamento. */
+async function colher(env, resp, quem, ctx){
+  const { prosa, fatos } = separarMemoria(resp);
+  if(fatos.length && podeLancar(env, quem)){
+    const grava = (async () => {
+      for(const f of fatos){
+        try{ await salvarMemoria(env, f.fato, f.tag, !!f.corrige, quem); }
+        catch(e){ console.warn('memória:', e && e.message); }
+      }
+    })();
+    /* Gravar não pode atrasar a resposta: ele lê a mensagem agora e a
+       memória entra em vigor da próxima pergunta. */
+    if(ctx && ctx.waitUntil) ctx.waitUntil(grava); else await grava;
+  }
+  return prosa || resp;
+}
 
 const ok = (t) => new Response(t || '', { status: 200 });
 
@@ -196,7 +217,11 @@ async function comandoSlack(request, env, ctx){
     let txt, deuCerto = true;
     try{
       const d = await carregar(env);
-      txt = await perguntar(env, texto, briefing(d, escopoSlack(env)));
+      /* APRENDER vai junto aqui também: corrigir ele por comando tem que
+         valer tanto quanto corrigir por menção. */
+      txt = await colher(env,
+        await perguntar(env, texto, briefing(d, escopoSlack(env)), null, APRENDER),
+        user, ctx);
     }catch(e){ txt = 'Deu ruim aqui: ' + (e && e.message || 'erro'); deuCerto = false; }
     /* Resposta vai pro canal: a regra de não atender no privado vale aqui
        também. Efêmera fica num canal mas só quem perguntou lê e não sobra
@@ -315,8 +340,9 @@ async function responder(env, m){
   const texto = String(m.text || '').replace(/<@[^>]+>/g, '').trim();
   if(!texto) return;
   const d = await carregar(env);
-  const resp = await perguntar(env, texto, briefing(d, escopoSlack(env)), null,
-                               LANCAR + GRAFICAR + '\n\n' + vocabulario(d));
+  const bruto = await perguntar(env, texto, briefing(d, escopoSlack(env)), null,
+                                LANCAR + GRAFICAR + APRENDER + '\n\n' + vocabulario(d));
+  const resp = await colher(env, bruto, m.user);
   const thread = { thread_ts: m.thread_ts || m.ts };
 
   /* Gráfico pedido por menção sai no canal, não efêmero — é mensagem de

@@ -61,6 +61,9 @@ export async function carregar(env){
     pessoas:  mods.pessoas  || null,
     dispo:    (mods.dispo && mods.dispo.state) || mods.dispo || null,
     catmap:   mods.catmap_local || null,
+    /* O que o MR KASH aprendeu. Mesma lista que o chat do app edita — ele é
+       um só, então o que foi corrigido lá vale aqui. */
+    memoria:  mods.mrk_memoria || null,
     hoje:     new Date()
   };
 }
@@ -250,7 +253,58 @@ export function briefing(d, op){
            'total do mês inclui o que foi removido, então a conta não fecharia e o número ' +
            'que você inventasse estaria errado.');
 
+  // Por último: o que ele aprendeu corrige a leitura de tudo acima.
+  const mem = memoriaTexto(d);
+  if(mem) L.push(mem);
+
   return L.join('\n');
+}
+
+/* Gêmeo do memTexto() do app. Se os dois textos divergirem, o MR KASH do
+   Slack e o do chat passam a saber coisas diferentes. */
+export function memoriaTexto(d){
+  const lista = (d.memoria && d.memoria.lista) || [];
+  if(!lista.length) return '';
+  return '\n## O QUE VOCÊ JÁ APRENDEU COM ELE\n' +
+    'Isto não saiu dos números: foi ele que te contou ou te corrigiu. Vale mais que a ' +
+    'sua leitura dos dados, porque os dados não sabem disso. Use quando couber, sem ' +
+    'anunciar que está usando e sem repetir de volta pra ele o que ele mesmo te ensinou.\n' +
+    lista.map(m => '- ' + (m.tag ? m.tag + ': ' : '') + m.fato).join('\n');
+}
+
+/* Grava um fato novo no mesmo blob que o app lê. Lê-altera-grava: o blob é
+   o documento inteiro, então não dá pra acrescentar uma linha sem reescrever
+   o resto. Duas gravações no mesmo segundo perderiam uma — risco pequeno e
+   aceito aqui, porque quem ensina é uma pessoa de cada vez. */
+export async function salvarMemoria(env, fato, tag, corrige, quem){
+  const txt = String(fato || '').trim().replace(/\s+/g, ' ').slice(0, 300);
+  if(txt.length < 8) return null;
+  const org = env.FOREKASH_ORG_ID;
+  const base = {
+    apikey: env.SUPABASE_SERVICE_KEY,
+    Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY,
+    'content-type': 'application/json'
+  };
+  const atual = await sb(env, `module_blobs?org_id=eq.${org}&module=eq.mrk_memoria&select=data`);
+  const mem = (atual[0] && atual[0].data) || { nextId: 1, lista: [] };
+  if(!Array.isArray(mem.lista)) mem.lista = [];
+  const norm = v => String(v || '').toLowerCase().normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if(mem.lista.some(m => norm(m.fato) === norm(txt))) return null;   // já sabe
+  const et = String(tag || '').trim().slice(0, 40);
+  if(corrige && et) mem.lista = mem.lista.filter(m => norm(m.tag) !== norm(et));
+  const novo = { id: (mem.nextId = (mem.nextId || 1) + 1) - 1, fato: txt, tag: et,
+                 origem: 'slack', quem: quem || '', criado: new Date().toISOString() };
+  mem.lista.push(novo);
+  while(mem.lista.length > 60) mem.lista.shift();
+  const r = await fetch(env.SUPABASE_URL +
+    '/rest/v1/module_blobs?on_conflict=org_id,module', {
+      method: 'POST',
+      headers: Object.assign({ Prefer: 'resolution=merge-duplicates' }, base),
+      body: JSON.stringify({ org_id: org, module: 'mrk_memoria', data: mem })
+    });
+  if(!r.ok) throw new Error('Supabase recusou a memória: ' + (await r.text()).slice(0, 200));
+  return novo;
 }
 
 export function cobranca(d, ano){

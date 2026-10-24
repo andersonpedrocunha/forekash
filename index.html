@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792820809"/>
+  <meta name="fk-build" content="forekash-v1792821364"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -10640,6 +10640,29 @@
     [data-theme="dark"] .av-previa code{background:#1E293B}
     [data-theme="dark"] .av-quando{background:#064E3B33;border-color:#10B98155;color:#6EE7B7}
     [data-theme="dark"] .av-quando.ruim{background:#7F1D1D33;border-color:#EF444455;color:#FCA5A5}
+
+    /* ── O que o MR KASH aprendeu ─────────────────────────────────────── */
+    .mem-item{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;
+        padding:10px 0;border-bottom:1px solid #F1F5F9}
+    .mem-item:last-child{border-bottom:none}
+    .mem-corpo{min-width:0}
+    .mem-tag{display:inline-block;margin-right:7px;padding:1px 7px;border-radius:5px;
+        background:#F1F5F9;color:#475569;font-size:.68rem;font-weight:700;
+        font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.04em}
+    .mem-fato{font-size:.84rem;color:#1E293B;line-height:1.5}
+    .mem-pe{display:flex;align-items:center;gap:10px;flex-shrink:0}
+    .mem-quando{font-size:.7rem;color:#CBD5E1;white-space:nowrap}
+    .mem-x{background:transparent;border:none;color:#CBD5E1;font-size:.72rem;cursor:pointer;
+        font-family:inherit;padding:2px 4px;border-radius:5px}
+    .mem-x:hover{color:#DC2626;background:#FEF2F2}
+    /* Na bolha do chat: anotação de margem, não troféu. */
+    .mrk-mem-nota{margin-top:10px;padding-top:8px;border-top:1px dashed #334155;
+        font-size:.72rem;color:#64748B;font-family:'JetBrains Mono',monospace;line-height:1.6}
+    [data-theme="dark"] .mem-item{border-bottom-color:#1E293B}
+    [data-theme="dark"] .mem-tag{background:#1E293B;color:#94A3B8}
+    [data-theme="dark"] .mem-fato{color:#E2E8F0}
+    [data-theme="dark"] .mem-quando,[data-theme="dark"] .mem-x{color:#475569}
+    [data-theme="dark"] .mem-x:hover{color:#FCA5A5;background:#7F1D1D33}
 
     /* ── MR KASH · CHAT WIDGET ── */
     .mrk-chat-btn{position:fixed;bottom:22px;right:22px;width:56px;height:56px;border-radius:50%;
@@ -25217,6 +25240,22 @@ td.mes.do-extrato{background:#ECFDF5}
           <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center">
             <button class="btn btn-p" onclick="avisoNovo()" style="padding:8px 14px;font-size:.84rem">+ Novo aviso</button>
             <span id="avisos-resumo" style="font-size:.76rem;color:#94A3B8"></span>
+          </div>
+        </div>
+
+        <!-- ── MEMÓRIA DO MR KASH ───────────────────────────────── -->
+        <div data-cfg-tab="integracoes" class="cfg-section" id="cfg-memoria-section">
+          <div class="cfg-section-hd">
+            <div class="cfg-section-ico" style="background:#0F172A">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 00-4 4v1a3 3 0 000 6v1a4 4 0 008 0v-1a3 3 0 000-6V6a4 4 0 00-4-4z"/><path d="M8 7h8"/><path d="M8 17h8"/></svg>
+            </div>
+            <h3>O que o MR KASH aprendeu</h3>
+          </div>
+          <p class="cfg-section-sub">Os números ele recalcula sozinho. Isto aqui é o que os números não dizem e você teve que contar — quando você corrige ele no chat ou no Slack, fica gravado e entra em toda resposta seguinte. <b>Memória errada estraga tudo que vem depois</b>, então confira e apague o que estiver torto.</p>
+          <div id="mem-lista"></div>
+          <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-p" onclick="memNovo()" style="padding:8px 14px;font-size:.84rem">+ Ensinar uma coisa</button>
+            <span id="mem-contador" style="font-size:.76rem;color:#94A3B8"></span>
           </div>
         </div>
 
@@ -49696,7 +49735,11 @@ async function mrcashSend(){
       const resp = await llmAsk(q, ctx, _mrkDiagTexto());
       if(resp){
         mrcashRemoveTyping();
-        mrcashAppend('bot', (typeof _mrkMdParaHtml === 'function') ? _mrkMdParaHtml(resp) : esc(resp));
+        /* Mesma colheita da outra caixa: é o mesmo cérebro, aprende igual. */
+        const col = (typeof _memColher === 'function') ? _memColher(resp) : { texto: resp, fatos: [] };
+        mrcashAppend('bot',
+          ((typeof _mrkMdParaHtml === 'function') ? _mrkMdParaHtml(col.texto) : esc(col.texto)) +
+          ((typeof memAplicar === 'function') ? memAplicar(col.fatos) : ''));
         if(btn){ btn.disabled = false; }
         input.focus();
         return;
@@ -131520,6 +131563,203 @@ try{
   window._avFreqMuda = _avFreqMuda; window._avPrevia = _avPrevia;
 }catch(_){}
 
+/* ══════════════════════════════════════════════════════════════════════
+   MEMÓRIA DO MR KASH
+
+   O panorama é refeito a cada pergunta e só sabe o que está nos números.
+   Isto aqui é o contrário: o que os números nunca vão dizer e ele só fica
+   sabendo porque alguém contou — que a UNILOS é cooperativa de crédito e
+   não cliente, que o aporte da LB cai como transferência, que a fatura da
+   Vivo vem dobrada em janeiro.
+
+   Sem isso ele reaprende tudo em toda conversa. Com isso, cada correção
+   fica valendo pra sempre — inclusive no Slack, que lê a mesma lista.
+
+   Mora na nuvem como qualquer módulo. E é editável na tela de propósito:
+   memória errada envenena TODA resposta seguinte, então ele precisa poder
+   ver o que o MR KASH acha que sabe e apagar o que estiver torto.
+   ══════════════════════════════════════════════════════════════════════ */
+const MRK_MEM_KEY = 'forekash:mrk-memoria:v1';
+/* Teto porque a memória entra em todo briefing e briefing é token pago.
+   Passando disso, a mais antiga sai — o que ele corrigiu hoje vale mais
+   que o que ele corrigiu em março. */
+const MRK_MEM_MAX = 60;
+let MRK_MEM = { nextId: 1, lista: [] };
+
+function memLoad(){
+  try{
+    const raw = localStorage.getItem(MRK_MEM_KEY);
+    if(raw){
+      const j = JSON.parse(raw);
+      if(j && Array.isArray(j.lista)) MRK_MEM = { nextId: j.nextId || 1, lista: j.lista };
+    }
+  }catch(_){}
+  return MRK_MEM;
+}
+function memSave(){
+  try{ localStorage.setItem(MRK_MEM_KEY, JSON.stringify(MRK_MEM)); }catch(_){}
+  try{ memRender(); }catch(_){}
+}
+
+/* Normaliza pra comparar: sem acento, sem pontuação, sem caixa. Dois jeitos
+   de escrever o mesmo fato não podem virar duas memórias. */
+function _memNorm(s){
+  return String(s || '').toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/* `corrige` é o que diferencia aprender de desaprender. Quando o modelo
+   marca correção, as memórias antigas com a MESMA etiqueta somem — senão a
+   versão velha e a nova iam pro briefing juntas e ele teria que escolher
+   entre duas verdades sobre o mesmo nome. */
+function memAdd(fato, tag, origem, corrige){
+  const txt = String(fato || '').trim().replace(/\s+/g, ' ').slice(0, 300);
+  if(txt.length < 8) return null;
+  memLoad();
+  const et = String(tag || '').trim().slice(0, 40);
+  const alvo = _memNorm(txt);
+  if(MRK_MEM.lista.some(m => _memNorm(m.fato) === alvo)) return null;   // já sabe
+  if(corrige && et){
+    const n = _memNorm(et);
+    MRK_MEM.lista = MRK_MEM.lista.filter(m => _memNorm(m.tag) !== n);
+  }
+  const novo = { id: MRK_MEM.nextId++, fato: txt, tag: et,
+                 origem: origem || 'chat', criado: new Date().toISOString() };
+  MRK_MEM.lista.push(novo);
+  while(MRK_MEM.lista.length > MRK_MEM_MAX) MRK_MEM.lista.shift();
+  memSave();
+  return novo;
+}
+function memRemover(id){
+  memLoad();
+  const i = MRK_MEM.lista.findIndex(m => m.id === id);
+  if(i < 0) return;
+  MRK_MEM.lista.splice(i, 1);
+  memSave();
+  if(typeof toast === 'function') toast('Esquecido');
+}
+
+/* O bloco que entra no briefing. Vazio vira string vazia — um cabeçalho
+   sem nada embaixo faria o modelo achar que tem contexto que não tem. */
+function memTexto(){
+  memLoad();
+  if(!MRK_MEM.lista.length) return '';
+  return '\n## O QUE VOCÊ JÁ APRENDEU COM ELE\n' +
+    'Isto não saiu dos números: foi ele que te contou ou te corrigiu. Vale mais que a ' +
+    'sua leitura dos dados, porque os dados não sabem disso. Use quando couber, sem ' +
+    'anunciar que está usando e sem repetir de volta pra ele o que ele mesmo te ensinou.\n' +
+    MRK_MEM.lista.map(m => '- ' + (m.tag ? m.tag + ': ' : '') + m.fato).join('\n');
+}
+
+/* ── Colher a marca de dentro da resposta ────────────────────────────
+   Mesma lição do bloco LANCAMENTO: a marca às vezes vem colada no JSON e
+   às vezes vem repetida. Tudo que for marca sai do texto ANTES de virar
+   bolha — JSON cru aparecendo na conversa é o pior jeito de descobrir que
+   ele aprendeu alguma coisa. */
+function _memJsonEm(s, de){
+  const i = s.indexOf('{', de);
+  if(i < 0) return null;
+  let nivel = 0, str = false, esc = false;
+  for(let j = i; j < s.length; j++){
+    const c = s[j];
+    if(esc){ esc = false; continue; }
+    if(c === '\\'){ esc = true; continue; }
+    if(c === '"'){ str = !str; continue; }
+    if(str) continue;
+    if(c === '{') nivel++;
+    else if(c === '}'){
+      nivel--;
+      if(nivel === 0){
+        try{ return { obj: JSON.parse(s.slice(i, j + 1)), fim: j + 1 }; }catch(_){ return null; }
+      }
+    }
+  }
+  return null;
+}
+function _memColher(txt){
+  const s = String(txt || '');
+  const rx = /^[ \t]*MEMORIA[ \t]*:/gmi;
+  const fatos = []; const cortes = [];
+  let m;
+  while((m = rx.exec(s))){
+    const j = _memJsonEm(s, m.index);
+    if(!j) continue;
+    if(j.obj && j.obj.fato) fatos.push(j.obj);
+    cortes.push([m.index, j.fim]);
+    rx.lastIndex = j.fim;
+  }
+  let limpo = s;
+  for(let i = cortes.length - 1; i >= 0; i--) limpo = limpo.slice(0, cortes[i][0]) + limpo.slice(cortes[i][1]);
+  limpo = limpo.replace(/```[a-z]*/gi, '')
+               .replace(/^[ \t]*MEMORIA[ \t]*:?[ \t]*$/gmi, '')
+               .replace(/\n{3,}/g, '\n\n').trim();
+  return { texto: limpo, fatos: fatos };
+}
+
+/* Grava o que veio na marca e devolve o rodapé que entra na bolha. Discreto
+   de propósito: é uma anotação de margem, não uma conquista. */
+function memAplicar(fatos){
+  if(!fatos || !fatos.length) return '';
+  const novos = [];
+  fatos.forEach(f => {
+    const r = memAdd(f.fato, f.tag, 'chat', !!f.corrige);
+    if(r) novos.push(r);
+  });
+  if(!novos.length) return '';
+  return '<div class="mrk-mem-nota">anotado · ' +
+    novos.map(n => mrkEscape(n.fato)).join('<br>anotado · ') + '</div>';
+}
+
+/* ── A tela ──────────────────────────────────────────────────────────── */
+function memRender(){
+  const el = document.getElementById('mem-lista');
+  if(!el) return;
+  memLoad();
+  const cont = document.getElementById('mem-contador');
+  if(cont) cont.textContent = MRK_MEM.lista.length
+    ? MRK_MEM.lista.length + (MRK_MEM.lista.length === 1 ? ' coisa aprendida' : ' coisas aprendidas')
+    : '';
+  if(!MRK_MEM.lista.length){
+    el.innerHTML = '<div class="avisos-vazio">Ele ainda não aprendeu nada seu.<br>' +
+      'Corrija ele no chat — "a UNILOS não é cliente, é cooperativa de crédito" — ' +
+      'e o que você disser aparece aqui.</div>';
+    return;
+  }
+  /* Mais novo primeiro: o que ele aprendeu hoje é o que você quer conferir. */
+  el.innerHTML = MRK_MEM.lista.slice().reverse().map(m =>
+    '<div class="mem-item">' +
+      '<div class="mem-corpo">' +
+        (m.tag ? '<span class="mem-tag">' + mrkEscape(m.tag) + '</span>' : '') +
+        '<span class="mem-fato">' + mrkEscape(m.fato) + '</span>' +
+      '</div>' +
+      '<div class="mem-pe">' +
+        '<span class="mem-quando">' + _memQuando(m) + '</span>' +
+        '<button class="mem-x" onclick="memRemover(' + m.id + ')" title="Fazer ele esquecer isto">esquecer</button>' +
+      '</div>' +
+    '</div>').join('');
+}
+function _memQuando(m){
+  const o = m.origem === 'slack' ? 'pelo Slack' : m.origem === 'manual' ? 'escrito por você' : 'no chat';
+  let d = '';
+  try{ d = new Date(m.criado).toLocaleDateString('pt-BR', { day:'2-digit', month:'short' }); }catch(_){}
+  return (d ? d + ' · ' : '') + o;
+}
+
+/* Escrever um fato na mão vale tanto quanto ensinar conversando — às vezes
+   ele já sabe que a regra existe antes de alguém perguntar. */
+function memNovo(){
+  const t = prompt('O que o MR KASH precisa saber?\n\nEscreva como fato, do jeito que você explicaria pra alguém que entrou hoje.\nEx.: "UNILOS é cooperativa de crédito, não cliente — o que entra dela é empréstimo."');
+  if(!t || !t.trim()) return;
+  const r = memAdd(t, '', 'manual', false);
+  if(typeof toast === 'function') toast(r ? '✓ Ele já sabe' : 'Ele já sabia disso');
+}
+try{
+  window.memLoad = memLoad; window.memAdd = memAdd; window.memRemover = memRemover;
+  window.memTexto = memTexto; window.memRender = memRender; window.memNovo = memNovo;
+  window._memColher = _memColher; window.memAplicar = memAplicar;
+}catch(_){}
+
 function llmLoad(){
   try{ const raw = localStorage.getItem(LLM_KEY); if(raw) LLM_CFG = Object.assign(LLM_CFG, JSON.parse(raw)); }catch(_){}
   // Restaura UI
@@ -131838,6 +132078,10 @@ function mrkBriefing(ctx){
     if(ult.length) L.push('\n## ÚLTIMOS LANÇAMENTOS\n' + ult.join('\n'));
   }catch(_){}
 
+  // Por último de propósito: o que ele aprendeu corrige a leitura de tudo
+  // que veio acima, então é a última coisa que o modelo lê.
+  try{ const m = memTexto(); if(m) L.push(m); }catch(_){}
+
   return L.join('\n');
 }
 try{ window.mrkBriefing = mrkBriefing; }catch(_){}
@@ -131845,6 +132089,33 @@ try{ window.mrkBriefing = mrkBriefing; }catch(_){}
 // O que o MR KASH é e o que ele não pode fazer. Separado do briefing de
 // propósito: esse texto é fixo e o briefing muda, e o cache da API cobra o
 // prefixo estável uma vez só.
+/* Como ele aprende. Fica numa constante porque o MR KASH do Slack usa a mesma
+   regra — se as duas versões aprendessem diferente, ele seria duas pessoas. */
+const MRK_APRENDER =
+  'VOCÊ APRENDE.\n' +
+  'O quadro de números é refeito a cada pergunta e só sabe o que está lançado. ' +
+  'Tudo que a empresa é e os números não contam, você só fica sabendo porque ele conta. ' +
+  'Quando isso acontecer, guarde.\n\n' +
+  'Guarde quando ele: te corrigir sobre um nome, um cliente, uma conta ou uma categoria; ' +
+  'explicar por que um número é daquele jeito; te contar uma regra da casa, um combinado ou ' +
+  'um prazo; ou pedir em qualquer palavra pra você lembrar de alguma coisa.\n' +
+  'NÃO guarde: o que já está nos números, pergunta dele, o que você mesmo deduziu, nem valor ' +
+  'em reais de um mês específico — isso envelhece em trinta dias e vira mentira.\n\n' +
+  'Pra guardar, responda normal e DEPOIS, no fim, numa linha só:\n' +
+  'MEMORIA: {"fato":"...","tag":"...","corrige":false}\n' +
+  '- fato: uma frase fechada, que se entenda sozinha daqui a seis meses, sem "ele disse que". ' +
+  'Escreva o fato, não a conversa.\n' +
+  '- tag: o nome do que o fato trata, em uma ou duas palavras — "UNILOS", "folha", "Vivo".\n' +
+  '- corrige: true só quando isto DERRUBA o que você sabia com essa mesma tag. Aí o antigo ' +
+  'é apagado. Em dúvida, false.\n' +
+  'Mais de uma coisa aprendida na mesma resposta é mais de uma linha MEMORIA.\n\n' +
+  'A marca não aparece pra ele — é encanamento. Então nunca escreva "vou anotar", ' +
+  '"registrei isso" nem "memória atualizada" no meio da resposta: você já anotou, e anunciar ' +
+  'que anotou é o tipo de coisa que assistente genérico faz. Responde e guarda, calado.\n' +
+  'O que você já aprendeu chega no fim do quadro. Use como quem sabe, não como quem ' +
+  'consultou uma ficha — e jamais repita pra ele o que foi ele mesmo que te ensinou, como ' +
+  'se fosse novidade sua.';
+
 const MRK_PERSONA =
   'Você é o MR KASH, o analista financeiro dentro do Forekash — um app de ' +
   'gestão financeira de PJ brasileira. Quem fala com você é o dono da empresa.\n\n' +
@@ -131920,7 +132191,8 @@ const MRK_PERSONA =
   '- Cartão, aplicação e consórcio são CONTAS. Pagar fatura é transferência, não despesa.\n' +
   '- Receita entra líquida de retenção, então o crédito no banco nunca bate com a nota.\n' +
   '- A folha é indexada pelo mês do pagamento, não pelo da competência.\n' +
-  '- Realizado vem do Extrato; o resto é projeção e deve ser chamado de projeção.';
+  '- Realizado vem do Extrato; o resto é projeção e deve ser chamado de projeção.\n\n' +
+  MRK_APRENDER;
 
 // Função pra MR KASH chamar LLM real (substitui mrkLocalRespond se LLM ativo)
 // ═════════════════════════════════════════════════════════════════════
@@ -132342,6 +132614,10 @@ async function mrkAnexoEnviar(file, legenda){
       }
     }
     prosa = prosa.replace(/```[a-z]*/gi, '').replace(/^[ \t]*LANCAMENTO[ \t]*:?[ \t]*$/gmi, '').trim();
+    /* Documento também ensina: cláusula de contrato, reajuste combinado,
+       razão social que não bate com o apelido. */
+    const col = _memColher(prosa);
+    prosa = col.texto;
 
     let html = _mrkMdParaHtml(prosa);
     const ehLancamento = !!(dados && (dados.valor || dados.fornecedor));
@@ -132352,6 +132628,7 @@ async function mrkAnexoEnviar(file, legenda){
       html += '<br><br><button class="mrk-suggestion" onclick="mrkAnexoLancar()">→ Abrir o lançamento' +
               (v ? ' — R$ ' + _mrkFmt(v) : '') + '</button>';
     }
+    html += memAplicar(col.fatos);
     mrkAddBotMsg(html);
     /* Reconheceu conta a pagar: abre sozinho. Pedir mais um clique era
        confirmação à toa — o modal já É a confirmação, e nada vai pro banco
@@ -132573,7 +132850,7 @@ function cfgSetTab(tab, btn){
   }
   // A lista de avisos é desenhada aqui, não no boot: no boot ela corria antes
   // de a nuvem hidratar o localStorage e ficava um vazio que parecia bug.
-  if(tab === 'integracoes'){ try{ avisosRender(); }catch(_){} }
+  if(tab === 'integracoes'){ try{ avisosRender(); }catch(_){} try{ memRender(); }catch(_){} }
   // Scroll to top do módulo
   try{ mod.scrollIntoView({behavior:'smooth', block:'start'}); }catch(_){}
 }
@@ -135695,7 +135972,8 @@ async function mrkChatSend(){
     try{
       const resp = await mrkCallAnthropic(text);
       mrkHideTyping();
-      mrkAddBotMsg(resp);
+      const col = _memColher(resp);
+      mrkAddBotMsg(col.texto + memAplicar(col.fatos));
       return;
     }catch(e){
       mrkHideTyping();
@@ -135711,7 +135989,10 @@ async function mrkChatSend(){
       const resp = await llmAsk(text, ctx);
       mrkHideTyping();
       if(resp){
-        mrkAddBotMsg(_mrkMdParaHtml(resp));
+        /* A marca MEMORIA sai do texto ANTES de virar bolha. Se escapar, o
+           que ele vê é JSON cru no meio da frase. */
+        const col = _memColher(resp);
+        mrkAddBotMsg(_mrkMdParaHtml(col.texto) + memAplicar(col.fatos));
         return;
       }
     }catch(e){
@@ -140986,7 +141267,9 @@ const FK_CLOUD_MAP = {
   'forekash:academy:v1':       'academy_state',
   'forekash:catmap:v1':        'catmap_local',
   // avisos do Slack: o app edita, o Worker lê na hora de postar
-  'forekash:avisos:v1':        'avisos'
+  'forekash:avisos:v1':        'avisos',
+  // memória do MR KASH: aprendida no chat ou no Slack, lida nos dois
+  'forekash:mrk-memoria:v1':   'mrk_memoria'
 };
 
 // Debounce por key pra não sincar a cada keystroke
