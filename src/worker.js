@@ -141,12 +141,28 @@ export default {
           const q = await fetch('https://slack.com/api/users.conversations?limit=1', {
             headers: { Authorization: 'Bearer ' + env.SLACK_BOT_TOKEN } });
           const j = await q.json();
-          r.escopos = j.ok ? 'ok' : (j.error || 'recusou');
-          /* O Slack devolve no cabeçalho os escopos que ESTE token tem. É o
-             que separa "esqueceu de reinstalar" de "reinstalou e o token
-             mudou, mas o segredo aqui ainda é o antigo" — os dois dão
-             missing_scope e têm conserto diferente. */
-          if(!j.ok) r.escoposDoToken = q.headers.get('x-oauth-scopes') || '(não veio)';
+          /* O cabeçalho diz os escopos que ESTE token tem. Conferir contra a
+             lista do que o MR KASH usa é mais honesto que testar uma chamada
+             só: "ok" num endpoint não diz nada sobre os outros, e foi o que
+             fez a tela afirmar que estava tudo certo enquanto as reações
+             ainda não tinham permissão. */
+          const tem = String(q.headers.get('x-oauth-scopes') || '')
+            .split(',').map(x => x.trim()).filter(Boolean);
+          const PRECISA = {
+            'chat:write':      'postar',
+            'app_mentions:read':'ouvir quando chamam',
+            'commands':        'os comandos /mrkash e /grafico',
+            'channels:read':   'listar canais públicos',
+            'groups:read':     'listar canais privados',
+            'users:read':      'listar o time',
+            'channels:join':   'entrar sozinho no canal escolhido',
+            'reactions:write': 'marcar o ✅ no aviso',
+            'reactions:read':  'contar quem confirmou'
+          };
+          const falta = Object.keys(PRECISA).filter(k => !tem.includes(k));
+          r.escopos = falta.length ? 'falta' : 'ok';
+          if(falta.length) r.faltaEscopo = falta.map(k => k + ' (' + PRECISA[k] + ')');
+          if(!j.ok) r.slackDisse = j.error || 'recusou';
         }catch(e){ r.escopos = 'erro: ' + (e && e.message || 'falhou'); }
       }
       if(url.searchParams.get('teste') && await sessaoValida(request, env)){
@@ -318,6 +334,11 @@ async function comandoSlack(request, env, ctx){
   }
 
   const responseUrl = p.get('response_url');
+  /* Em canal só de aviso o comando ainda funciona — quem digitou quer uma
+     resposta —, mas ela sai privada. Calar aqui também faria a pessoa achar
+     que o MR KASH quebrou, e isso é pior que uma resposta que ninguém mais
+     vê. O canal continua limpo: ninguém além de quem perguntou lê. */
+  const calado = (cfg.soAviso || []).includes(p.get('channel_id'));
   ctx.waitUntil((async () => {
     let txt, deuCerto = true;
     try{
@@ -335,7 +356,7 @@ async function comandoSlack(request, env, ctx){
        Erro continua privado: não é resposta, é defeito, e encher o canal
        com pilha de erro não registra nada que sirva. */
     await fetch(responseUrl, { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(deuCerto
+      body: JSON.stringify(deuCerto && !calado
         ? { response_type: 'in_channel', replace_original: false, text: txt }
         : { response_type: 'ephemeral', text: txt }) });
   })());
@@ -518,12 +539,17 @@ async function interativoSlack(request, env, ctx){
 async function responder(env, m){
   const texto = String(m.text || '').replace(/<@[^>]+>/g, '').trim();
   if(!texto) return;
+  const cfgC = await cfgSlack(env);
+  /* Canal só de aviso: ele não responde, e não responde em silêncio mesmo.
+     Uma linha do tipo "aqui eu não converso" ainda é o bot falando no canal,
+     e sairia toda vez que alguém o citasse de passagem. */
+  if((cfgC.soAviso || []).includes(m.channel)) return;
   const d = await carregar(env);
   /* APRENDER vem ANTES de LANCAR e GRAFICAR: os dois terminam dizendo
      "para qualquer outra mensagem, responda normalmente e não escreva o
      bloco", e com a regra de aprender logo atrás disso ela ficava lida
      como mais uma exceção que não vale. */
-  const cfg = await cfgSlack(env);
+  const cfg = cfgC;
   const bruto = await perguntar(env, texto, briefing(d, escopoSlack(cfg)), null,
                                 APRENDER + LANCAR + GRAFICAR + '\n\n' + vocabulario(d));
   const resp = await colher(env, cfg, bruto, m.user);
@@ -631,11 +657,11 @@ async function lerDisparos(env){
   return (j[0] && j[0].data) || {};
 }
 
-async function gravarDisparo(env, avisoId, comp, canal, ts){
+async function gravarDisparo(env, avisoId, slot, canal, ts){
   const d = await lerDisparos(env);
-  /* Chave por aviso E por competência: o mesmo lembrete roda todo mês e
-     cada mês tem a sua lista. */
-  d[String(avisoId) + '|' + comp] = { canal, ts, quando: new Date().toISOString() };
+  /* Chave por aviso E por horário exato: o mesmo lembrete roda todo mês e
+     cada envio tem a sua lista de quem confirmou. */
+  d[String(avisoId) + '|' + slot] = { canal, ts, quando: new Date().toISOString() };
   /* Só os 24 disparos mais recentes. Isto cresce pra sempre e ninguém vai
      perguntar quem mandou a nota de dois anos atrás. */
   const chaves = Object.keys(d).sort((a, b) =>
@@ -700,22 +726,28 @@ async function idDoBot(env){
 
 async function avisosDoMes(env){
   const canal = (await cfgSlack(env)).canal;
-  if(!canal) throw new Error('SLACK_CANAL_EQUIPE não configurado');
+  if(!canal) throw new Error('nenhum canal configurado');
   const t = agoraSP();
   const lista = await listaDeAvisos(env);
+  const disparos = await lerDisparos(env);
   for(const a of lista){
     if(!vaiDisparar(a, t)) continue;
+    /* Trava contra repetição. O cron pode rodar de novo no mesmo minuto —
+       a Cloudflare não promete exatamente uma execução — e postar duas
+       vezes o mesmo lembrete no canal da empresa é o tipo de erro que
+       ninguém esquece. A marca é o horário exato do aviso, não a hora da
+       execução, então duas rodadas da mesma janela caem na mesma chave. */
+    const slot = t.iso + 'T' + String(a.hora || '17:30').slice(0,5);
+    if(disparos[String(a.id) + '|' + slot]) continue;
     /* Um aviso que falhe não pode derrubar os outros do mesmo horário. */
     const txt = avisoResolve(a.texto, t, a);
     try{
       const r = await postar(env, a.canal || canal, txt);
-      if(a.confirmar && r && r.ts){
-        /* Competência é o mês do disparo, não o mês citado no texto: é o
-           ciclo deste envio. */
-        const comp = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0');
-        await poeCheck(env, r.channel || a.canal || canal, r.ts);
-        await gravarDisparo(env, a.id, comp, r.channel || a.canal || canal, r.ts);
-      }
+      const onde = (r && r.channel) || a.canal || canal;
+      if(a.confirmar && r && r.ts) await poeCheck(env, onde, r.ts);
+      /* Registra SEMPRE, com ou sem confirmação: é o que impede o segundo
+         disparo da mesma janela. */
+      await gravarDisparo(env, a.id, slot, onde, (r && r.ts) || '');
     }
     catch(e){ console.error('aviso "' + (a.titulo || '?') + '":', e && e.message); }
   }
@@ -752,9 +784,19 @@ export function agoraSP(){
 /* Dispara agora? O cron roda de hora em hora, então basta bater a hora —
    a janela do minuto fica solta de propósito: se o cron atrasar três
    minutos, o aviso do mês não pode simplesmente não acontecer. */
+/* Janela do cron. Tem que casar com o intervalo em wrangler.jsonc: maior
+   que o intervalo dispara duas vezes, menor deixa horário passar batido. */
+const JANELA = 10;
+
 export function vaiDisparar(a, t){
   if(!a || a.ativo === false || !String(a.texto || '').trim()) return false;
-  if(Number(String(a.hora || '17:30').slice(0,2)) !== t.hora) return false;
+  /* Antes isto comparava só a hora. Um aviso marcado pras 14:30 saía às
+     14:00 — o campo de minuto na tela era decoração, e ninguém ia
+     desconfiar porque a mensagem CHEGAVA, só que meia hora antes. */
+  const hhmm = String(a.hora || '17:30');
+  const hora = Number(hhmm.slice(0,2)), minuto = Number(hhmm.slice(3,5)) || 0;
+  const alvo = hora * 60 + minuto, agora = t.hora * 60 + t.minuto;
+  if(agora < alvo || agora >= alvo + JANELA) return false;
   if(a.frequencia === 'unica')  return String(a.data || '') === t.iso;
   if(a.frequencia === 'semanal') return Number(a.diaSemana ?? 1) === t.semana;
   // mensal: dia 31 em mês de 30 cai no último dia, em vez de sumir

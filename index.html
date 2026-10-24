@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792856478"/>
+  <meta name="fk-build" content="forekash-v1792858553"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -131339,7 +131339,7 @@ let LLM_CFG = { provider:'local', model:'', apiKey:'' };
    do servidor.
    ══════════════════════════════════════════════════════════════════════ */
 const SLACK_KEY = 'forekash:slack:v1';
-let SLACK_CFG = { canal:'', canalNome:'', quemPode:[], liberar:'' };
+let SLACK_CFG = { canal:'', canalNome:'', quemPode:[], liberar:'', soAviso:[] };
 let _slkCanais = null, _slkPessoas = null;
 
 function slackLoad(){
@@ -131348,6 +131348,7 @@ function slackLoad(){
     if(raw) SLACK_CFG = Object.assign(SLACK_CFG, JSON.parse(raw) || {});
   }catch(_){}
   if(!Array.isArray(SLACK_CFG.quemPode)) SLACK_CFG.quemPode = [];
+  if(!Array.isArray(SLACK_CFG.soAviso)) SLACK_CFG.soAviso = [];
   return SLACK_CFG;
 }
 function slackSave(){
@@ -131441,6 +131442,12 @@ async function slackRender(){
     '<select id="slk-canal" onchange="slackCanalMuda()"><option value="">— carregando —</option></select>' +
     '<div id="slk-canal-nota" class="av-nota"></div></div>';
 
+  html += '<div class="slk-campo"><label>Canais só de aviso' +
+    '<span>Nesses ele posta os avisos e mais nada: não responde a menção, e quem ' +
+    'usar /mrkash recebe a resposta só pra si. O canal geral da empresa costuma ' +
+    'ser um deles — aviso serve a todo mundo, resposta serve a uma pessoa.</span></label>' +
+    '<div id="slk-soaviso">—</div></div>';
+
   html += '<div class="slk-campo" id="slk-privados"></div>';
 
   html += '<div class="slk-campo"><label>Quem pode escrever pelo Slack' +
@@ -131461,6 +131468,7 @@ async function slackRender(){
   el.innerHTML = html;
   _slkPreencheCanais(canalAtual);
   _slkPreencheGente();
+  _slkPreencheSoAviso();
   _slkAvisoPrivados();
 }
 
@@ -131537,6 +131545,39 @@ async function _slkPreencheGente(){
         '</select>'
       : '');
 }
+/* Mesma gramática de chips de "quem pode escrever": vazio quer dizer
+   "ele conversa em todo canal", e cada nome ali foi uma decisão. */
+async function _slkPreencheSoAviso(){
+  const el = document.getElementById('slk-soaviso');
+  if(!el) return;
+  let cs = [];
+  try{ cs = await slackCanais(); }catch(_){ el.innerHTML = '<div class="slk-erro">sem lista de canais</div>'; return; }
+  const nome = id => { const c = cs.find(x => x.id === id); return c ? '#' + c.nome : id; };
+  const postos = SLACK_CFG.soAviso || [];
+  const fora = cs.filter(c => !postos.includes(c.id));
+  el.innerHTML =
+    (postos.length
+      ? '<div class="slk-chips">' + postos.map(id =>
+          '<span class="slk-chip">' + mrkEscape(nome(id)) +
+          '<button onclick="slackSoAvisoTira(\'' + id + '\')" title="Voltar a conversar aqui">&times;</button></span>').join('') +
+        '</div>'
+      : '<div class="slk-ninguem">Nenhum. Ele conversa em todos os canais em que está.</div>') +
+    '<select class="slk-add" onchange="slackSoAvisoPoe(this.value); this.value=\'\'">' +
+      '<option value="">+ calar ele num canal</option>' +
+      _slkOpcoes(fora, '') + '</select>';
+}
+function slackSoAvisoPoe(id){
+  if(!id || (SLACK_CFG.soAviso||[]).includes(id)) return;
+  SLACK_CFG.soAviso = (SLACK_CFG.soAviso || []).concat(id);
+  slackSalvaSilencio();
+  _slkPreencheSoAviso();
+}
+function slackSoAvisoTira(id){
+  SLACK_CFG.soAviso = (SLACK_CFG.soAviso || []).filter(x => x !== id);
+  slackSalvaSilencio();
+  _slkPreencheSoAviso();
+}
+
 function slackPoe(id){
   if(!id || SLACK_CFG.quemPode.includes(id)) return;
   SLACK_CFG.quemPode = SLACK_CFG.quemPode.concat(id);
@@ -131588,6 +131629,7 @@ try{
   window.slackCanalMuda = slackCanalMuda;
   window.slackPoe = slackPoe; window.slackTira = slackTira;
   window._slkCanalNota = _slkCanalNota;
+  window.slackSoAvisoPoe = slackSoAvisoPoe; window.slackSoAvisoTira = slackSoAvisoTira;
   window.slackLiberarMuda = slackLiberarMuda; window.slackCanais = slackCanais;
   window._slkNomeCanal = _slkNomeCanal;
 }catch(_){}
