@@ -379,14 +379,30 @@ async function avisoAgora(request, env){
     headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: 'Bearer ' + jwt } });
   if(!quem.ok) return erro('sessão inválida', 401);
 
-  let texto = '', pedido = '';
+  let texto = '', pedido = '', id = 0;
   try{ const b = (await request.json()) || {};
-       texto = String(b.texto || '').trim(); pedido = String(b.canal || '').trim(); }catch(_){}
+       texto = String(b.texto || '').trim(); pedido = String(b.canal || '').trim();
+       id = Number(b.id) || 0; }catch(_){}
   const canal = pedido || (await cfgSlack(env)).canal;
   if(!canal) return erro('canal não configurado');
   if(!texto) return erro('sem texto');
-  try{ await postar(env, canal, texto); }
-  catch(e){ return erro((e && e.message) || 'falhou', 502); }
+  try{
+    const r = await postar(env, canal, texto);
+    /* O "Testar" tinha que fazer exatamente o que o disparo faz, e não
+       fazia: o ✅ só era marcado no caminho do cron. Testar uma coisa e
+       mandar outra é pior que não ter teste — ele conferiu e concluiu que
+       a reação estava quebrada, quando só faltava aqui. */
+    if(id && r && r.ts){
+      const aviso = (await listaDeAvisos(env)).find(a => Number(a.id) === id);
+      if(aviso && aviso.confirmar){
+        const onde = r.channel || canal;
+        await poeCheck(env, onde, r.ts);
+        /* Marca de teste, não a do ciclo: gravar o horário real faria este
+           teste cancelar o disparo de verdade mais tarde. */
+        await gravarDisparo(env, id, 'teste-' + Date.now(), onde, r.ts);
+      }
+    }
+  }catch(e){ return erro((e && e.message) || 'falhou', 502); }
   return Response.json({ ok:true });
 }
 
