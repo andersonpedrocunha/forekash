@@ -181,6 +181,12 @@ export default {
     /* Quem está no workspace, pra escolher na tela quem pode escrever pelo
        Slack em vez de colar id na mão. */
     if(url.pathname === '/api/mrkash/pessoas') return pessoasSlack(request, env);
+    /* Quem confirmou, pra tela do Forekash mostrar no card do aviso. */
+    if(url.pathname === '/api/mrkash/confirmacoes'){
+      if(!await sessaoValida(request, env))
+        return Response.json({ ok:false, erro:'sem sessão' }, { status: 401 });
+      return Response.json({ ok:true, confirmacoes: await quemConfirmou(env) });
+    }
 
     return new Response('não existe', { status: 404 });
   },
@@ -597,6 +603,101 @@ function _avDiaEm(d, n, delta){
   return String(n).padStart(2,'0') + '/' + String(x.getMonth() + 1).padStart(2,'0');
 }
 
+
+/* ── Quem já mandou ───────────────────────────────────────────────────
+   Um lembrete mensal sem retorno é grito no escuro: ninguém sabe quem já
+   fez, e quem fez segue sendo cobrado junto com quem não fez.
+
+   A confirmação é um ✅ na própria mensagem, não um botão. É o gesto que
+   todo mundo já faz no Slack sem pensar, aparece como contador do lado da
+   mensagem e dá pra ver quem reagiu passando o mouse. Botão seria mais
+   formal e menos usado.
+
+   O MR KASH marca o ✅ sozinho logo depois de postar. Não é pra inflar o
+   número — é porque reação vazia não aparece: sem alguém começar, não há
+   pílula pra clicar, e aí cada pessoa teria que achar o emoji no seletor.
+   A dele é descontada na hora de contar.                                */
+const CONF_EMOJI = 'white_check_mark';
+
+/* Onde cada disparo foi parar. Sem guardar canal e ts, não há como voltar
+   depois pra perguntar ao Slack quem reagiu. */
+async function lerDisparos(env){
+  const r = await fetch(env.SUPABASE_URL +
+    `/rest/v1/module_blobs?org_id=eq.${env.FOREKASH_ORG_ID}&module=eq.avisos_disparos&select=data`,
+    { headers: { apikey: env.SUPABASE_SERVICE_KEY,
+                 Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY } });
+  if(!r.ok) return {};
+  const j = await r.json();
+  return (j[0] && j[0].data) || {};
+}
+
+async function gravarDisparo(env, avisoId, comp, canal, ts){
+  const d = await lerDisparos(env);
+  /* Chave por aviso E por competência: o mesmo lembrete roda todo mês e
+     cada mês tem a sua lista. */
+  d[String(avisoId) + '|' + comp] = { canal, ts, quando: new Date().toISOString() };
+  /* Só os 24 disparos mais recentes. Isto cresce pra sempre e ninguém vai
+     perguntar quem mandou a nota de dois anos atrás. */
+  const chaves = Object.keys(d).sort((a, b) =>
+    String((d[a]||{}).quando||'').localeCompare(String((d[b]||{}).quando||'')));
+  while(chaves.length > 24) delete d[chaves.shift()];
+  await fetch(env.SUPABASE_URL + '/rest/v1/module_blobs?on_conflict=org_id,module', {
+    method: 'POST',
+    headers: { apikey: env.SUPABASE_SERVICE_KEY,
+               Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY,
+               'content-type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+    body: JSON.stringify({ org_id: env.FOREKASH_ORG_ID, module: 'avisos_disparos', data: d })
+  });
+}
+
+async function poeCheck(env, canal, ts){
+  const r = await fetch('https://slack.com/api/reactions.add', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + env.SLACK_BOT_TOKEN, 'content-type': 'application/json' },
+    body: JSON.stringify({ channel: canal, timestamp: ts, name: CONF_EMOJI })
+  });
+  const j = await r.json();
+  /* Falhar aqui não pode derrubar o aviso: a mensagem já foi, e sem a
+     pílula as pessoas ainda conseguem reagir pelo seletor de emoji. */
+  if(!j.ok && j.error !== 'already_reacted')
+    console.warn('check no aviso:', j.error || 'falhou');
+}
+
+/* Quem reagiu em cada disparo guardado. O próprio bot sai da conta. */
+async function quemConfirmou(env){
+  const disparos = await lerDisparos(env);
+  const eu = await idDoBot(env);
+  const saida = {};
+  for(const k of Object.keys(disparos)){
+    const d = disparos[k];
+    if(!d || !d.canal || !d.ts) continue;
+    try{
+      const r = await fetch('https://slack.com/api/reactions.get?channel=' +
+        encodeURIComponent(d.canal) + '&timestamp=' + encodeURIComponent(d.ts), {
+        headers: { Authorization: 'Bearer ' + env.SLACK_BOT_TOKEN } });
+      const j = await r.json();
+      if(!j.ok){ saida[k] = { erro: j.error || 'recusou' }; continue; }
+      const rs = (j.message && j.message.reactions) || [];
+      const check = rs.find(x => x.name === CONF_EMOJI) || { users: [] };
+      saida[k] = { quando: d.quando,
+                   quem: (check.users || []).filter(u => u !== eu) };
+    }catch(e){ saida[k] = { erro: (e && e.message) || 'falhou' }; }
+  }
+  return saida;
+}
+
+let _idBot = null;
+async function idDoBot(env){
+  if(_idBot) return _idBot;
+  try{
+    const r = await fetch('https://slack.com/api/auth.test', {
+      headers: { Authorization: 'Bearer ' + env.SLACK_BOT_TOKEN } });
+    const j = await r.json();
+    _idBot = j.ok ? j.user_id : '';
+  }catch(_){ _idBot = ''; }
+  return _idBot;
+}
+
 async function avisosDoMes(env){
   const canal = (await cfgSlack(env)).canal;
   if(!canal) throw new Error('SLACK_CANAL_EQUIPE não configurado');
@@ -605,7 +706,17 @@ async function avisosDoMes(env){
   for(const a of lista){
     if(!vaiDisparar(a, t)) continue;
     /* Um aviso que falhe não pode derrubar os outros do mesmo horário. */
-    try{ await postar(env, a.canal || canal, avisoResolve(a.texto, t, a)); }
+    const txt = avisoResolve(a.texto, t, a);
+    try{
+      const r = await postar(env, a.canal || canal, txt);
+      if(a.confirmar && r && r.ts){
+        /* Competência é o mês do disparo, não o mês citado no texto: é o
+           ciclo deste envio. */
+        const comp = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0');
+        await poeCheck(env, r.channel || a.canal || canal, r.ts);
+        await gravarDisparo(env, a.id, comp, r.channel || a.canal || canal, r.ts);
+      }
+    }
     catch(e){ console.error('aviso "' + (a.titulo || '?') + '":', e && e.message); }
   }
 }

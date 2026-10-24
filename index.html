@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792855755"/>
+  <meta name="fk-build" content="forekash-v1792856478"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -10612,6 +10612,15 @@
     .av-previa-tag{display:block;font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;
         color:#94A3B8;margin-bottom:6px;white-space:normal}
     .av-previa code{background:#E2E8F0;padding:1px 5px;border-radius:4px;font-size:.78rem}
+    .av-check{display:block;margin-top:14px;font-size:.8rem;color:#1E293B;cursor:pointer;
+        font-weight:600}
+    .av-check input{width:auto;margin-right:7px}
+    .av-check span{display:block;margin:4px 0 0 23px;font-weight:400;font-size:.74rem;
+        color:#94A3B8;line-height:1.45}
+    [data-theme="dark"] .av-check{color:#F1F5F9}
+    .aviso-conf{display:inline-flex;align-items:center;gap:5px;font-size:.72rem;color:#059669;
+        margin-left:8px}
+    [data-theme="dark"] .aviso-conf{color:#10B981}
     .av-nota{margin-top:6px;font-size:.74rem;color:#64748B;line-height:1.45}
     .av-nota.ruim{color:#B45309}
     [data-theme="dark"] .av-nota{color:#64748B}
@@ -131659,6 +131668,36 @@ function _avCanalTexto(a){
   return ' · ' + (n || a.canal);
 }
 function _avDataBR(s){ const p = String(s||'').split('-'); return p.length===3 ? p[2]+'/'+p[1]+'/'+p[0] : s; }
+/* Quantos confirmaram, por aviso. Vem do Slack via Worker — contar reação
+   é coisa que só o servidor consegue, o navegador não tem o token. */
+let _avConfirmados = null;
+async function avisoConfirmacoes(){
+  if(typeof window.sb === 'undefined') return;
+  try{
+    let jwt = '';
+    try{ jwt = ((await window.sb.auth.getSession()).data.session || {}).access_token || ''; }catch(_){}
+    if(!jwt) return;
+    const r = await fetch('/api/mrkash/confirmacoes', { headers:{ Authorization:'Bearer ' + jwt } });
+    const j = await r.json();
+    if(j && j.ok){ _avConfirmados = j.confirmacoes || {}; avisosRender(); }
+  }catch(e){ console.warn('confirmações:', e && e.message); }
+}
+/* O disparo mais recente deste aviso. O card fala do ciclo atual, não da
+   soma de todos os meses — "12 confirmaram" somando o ano não diz nada. */
+function _avConfTexto(a){
+  if(!a.confirmar || !_avConfirmados) return '';
+  const meus = Object.keys(_avConfirmados)
+    .filter(k => k.split('|')[0] === String(a.id))
+    .sort((x, y) => String((_avConfirmados[y]||{}).quando||'')
+                     .localeCompare(String((_avConfirmados[x]||{}).quando||'')));
+  if(!meus.length) return '';
+  const d = _avConfirmados[meus[0]] || {};
+  if(d.erro) return '';
+  const n = (d.quem || []).length;
+  return '<span class="aviso-conf">✓ ' + n +
+         (n === 1 ? ' confirmou' : ' confirmaram') + ' neste ciclo</span>';
+}
+
 function _avProxTexto(a){
   const p = avisoProximo(a);
   if(!p) return a.ativo === false ? 'pausado' : 'não vai mais disparar';
@@ -131696,6 +131735,7 @@ function avisosRender(){
       '<div class="aviso-top">' +
         '<b>' + _avEsc(x.titulo || 'Sem título') + '</b>' +
         '<span class="aviso-quando">' + _avEsc(avisoQuandoTexto(x) + _avCanalTexto(x)) + '</span>' +
+        _avConfTexto(x) +
       '</div>' +
       /* Renderiza como o Slack vai mostrar. Ver o asterisco cru no card
          obriga a abrir o editor só pra saber se o negrito ficou certo. */
@@ -131894,6 +131934,12 @@ function _avisoModal(x){
           '<select id="av-canal"><option value="">— o padrão —</option></select>' +
           '<div id="av-canal-nota" class="av-nota"></div></div>' +
         '<div id="av-pagto-nota" class="av-nota"></div>' +
+        '<label class="av-check"><input type="checkbox" id="av-confirmar"' +
+          (x.confirmar ? ' checked' : '') + '> ' +
+          'Pedir confirmação de quem já fez' +
+          '<span>O MR KASH marca um ✅ na própria mensagem. Quem fez toca na mesma ' +
+          'reação e sai da lista — e você vê quantos foram sem perguntar no canal.</span>' +
+        '</label>' +
         '<div class="av-quando" id="av-quando"></div>' +
       '</div>' +
       '<div class="aviso-ft">' +
@@ -132023,6 +132069,7 @@ function avisoSalvar(id){
     data: v('av-data') || '',
     hora: v('av-hora') || '17:30',
     diaPagamento: Number(v('av-pagto')) || 0,
+    confirmar: !!(document.getElementById('av-confirmar')||{}).checked,
     canal: v('av-canal') || '',
     ativo: true
   };
@@ -133618,6 +133665,7 @@ function cfgSetTab(tab, btn){
   if(tab === 'integracoes'){
     try{ slackRender(); }catch(_){}
     try{ avisosRender(); }catch(_){}
+    try{ avisoConfirmacoes(); }catch(_){}
     try{ memRender(); }catch(_){}
     try{ memPadroesRender(); }catch(_){}
     // desenha o que tem em cache e depois atualiza com o que o Slack gravou
