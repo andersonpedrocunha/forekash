@@ -253,6 +253,10 @@ export function briefing(d, op){
            'total do mês inclui o que foi removido, então a conta não fecharia e o número ' +
            'que você inventasse estaria errado.');
 
+  // O que ele tirou sozinho do extrato, antes do que contaram pra ele.
+  const pad = padroesTexto(d, op);
+  if(pad) L.push(pad);
+
   // Por último: o que ele aprendeu corrige a leitura de tudo acima.
   const mem = memoriaTexto(d);
   if(mem) L.push(mem);
@@ -305,6 +309,114 @@ export async function salvarMemoria(env, fato, tag, corrige, quem){
     });
   if(!r.ok) throw new Error('Supabase recusou a memória: ' + (await r.text()).slice(0, 200));
   return novo;
+}
+
+
+/* ── O que ele lê sozinho ────────────────────────────────────────────────
+   Gêmeo do mrkPadroes() do app. Ninguém escreve nada aqui: ele passa o
+   extrato inteiro e tira as conclusões — ritmo de cada fornecedor, faixa
+   normal de cobrança, dia em que cada coisa sai, quem cobrava todo mês e
+   parou.
+
+   Calculado, nunca guardado. Padrão salvo envelhece e ninguém volta pra
+   corrigir; recalculado, ele fica mais afiado sozinho conforme o extrato
+   cresce.
+
+   Respeita o mesmo recorte das respostas: quem não pode aparecer numa
+   lista de lançamento também não pode virar "padrão".                     */
+const _padMed = a => { const s = a.slice().sort((x,y) => x-y), m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2; };
+const _PAD_FORA = /folha|sal[áa]rio|pr[óo]\s*-?\s*labore|comiss|adiantamento|vale|empr[ée]stimo|financiamento/i;
+
+function _padGrupo(lancs, tipo, f, hoje){
+  const g = {};
+  for(const l of lancs){
+    if(!l || l.tipo !== tipo || !l.data) continue;
+    if(tipo === 'gasto' && _PAD_FORA.test(l.categoria || '')) continue;
+    if(f.lancFora(l)) continue;
+    const n = String(l.contraparte || '').trim();
+    if(!n || f.pagadorFora(n)) continue;
+    (g[n] || (g[n] = [])).push(l);
+  }
+  const out = [];
+  for(const nome of Object.keys(g)){
+    const ls = g[nome].sort((a,b) => String(a.data).localeCompare(String(b.data)));
+    if(ls.length < 3) continue;
+    const vals = ls.map(l => Math.abs(Number(l.valor) || 0)).filter(Boolean);
+    if(!vals.length) continue;
+    const meses = new Set(ls.map(l => String(l.data).slice(0,7)));
+    const a0 = String(ls[0].data).slice(0,7), a1 = String(ls[ls.length-1].data).slice(0,7);
+    const span = (+a1.slice(0,4)*12 + +a1.slice(5,7)) - (+a0.slice(0,4)*12 + +a0.slice(5,7)) + 1;
+    const comum = campo => {
+      const c = {};
+      for(const l of ls){ const k = String(l[campo] || '').trim(); if(k) c[k] = (c[k]||0)+1; }
+      const t = Object.entries(c).sort((x,y) => y[1]-x[1])[0];
+      return t && t[1]/ls.length >= 0.6 ? t[0] : '';
+    };
+    const ult = String(ls[ls.length-1].data).slice(0,10);
+    out.push({ nome, n: ls.length,
+      mensal: meses.size >= 3 && meses.size/span >= 0.6,
+      mediana: _padMed(vals), min: Math.min(...vals), max: Math.max(...vals),
+      dia: Math.round(_padMed(ls.map(l => +String(l.data).slice(8,10)))),
+      categoria: comum('categoria'), conta: comum('conta'), ultimo: ult,
+      diasParado: Math.round((hoje - new Date(ult + 'T12:00:00')) / 864e5),
+      total: vals.reduce((a,b) => a+b, 0) });
+  }
+  return out;
+}
+
+export function padroes(d, op){
+  const f = filtro(d, op || {});
+  const forn = _padGrupo(d.ext, 'gasto', f, d.hoje).sort((a,b) => b.total - a.total);
+  const cli  = _padGrupo(d.ext, 'ganho', f, d.hoje).sort((a,b) => b.total - a.total);
+  const porCat = {};
+  for(const l of d.ext){
+    if(!l || l.tipo !== 'gasto' || !l.data) continue;
+    const c = String(l.categoria || '').trim();
+    if(!c || f.catFora(c) || f.lancFora(l)) continue;
+    (porCat[c] || (porCat[c] = [])).push(+String(l.data).slice(8,10));
+  }
+  const rotina = Object.keys(porCat).filter(c => porCat[c].length >= 5).map(c => {
+    const s = porCat[c].slice().sort((a,b) => a-b);
+    return { categoria: c, de: s[Math.floor(s.length*0.25)], ate: s[Math.floor(s.length*0.75)], n: s.length };
+  }).sort((a,b) => b.n - a.n);
+  const parou = forn.concat(cli).filter(x => x.mensal && x.diasParado > 55);
+  return { forn, cli, rotina, parou };
+}
+
+export function padroesTexto(d, op){
+  let p;
+  try{ p = padroes(d, op); }catch(_){ return ''; }
+  if(!p.forn.length && !p.cli.length) return '';
+  const faixa = x => x.min === x.max ? brl(x.mediana)
+                   : brl(x.mediana) + ' (de ' + brl(x.min) + ' a ' + brl(x.max) + ')';
+  const L = ['\n## O QUE VOCÊ LEU SOZINHO NOS NÚMEROS',
+    'Ninguém te contou isto: você tirou do extrato inteiro, e vale mais que a sua impressão ' +
+    'de um mês. É daqui que você sabe se uma cobrança está fora do normal, em que dia cada ' +
+    'coisa costuma sair e quem parou de aparecer. Use como conhecimento seu da casa — não ' +
+    'cite "o padrão calculado", diga a conclusão.'];
+  if(p.forn.length)
+    L.push('\nFORNECEDORES:\n' + p.forn.slice(0,14).map(x => '- ' + x.nome + ': ' +
+      (x.mensal ? 'todo mês' : x.n + 'x no período') + ', normalmente ' + faixa(x) +
+      (x.mensal ? ', por volta do dia ' + x.dia : '') +
+      (x.categoria ? ' · ' + x.categoria : '') + (x.conta ? ' · sai pela ' + x.conta : '') +
+      ' · última em ' + x.ultimo).join('\n'));
+  if(p.cli.length)
+    L.push('\nQUEM PAGA (pelo que caiu na conta, não pelo faturado):\n' +
+      p.cli.slice(0,12).map(x => '- ' + x.nome + ': ' +
+      (x.mensal ? 'entra todo mês' : x.n + 'x no período') + ', normalmente ' + faixa(x) +
+      (x.mensal ? ', por volta do dia ' + x.dia : '') +
+      ' · último crédito em ' + x.ultimo).join('\n'));
+  if(p.rotina.length)
+    L.push('\nO MÊS DA CASA (em que dia cada saída costuma cair):\n' +
+      p.rotina.slice(0,10).map(r => '- ' + r.categoria + ': entre o dia ' + r.de +
+      (r.ate !== r.de ? ' e o ' + r.ate : '')).join('\n'));
+  if(p.parou.length)
+    L.push('\nERA TODO MÊS E PAROU (mais de dois ciclos sem aparecer):\n' +
+      p.parou.slice(0,8).map(x => '- ' + x.nome + ': nada desde ' + x.ultimo +
+      ', ' + x.diasParado + ' dias').join('\n') +
+      '\nPode ser contrato encerrado, cobrança que falhou ou lançamento que ninguém importou.');
+  return L.join('\n');
 }
 
 export function cobranca(d, ano){

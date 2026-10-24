@@ -19,20 +19,37 @@ import { perguntar, postar, assinaturaValida, podeLancar, APRENDER,
    A marca sai do texto SEMPRE; gravar é que depende de quem falou — memória
    muda toda resposta seguinte, inclusive as que o time inteiro lê, então
    ensinar é escrita e segue a mesma trava do lançamento. */
-async function colher(env, resp, quem, ctx){
+async function colher(env, resp, quem){
   const { prosa, fatos } = separarMemoria(resp);
-  if(fatos.length && podeLancar(env, quem)){
-    const grava = (async () => {
-      for(const f of fatos){
-        try{ await salvarMemoria(env, f.fato, f.tag, !!f.corrige, quem); }
-        catch(e){ console.warn('memória:', e && e.message); }
-      }
-    })();
-    /* Gravar não pode atrasar a resposta: ele lê a mensagem agora e a
-       memória entra em vigor da próxima pergunta. */
-    if(ctx && ctx.waitUntil) ctx.waitUntil(grava); else await grava;
+  const texto = prosa || resp;
+  if(!fatos.length) return texto;
+  /* Ensinar é escrita e segue a trava do lançamento. Mas em silêncio não:
+     quem não pode ensinar precisa saber que não pegou, senão repete a
+     correção pra sempre achando que funcionou. O id vai junto porque o
+     erro mais comum aqui é um id colado pela metade na variável. */
+  if(!podeLancar(env, quem))
+    return texto + '\n\n_Isso eu não guardo: ensinar é só pra quem pode escrever no ' +
+           'Forekash, e teu id (`' + quem + '`) não está na lista._';
+  /* Gravar é esperado, não disparado e esquecido. Memória que falhou em
+     silêncio é pior que memória que não existe: ele segue achando que o
+     MR KASH aprendeu, repete a correção daqui a um mês e descobre que
+     nunca pegou. Uma ida ao Supabase custa menos que esse mal-entendido. */
+  const erros = [], guardados = [];
+  for(const f of fatos){
+    try{
+      const r = await salvarMemoria(env, f.fato, f.tag, !!f.corrige, quem);
+      if(r) guardados.push(r.fato);
+    }catch(e){ erros.push(e && e.message || 'erro'); }
   }
-  return prosa || resp;
+  if(erros.length)
+    return texto + '\n\n_Não consegui guardar isso: ' + erros[0].slice(0, 140) +
+           '. Me conta de novo depois._';
+  /* Linha discreta, como no app. Existe porque sem ela ele não tem como
+     saber se pegou: ficou ensinando no escuro e só descobria abrindo a
+     tela do Forekash. */
+  if(guardados.length)
+    return texto + '\n\n_anotado · ' + guardados.join('_\n_anotado · ') + '_';
+  return texto;
 }
 
 const ok = (t) => new Response(t || '', { status: 200 });
@@ -82,6 +99,19 @@ export default {
                          Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY } });
           r.supabase = q.ok ? 'ok' : ('erro ' + q.status + ': ' + (await q.text()).slice(0,120));
         }catch(e){ r.supabase = 'erro: ' + (e && e.message || 'falhou'); }
+        /* Quantos fatos ele já guardou. Serve pra responder "ensinei e não
+           pegou?" sem precisar abrir o Supabase nem o Forekash. */
+        try{
+          const q = await fetch(env.SUPABASE_URL +
+            `/rest/v1/module_blobs?org_id=eq.${env.FOREKASH_ORG_ID}&module=eq.mrk_memoria&select=data`,
+            { headers: { apikey: env.SUPABASE_SERVICE_KEY,
+                         Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY } });
+          const j = q.ok ? await q.json() : [];
+          const lista = (j[0] && j[0].data && j[0].data.lista) || [];
+          r.memoria = { fatos: lista.length,
+                        ultimo: lista.length ? String(lista[lista.length-1].fato).slice(0,80) : null };
+        }catch(e){ r.memoria = 'erro: ' + (e && e.message || 'falhou'); }
+        r.quemPodeEnsinar = String(env.MRK_SLACK_USERS || '').split(/[\s,]+/).filter(Boolean);
       }
       return Response.json(r);
     }
@@ -221,7 +251,7 @@ async function comandoSlack(request, env, ctx){
          valer tanto quanto corrigir por menção. */
       txt = await colher(env,
         await perguntar(env, texto, briefing(d, escopoSlack(env)), null, APRENDER),
-        user, ctx);
+        user);
     }catch(e){ txt = 'Deu ruim aqui: ' + (e && e.message || 'erro'); deuCerto = false; }
     /* Resposta vai pro canal: a regra de não atender no privado vale aqui
        também. Efêmera fica num canal mas só quem perguntou lê e não sobra
@@ -340,8 +370,12 @@ async function responder(env, m){
   const texto = String(m.text || '').replace(/<@[^>]+>/g, '').trim();
   if(!texto) return;
   const d = await carregar(env);
+  /* APRENDER vem ANTES de LANCAR e GRAFICAR: os dois terminam dizendo
+     "para qualquer outra mensagem, responda normalmente e não escreva o
+     bloco", e com a regra de aprender logo atrás disso ela ficava lida
+     como mais uma exceção que não vale. */
   const bruto = await perguntar(env, texto, briefing(d, escopoSlack(env)), null,
-                                LANCAR + GRAFICAR + APRENDER + '\n\n' + vocabulario(d));
+                                APRENDER + LANCAR + GRAFICAR + '\n\n' + vocabulario(d));
   const resp = await colher(env, bruto, m.user);
   const thread = { thread_ts: m.thread_ts || m.ts };
 
