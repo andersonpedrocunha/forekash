@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1792859083"/>
+  <meta name="fk-build" content="forekash-v1793019856"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -25316,6 +25316,7 @@ td.mes.do-extrato{background:#ECFDF5}
           <div id="avisos-lista"></div>
           <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center">
             <button class="btn btn-p" onclick="avisoNovo()" style="padding:8px 14px;font-size:.84rem">+ Novo aviso</button>
+            <button class="btn btn-sec" onclick="avisoLimparTestes()" style="padding:8px 14px;font-size:.84rem">Limpar testes do canal</button>
             <span id="avisos-resumo" style="font-size:.76rem;color:#94A3B8"></span>
           </div>
         </div>
@@ -132163,7 +132164,38 @@ async function avisoTestar(id){
   }
 }
 
+/* Apaga do Slack as mensagens que os testes postaram. Confirma antes: é
+   irreversível e acontece num canal que outras pessoas leem.
+
+   O que é teste e o que é aviso de verdade quem decide é o servidor, pela
+   marca gravada na hora do disparo — não dá pra um clique aqui apagar um
+   lembrete que o time já leu. */
+async function avisoLimparTestes(){
+  const faz = async () => {
+    if(typeof toast === 'function') toast('Limpando...');
+    try{
+      let jwt = '';
+      try{ jwt = ((await window.sb.auth.getSession()).data.session || {}).access_token || ''; }catch(_){}
+      if(!jwt){ if(typeof toast==='function') toast('Precisa estar logado na nuvem'); return; }
+      const r = await fetch('/api/mrkash/limpar-testes', {
+        method:'POST', headers:{ Authorization:'Bearer ' + jwt } });
+      const j = await r.json().catch(() => ({}));
+      if(typeof toast !== 'function') return;
+      if(!r.ok || !j.ok) toast('Não deu: ' + (j.erro || ('erro ' + r.status)));
+      else if(!j.apagadas) toast('Não tinha teste pra apagar');
+      else toast('✓ ' + j.apagadas + (j.apagadas === 1 ? ' mensagem apagada' : ' mensagens apagadas') +
+                 (j.falhas && j.falhas.length ? ' · ' + j.falhas.length + ' não deu: ' + j.falhas.join(', ') : ''), 6000);
+    }catch(e){ if(typeof toast==='function') toast('Não deu: ' + (e && e.message || 'erro')); }
+  };
+  if(typeof anaConfirm === 'function')
+    anaConfirm({ eyebrow:'Avisos', title:'Apagar as mensagens de teste?',
+      message:'Só as que saíram pelo botão Testar e pelo /mrkash testar. Os avisos de verdade ficam no canal.',
+      okText:'Apagar', cancelText:'Cancelar', danger:true }, faz);
+  else if(confirm('Apagar as mensagens de teste do canal?')) faz();
+}
+
 try{
+  window.avisoLimparTestes = avisoLimparTestes;
   window.avisoNovo = avisoNovo; window.avisoEditar = avisoEditar;
   window.avisoExcluir = avisoExcluir; window.avisoAlternar = avisoAlternar;
   window.avisoSalvar = avisoSalvar; window.avisoTestar = avisoTestar;

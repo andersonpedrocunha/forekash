@@ -198,6 +198,7 @@ export default {
        Slack em vez de colar id na mão. */
     if(url.pathname === '/api/mrkash/pessoas') return pessoasSlack(request, env);
     /* Quem confirmou, pra tela do Forekash mostrar no card do aviso. */
+    if(url.pathname === '/api/mrkash/limpar-testes') return limparTestes(request, env);
     if(url.pathname === '/api/mrkash/confirmacoes'){
       if(!await sessaoValida(request, env))
         return Response.json({ ok:false, erro:'sem sessão' }, { status: 401 });
@@ -323,8 +324,22 @@ async function comandoSlack(request, env, ctx){
             ? 'Não achei esse aviso. Tem: ' + lista.map(a => '"' + (a.titulo||'?') + '"').join(', ')
             : 'Não tem aviso cadastrado. Cria em Configurações › Avisos no Slack.';
         } else {
-          await postar(env, alvo.canal || canal, avisoResolve(alvo.texto, agoraSP(), alvo));
-          msg = '"' + (alvo.titulo || 'aviso') + '" postado no canal.';
+          /* Este caminho também esquecia o ✅. Três lugares postam aviso —
+             cron, botão da tela e /mrkash testar — e cada um que esquece
+             vira um "não funciona" que parece defeito da reação. */
+          const rr = await postar(env, alvo.canal || canal,
+                                  avisoResolve(alvo.texto, agoraSP(), alvo));
+          if(rr && rr.ts)
+            await gravarDisparo(env, alvo.id, 'teste-' + Date.now(),
+                                rr.channel || alvo.canal || canal, rr.ts);
+          let extra = '';
+          if(alvo.confirmar && rr && rr.ts){
+            const c = await poeCheck(env, rr.channel || alvo.canal || canal, rr.ts);
+            extra = c === 'ok' ? ' Com o ✅.' : ' Sem o ✅: ' + c + '.';
+          } else if(alvo.confirmar){
+            extra = ' Sem o ✅: o Slack não devolveu o id da mensagem.';
+          }
+          msg = '"' + (alvo.titulo || 'aviso') + '" postado no canal.' + extra;
         }
       }catch(e){ msg = 'Não consegui postar: ' + (e && e.message || 'erro'); }
       await fetch(p.get('response_url'), { method:'POST', headers:{'content-type':'application/json'},
@@ -393,19 +408,31 @@ async function avisoAgora(request, env){
        fazia: o ✅ só era marcado no caminho do cron. Testar uma coisa e
        mandar outra é pior que não ter teste — ele conferiu e concluiu que
        a reação estava quebrada, quando só faltava aqui. */
-    if(!id) check = 'o app não mandou o id do aviso (recarregue a página)';
-    else if(!r || !r.ts) check = 'o Slack não devolveu o id da mensagem';
-    else {
-      const aviso = (await listaDeAvisos(env)).find(a => Number(a.id) === id);
-      if(!aviso) check = 'não achei o aviso ' + id + ' na nuvem';
-      else if(!aviso.confirmar) check = 'este aviso não está pedindo confirmação';
-      else {
-        const onde = r.channel || canal;
-        check = await poeCheck(env, onde, r.ts);
-        /* Marca de teste, não a do ciclo: gravar o horário real faria este
-           teste cancelar o disparo de verdade mais tarde. */
-        if(check === 'ok') await gravarDisparo(env, id, 'teste-' + Date.now(), onde, r.ts);
+    if(!r || !r.ts){
+      check = 'o Slack não devolveu o id da mensagem';
+    } else {
+      const lista = await listaDeAvisos(env);
+      /* Acha pelo id quando ele vem. Sem id — página em cache, que é o caso
+         mais comum logo depois de um deploy — cai pro texto: a mensagem que
+         acabou de sair É o texto do aviso, resolvido. Depender do cliente
+         mandar tudo certo fez este teste falhar calado três vezes. */
+      let aviso = id ? lista.find(a => Number(a.id) === id) : null;
+      if(!aviso){
+        const limpo = x => String(x || '').replace(/\s+/g, ' ').trim();
+        aviso = lista.find(a => limpo(avisoResolve(a.texto, agoraSP2(), a)) === limpo(texto))
+             || lista.find(a => limpo(a.texto) === limpo(texto));
       }
+      const onde = r.channel || canal;
+      if(!aviso) check = 'não achei esse aviso na nuvem' + (id ? ' (id ' + id + ')' : ' pelo texto');
+      else if(!aviso.confirmar) check = 'o aviso "' + (aviso.titulo||'?') + '" não está pedindo confirmação';
+      else check = await poeCheck(env, onde, r.ts);
+      /* Registra TODO teste, com ou sem ✅: é esta marca que o "limpar
+         testes" usa pra saber o que pode apagar. Guardar só os que reagiram
+         deixaria o resto encalhado no canal pra sempre. */
+      await gravarDisparo(env, (aviso && aviso.id) || 0, 'teste-' + Date.now(), onde, r.ts);
+      console.log('[aviso] teste id=' + (id || '-') + ' achou=' + (aviso ? aviso.id : 'nao') +
+                  ' confirmar=' + (aviso ? !!aviso.confirmar : '-') +
+                  ' canal=' + onde + ' ts=' + r.ts + ' check=' + check);
     }
   }catch(e){ return erro((e && e.message) || 'falhou', 502); }
   return Response.json({ ok:true, check });
@@ -438,6 +465,46 @@ async function pessoasSlack(request, env){
       .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
     return Response.json({ ok:true, pessoas: gente });
   }catch(e){ return erro((e && e.message) || 'falhou', 502); }
+}
+
+/* Apaga do canal as mensagens que os TESTES postaram. Só essas: a trava é
+   a marca 'teste-' na chave do disparo, posta na hora da gravação. Aviso de
+   verdade não tem essa marca e não é tocado por este caminho — apagar um
+   lembrete que o time já leu seria pior que deixar teste encalhado.
+
+   O Slack só deixa um bot apagar o que ele mesmo postou, o que é uma
+   segunda trava de graça. */
+async function limparTestes(request, env){
+  const erro = (e, st) => Response.json({ ok:false, erro:e }, { status: st || 400 });
+  if(!await sessaoValida(request, env)) return erro('sem sessão', 401);
+  const d = await lerDisparos(env);
+  const alvos = Object.keys(d).filter(k => k.includes('|teste-'));
+  if(!alvos.length) return Response.json({ ok:true, apagadas:0, falhas:[] });
+
+  let apagadas = 0; const falhas = [];
+  for(const k of alvos){
+    const x = d[k] || {};
+    if(!x.canal || !x.ts){ delete d[k]; continue; }
+    try{
+      const r = await fetch('https://slack.com/api/chat.delete', {
+        method:'POST',
+        headers:{ Authorization:'Bearer ' + env.SLACK_BOT_TOKEN, 'content-type':'application/json' },
+        body: JSON.stringify({ channel: x.canal, ts: x.ts })
+      });
+      const j = await r.json();
+      /* Já apagada na mão conta como sucesso: o objetivo é não estar lá. */
+      if(j.ok || j.error === 'message_not_found'){ apagadas++; delete d[k]; }
+      else falhas.push(j.error || 'recusou');
+    }catch(e){ falhas.push((e && e.message) || 'falhou'); }
+  }
+  await fetch(env.SUPABASE_URL + '/rest/v1/module_blobs?on_conflict=org_id,module', {
+    method: 'POST',
+    headers: { apikey: env.SUPABASE_SERVICE_KEY,
+               Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY,
+               'content-type': 'application/json', Prefer: 'resolution=merge-duplicates' },
+    body: JSON.stringify({ org_id: env.FOREKASH_ORG_ID, module: 'avisos_disparos', data: d })
+  });
+  return Response.json({ ok:true, apagadas, falhas: [...new Set(falhas)] });
 }
 
 async function canaisSlack(request, env){
@@ -482,6 +549,13 @@ async function canaisSlack(request, env){
   achados.sort((a, b) => (b.membro - a.membro) || a.nome.localeCompare(b.nome, 'pt-BR'));
   return Response.json({ ok:true, padrao: (await cfgSlack(env)).canal,
                          truncou: !!cursor, canais: achados });
+}
+
+/* avisoResolve espera um Date; agoraSP() devolve as partes em São Paulo.
+   Este converte pra Date sem sair do fuso. */
+function agoraSP2(){
+  const t = agoraSP();
+  return new Date(t.ano, t.mes - 1, t.dia, t.hora, t.minuto);
 }
 
 /* O gráfico em bloco de código: é o que chega igual no celular e no desktop.
@@ -768,7 +842,10 @@ async function avisosDoMes(env){
     try{
       const r = await postar(env, a.canal || canal, txt);
       const onde = (r && r.channel) || a.canal || canal;
-      if(a.confirmar && r && r.ts) await poeCheck(env, onde, r.ts);
+      if(a.confirmar && r && r.ts){
+        const c = await poeCheck(env, onde, r.ts);
+        if(c !== 'ok') console.warn('[aviso] ' + (a.titulo||a.id) + ' sem ✅: ' + c);
+      }
       /* Registra SEMPRE, com ou sem confirmação: é o que impede o segundo
          disparo da mesma janela. */
       await gravarDisparo(env, a.id, slot, onde, (r && r.ts) || '');
