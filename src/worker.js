@@ -54,6 +54,153 @@ async function colher(env, cfg, resp, quem){
 
 const ok = (t) => new Response(t || '', { status: 200 });
 
+/* ══════════════════════════════════════════════════════════════════════
+   INSTALAÇÃO DO SLACK — um clique, dentro do Forekash
+
+   Antes: criar o app no painel do Slack, nove escopos, instalar, copiar
+   dois segredos pro Cloudflare, duas URLs, dois comandos. Nove passos, e
+   dois exigiam acesso que o usuário não tem.
+
+   Agora: um app só, do Forekash, distribuído. O usuário clica em
+   "Conectar", o Slack pede autorização, e o token daquele workspace volta
+   pra cá amarrado à organização dele.
+
+   O token mora no KV, não no Supabase: é credencial do workspace inteiro
+   e o `module_blobs` é lido pelo navegador com a sessão do usuário.
+
+   O que chega do Slack é roteado pelo `team_id` — é ele que diz de qual
+   empresa é a mensagem. Sem isso, um segundo cliente conectaria e os
+   avisos dele cairiam no canal do primeiro.                              */
+
+const SLACK_ESCOPOS = [
+  'chat:write','app_mentions:read','im:history','im:read','im:write','commands',
+  'channels:read','groups:read','users:read','channels:join',
+  'reactions:write','reactions:read'
+].join(',');
+
+/* O `state` viaja até o Slack e volta. Vai assinado porque é ele que diz
+   em qual organização a instalação vai cair — sem assinatura, qualquer um
+   forjaria um link que instala o Slack dele na empresa dos outros. */
+async function assinarEstado(env, org){
+  const dados = org + '.' + Date.now();
+  const chave = await crypto.subtle.importKey('raw',
+    new TextEncoder().encode(env.SLACK_SIGNING_SECRET || 'sem-segredo'),
+    { name:'HMAC', hash:'SHA-256' }, false, ['sign']);
+  const mac = await crypto.subtle.sign('HMAC', chave, new TextEncoder().encode(dados));
+  const hex = [...new Uint8Array(mac)].map(b => b.toString(16).padStart(2,'0')).join('').slice(0,32);
+  return dados + '.' + hex;
+}
+async function lerEstado(env, state){
+  const p = String(state || '').split('.');
+  if(p.length !== 3) return null;
+  const esperado = await assinarEstado(env, p[0]);
+  /* Compara só a parte da assinatura: o carimbo de tempo do esperado é
+     outro, por definição. */
+  if(esperado.split('.')[2] !== p[2]) return null;
+  /* Meia hora. Link de instalação que vale pra sempre é link que vaza. */
+  if(Date.now() - Number(p[1]) > 30*60*1000) return null;
+  return p[0];
+}
+
+async function oauthComecar(request, env){
+  const url = new URL(request.url);
+  const org = url.searchParams.get('org') || env.FOREKASH_ORG_ID;
+  if(!env.SLACK_CLIENT_ID)
+    return new Response('Falta SLACK_CLIENT_ID no servidor', { status: 500 });
+  const destino = new URL('https://slack.com/oauth/v2/authorize');
+  destino.searchParams.set('client_id', env.SLACK_CLIENT_ID);
+  destino.searchParams.set('scope', SLACK_ESCOPOS);
+  destino.searchParams.set('state', await assinarEstado(env, org));
+  destino.searchParams.set('redirect_uri', url.origin + '/api/slack/oauth');
+  return Response.redirect(destino.toString(), 302);
+}
+
+/* O Slack volta aqui com um código de uso único. Trocar por token é a
+   única coisa que precisa do client_secret, e ela acontece no servidor. */
+async function oauthVoltar(request, env){
+  const url = new URL(request.url);
+  const erroSlack = url.searchParams.get('error');
+  if(erroSlack) return paginaOAuth('O Slack recusou', erroSlack, false);
+  const code = url.searchParams.get('code');
+  const org = await lerEstado(env, url.searchParams.get('state'));
+  if(!code || !org)
+    return paginaOAuth('Link inválido ou vencido', 'Volte ao Forekash e clique em Conectar de novo.', false);
+  if(!env.SLACK_CLIENT_ID || !env.SLACK_CLIENT_SECRET)
+    return paginaOAuth('Servidor sem credencial', 'Falta SLACK_CLIENT_ID/SECRET.', false);
+
+  const r = await fetch('https://slack.com/api/oauth.v2.access', {
+    method:'POST',
+    headers:{ 'content-type':'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ code, client_id: env.SLACK_CLIENT_ID,
+      client_secret: env.SLACK_CLIENT_SECRET, redirect_uri: url.origin + '/api/slack/oauth' })
+  });
+  const j = await r.json();
+  if(!j.ok) return paginaOAuth('Não consegui concluir', j.error || 'erro', false);
+
+  const inst = {
+    org, team_id: (j.team && j.team.id) || '',
+    team_nome: (j.team && j.team.name) || '',
+    bot_token: j.access_token || '',
+    bot_user: j.bot_user_id || '',
+    escopos: j.scope || '',
+    quando: new Date().toISOString()
+  };
+  if(!inst.team_id || !inst.bot_token) return paginaOAuth('Resposta incompleta do Slack', '', false);
+  /* Duas chaves pro mesmo registro: pelo team_id, que é como o evento
+     chega; e pela org, que é como a tela pergunta "estou conectado?". */
+  await env.SLACK_INSTALLS.put('team:' + inst.team_id, JSON.stringify(inst));
+  await env.SLACK_INSTALLS.put('org:' + org, JSON.stringify(inst));
+  return paginaOAuth('Conectado', 'O MR KASH já está no ' + (inst.team_nome || 'seu Slack') +
+                     '. Pode fechar esta aba.', true);
+}
+
+function paginaOAuth(titulo, texto, ok){
+  return new Response('<!doctype html><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<title>' + titulo + '</title>' +
+    '<style>body{font-family:-apple-system,system-ui,sans-serif;background:#0B1220;color:#E2E8F0;' +
+    'display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px}' +
+    'div{max-width:420px;text-align:center}h1{font-size:1.2rem;margin:0 0 8px;' +
+    'color:' + (ok ? '#6EE7B7' : '#FCA5A5') + '}p{color:#94A3B8;font-size:.9rem;line-height:1.5;margin:0}</style>' +
+    '<div><h1>' + titulo + '</h1><p>' + texto + '</p></div>',
+    { status: ok ? 200 : 400, headers:{ 'content-type':'text/html; charset=utf-8' } });
+}
+
+/* De qual empresa é esta mensagem. Enquanto só existir a instalação por
+   variável de ambiente, cai nela — é o que mantém o Slack de hoje
+   funcionando sem reinstalar nada. */
+async function orgDoTime(env, teamId){
+  if(teamId && env.SLACK_INSTALLS){
+    try{
+      const raw = await env.SLACK_INSTALLS.get('team:' + teamId);
+      if(raw){
+        const i = JSON.parse(raw);
+        if(i && i.org) return { org: i.org, token: i.bot_token, nome: i.team_nome };
+      }
+    }catch(_){}
+  }
+  return { org: env.FOREKASH_ORG_ID, token: env.SLACK_BOT_TOKEN, nome: '' };
+}
+
+/* Em vez de passar org e token por vinte assinaturas de função, troca o
+   `env` por uma cópia com os dois resolvidos. Tudo que já lia
+   `env.FOREKASH_ORG_ID` e `env.SLACK_BOT_TOKEN` passa a falar com a
+   empresa certa sem mudar uma linha. */
+async function envDoTime(env, teamId){
+  const r = await orgDoTime(env, teamId);
+  if(r.org === env.FOREKASH_ORG_ID && r.token === env.SLACK_BOT_TOKEN) return env;
+  return Object.assign({}, env, { FOREKASH_ORG_ID: r.org, SLACK_BOT_TOKEN: r.token });
+}
+
+async function instalacaoDaOrg(env, org){
+  if(!env.SLACK_INSTALLS) return null;
+  try{
+    const raw = await env.SLACK_INSTALLS.get('org:' + (org || env.FOREKASH_ORG_ID));
+    return raw ? JSON.parse(raw) : null;
+  }catch(_){ return null; }
+}
+
+
 /* ── A configuração do Slack mora no Forekash ─────────────────────────
    Canal padrão e quem pode escrever eram variável do Cloudflare: pra
    trocar de canal era preciso editar um arquivo e publicar o Worker.
@@ -212,6 +359,19 @@ export default {
        já é membro: postar num canal onde ele não entrou falha com
        not_in_channel, e oferecer na lista o que não funciona é pior que não
        oferecer. */
+    /* Instalação por OAuth: o "Conectar ao Slack" da tela aponta pra cá. */
+    if(url.pathname === '/api/slack/oauth/start') return oauthComecar(request, env);
+    if(url.pathname === '/api/slack/oauth')       return oauthVoltar(request, env);
+    if(url.pathname === '/api/slack/instalacao'){
+      if(!await sessaoValida(request, env))
+        return Response.json({ ok:false, erro:'sem sessão' }, { status: 401 });
+      const i = await instalacaoDaOrg(env, new URL(request.url).searchParams.get('org'));
+      /* Nunca devolve o token — só se existe e de qual workspace. */
+      return Response.json({ ok:true, conectado: !!i,
+        workspace: (i && i.team_nome) || '', quando: (i && i.quando) || '',
+        porOAuth: !!i, porVariavel: !i && !!env.SLACK_BOT_TOKEN });
+    }
+
     if(url.pathname === '/api/mrkash/canais') return canaisSlack(request, env);
     /* Quem está no workspace, pra escolher na tela quem pode escrever pelo
        Slack em vez de colar id na mão. */
@@ -228,7 +388,7 @@ export default {
   },
 
   async scheduled(event, env, ctx){
-    ctx.waitUntil(avisosDoMes(env).catch(e => console.error('aviso mensal:', e && e.message)));
+    ctx.waitUntil(avisosDeTodos(env).catch(e => console.error('aviso mensal:', e && e.message)));
   }
 };
 
@@ -240,6 +400,10 @@ async function eventosSlack(request, env, ctx){
   if(!assinado) return new Response('assinatura inválida', { status: 401 });
   const ev = JSON.parse(corpo);
   if(ev.type === 'url_verification') return ok(ev.challenge);   // handshake da instalação
+
+  /* De qual empresa é esta mensagem. Tudo abaixo usa o env resolvido — é
+     o que impede o aviso de um cliente cair no canal do outro. */
+  env = await envDoTime(env, ev.team_id || (ev.authorizations && ev.authorizations[0] && ev.authorizations[0].team_id));
 
   const m = ev.event || {};
   if(m.bot_id || m.subtype) return ok();          // não responde a si mesmo nem a edição
@@ -271,6 +435,7 @@ async function comandoSlack(request, env, ctx){
                                           request.headers.get('x-slack-request-timestamp'), corpo);
   if(!assinado) return new Response('assinatura inválida', { status: 401 });
   const p = new URLSearchParams(corpo);
+  env = await envDoTime(env, p.get('team_id'));
   const user = p.get('user_id');
   let texto = (p.get('text') || '').trim();
 
@@ -597,6 +762,7 @@ async function interativoSlack(request, env, ctx){
   if(!assinado) return new Response('assinatura inválida', { status: 401 });
   const p = JSON.parse(new URLSearchParams(corpo).get('payload') || '{}');
   if(p.type !== 'block_actions') return ok();
+  env = await envDoTime(env, (p.team && p.team.id) || p.team_id);
 
   const acao = (p.actions || [])[0] || {};
   const quem = (p.user || {}).id;
@@ -829,16 +995,50 @@ async function quemConfirmou(env){
   return saida;
 }
 
-let _idBot = null;
+/* Por token, não global: com dois workspaces conectados, um cache único
+   faria o bot de uma empresa ser descontado da contagem da outra. */
+const _idBot = new Map();
 async function idDoBot(env){
-  if(_idBot) return _idBot;
+  const k = env.SLACK_BOT_TOKEN || '';
+  if(_idBot.has(k)) return _idBot.get(k);
+  let id = '';
   try{
     const r = await fetch('https://slack.com/api/auth.test', {
-      headers: { Authorization: 'Bearer ' + env.SLACK_BOT_TOKEN } });
+      headers: { Authorization: 'Bearer ' + k } });
     const j = await r.json();
-    _idBot = j.ok ? j.user_id : '';
-  }catch(_){ _idBot = ''; }
-  return _idBot;
+    id = j.ok ? j.user_id : '';
+  }catch(_){}
+  _idBot.set(k, id);
+  return id;
+}
+
+/* O cron atende TODAS as empresas conectadas. Antes rodava com a variável
+   de ambiente e pronto — com um segundo cliente instalado, os avisos dele
+   simplesmente nunca sairiam, e sem erro nenhum pra denunciar.
+
+   Uma empresa que falhe não pode calar as outras: cada uma no seu try. */
+async function avisosDeTodos(env){
+  const envs = [];
+  if(env.SLACK_INSTALLS){
+    try{
+      const { keys } = await env.SLACK_INSTALLS.list({ prefix: 'org:' });
+      for(const k of (keys || [])){
+        try{
+          const i = JSON.parse(await env.SLACK_INSTALLS.get(k.name));
+          if(i && i.org && i.bot_token)
+            envs.push(Object.assign({}, env,
+              { FOREKASH_ORG_ID: i.org, SLACK_BOT_TOKEN: i.bot_token }));
+        }catch(_){}
+      }
+    }catch(e){ console.warn('lista de instalações:', e && e.message); }
+  }
+  /* Sem nenhuma instalação por OAuth, vale a configuração por variável —
+     é o que mantém a TALLER funcionando enquanto ela não reconecta. */
+  if(!envs.length && env.SLACK_BOT_TOKEN) envs.push(env);
+  for(const e of envs){
+    try{ await avisosDoMes(e); }
+    catch(err){ console.error('avisos de ' + e.FOREKASH_ORG_ID + ':', err && err.message); }
+  }
 }
 
 async function avisosDoMes(env){

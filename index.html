@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1793024432"/>
+  <meta name="fk-build" content="forekash-v1793025206"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -10699,6 +10699,14 @@
         line-height:1;padding:0 2px;font-family:inherit}
     .slk-chip button:hover{color:#DC2626}
     .slk-ninguem{font-size:.79rem;color:#94A3B8;margin-bottom:8px}
+    .slk-conectar{display:flex;align-items:center;justify-content:space-between;gap:16px;
+        flex-wrap:wrap;padding:14px 16px;border-radius:10px;margin-bottom:14px;
+        background:linear-gradient(135deg,#F5F3FF 0%,#EDE9FE 100%);border:1px solid #DDD6FE}
+    .slk-conectar b{display:block;font-size:.88rem;color:#4C1D95;margin-bottom:3px}
+    .slk-conectar span{display:block;font-size:.78rem;color:#6D28D9;line-height:1.45;max-width:460px}
+    [data-theme="dark"] .slk-conectar{background:#2E1065;border-color:#4C1D95}
+    [data-theme="dark"] .slk-conectar b{color:#DDD6FE}
+    [data-theme="dark"] .slk-conectar span{color:#A78BFA}
     .slk-dica{font-size:.76rem;color:#64748B;line-height:1.5;padding:9px 12px;border-radius:8px;
         background:#F8FAFC;border:1px solid #E2E8F0}
     .slk-dica code{background:#E2E8F0;padding:1px 5px;border-radius:4px;font-size:.74rem}
@@ -131440,6 +131448,16 @@ async function slackRender(){
   }catch(_){}
 
   let html0 = '';
+  /* Como esta conta está ligada: por OAuth (o botão Conectar) ou pela
+     configuração antiga de servidor. A diferença importa — só a primeira
+     um usuário consegue fazer sozinho. */
+  let inst = null;
+  try{
+    let jwt = '';
+    try{ jwt = ((await window.sb.auth.getSession()).data.session || {}).access_token || ''; }catch(_){}
+    if(jwt) inst = await (await fetch('/api/slack/instalacao',
+      { headers:{ Authorization:'Bearer ' + jwt } })).json();
+  }catch(_){}
   const falta = [];
   if(ping && ping.temChaves){
     if(!ping.temChaves.slackBot) falta.push('token do bot');
@@ -131459,6 +131477,20 @@ async function slackRender(){
       'do cache deste navegador — o MR KASH está usando os valores de fábrica. ' +
       'Mexa em qualquer campo abaixo pra forçar a subida.</span></div>';
   }
+  if(inst && inst.ok && !inst.conectado){
+    html0 += '<div class="slk-conectar">' +
+      '<div><b>Conecte seu Slack</b>' +
+      '<span>Um clique. O Slack pede autorização e pronto — sem criar app, ' +
+      'sem copiar token, sem configurar URL.</span></div>' +
+      '<button class="btn btn-p" onclick="slackConectar()">Conectar ao Slack</button>' +
+      '</div>';
+  } else if(inst && inst.conectado){
+    html0 += '<div class="slk-dica" style="margin-bottom:14px">Conectado ao workspace ' +
+      '<b>' + mrkEscape(inst.workspace || '—') + '</b>' +
+      (inst.quando ? ' desde ' + _memDiaBr(String(inst.quando).slice(0,10)) : '') + '.' +
+      ' <button class="mem-vertudo" style="margin:0" onclick="slackConectar()">reconectar</button></div>';
+  }
+
   let html = (typeof html0 === 'string' ? html0 : '') +
     '<div class="slk-estado ' + (ligado ? 'on' : 'off') + '">' +
     '<span class="slk-bola"></span>' +
@@ -131619,6 +131651,16 @@ function slackTira(id){
   _slkPreencheGente();
 }
 
+/* Abre o consentimento do Slack numa aba. A organização vai no `state`,
+   assinada pelo servidor — é ela que diz onde a instalação vai cair. */
+function slackConectar(){
+  const org = (typeof fkcOrgId === 'function') ? fkcOrgId() : '';
+  window.open('/api/slack/oauth/start' + (org ? '?org=' + encodeURIComponent(org) : ''),
+              '_blank', 'noopener');
+  if(typeof toast === 'function')
+    toast('Autorize na aba que abriu e volte aqui', 6000);
+}
+
 function slackCanalMuda(){
   const v = (document.getElementById('slk-canal')||{}).value || '';
   SLACK_CFG.canal = v;
@@ -131659,6 +131701,7 @@ try{
   window.slackPoe = slackPoe; window.slackTira = slackTira;
   window._slkCanalNota = _slkCanalNota;
   window.slackSoAvisoPoe = slackSoAvisoPoe; window.slackSoAvisoTira = slackSoAvisoTira;
+  window.slackConectar = slackConectar;
   window.slackLiberarMuda = slackLiberarMuda; window.slackCanais = slackCanais;
   window._slkNomeCanal = _slkNomeCanal;
 }catch(_){}
