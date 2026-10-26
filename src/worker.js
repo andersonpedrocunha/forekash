@@ -167,6 +167,19 @@ export default {
       }
       if(url.searchParams.get('teste') && await sessaoValida(request, env)){
         r.canal = cfg.canal;
+        /* Quais módulos de configuração existem MESMO na nuvem. A tela
+           precisa disso pra não jurar que está tudo salvo quando o que ela
+           mostra veio só do cache do navegador. */
+        try{
+          const q = await fetch(env.SUPABASE_URL +
+            `/rest/v1/module_blobs?org_id=eq.${env.FOREKASH_ORG_ID}&select=module`,
+            { headers: { apikey: env.SUPABASE_SERVICE_KEY,
+                         Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY } });
+          const mods = q.ok ? (await q.json()).map(x => x.module) : [];
+          r.naNuvem = { slack_cfg: mods.includes('slack_cfg'),
+                        avisos: mods.includes('avisos'),
+                        mrk_memoria: mods.includes('mrk_memoria') };
+        }catch(_){}
         try{
           const q = await fetch(env.SUPABASE_URL + '/rest/v1/module_blobs?select=module&limit=1',
             { headers: { apikey: env.SUPABASE_SERVICE_KEY,

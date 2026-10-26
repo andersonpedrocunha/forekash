@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1793019856"/>
+  <meta name="fk-build" content="forekash-v1793020033"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -131423,6 +131423,7 @@ async function slackRender(){
       jwt ? { headers:{ Authorization:'Bearer ' + jwt } } : undefined)).json();
   }catch(_){}
 
+  let html0 = '';
   const falta = [];
   if(ping && ping.temChaves){
     if(!ping.temChaves.slackBot) falta.push('token do bot');
@@ -131432,7 +131433,18 @@ async function slackRender(){
   const ligado = !!(ping && ping.ok && !falta.length);
   const canalAtual = SLACK_CFG.canal || (ping && ping.canal) || '';
 
-  let html = '<div class="slk-estado ' + (ligado ? 'on' : 'off') + '">' +
+  /* "Está salvo?" não pode ser deduzido da tela: ela lê o cache do
+     navegador, que pode estar à frente da nuvem sem ninguém saber. Quem
+     responde é o servidor, olhando o que existe de verdade no banco. */
+  if(ping && ping.naNuvem && !ping.naNuvem.slack_cfg){
+    html0 = '<div class="slk-estado off" style="margin-bottom:10px">' +
+      '<span class="slk-bola"></span>' +
+      '<span><b>Esta configuração ainda não está na nuvem.</b> O que você vê aqui saiu ' +
+      'do cache deste navegador — o MR KASH está usando os valores de fábrica. ' +
+      'Mexa em qualquer campo abaixo pra forçar a subida.</span></div>';
+  }
+  let html = (typeof html0 === 'string' ? html0 : '') +
+    '<div class="slk-estado ' + (ligado ? 'on' : 'off') + '">' +
     '<span class="slk-bola"></span>' +
     (ligado
       ? '<b>Conectado.</b> O MR KASH responde quando chamam e posta os avisos sozinho.'
