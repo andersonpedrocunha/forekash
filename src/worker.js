@@ -136,6 +136,21 @@ export default {
       /* "O token tem permissão de listar canal?" não diz nada da empresa —
          responde 'ok' ou 'missing_scope'. Fica aberto porque é justamente a
          pergunta de quem ainda não conseguiu entrar na tela. */
+      if(url.searchParams.get('teste')){
+        /* Quais módulos de configuração existem MESMO na nuvem. A tela
+           precisa disso pra não jurar que está tudo salvo quando o que ela
+           mostra veio só do cache do navegador. */
+        try{
+          const q = await fetch(env.SUPABASE_URL +
+            `/rest/v1/module_blobs?org_id=eq.${env.FOREKASH_ORG_ID}&select=module`,
+            { headers: { apikey: env.SUPABASE_SERVICE_KEY,
+                         Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY } });
+          const mods = q.ok ? (await q.json()).map(x => x.module) : [];
+          r.naNuvem = { slack_cfg: mods.includes('slack_cfg'),
+                        avisos: mods.includes('avisos'),
+                        mrk_memoria: mods.includes('mrk_memoria') };
+        }catch(_){}
+      }
       if(url.searchParams.get('teste') && env.SLACK_BOT_TOKEN){
         try{
           const q = await fetch('https://slack.com/api/users.conversations?limit=1', {
@@ -167,19 +182,7 @@ export default {
       }
       if(url.searchParams.get('teste') && await sessaoValida(request, env)){
         r.canal = cfg.canal;
-        /* Quais módulos de configuração existem MESMO na nuvem. A tela
-           precisa disso pra não jurar que está tudo salvo quando o que ela
-           mostra veio só do cache do navegador. */
-        try{
-          const q = await fetch(env.SUPABASE_URL +
-            `/rest/v1/module_blobs?org_id=eq.${env.FOREKASH_ORG_ID}&select=module`,
-            { headers: { apikey: env.SUPABASE_SERVICE_KEY,
-                         Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY } });
-          const mods = q.ok ? (await q.json()).map(x => x.module) : [];
-          r.naNuvem = { slack_cfg: mods.includes('slack_cfg'),
-                        avisos: mods.includes('avisos'),
-                        mrk_memoria: mods.includes('mrk_memoria') };
-        }catch(_){}
+
         try{
           const q = await fetch(env.SUPABASE_URL + '/rest/v1/module_blobs?select=module&limit=1',
             { headers: { apikey: env.SUPABASE_SERVICE_KEY,

@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1793022106"/>
+  <meta name="fk-build" content="forekash-v1793023258"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -142202,6 +142202,149 @@ const FK_CLOUD_MAP = {
   'forekash:slack:v1':         'slack_cfg'
 };
 
+/* ══════════════════════════════════════════════════════════════════════
+   TUDO NA NUVEM, SEM LISTA PRA MANTER
+
+   O mapa de sincronização era escrito à mão. Todo módulo novo nascia fora
+   dele, e ficava fora até alguém perceber — que é exatamente como 61 das
+   83 chaves do app acabaram só no navegador.
+
+   A lógica agora é invertida: sobe TUDO que começa com `forekash:`, e o
+   que não deve subir está numa lista curta e explícita. Esquecer de
+   adicionar passa a ser inofensivo; esquecer de excluir é que seria o
+   erro, e a lista de exclusão cabe num olhar.
+
+   Roda a cada boot: módulo que nascer amanhã entra sozinho.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* O que NUNCA sobe, e por quê. Cada linha aqui é uma decisão, não um
+   esquecimento. */
+const FK_SO_LOCAL = {
+  'forekash:auth:v1':            'credencial de acesso',
+  'forekash:2fa:v1':             'segredo do segundo fator',
+  'forekash:llm:v1':             'sua API key — ela fica só neste navegador, foi combinado',
+  'forekash:mrkash:cfg:v1':      'idem, guarda key',
+  'forekash:api:v1':             'tokens de API',
+  'forekash:pluggy:cfg:v1':      'credencial do Pluggy',
+  'forekash:asaas:cfg:v1':       'credencial do Asaas',
+  // preferências deste aparelho: subir faria a escolha de um monitor
+  // atravessar pro outro sem ninguém pedir
+  'forekash:theme:v1':           'tema deste aparelho',
+  'forekash:cfg-tab:v1':         'aba aberta',
+  'forekash:kb:section':         'seção aberta',
+  'forekash:catmap:collapsed':   'o que está recolhido na tela',
+  'forekash:emp:filtro-status':  'filtro da tela',
+  'forekash:flx-forecast-mode:v1':'modo de visualização',
+  'forekash:mod-history:v1':     'por onde você andou neste navegador',
+  'forekash:webpush:enabled':    'permissão de notificação deste aparelho',
+  'forekash:pomo:daemon':        'timer',
+  // marcadores de "já vi isso": por pessoa e por aparelho
+  'forekash:whatsnew:lastSeen':  'já vi as novidades',
+  'forekash:weekly:lastShown':   'já vi o resumo da semana',
+  'forekash:kashscore:welcomed': 'já vi a boas-vindas',
+  'forekash:seed:disabled':      'marcador de instalação',
+  'forekash:backup:last_at':     'quando este navegador fez backup',
+  'forekash:backup:pesados_em':  'idem'
+};
+const _fkSoLocal = k => !!FK_SO_LOCAL[k] || /^forekash:migration:/.test(k);
+
+/* forekash:ofx-memoria:v1 → ofx_memoria. Determinístico, pra que a mesma
+   chave caia sempre no mesmo módulo, em qualquer sessão. */
+function fkNomeModulo(chave){
+  return String(chave)
+    .replace(/^forekash:/, '')
+    .replace(/:v\d+$/, '')
+    .replace(/[^a-z0-9]+/gi, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase();
+}
+
+/* Registra no mapa tudo que ainda não está nele. Chamado ANTES do primeiro
+   sync da sessão, senão a chave muda e ninguém escuta. */
+/* Módulos que já têm dono: são gravados por `cloudBlobSync()` chamado na
+   mão dentro de cada tela, com o formato que aquela tela espera. Derivar
+   um nome igual a partir de uma chave do localStorage faria duas fontes
+   diferentes escreverem o mesmo blob — e a última a salvar venceria,
+   apagando a outra. Entram na lista de nomes tomados pra receber prefixo. */
+const FK_MOD_COM_DONO = ['analise','asaas','board','cac','conciliacao','diag','dispo',
+  'estrutura','impostos','kashscore','notas','outras_op','pessoas','receita',
+  'sup_tickets','viagens','catmap_local','avisos','mrk_memoria','slack_cfg',
+  'avisos_disparos','avisos_confirma'];
+
+function fkRegistrarTudo(){
+  let novos = 0;
+  const jaUsados = new Set(Object.values(FK_CLOUD_MAP).concat(FK_MOD_COM_DONO));
+  for(let i = 0; i < localStorage.length; i++){
+    const k = localStorage.key(i);
+    if(!k || !k.startsWith('forekash:')) continue;
+    if(FK_CLOUD_MAP[k] || _fkSoLocal(k)) continue;
+    let mod = fkNomeModulo(k);
+    if(!mod) continue;
+    /* Colisão de nome apagaria um módulo com outro. Prefixa em vez de
+       arriscar: melhor um nome feio que um dado por cima do outro. */
+    if(jaUsados.has(mod)) mod = 'lk_' + mod;
+    if(jaUsados.has(mod)) continue;
+    FK_CLOUD_MAP[k] = mod;
+    jaUsados.add(mod);
+    novos++;
+  }
+  if(novos) console.log('[FK] ☁ ' + novos + ' chaves entraram no mapa de sincronização');
+  return novos;
+}
+
+/* Sobe o que ainda não está lá. Não sobrescreve quem já tem conteúdo na
+   nuvem: a nuvem pode estar à frente deste navegador, e este caminho não
+   tem como saber qual dos dois é o mais novo. Para esses, o sync normal
+   resolve no próximo save. */
+async function fkSubirTudo(silencioso){
+  if(window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER){
+    if(!silencioso && typeof toast === 'function') toast('Precisa estar logado na nuvem');
+    return null;
+  }
+  fkRegistrarTudo();
+  const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
+  if(!orgId) return null;
+
+  let existentes = new Set();
+  try{
+    const { data } = await window.sb.from('module_blobs').select('module').eq('org_id', orgId);
+    existentes = new Set((data || []).map(x => x.module));
+  }catch(e){ console.warn('[FK] ☁ não li o que já existe:', e && e.message); return null; }
+
+  const subiu = [], pulou = [], falhou = [];
+  for(const [chave, mod] of Object.entries(FK_CLOUD_MAP)){
+    if(existentes.has(mod)){ pulou.push(mod); continue; }
+    let bruto = null;
+    try{ bruto = localStorage.getItem(chave); }catch(_){}
+    if(!bruto) continue;
+    let dados;
+    try{ dados = JSON.parse(bruto); }catch(_){ dados = bruto; }
+    if(dados == null) continue;
+    /* Vazio não vira linha: criar blob vazio na nuvem faria a auditoria
+       dizer "está lá" sobre uma casca. */
+    if(typeof dados === 'object' && !Object.keys(dados).length) continue;
+    try{
+      const { error } = await window.sb.from('module_blobs')
+        .upsert({ org_id: orgId, module: mod, data: dados }, { onConflict: 'org_id,module' });
+      if(error) throw error;
+      subiu.push(mod + ' (' + Math.round(bruto.length/1024) + ' kB)');
+    }catch(e){ falhou.push(mod + ': ' + (e.message || e)); }
+  }
+  console.log('[FK] ☁ subiu:', subiu.length, '· já estavam:', pulou.length, '· falhou:', falhou.length);
+  if(subiu.length) console.log('[FK] ☁', subiu.join(', '));
+  if(falhou.length) console.warn('[FK] ☁ falhas:', falhou.join(' | '));
+  if(!silencioso && typeof toast === 'function'){
+    toast(subiu.length
+      ? '☁ ' + subiu.length + ' módulo(s) foram pra nuvem · ' + pulou.length + ' já estavam'
+      : 'Tudo já estava na nuvem · ' + pulou.length + ' módulos', 6000);
+  }
+  return { subiu, pulou, falhou };
+}
+try{
+  window.fkRegistrarTudo = fkRegistrarTudo; window.fkSubirTudo = fkSubirTudo;
+  window.fkNomeModulo = fkNomeModulo; window.FK_SO_LOCAL = FK_SO_LOCAL;
+}catch(_){}
+
 // Debounce por key pra não sincar a cada keystroke
 const _fkCloudDebounce = {};
 function _fkCloudSync(localKey, value){
@@ -142267,6 +142410,11 @@ async function fkCloudFullHydrate(){
   }
   // A partir daqui a nuvem já desceu: escrever de volta é seguro.
   window.FK_HIDRATADO = true;
+  /* Registra no mapa toda chave que ainda não está nele e sobe o que
+     faltar. Roda a cada boot de propósito: é o que garante que módulo
+     novo não nasça fora da nuvem outra vez. */
+  try{ fkRegistrarTudo(); }catch(e){ console.warn('[FK] registrar:', e); }
+  try{ fkSubirTudo(true); }catch(e){ console.warn('[FK] subir tudo:', e); }
   /* Depois de hidratar — e antes que qualquer sync suba de volta — tira o que
      o seed plantou nesta conta. Limpar só o servidor não adiantava: o
      navegador ressincronizava a cópia suja em segundos. */
