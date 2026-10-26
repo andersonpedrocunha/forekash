@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1793020033"/>
+  <meta name="fk-build" content="forekash-v1793022106"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -116914,11 +116914,27 @@ async function cloudBlobSync(moduleName, getDataFn){
   }
   /* Primeira trava: módulo que não desceu não sobe. A flag global não serve
      aqui — ela fica verdadeira assim que a RODADA termina, mesmo que o fetch
-     deste módulo em particular tenha falhado no caminho. */
+     deste módulo em particular tenha falhado no caminho.
+
+     Mas BLOQUEAR e desistir era pior que o problema que a trava evita. A
+     hidratação do boot pula o fetch de todo módulo que já tem cache local
+     (`if(existingLocal) continue`), e esta linha é a única do arquivo que
+     marca a flag. Resultado: da segunda sessão em diante, módulo com cache
+     nunca mais subia. A edição ficava só no navegador e o único rastro era
+     um console.warn — exatamente o oposto de "tudo na nuvem".
+
+     Agora ela desce o módulo AQUI, na hora, e só bloqueia se nem isso der.
+     Custa uma leitura no primeiro save de cada módulo por sessão, não uma
+     por módulo no boot, e preserva o que a trava protege: nada sobe antes
+     de a nuvem ter sido consultada. As outras duas travas — "a rodada
+     ainda não terminou" e "o blob encolheu demais" — seguem valendo. */
   if (!_FK_BLOB_HIDRATADO[moduleName]){
-    try{ console.warn('[FK] sync de ' + moduleName + ' bloqueado — este módulo não desceu da nuvem'); }catch(_){}
+    try{ await cloudBlobFetch(moduleName); }catch(_){}
+  }
+  if (!_FK_BLOB_HIDRATADO[moduleName]){
+    try{ console.warn('[FK] sync de ' + moduleName + ' bloqueado — não consegui ler a nuvem'); }catch(_){}
     try{ if(typeof _fkAvisaSyncFalhou === 'function')
-      _fkAvisaSyncFalhou(moduleName, new Error('módulo não carregou da nuvem — recarregue a página antes de editar')); }catch(_){}
+      _fkAvisaSyncFalhou(moduleName, new Error('não consegui ler este módulo na nuvem — confira a conexão')); }catch(_){}
     return;
   }
   const flagK = moduleName;
