@@ -145,10 +145,13 @@ export default {
             `/rest/v1/module_blobs?org_id=eq.${env.FOREKASH_ORG_ID}&select=module`,
             { headers: { apikey: env.SUPABASE_SERVICE_KEY,
                          Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY } });
-          const mods = q.ok ? (await q.json()).map(x => x.module) : [];
-          r.naNuvem = { slack_cfg: mods.includes('slack_cfg'),
-                        avisos: mods.includes('avisos'),
-                        mrk_memoria: mods.includes('mrk_memoria') };
+          /* A lista inteira, só os NOMES. É o que permite auditar de fora
+             se "tudo na nuvem" é verdade — conferir três módulos escolhidos
+             a dedo respondia sempre que sim. Nome de módulo não diz nada
+             sobre o conteúdo nem sobre a empresa. */
+          const mods = q.ok ? (await q.json()).map(x => x.module).sort() : [];
+          r.naNuvem = mods;
+          r.quantos = mods.length;
         }catch(_){}
       }
       if(url.searchParams.get('teste') && env.SLACK_BOT_TOKEN){

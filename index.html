@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1793023258"/>
+  <meta name="fk-build" content="forekash-v1793024432"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -131452,7 +131452,7 @@ async function slackRender(){
   /* "Está salvo?" não pode ser deduzido da tela: ela lê o cache do
      navegador, que pode estar à frente da nuvem sem ninguém saber. Quem
      responde é o servidor, olhando o que existe de verdade no banco. */
-  if(ping && ping.naNuvem && !ping.naNuvem.slack_cfg){
+  if(ping && Array.isArray(ping.naNuvem) && !ping.naNuvem.includes('slack_cfg')){
     html0 = '<div class="slk-estado off" style="margin-bottom:10px">' +
       '<span class="slk-bola"></span>' +
       '<span><b>Esta configuração ainda não está na nuvem.</b> O que você vê aqui saiu ' +
@@ -142305,15 +142305,18 @@ async function fkSubirTudo(silencioso){
   const orgId = (typeof fkcOrgId === 'function') ? fkcOrgId() : null;
   if(!orgId) return null;
 
-  let existentes = new Set();
+  /* Traz o CONTEÚDO, não só os nomes. Comparar nome só respondia "existe",
+     e foi isso que deixou os avisos congelados na nuvem por dias: o módulo
+     estava lá, com a versão de uma semana atrás, e o boot pulava porque
+     "já existe". Buraco preenchido não é o mesmo que estado garantido. */
+  let remoto = new Map();
   try{
-    const { data } = await window.sb.from('module_blobs').select('module').eq('org_id', orgId);
-    existentes = new Set((data || []).map(x => x.module));
+    const { data } = await window.sb.from('module_blobs').select('module,data').eq('org_id', orgId);
+    remoto = new Map((data || []).map(x => [x.module, x.data]));
   }catch(e){ console.warn('[FK] ☁ não li o que já existe:', e && e.message); return null; }
 
-  const subiu = [], pulou = [], falhou = [];
+  const subiu = [], pulou = [], falhou = [], protegidos = [];
   for(const [chave, mod] of Object.entries(FK_CLOUD_MAP)){
-    if(existentes.has(mod)){ pulou.push(mod); continue; }
     let bruto = null;
     try{ bruto = localStorage.getItem(chave); }catch(_){}
     if(!bruto) continue;
@@ -142323,20 +142326,33 @@ async function fkSubirTudo(silencioso){
     /* Vazio não vira linha: criar blob vazio na nuvem faria a auditoria
        dizer "está lá" sobre uma casca. */
     if(typeof dados === 'object' && !Object.keys(dados).length) continue;
+
+    const temRemoto = remoto.has(mod);
+    if(temRemoto){
+      /* Idêntico: não gasta escrita. */
+      if(JSON.stringify(remoto.get(mod)) === JSON.stringify(dados)){ pulou.push(mod); continue; }
+      /* Diferente, mas o local encolheu demais: NÃO sobe. É a trava que
+         existe desde que um login novo apagou 893 kB de Pessoas — um
+         navegador com estado parcial não pode ganhar da nuvem cheia. */
+      if(_fkBlobEncolheuDemais(dados, remoto.get(mod))){ protegidos.push(mod); continue; }
+    }
     try{
       const { error } = await window.sb.from('module_blobs')
         .upsert({ org_id: orgId, module: mod, data: dados }, { onConflict: 'org_id,module' });
       if(error) throw error;
-      subiu.push(mod + ' (' + Math.round(bruto.length/1024) + ' kB)');
+      subiu.push(mod + (temRemoto ? ' (atualizado)' : ' (novo)'));
     }catch(e){ falhou.push(mod + ': ' + (e.message || e)); }
   }
-  console.log('[FK] ☁ subiu:', subiu.length, '· já estavam:', pulou.length, '· falhou:', falhou.length);
+  if(protegidos.length)
+    console.warn('[FK] ☁ não subi (local muito menor que a nuvem):', protegidos.join(', '));
+  console.log('[FK] ☁ subiu:', subiu.length, '· iguais:', pulou.length,
+              '· protegidos:', protegidos.length, '· falhou:', falhou.length);
   if(subiu.length) console.log('[FK] ☁', subiu.join(', '));
   if(falhou.length) console.warn('[FK] ☁ falhas:', falhou.join(' | '));
   if(!silencioso && typeof toast === 'function'){
     toast(subiu.length
-      ? '☁ ' + subiu.length + ' módulo(s) foram pra nuvem · ' + pulou.length + ' já estavam'
-      : 'Tudo já estava na nuvem · ' + pulou.length + ' módulos', 6000);
+      ? '☁ ' + subiu.length + ' módulo(s) atualizados na nuvem · ' + pulou.length + ' já iguais'
+      : 'Tudo igual na nuvem · ' + pulou.length + ' módulos', 6000);
   }
   return { subiu, pulou, falhou };
 }
