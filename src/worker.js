@@ -850,6 +850,7 @@ export default {
     if(url.pathname === '/api/mrkash/pessoas') return pessoasSlack(request, env);
     /* Quem confirmou, pra tela do Forekash mostrar no card do aviso. */
     if(url.pathname === '/api/mrkash/limpar-testes') return limparTestes(request, env);
+    if(url.pathname === '/api/mrkash/limpar-orfas')  return limparOrfas(request, env);
     /* O copiloto da tela. Recebe os SINAIS que o navegador já calculou — o
        Worker não vai no banco buscar nada aqui de propósito: quem tem os
        números na mão é a tela, e mandar o modelo recalcular seria duas
@@ -1241,6 +1242,63 @@ async function limparTestes(request, env){
     body: JSON.stringify({ org_id: env.FOREKASH_ORG_ID, module: 'avisos_disparos', data: d })
   });
   return Response.json({ ok:true, apagadas, falhas: [...new Set(falhas)] });
+}
+
+/* LÁPIDES. Quando alguém apaga a mensagem que ABRIU uma thread e a thread
+   ainda tem resposta, o Slack não remove nada: deixa "This message was
+   deleted." no lugar, com o "3 replies" embaixo. O canal fica pior do que
+   antes de limpar.
+
+   A lápide some sozinha quando a última resposta some. Como as respostas são
+   do MR KASH, o token do bot pode apagá-las — a de quem perguntou, não: bot
+   só apaga mensagem do próprio bot, e é por isso que a pai tem que ser
+   apagada à mão por quem escreveu.
+
+   O recorte é estreito DE PROPÓSITO, porque isto apaga de verdade:
+   - só mensagem cujo `subtype` é 'tombstone' (ou seja, já apagada) entra;
+   - thread viva nunca é tocada, nem que esteja cheia de teste;
+   - dentro da thread, só o que tem `bot_id` — nunca mensagem de gente.
+   Qualquer um desses três sozinho não bastaria. */
+async function limparOrfas(request, env){
+  const erro = (e, st) => Response.json({ ok:false, erro:e }, { status: st || 400 });
+  if(!await sessaoValida(request, env)) return erro('sem sessão', 401);
+
+  let canal = '';
+  try{ canal = String(((await request.json()) || {}).canal || '').trim(); }catch(_){}
+  if(!canal){ const cfg = await cfgSlack(env); canal = cfg.canal || ''; }
+  if(!canal) return erro('sem canal configurado');
+
+  const slack = async (metodo, qs) => {
+    const r = await fetch('https://slack.com/api/' + metodo + '?' + new URLSearchParams(qs), {
+      headers: { Authorization: 'Bearer ' + env.SLACK_BOT_TOKEN } });
+    return r.json();
+  };
+
+  const hist = await slack('conversations.history', { channel: canal, limit: '200' });
+  if(!hist.ok) return erro('não consegui ler o canal: ' + (hist.error || '?'));
+
+  const lapides = (hist.messages || []).filter(m =>
+    m && m.subtype === 'tombstone' && (m.reply_count || 0) > 0);
+  if(!lapides.length) return Response.json({ ok:true, lapides:0, apagadas:0, falhas:[] });
+
+  let apagadas = 0; const falhas = [];
+  for(const l of lapides){
+    const t = await slack('conversations.replies', { channel: canal, ts: l.ts, limit: '200' });
+    if(!t.ok){ falhas.push(t.error || 'thread ilegível'); continue; }
+    for(const m of (t.messages || [])){
+      if(!m || !m.bot_id || m.ts === l.ts) continue;   // só o bot, nunca a pai
+      const r = await fetch('https://slack.com/api/chat.delete', {
+        method:'POST',
+        headers:{ Authorization:'Bearer ' + env.SLACK_BOT_TOKEN, 'content-type':'application/json' },
+        body: JSON.stringify({ channel: canal, ts: m.ts })
+      });
+      const j = await r.json();
+      /* Já apagada conta como sucesso: o objetivo é não estar lá. */
+      if(j.ok || j.error === 'message_not_found') apagadas++;
+      else falhas.push(j.error || 'recusou');
+    }
+  }
+  return Response.json({ ok:true, lapides: lapides.length, apagadas, falhas: [...new Set(falhas)] });
 }
 
 async function canaisSlack(request, env){
