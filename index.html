@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1793990579"/>
+  <meta name="fk-build" content="forekash-v1793991431"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -27828,8 +27828,6 @@ td.mes.do-extrato{background:#ECFDF5}
           <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center">
             <button class="btn btn-p" onclick="avisoNovo()" style="padding:8px 14px;font-size:.84rem">+ Novo aviso</button>
             <button class="btn btn-sec" onclick="avisoLimparTestes()" style="padding:8px 14px;font-size:.84rem">Limpar testes do canal</button>
-            <button class="btn btn-sec" onclick="avisoLimparOrfas()" style="padding:8px 14px;font-size:.84rem"
-                    title="Apaga as respostas do MR KASH que sobraram em threads cuja pergunta já foi excluída">Limpar restos de conversa</button>
             <span id="avisos-resumo" style="font-size:.76rem;color:#94A3B8"></span>
           </div>
         </div>
@@ -147320,43 +147318,7 @@ async function avisoLimparTestes(){
   else if(confirm('Apagar as mensagens de teste do canal?')) faz();
 }
 
-/* Irmão do avisoLimparTestes, pra um problema diferente: aqui não é teste que
-   sobrou, é RESPOSTA órfã. Quem apaga a pergunta no Slack descobre que a
-   thread não some junto — fica "This message was deleted." com o contador de
-   respostas embaixo, que é mais feio que a bagunça original. O bot só
-   consegue apagar o que ele mesmo escreveu, então a pergunta continua sendo
-   você quem apaga; isto limpa o rastro que ela deixou. */
-async function avisoLimparOrfas(){
-  const faz = async () => {
-    if(typeof toast === 'function') toast('Limpando...');
-    try{
-      let jwt = '';
-      try{ jwt = ((await window.sb.auth.getSession()).data.session || {}).access_token || ''; }catch(_){}
-      if(!jwt){ if(typeof toast==='function') toast('Precisa estar logado na nuvem'); return; }
-      const r = await fetch('/api/mrkash/limpar-orfas', {
-        method:'POST',
-        headers:{ Authorization:'Bearer ' + jwt, 'content-type':'application/json' },
-        body: JSON.stringify({ canal: (typeof SLACK_CFG !== 'undefined' && SLACK_CFG.canal) || '' }) });
-      const j = await r.json().catch(() => ({}));
-      if(typeof toast !== 'function') return;
-      if(!r.ok || !j.ok) toast('Não deu: ' + (j.erro || ('erro ' + r.status)));
-      else if(!j.lapides) toast('Nenhuma conversa órfã no canal');
-      else toast('✓ ' + j.lapides + (j.lapides === 1 ? ' conversa limpa · ' : ' conversas limpas · ') +
-                 j.apagadas + ' resposta(s) apagada(s)' +
-                 (j.falhas && j.falhas.length ? ' · não deu: ' + j.falhas.join(', ') : ''), 6000);
-    }catch(e){ if(typeof toast==='function') toast('Não deu: ' + (e && e.message || 'erro')); }
-  };
-  if(typeof anaConfirm === 'function')
-    anaConfirm({ eyebrow:'Canal', title:'Limpar os restos de conversa?',
-      message:'Apaga as respostas do MR KASH que ficaram em threads cuja pergunta já foi excluída — ' +
-              'é isso que faz sumir o "This message was deleted." do canal.<br><br>' +
-              'Thread com a pergunta ainda no lugar não é tocada, e mensagem de gente nunca é apagada.',
-      okText:'Limpar', cancelText:'Cancelar', danger:true }, faz);
-  else if(confirm('Limpar os restos de conversa do canal?')) faz();
-}
-
 try{
-  window.avisoLimparOrfas = avisoLimparOrfas;
   window.avisoLimparTestes = avisoLimparTestes;
   window.avisoNovo = avisoNovo; window.avisoEditar = avisoEditar;
   window.avisoExcluir = avisoExcluir; window.avisoAlternar = avisoAlternar;
