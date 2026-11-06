@@ -277,7 +277,42 @@ export function briefing(d, op){
       cob.map(c => '- ' + c.nome + ': faturado ' + brl(c.faturado) + ' · recebido ' + brl(c.recebido) +
         (c.aberto > 0.5 ? ' · EM ABERTO ' + brl(c.aberto) : '')).join('\n') +
       '\nOBS: a diferença inclui retenção de imposto e taxa de antecipação de boleto, ' +
-      'não é só inadimplência.');
+      'não é só atraso do cliente.');
+
+  /* MÊS A MÊS, POR CLIENTE — porque é esta a pergunta que ele faz.
+
+     "A BLOOM pagou o vencimento de outubro?" só tinha resposta por dedução:
+     o quadro trazia o total do ano por pagador e uma linha de padrão com a
+     data do último crédito. Ele deduziu errado e afirmou que o último tinha
+     sido 26 de agosto, com o crédito de 6 de outubro conciliado na tela.
+     Dedução sobre dinheiro é onde ele inventa; aqui a resposta se LÊ. */
+  const porCli = {}, ultCli = {};
+  const catsRec = catsReceita(d);
+  for(const l of d.ext){
+    if(!l || l.tipo !== 'ganho' || _pend(l) || !l.contraparte) continue;
+    if(catsRec.size && !catsRec.has(String(l.categoria || '').trim().toLowerCase())) continue;
+    const dt = String(l.dataPagamento || l.data || '').slice(0,10);
+    if(!doAno(dt)) continue;
+    const n = String(l.contraparte).trim();
+    if(f.pagadorFora(n) || f.lancFora(l)) continue;
+    const v = Math.abs(Number(l.valorPago != null ? l.valorPago : l.valor) || 0);
+    if(!v) continue;
+    const m = +dt.slice(5,7) - 1;
+    (porCli[n] = porCli[n] || {})[m] = (porCli[n][m] || 0) + v;
+    if(!ultCli[n] || dt > ultCli[n]) ultCli[n] = dt;
+  }
+  const clis = Object.keys(porCli)
+    .map(n => ({ n, total: Object.values(porCli[n]).reduce((a,b)=>a+b,0) }))
+    .sort((a,b) => b.total - a.total).slice(0, 14);
+  if(clis.length)
+    L.push('\n## CRÉDITO POR CLIENTE, MÊS A MÊS ' + ano + ' (o que de fato caiu na conta)\n' +
+      'É AQUI que se responde "fulano pagou o mês X?". Mês que não aparece na linha é mês em ' +
+      'que NADA entrou daquele cliente. Não deduza do total do ano nem da data do último ' +
+      'crédito: leia a linha.\n' +
+      clis.map(c => '- ' + c.n + ': ' +
+        Object.keys(porCli[c.n]).map(Number).sort((a,b)=>a-b)
+          .map(m => MES[m] + ' ' + brl(porCli[c.n][m])).join(' · ') +
+        ' · último crédito em ' + ultCli[c.n]).join('\n'));
 
   // folha — só o agregado quando a trava está ligada
   const gente = folhaDoAno(d, ano);

@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1793983715"/>
+  <meta name="fk-build" content="forekash-v1793985022"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8662,7 +8662,18 @@
     /* Palavra no lugar do símbolo. Eram quatro glifos por linha (↗ ⤓ ✎ ×) e
        ninguém adivinha qual é qual — o ↗ ainda repetia o que o próprio nome
        do arquivo já faz, que é abrir. Ficaram três palavras, discretas, que
-       se leem sem legenda. */
+       se leem sem legenda.
+
+       Depois vieram cinco: com "trocar conta", cada extrato carregava
+       abrir/baixar/renomear/trocar conta/remover. Num mês com nove extratos
+       são 45 links repetidos, e o nome do arquivo — a única coisa que muda de
+       linha pra linha — ficava espremido entre eles. As palavras continuam,
+       mas dentro do ⋯, que é o padrão que o Extrato já usa. Abrir não entrou
+       na conta: o nome do arquivo É o botão de abrir, sempre foi. */
+    .ctb-mais-btn{background:none;border:none;cursor:pointer;font-family:inherit;
+      font-size:.95rem;line-height:1;padding:2px 7px;border-radius:5px;color:#CBD5E1;
+      flex:none;transition:color .12s,background .12s}
+    .ctb-mais-btn:hover{color:#1E293B;background:#F1F5F9}
     /* O mês primeiro, destacado: é o erro caro e silencioso. */
     .ctb-esc-mes{display:flex;align-items:center;gap:10px;margin-bottom:14px;
       padding:10px 13px;background:#EFF6FF;border:1px solid #DBEAFE;border-radius:9px;
@@ -27825,11 +27836,20 @@ td.mes.do-extrato{background:#ECFDF5}
         <div data-cfg-tab="integracoes" class="cfg-section memoria" id="cfg-memoria-section">
           <div class="cfg-section-hd">
             <div class="cfg-section-ico">
-              <!-- Núcleo de máquina, no vocabulário do Horizon: corpo de chip com pinos
-                   e UM glifo interno. Renderiza a 17px com traço 2 num viewBox de 24,
-                   então é só o que sobrevive nesse tamanho. Testei galão, tridente e
-                   dois galões: a 17px todos empastam. O losango aguenta. -->
-              <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3.5"/><path d="M9.5 1.9V4M14.5 1.9V4M9.5 20v2.1M14.5 20v2.1M1.9 9.5H4M1.9 14.5H4M20 9.5h2.1M20 14.5h2.1"/><path d="M12 8.3 15.7 12 12 15.7 8.3 12Z"/></svg>
+              <!-- Núcleo de máquina, no vocabulário do Horizon: casco facetado e o
+                   cristal no meio. Renderiza a 17px com traço 2 num viewBox de 24.
+
+                   A versão anterior era um corpo quadrado com oito pinos radiais, e
+                   nesse tamanho virava uma ENGRENAGEM — simetria nos quatro lados com
+                   dentes curtos é exatamente a silhueta de um ícone de configuração.
+                   Ele reclamou disso e estava certo.
+
+                   Rasterizei oito alternativas a 17px e a 14px, em pixel cru, antes de
+                   escolher: a gota lia como água, o galão como seta, a barra como sinal
+                   de menos, o cristal 3D como cubo e o núcleo partido como "play". O
+                   casco alongado com o cristal vertical é o único que não colide com
+                   nada disso e ainda segura forma a 14px. -->
+              <svg viewBox="0 0 24 24"><path d="M7.2 3.4h9.6l4.8 8.6-4.8 8.6H7.2L2.4 12Z"/><path d="M12 7.2 14.8 12 12 16.8 9.2 12Z"/></svg>
             </div>
             <h3>O cérebro do MR KASH</h3>
           </div>
@@ -70813,6 +70833,28 @@ async function cloudCartoesFetch(){
     cartoes.nextFaturaId = Math.max(0, ...cartoes.faturas.map(f => f.id || 0)) + 1;
     cartoes.nextLancId   = Math.max(0, ...cartoes.lancamentos.map(l => l.id || 0)) + 1;
     try { localStorage.setItem(CART_KEY, JSON.stringify(cartoes)); } catch(_){}
+    /* A PROJEÇÃO VELHA SE SUBSTITUI SOZINHA, SEM BOTÃO.
+
+       A projeção item a item existe desde 05/11 (`cartProjetarFaturas`), mas
+       ficou só atrás do "Refazer projeção" na barra dos Cartões. Enquanto
+       ninguém clicasse, nada mudava: o Extrato seguia mostrando as 42 linhas
+       da gambiarra anterior — UMA "Compras do mês · previsão" por fatura, o
+       mesmo valor repetido até dez/27, tudo em ADM. Valor acumulado numa
+       linha só não dá pra categorizar, não entra em KPI nenhum e joga o
+       gasto inteiro na categoria errada.
+
+       A condição é a ORIGEM ANTIGA, não um flag de "já migrei". Flag erraria
+       nos dois sentidos: rodando antes de a nuvem chegar, marcaria como feito
+       em cima de dado velho e nunca mais tentaria. Pela origem ela insiste
+       até o dado certo estar gravado — e para sozinha, porque a projeção nova
+       escreve 'projecao-parcela' e 'projecao-recorrente', nunca
+       'projecao-fatura'. */
+    try{
+      if(cartoes.lancamentos.some(l => l && l.origem === 'projecao-fatura')){
+        const _n = cartProjetarFaturas({ silencioso: true });
+        console.log('[FK] 💳 projeção refeita item a item · ' + _n + ' linha(s)');
+      }
+    }catch(e){ console.warn('[FK] projeção de cartão:', e && e.message); }
     try { if (typeof cartRender === 'function') cartRender(); } catch(_){}
     console.log('[FK] cartões fetch OK:', cartoes.list.length, 'cartões /',
                 cartoes.faturas.length, 'faturas /', cartoes.lancamentos.length, 'lançamentos');
@@ -136696,15 +136738,61 @@ function _ctbNomeArquivo(onde, chave, i, a, abrir){
   }
   return `<button type="button" class="ctb-nome" onclick="${abrir}" title="Abrir">${_extEsc(a.nome)}</button>`;
 }
+/* UM ⋯ NO LUGAR DA PAREDE DE LINKS.
+
+   Guarda as ações num registro por render em vez de empurrar HTML pra dentro
+   de um atributo. As chamadas em si continuam strings, como no resto do
+   arquivo — elas só carregam mês e índice, nunca o nome do arquivo, que é a
+   única coisa aqui com aspas e apóstrofo.
+
+   `_CTB_MENUS` zera a cada render: quem guardasse um índice de HTML já
+   substituído não tem mais onde clicar. */
+let _CTB_MENUS = [];
+function _ctbAcoes(itens){
+  const lista = itens.filter(Boolean);
+  if(!lista.length) return '';
+  const k = _CTB_MENUS.push(lista) - 1;
+  return `<button type="button" class="ctb-mais-btn" onclick="ctbMenu(event,${k})"
+            title="Mais opções" aria-label="Mais opções">⋯</button>`;
+}
+function ctbMenu(ev, k){
+  ev.preventDefault(); ev.stopPropagation();
+  _extCloseAllMenus();                      // o mesmo fechamento do Extrato
+  const itens = _CTB_MENUS[k] || [];
+  if(!itens.length) return;
+  const LARG = 184;
+  const r = ev.currentTarget.getBoundingClientRect();
+  const m = document.createElement('div');
+  m.className = 'ext-pop-menu';
+  m.id = 'ext-pop-menu-active';
+  m.style.minWidth = LARG + 'px';
+  m.style.top  = (r.bottom + 4) + 'px';
+  /* Alinhado pela direita do botão, e nunca pra fora da janela. */
+  m.style.left = Math.max(8, Math.min(r.right - LARG, innerWidth - LARG - 8)) + 'px';
+  for(const [rotulo, acao, perigo] of itens){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ext-pop-item';
+    b.textContent = rotulo;
+    if(perigo) b.style.color = '#DC2626';
+    b.setAttribute('onclick', '_extCloseAllMenus();' + acao);
+    m.appendChild(b);
+  }
+  document.body.appendChild(m);
+  setTimeout(() => document.addEventListener('click', _extCloseAllMenus, { once:true }), 0);
+}
+
 function _ctbLinhaArquivo(onde, chave, i, a, abrir, remover){
   const balde = { ext:'extratos', nota:'notasForn', avulso:'avulsos', doc:'doc' }[onde] || 'extratos';
   return `<li>
       ${_ctbNomeArquivo(onde, chave, i, a, abrir)}
       <span class="ctb-meta">${_ctbTam(a.tamanho)}</span>
-      <button type="button" class="ctb-txt" onclick="${abrir}" title="Ver em outra aba, sem baixar">abrir</button>
-      <button type="button" class="ctb-txt" onclick="ctbBaixar('${balde}','${chave}',${i})" title="Baixar o arquivo">baixar</button>
-      <button type="button" class="ctb-txt" onclick="ctbRenomear('${onde}','${chave}',${i})" title="Mudar o nome do arquivo">renomear</button>
-      <button type="button" class="ctb-x" onclick="${remover}" title="Remover o arquivo">remover</button>
+      ${_ctbAcoes([
+        ['Abrir em outra aba', abrir],
+        ['Baixar',             `ctbBaixar('${balde}','${chave}',${i})`],
+        ['Renomear',           `ctbRenomear('${onde}','${chave}',${i})`],
+        ['Remover',            remover, true]
+      ])}
     </li>`;
 }
 
@@ -136737,6 +136825,7 @@ function _ctbEsperarDado(){
 
 function renderContador(){
   _CTB_HIST = null;      // o Extrato pode ter mudado desde o último render
+  _CTB_MENUS = [];       // os índices do render anterior morrem com o HTML dele
   const ym = ctbYm();
   const $ = id => document.getElementById(id);
   const _pronto = _ctbPronto();
@@ -136907,11 +136996,13 @@ function renderContador(){
                     <div class="ctb-li-top">
                       ${_ctbNomeArquivo('ext', ym, i, a, `ctbAbrirExtrato('${ym}',${i})`)}
                       <span class="ctb-meta">${ctbMeses().length > 1 ? _ctbYmLabel(ym) + ' · ' : ''}${_ctbTam(a.tamanho)}</span>
-                      <button type="button" class="ctb-txt" onclick="ctbAbrirExtrato('${ym}',${i})" title="Ver em outra aba, sem baixar">abrir</button>
-                      <button type="button" class="ctb-txt" onclick="ctbBaixar('extratos','${ym}',${i})" title="Baixar o arquivo">baixar</button>
-                      <button type="button" class="ctb-txt" onclick="ctbRenomear('ext','${ym}',${i})" title="Mudar o nome do arquivo">renomear</button>
-                      <button type="button" class="ctb-txt" onclick="ctbTrocarConta('${ym}',${i})" title="Mudar a conta deste extrato">trocar conta</button>
-                      <button type="button" class="ctb-x" onclick="ctbRemoverExtrato('${ym}',${i})" title="Remover o arquivo">remover</button>
+                      ${_ctbAcoes([
+                        ['Abrir em outra aba', `ctbAbrirExtrato('${ym}',${i})`],
+                        ['Baixar',             `ctbBaixar('extratos','${ym}',${i})`],
+                        ['Renomear',           `ctbRenomear('ext','${ym}',${i})`],
+                        ['Trocar de conta',    `ctbTrocarConta('${ym}',${i})`],
+                        ['Remover',            `ctbRemoverExtrato('${ym}',${i})`, true]
+                      ])}
                     </div>
                     ${editandoConta
                       ? `<input id="ctb-cc" class="ctb-cc" type="text" placeholder="nome da conta"
@@ -136945,10 +137036,12 @@ function renderContador(){
               ${CTB_DOC_CATS.map(c => `<option${(d.categoria === c) ? ' selected' : ''}>${c}</option>`).join('')}
             </select>
             <span class="ctb-meta">${_ctbTam(d.tamanho)}</span>
-            <button type="button" class="ctb-txt" onclick="ctbAbrirDoc(${i})" title="Ver em outra aba, sem baixar">abrir</button>
-            <button type="button" class="ctb-txt" onclick="ctbBaixar('doc','',${i})" title="Baixar o arquivo">baixar</button>
-            <button type="button" class="ctb-txt" onclick="ctbRenomear('doc','',${i})" title="Mudar o nome do arquivo">renomear</button>
-            <button type="button" class="ctb-x" onclick="ctbRemoverDoc(${i})" title="Remover o arquivo">remover</button>
+            ${_ctbAcoes([
+              ['Abrir em outra aba', `ctbAbrirDoc(${i})`],
+              ['Baixar',             `ctbBaixar('doc','',${i})`],
+              ['Renomear',           `ctbRenomear('doc','',${i})`],
+              ['Remover',            `ctbRemoverDoc(${i})`, true]
+            ])}
           </li>`).join('')}</ul>`
       : `<div class="ctb-vazio">Nenhum documento guardado. Contratos e certidões ficam aqui e entram em todo pacote.</div>`;
   }
@@ -136973,8 +137066,10 @@ function renderContador(){
             <ul class="ctb-lista">${comps.slice(0,30).map((c,ci) => `<li>
               <button type="button" class="ctb-nome" onclick="ctbAbrirComprov(${ci})" title="Abrir em nova aba">${_extEsc(c.nome)}</button>
               <span class="ctb-meta">${_multi && c.data ? _ctbYmLabel(String(c.data).slice(0,7)) + ' · ' : ''}${_extEsc(String(c.lanc).slice(0,26))} · ${fmtBRL(c.valor)}</span>
-              <button type="button" class="ctb-txt" onclick="ctbAbrirComprov(${ci})" title="Ver em outra aba, sem baixar">abrir</button>
-              <button type="button" class="ctb-txt" onclick="ctbBaixarComprov(${ci})" title="Baixar o arquivo">baixar</button>
+              ${_ctbAcoes([
+                ['Abrir em outra aba', `ctbAbrirComprov(${ci})`],
+                ['Baixar',             `ctbBaixarComprov(${ci})`]
+              ])}
             </li>`).join('')}${comps.length > 30 ? `<li class="ctb-mais">+${comps.length-30} no pacote</li>` : ''}</ul>`;
     }
     if(avuls.length){
@@ -147992,6 +148087,22 @@ const MRK_PERSONA =
   '- NUNCA enumere. "Maio (-R$ 61.203), junho (-R$ 64.294) e setembro (-R$ 87.046)" é relatório. ' +
   'Escolha o número que importa e diga-o numa frase: "Setembro foi o pior: menos R$ 87 mil."\n' +
   '- Nada de valor entre parênteses. O número vive dentro da frase.\n' +
+  /* Regra contável, porque "nunca enumere" é macio e ele passou por cima:
+     respondeu com CINCO números numa pergunta de sim-ou-não. Dá pra conferir
+     antes de mandar, e é a diferença entre personagem e gerador de relatório. */
+  '- NO MÁXIMO DOIS NÚMEROS por resposta. Conte antes de mandar. Um terceiro só entra se ele ' +
+  'pediu comparação. Esta resposta tem cinco e é exatamente o que ele chama de "sem ' +
+  'personalidade": "STRV: entrou R$ 723.767,85 no ano, 27% de tudo que caiu na conta. Paga todo ' +
+  'mês, por volta do dia 28, e o último crédito foi em 25 de outubro. Faturado R$ 813.355,76, ' +
+  'então R$ 89.587,91 ainda não bateu na conta." O MESMO fato, do jeito certo: "Pagou dia 25, ' +
+  'como sempre. Faltam R$ 89 mil do ano."\n' +
+  '- Não abra reconhecendo: "Entendi errado", "Justo", "Combinado", "Certo", "Boa". Corrige ' +
+  'dentro da própria resposta — ele vê que você entendeu pelo conteúdo, não pelo aviso.\n' +
+  /* Pedido dele, 06/11/2026. Ele não quer o cliente dele acusado de má-fé por
+     um bot que só sabe que o dinheiro não chegou. */
+  '- NUNCA diga "calote", "caloteiro", "golpe" ou "má-fé". Dinheiro que não chegou é "em ' +
+  'aberto", "não entrou ainda", "atrasado". Você relata o que o extrato mostra; intenção de ' +
+  'não pagar você não tem como ver, e afirmar isso de um cliente dele é passar do ponto.\n' +
   '- Não abra com hedge: "depende", "em geral", "é importante notar". Abra com o fato.\n' +
   '- Centavo só quando muda a decisão. "R$ 87 mil" diz mais que "R$ 87.046,69".\n' +
   '- Quando ele perguntar de um jeito torto, provocativo ou figurado, responda no mesmo tom antes ' +
@@ -148155,6 +148266,57 @@ function _mrkDocConhecido(){
   return L.join('\n\n');
 }
 
+/* QUEM É ESTA EMPRESA — a coisa que faltava pra ele não se confundir.
+
+   Numa NFS-e há dois CNPJs: o do PRESTADOR, que emitiu e vai receber, e o do
+   TOMADOR, que contratou e vai pagar. Sem saber qual dos dois é a casa, o
+   modelo chuta. Numa nota em que a MIRTILO cobrou R$ 20 mil da TALLER ele
+   chutou "recebimento", pôs a TALLER como cliente e ofereceu criar a própria
+   empresa no cadastro.
+
+   O CNPJ vem do módulo Empresas (que é onde ele é editado) e, se faltar, do
+   settings. Devolve lista: filial tem CNPJ próprio e qualquer um deles é
+   "nós". */
+function _mrkDocMeusCnpjs(){
+  const sai = new Set();
+  const limpa = v => String(v || '').replace(/\D/g, '');
+  try{
+    for(const e of ((typeof EMPRESAS !== 'undefined' && EMPRESAS.list) || [])){
+      const d = limpa(e && (e.cnpj || e.documento));
+      if(d.length === 14) sai.add(d);
+    }
+  }catch(_){}
+  try{
+    const d = limpa(typeof settings !== 'undefined' && settings && settings.cnpj);
+    if(d.length === 14) sai.add(d);
+  }catch(_){}
+  return [...sai];
+}
+function _mrkDocMeusNomes(){
+  const sai = new Set();
+  const norm = v => String(v || '').trim();
+  try{
+    for(const e of ((typeof EMPRESAS !== 'undefined' && EMPRESAS.list) || []))
+      if(e && norm(e.nome)) sai.add(norm(e.nome));
+  }catch(_){}
+  try{
+    if(typeof settings !== 'undefined' && settings && norm(settings.companyName))
+      sai.add(norm(settings.companyName));
+  }catch(_){}
+  return [...sai];
+}
+function _mrkDocEuSou(){
+  const cn = _mrkDocMeusCnpjs(), nm = _mrkDocMeusNomes();
+  if(!cn.length && !nm.length) return '';
+  return 'QUEM SOU EU NESTE DOCUMENTO: a empresa do usuário é ' +
+    (nm.length ? nm.join(' / ') : 'a que você identificar') +
+    (cn.length ? ', CNPJ ' + cn.join(' / ') : '') + '. ' +
+    'Esse CNPJ NUNCA é o fornecedor nem o cliente do lançamento — é a casa. ' +
+    'Se ele aparecer como TOMADOR/DESTINATÁRIO/PAGADOR/SACADO, o documento é ' +
+    'uma DESPESA e a contraparte é o prestador/emitente. Se aparecer como ' +
+    'PRESTADOR/EMITENTE/BENEFICIÁRIO, é uma RECEITA e a contraparte é o tomador.';
+}
+
 /* Uma chamada com documento. `instrucao` é o texto que vai depois do arquivo —
    imagem antes do texto é o que o modelo lê melhor. */
 async function mrkDocPerguntar(file, instrucao, comPanorama){
@@ -148226,8 +148388,55 @@ const MRK_DOC_CAMPOS =
   'É diferente do vencimento. Vazio se o documento não disser",' +
   '"competencia":"AAAA-MM-DD do mês a que o serviço se refere, se o documento disser; senão vazio",' +
   '"fornecedor":"quem recebe o dinheiro, ou quem paga se for ganho","cnpj":"só dígitos, vazio se não houver",' +
+  /* Os DOIS lados, sempre, mesmo quando é óbvio: com eles o app decide a
+     direção comparando com o CNPJ da casa, em vez de confiar no palpite. */
+  '"emitenteNome":"razão social de quem EMITIU (prestador / beneficiário / cedente)","emitenteCnpj":"só dígitos",' +
+  '"destinatarioNome":"razão social de quem RECEBEU a cobrança (tomador / pagador / sacado)","destinatarioCnpj":"só dígitos",' +
   '"numero":"número da nota ou do documento","categoria":"uma das categorias listadas","descricao":"curta, do que se trata",' +
   '"confianca":"hi, md ou lo"}';
+
+/* A DIREÇÃO É DECIDIDA AQUI, NÃO PELO MODELO.
+
+   Com os dois lados na mão e o CNPJ da casa, isto é comparação de string —
+   não há o que chutar. O modelo leu uma NFS-e em que a MIRTILO cobrou
+   R$ 20 mil da TALLER e devolveu "recebimento", com a TALLER de cliente e um
+   convite pra criar a própria empresa no cadastro. O palpite dele agora só
+   vale quando nenhum dos dois CNPJs é o nosso.
+
+   Separada de `mrkDocExtrair` de propósito: ali dentro só dá pra exercitar
+   chamando a API de verdade, e esta é a parte que não pode errar. */
+function _mrkDocDirecao(j){
+  const dig = v => String(v || '').replace(/\D/g, '');
+  const meus = _mrkDocMeusCnpjs();
+  let tipo = (j && j.tipo === 'ganho') ? 'ganho' : 'gasto';
+  let forn = String((j && j.fornecedor) || '').trim();
+  let cnpj = dig(j && j.cnpj);
+  const emitCnpj = dig(j && j.emitenteCnpj), destCnpj = dig(j && j.destinatarioCnpj);
+  const souEmit = !!emitCnpj && meus.includes(emitCnpj);
+  const souDest = !!destCnpj && meus.includes(destCnpj);
+  if(souDest && !souEmit){
+    tipo = 'gasto';
+    forn = String((j && j.emitenteNome) || forn).trim();
+    cnpj = emitCnpj || cnpj;
+  } else if(souEmit && !souDest){
+    tipo = 'ganho';
+    forn = String((j && j.destinatarioNome) || forn).trim();
+    cnpj = destCnpj || cnpj;
+  }
+  /* Rede de segurança: sobrou a própria empresa como contraparte — documento
+     sem os dois lados, CNPJ ilegível, razão social escrita de outro jeito.
+     Campo vazio, que a pessoa preenche, é melhor que a empresa virando
+     cliente de si mesma no cadastro. */
+  const desufixa = s => String(s || '').toLowerCase().replace(/\s+/g,' ').trim()
+                          .replace(/\s+(ltda|s\.?\/?a\.?|me|epp|eireli)\.?$/,'');
+  if(meus.length && cnpj && meus.includes(cnpj)){ cnpj = ''; forn = ''; }
+  if(forn){
+    const meusNomes = _mrkDocMeusNomes().map(desufixa).filter(Boolean);
+    if(meusNomes.includes(desufixa(forn))) forn = '';
+  }
+  return { tipo, forn, cnpj };
+}
+try{ window._mrkDocDirecao = _mrkDocDirecao; }catch(_){}
 
 /* Extração para a Captura IA: devolve no formato que o review do Extrato já
    espera, pra nada mudar da revisão em diante. */
@@ -148235,7 +148444,11 @@ async function mrkDocExtrair(file){
   const instrucao =
     'Este documento é uma nota fiscal, boleto, recibo, fatura ou comprovante de pagamento de uma ' +
     'empresa brasileira. Extraia os campos para lançar no financeiro.\n\n' +
+    _mrkDocEuSou() + '\n\n' +
     _mrkDocConhecido() + '\n\n' +
+    'Preencha SEMPRE `emitenteNome`/`emitenteCnpj` e `destinatarioNome`/`destinatarioCnpj`, ' +
+    'mesmo quando a direção parecer óbvia — numa NFS-e o prestador é o emitente e o tomador é o ' +
+    'destinatário. Nunca devolva a empresa do usuário como `fornecedor`.\n\n' +
     'Regras: valor é o total a pagar (número puro, ponto decimal, sem "R$" e sem separador de milhar). ' +
     'Data no formato AAAA-MM-DD. Se um campo não estiver no documento, devolva string vazia — ' +
     'não invente. `confianca` é sua confiança na LEITURA do valor e da data.\n\n' +
@@ -148252,9 +148465,10 @@ async function mrkDocExtrair(file){
   const conf = (j.confianca === 'hi' || j.confianca === 'md' || j.confianca === 'lo') ? j.confianca : 'md';
   const valor = (j.valor === '' || j.valor == null) ? null : (parseFloat(j.valor) || null);
   const data  = /^\d{4}-\d{2}-\d{2}$/.test(String(j.data || '')) ? j.data : new Date().toISOString().slice(0,10);
-  const forn  = String(j.fornecedor || '').trim();
+
+  const { tipo, forn, cnpj } = _mrkDocDirecao(j);
   return {
-    tipo: (j.tipo === 'ganho') ? 'ganho' : 'gasto',
+    tipo: tipo,
     valor: valor,      valorConf: valor ? conf : 'no',
     data: data,        dataConf: /^\d{4}-\d{2}-\d{2}$/.test(String(j.data || '')) ? conf : 'no',
     /* A emissão era PEDIDA ao modelo e jogada fora aqui — por isso a
@@ -148265,7 +148479,7 @@ async function mrkDocExtrair(file){
     dataEmissao: /^\d{4}-\d{2}-\d{2}$/.test(String(j.competencia || '')) ? j.competencia
                : (/^\d{4}-\d{2}-\d{2}$/.test(String(j.emissao || '')) ? j.emissao : ''),
     fornecedor: forn || null, fornConf: forn ? conf : 'no', fornKnown: null,
-    cnpj: String(j.cnpj || '').replace(/\D/g,'') || null,
+    cnpj: cnpj || null,
     numero: String(j.numero || '').trim() || null,
     categoria: String(j.categoria || '').trim() || null,
     catConf: String(j.categoria || '').trim() ? conf : 'no',
