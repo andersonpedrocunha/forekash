@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1793985022"/>
+  <meta name="fk-build" content="forekash-v1793986528"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -27836,20 +27836,25 @@ td.mes.do-extrato{background:#ECFDF5}
         <div data-cfg-tab="integracoes" class="cfg-section memoria" id="cfg-memoria-section">
           <div class="cfg-section-hd">
             <div class="cfg-section-ico">
-              <!-- Núcleo de máquina, no vocabulário do Horizon: casco facetado e o
-                   cristal no meio. Renderiza a 17px com traço 2 num viewBox de 24.
+              <!-- CÉREBRO DE MÁQUINA. Hemisfério esquerdo lobado, hemisfério direito em
+                   placa reta, e o sulco entre os dois. Renderiza a 17px com traço 2 num
+                   viewBox de 24.
 
-                   A versão anterior era um corpo quadrado com oito pinos radiais, e
-                   nesse tamanho virava uma ENGRENAGEM — simetria nos quatro lados com
-                   dentes curtos é exatamente a silhueta de um ícone de configuração.
-                   Ele reclamou disso e estava certo.
+                   Duas tentativas falharam antes, e as duas pelo mesmo motivo: fui pra
+                   forma geométrica SIMÉTRICA, que é o que vira logo. Quadrado com oito
+                   pinos radiais virou engrenagem de configuração; hexágono alongado com
+                   losango dentro virou o losango da Renault. Ele apontou os dois.
 
-                   Rasterizei oito alternativas a 17px e a 14px, em pixel cru, antes de
-                   escolher: a gota lia como água, o galão como seta, a barra como sinal
-                   de menos, o cristal 3D como cubo e o núcleo partido como "play". O
-                   casco alongado com o cristal vertical é o único que não colide com
-                   nada disso e ainda segura forma a 14px. -->
-              <svg viewBox="0 0 24 24"><path d="M7.2 3.4h9.6l4.8 8.6-4.8 8.6H7.2L2.4 12Z"/><path d="M12 7.2 14.8 12 12 16.8 9.2 12Z"/></svg>
+                   O que aprendi rasterizando ~30 alternativas a 17px e 14px em pixel
+                   cru: o que faz LER cérebro é o contorno lobado, e faceta pequena não
+                   sobrevive — vira ruído e o desenho desaba pra polígono. A gota lia
+                   como água, o galão como seta, a barra como menos, o cristal 3D como
+                   cubo, a diagonal como símbolo de proibido, os pinos como pernas.
+
+                   A assimetria é o ponto, não um descuido: um lado orgânico e o outro
+                   em placa é o que diz "máquina" num tamanho em que nenhum detalhe
+                   interno sobreviveria — e é o que impede isto de virar logo. -->
+              <svg viewBox="0 0 24 24"><path d="M12 4.1 16.8 4.9 18.9 7.5 21.2 9.9 19.8 12 21 15 17.8 17.6 14 20 11.7 19.7c-1.5 1.1-3.9.7-4.9-.9-2.6.1-4.6-2-4.4-4.5-1.6-1.3-1.7-3.8-.3-5.3-.4-2.5 1.4-4.7 4-4.8 1.3-1.7 3.9-1.6 5.3-.1Z"/><path d="M12 4.1v15.6"/></svg>
             </div>
             <h3>O cérebro do MR KASH</h3>
           </div>
@@ -93829,6 +93834,77 @@ function extCapturaSetTipo(t){
 }
 try { window.extCapturaSetTipo = extCapturaSetTipo; } catch(e){}
 
+/* O MESMO DOCUMENTO LANÇADO DUAS VEZES É DINHEIRO EM DOBRO.
+
+   Boleto que chega por e-mail e também no PDF da fatura, nota que ele já
+   lançou à mão e depois passa na Captura — sem isto nasce um gêmeo e o caixa
+   previsto fica errado pra baixo. Pedido dele: se já existe, ANEXAR nele e
+   completar o que falta; só criar novo quando não existe.
+
+   O casamento é deliberadamente estreito, porque falso positivo aqui some com
+   um lançamento de verdade: mesmo valor ao centavo, data a até 7 dias (o
+   vencimento lido pode diferir do digitado) e a MESMA identidade — número de
+   documento igual, ou CNPJ igual, ou contraparte com o mesmo nome. Valor e
+   data sozinhos não bastam: duas assinaturas de R$ 99 no mesmo dia são duas
+   contas. */
+function _ecapNomeChave(s){
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(/[^a-z0-9]+/g,' ').replace(/\s+(ltda|sa|s a|me|epp|eireli)\s*$/,'').trim();
+}
+function _ecapAchaExistente(alvo){
+  try{
+    if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return null;
+    const dias = (a, b) => Math.abs((new Date(a + 'T12:00:00') - new Date(b + 'T12:00:00')) / 864e5);
+    const num  = String(alvo.numero || '').replace(/\D/g,'');
+    const cnpj = String(alvo.cnpj || '').replace(/\D/g,'');
+    const nome = _ecapNomeChave(alvo.forn);
+    for(const l of extratoData.lancamentos){
+      if(!l || l.tipo !== alvo.tipo || !l.data) continue;
+      if(Math.abs(Math.abs(Number(l.valor) || 0) - alvo.valor) > 0.01) continue;
+      if(dias(String(l.data).slice(0,10), alvo.data) > 7) continue;
+      const lNum  = String(l.numeroDocumento || l.documento || '').replace(/\D/g,'');
+      const lCnpj = String(l.cnpj || (l.contraparteDoc || '')).replace(/\D/g,'');
+      /* Nome bate por PREFIXO, não por igualdade: a Captura devolve a razão
+         social inteira ("MIRTILO PERFORMANCE DIGITAL") e o cadastro costuma
+         ter o apelido ("Mirtilo"). Exigir igualdade deixava passar o gêmeo
+         justamente no caso comum. Quatro letras no mínimo, senão "SA" casaria
+         com meio mundo — e o casamento ainda exige mesmo valor, mesmo sentido
+         e a mesma semana. */
+      const lNome = _ecapNomeChave(l.contraparte);
+      const porNome = nome && lNome && nome.length >= 4 && lNome.length >= 4 &&
+                      (nome === lNome || nome.startsWith(lNome) || lNome.startsWith(nome));
+      const mesmo = (num && lNum && num === lNum)
+                 || (cnpj && lCnpj && cnpj === lCnpj)
+                 || porNome;
+      if(mesmo) return l;
+    }
+  }catch(_){}
+  return null;
+}
+/* Completa o que falta no que já existe, sem sobrescrever o que ele digitou:
+   campo preenchido fica como está. O anexo é sempre somado à lista. */
+function _ecapAnexarNoExistente(lan, campos){
+  if(!lan.numeroDocumento && campos.numero) lan.numeroDocumento = campos.numero;
+  if(!lan.cnpj && campos.cnpj)              lan.cnpj = campos.cnpj;
+  if(!lan.dataEmissao && campos.dataEmissao) lan.dataEmissao = campos.dataEmissao;
+  const lista = Array.isArray(lan.anexo) ? lan.anexo.slice() : [];
+  const novos = [];
+  if(ECAP_STATE.file){
+    novos.push(ECAP_STATE.fileBase64
+      ? { name: ECAP_STATE.file.name, type: ECAP_STATE.file.type, size: ECAP_STATE.file.size, dataUrl: ECAP_STATE.fileBase64 }
+      : { name: ECAP_STATE.file.name, type: ECAP_STATE.file.type, size: ECAP_STATE.file.size, semInline:true });
+  }
+  /* Nome igual já anexado não entra de novo — reanexar o mesmo PDF é o
+     caminho mais curto pra encher o localStorage. */
+  const tem = new Set(lista.map(a => a && a.name));
+  lan.anexo = lista.concat(novos.concat(_ecapAnexos || []).filter(a => a && !tem.has(a.name)));
+  try{ if(typeof _extSave === 'function') _extSave(); }catch(e){
+    if(typeof _extMemoriaAdiante !== 'undefined') _extMemoriaAdiante = true;
+  }
+  if(window.FK_MODE === 'cloud' && typeof cloudExtratoSync === 'function') cloudExtratoSync();
+}
+let _ecapCriarMesmoAssim = false;
+
 function extCapturaSubmit(){
   const fornNome = (document.getElementById('ecap-f-forn')?.value || '').trim();
   const cnpj     = (document.getElementById('ecap-f-cnpj')?.value || '').trim();
@@ -93849,6 +93925,35 @@ function extCapturaSubmit(){
     if(typeof anaAlert==='function') anaAlert({ eyebrow:'⚠ Descrição', title:'Preencha a descrição', message:'Como esse lançamento vai aparecer no extrato?' });
     return;
   }
+
+  /* JÁ EXISTE? Então anexa nele em vez de criar um gêmeo. */
+  if(!_ecapCriarMesmoAssim){
+    const tipoAlvo = (ECAP_STATE && ECAP_STATE.tipo === 'ganho') ? 'ganho' : 'gasto';
+    const jaTem = _ecapAchaExistente({ valor, data, cnpj, numero, forn: fornNome, tipo: tipoAlvo });
+    if(jaTem){
+      const quando = String(jaTem.data).slice(0,10).split('-').reverse().join('/');
+      const quanto = (typeof _extFmtBRL === 'function') ? _extFmtBRL(Math.abs(jaTem.valor)) : jaTem.valor;
+      anaConfirm({
+        eyebrow:'Já existe', title:'Esse lançamento já está no extrato',
+        message:`<b>${quando} · ${quanto}</b><br>${_extEsc(jaTem.contraparte || jaTem.descricao || '')}` +
+                `<br><br>Anexo o documento nele e completo o número e a emissão que estiverem faltando. ` +
+                `Nada do que já está preenchido é sobrescrito.`,
+        okText:'Anexar neste', cancelText:'Criar outro assim mesmo'
+      }, () => {
+        _ecapAnexarNoExistente(jaTem, { numero, cnpj,
+          dataEmissao: (document.getElementById('ecap-f-comp')?.value || '').trim() });
+        if(typeof extCapturaClose === 'function') extCapturaClose();
+        if(typeof renderExtrato === 'function') try{ renderExtrato(); }catch(_){}
+        if(typeof toast === 'function') toast('Documento anexado no lançamento de ' + quando);
+      }, () => {
+        /* Ele decidiu que são dois mesmo. Não pergunta de novo nesta captura. */
+        _ecapCriarMesmoAssim = true;
+        extCapturaSubmit();
+      });
+      return;
+    }
+  }
+  _ecapCriarMesmoAssim = false;
 
   /* 1. Cadastra a contraparte se ainda não existir.
 
