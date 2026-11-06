@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1793996218"/>
+  <meta name="fk-build" content="forekash-v1793996638"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5414,6 +5414,15 @@
                           padding:7px 11px;border-radius:6px;margin-top:6px;display:flex;
                           align-items:center;gap:7px;line-height:1.4}
     .ecap-rev-forn-new b{color:#5C2D04}
+    /* Âmbar, não azul: o aviso de cadastro novo é informação, este é "pare e
+       olhe". Lado a lado no mesmo modal, a cor é o que separa os dois. */
+    .ecap-ja-existe{background:#FFFBEB;border-color:#FDE68A;color:#78350F;
+      display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}
+    .ecap-ja-existe b{color:#78350F}
+    .ecap-ja-btn{flex:none;align-self:center;background:#B45309;color:#fff;border:none;
+      border-radius:7px;padding:8px 14px;font-family:inherit;font-size:.78rem;font-weight:700;
+      cursor:pointer;white-space:nowrap;transition:background .12s}
+    .ecap-ja-btn:hover{background:#92400E}
 
     .ecap-foot{padding:14px 22px;border-top:1px solid #E5E7EB;background:#F8FAFC;
                 display:flex;gap:10px;justify-content:flex-end;align-items:center;flex-wrap:wrap}
@@ -93743,6 +93752,7 @@ function _ecapRenderReview(file, data){
     +   '<button type="button" class="' + (ECAP_STATE.tipo==='gasto'?'active gasto':'') + '" onclick="extCapturaSetTipo(\'gasto\')">Lançar como gasto</button>'
     +   '<button type="button" class="' + (ECAP_STATE.tipo==='ganho'?'active ganho':'') + '" onclick="extCapturaSetTipo(\'ganho\')">Lançar como recebimento</button>'
     + '</div>'
+    + _ecapAvisoJaExiste(data)
     + '<div class="ecap-rev-grid">'
     +   '<div class="ecap-rev-field full">'
     +     '<label>Fornecedor / Cliente ' + _ecapConfBadge(data.fornConf) + '</label>'
@@ -93955,6 +93965,60 @@ function _ecapAnexarNoExistente(lan, campos){
   if(window.FK_MODE === 'cloud' && typeof cloudExtratoSync === 'function') cloudExtratoSync();
 }
 let _ecapCriarMesmoAssim = false;
+let _ecapJaExiste = null;          // o lançamento achado, pro botão do aviso
+
+/* AVISA NA TELA, NÃO NO CLIQUE.
+
+   A busca por duplicata estava só no "Lançar no extrato": ele só descobria
+   que o lançamento já existia depois de mandar criar. O pedido foi que o
+   MR KASH PERCEBESSE e SUGERISSE — isso é na tela, enquanto ele confere os
+   campos, com o caminho mais curto sendo o certo.
+
+   Roda a cada render do review, então acompanha o que ele editar: mudou o
+   valor, a data ou a contraparte, o aviso aparece ou some junto. */
+function _ecapAvisoJaExiste(data){
+  _ecapJaExiste = null;
+  try{
+    const v = Number(data && data.valor) || 0;
+    if(!v) return '';
+    _ecapJaExiste = _ecapAchaExistente({
+      valor: v,
+      data: data.data,
+      numero: data.numero,
+      cnpj: data.cnpj,
+      forn: data.fornecedor,
+      tipo: (ECAP_STATE.tipo === 'ganho') ? 'ganho' : 'gasto'
+    });
+  }catch(_){}
+  if(!_ecapJaExiste) return '';
+  const l = _ecapJaExiste;
+  const quando = String(l.data).slice(0,10).split('-').reverse().join('/');
+  const quanto = (typeof _extFmtBRL === 'function') ? _extFmtBRL(Math.abs(l.valor)) : l.valor;
+  return '<div class="ecap-rev-forn-new ecap-ja-existe" id="ecap-jaexiste">'
+    + '<div><b>Isso já está no seu extrato.</b> ' + _ecapEsc(quando) + ' · ' + _ecapEsc(String(quanto))
+    + (l.contraparte ? ' · ' + _ecapEsc(l.contraparte) : '')
+    + (l.categoria ? ' · ' + _ecapEsc(l.categoria) : '')
+    + '<br>Posso anexar o documento nele e completar o número e a emissão que faltarem, '
+    + 'sem mexer no que já está preenchido. Lançar de novo criaria um gêmeo.</div>'
+    + '<button type="button" class="ecap-ja-btn" onclick="extCapturaAnexarNoExistente()">Anexar neste</button>'
+    + '</div>';
+}
+
+/* O caminho curto do aviso: anexa e fecha, sem passar pelo "Lançar". */
+function extCapturaAnexarNoExistente(){
+  const l = _ecapJaExiste;
+  if(!l) return;
+  const quando = String(l.data).slice(0,10).split('-').reverse().join('/');
+  _ecapAnexarNoExistente(l, {
+    numero: (document.getElementById('ecap-f-num')?.value || '').trim(),
+    cnpj:   (document.getElementById('ecap-f-cnpj')?.value || '').trim(),
+    dataEmissao: (document.getElementById('ecap-f-comp')?.value || '').trim()
+  });
+  if(typeof extCapturaClose === 'function') extCapturaClose();
+  try{ if(typeof renderExtrato === 'function') renderExtrato(); }catch(_){}
+  if(typeof toast === 'function') toast('Documento anexado no lançamento de ' + quando);
+}
+try{ window.extCapturaAnexarNoExistente = extCapturaAnexarNoExistente; }catch(_){}
 
 function extCapturaSubmit(){
   const fornNome = (document.getElementById('ecap-f-forn')?.value || '').trim();
