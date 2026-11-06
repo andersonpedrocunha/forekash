@@ -44,5 +44,17 @@ h = open('index.html', encoding='utf-8').read()
 partes = re.findall(r'<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>', h, re.DOTALL)
 open('/tmp/fk_bump_check.js', 'w').write('\n'.join(partes))
 PY
-node --check /tmp/fk_bump_check.js && node --check sw.js
+# Um por vez, com erro próprio. Em lista `a && b`, o `set -e` IGNORA a
+# falha de `a` — não é o último comando da lista. Era por isso que um
+# SyntaxError no index passava e o script ainda anunciava "JS válido":
+# o echo abaixo rodava de qualquer jeito, e o deploy seguia com o app
+# quebrado.
+if ! node --check /tmp/fk_bump_check.js; then
+  echo "✗ ERRO DE SINTAXE no JS do index.html — NADA foi publicado." >&2
+  exit 1
+fi
+if ! node --check sw.js; then
+  echo "✗ ERRO DE SINTAXE no sw.js — NADA foi publicado." >&2
+  exit 1
+fi
 echo "OK · versão ${VER} · JS válido nos dois arquivos"

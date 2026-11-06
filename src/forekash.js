@@ -40,12 +40,21 @@ async function sb(env, caminho){
 
 export async function carregar(env){
   const org = env.FOREKASH_ORG_ID;
-  const [blobs, lans] = await Promise.all([
+  const [blobs, lans, carts] = await Promise.all([
     sb(env, `module_blobs?org_id=eq.${org}&select=module,data`),
     /* O extrato é a espinha: é o dinheiro que de fato passou pela conta.
        Sem limite de página explícito o PostgREST corta em 1000 — hoje são
        ~820 linhas, mas isso cresce todo mês. */
-    sb(env, `extrato_lancamentos?org_id=eq.${org}&select=data,valor,tipo,status,categoria,conta,contraparte,descricao,numero_documento,data_pagamento,metadata&limit=20000`)
+    /* `importado_de` entra porque é o que separa CONCILIADO de "baixado à
+       mão": linha que veio do arquivo do banco é o próprio extrato. Sem esta
+       coluna o MR KASH não tinha como dizer em que pé está um lançamento, e
+       respondia "não tem recebimento" sobre algo que a tela mostra conciliado. */
+    sb(env, `extrato_lancamentos?org_id=eq.${org}&select=data,valor,tipo,status,categoria,conta,contraparte,descricao,numero_documento,data_pagamento,importado_de,metadata&limit=20000`),
+    /* Compra de cartão também é gasto da empresa, e mora em tabela própria.
+       Sem isto o MR KASH do Slack responde "Infra web: R$ 1.241,28 no ano"
+       com 779 compras de cartão fora da conta — número errado dito com
+       convicção, que é pior que admitir que não sabe. */
+    sb(env, `cartao_lancamentos?org_id=eq.${org}&select=data_compra,valor,descricao,cartao_local_id,data&limit=20000`)
   ]);
   const mods = {};
   for(const b of blobs) mods[b.module] = b.data;
@@ -53,8 +62,40 @@ export async function carregar(env){
     data: l.data, valor: Number(l.valor) || 0, tipo: l.tipo, status: l.status,
     categoria: l.categoria, conta: l.conta, contraparte: l.contraparte,
     descricao: l.descricao, numeroDocumento: l.numero_documento,
-    dataPagamento: l.data_pagamento, ...(l.metadata || {})
+    dataPagamento: l.data_pagamento, ...(l.metadata || {}),
+    /* DEPOIS do spread de propósito: a coluna manda, não o metadata. */
+    importadoDe: l.importado_de || ''
   }));
+  /* Cartão entra na mesma lista, no formato do extrato. Não duplica com o
+     pagamento da fatura: aquele é `transferencia` e o resultado descarta
+     transferência. Categoria e fornecedor vêm do campo `data` (JSON). */
+  const nomeCartao = {};
+  for(const c of (((mods.cartoes || {}).list) || [])) if(c) nomeCartao[c.id] = c.apelido || c.nome || 'Cartão';
+  /* Hoje em ISO, pra decidir o que já aconteceu. */
+  const _hojeISO = new Date().toISOString().slice(0,10);
+  for(const l of (carts || [])){
+    const v = Number(l.valor) || 0;
+    if(!v || !l.data_compra) continue;
+    const d = l.data || {};
+    ext.push({
+      data: l.data_compra, valor: Math.abs(v),
+      tipo: v < 0 ? 'ganho' : 'gasto',        // estorno de cartão é crédito
+      /* COMPRA COM DATA NO FUTURO NÃO É "PAGO".
+         Aqui o status era 'pago' fixo, sem olhar a data. O Cartões projeta as
+         "Compras do mês · previsão" até dez/2027 — 39 linhas — e todas
+         entravam como realizado: contavam no REALIZADO mês a mês e, pior,
+         ocupavam as 12 vagas de ÚLTIMOS LANÇAMENTOS, porque a lista é por data
+         decrescente. O MR KASH olhava o quadro e via só previsão de 2027.
+         Perguntado se a BLOOM pagou outubro, respondeu que o último crédito
+         dela foi em agosto — com o crédito de 6 de outubro no banco, visível
+         na tela dele. Projeção vai pro bloco AGENDADO, no futuro do verbo. */
+      status: (String(l.data_compra).slice(0,10) > _hojeISO) ? 'pendente' : 'pago',
+      categoria: d.categoria || '',
+      conta: nomeCartao[l.cartao_local_id] || 'Cartão',
+      contraparte: d.estabelecimento || '', descricao: l.descricao || '',
+      numeroDocumento: '', dataPagamento: l.data_compra, deCartao: true
+    });
+  }
   return {
     ext,
     receita:  mods.receita  || null,
@@ -168,10 +209,23 @@ export function briefing(d, op){
 
   // realizado mês a mês + categorias + pagadores
   const porMes = {}, porCat = {}, porPagador = {};
+  const futMes = {};            // compromisso agendado, ainda não pago
   let ent = 0, sai = 0;
   for(const l of d.ext){
     if(!doAno(l.data) || (l.tipo !== 'ganho' && l.tipo !== 'gasto')) continue;
     const v = Math.abs(l.valor); if(!v) continue;
+    /* PENDENTE NÃO É REALIZADO. O bloco abaixo se chama "o que passou pela
+       conta" e varria tudo, inclusive o que ainda vai vencer. Depois que o
+       Extrato ganhou 636 lançamentos futuros (os fixos até dez/2027), o MR
+       KASH passou a dizer que "novembro e dezembro entraram R$ 1.205,20 e
+       saíram R$ 234 mil" — meses que nem chegaram. Agendado vai pro bloco
+       próprio, no futuro do verbo. */
+    if(String(l.status || '').toLowerCase() === 'pendente'){
+      const mf = String(l.data).slice(0,7);
+      const bf = futMes[mf] || (futMes[mf] = { e:0, s:0 });
+      if(l.tipo === 'ganho') bf.e += v; else bf.s += v;
+      continue;
+    }
     const m = String(l.data).slice(0,7);
     const b = porMes[m] || (porMes[m] = { e:0, s:0 });
     if(l.tipo === 'ganho'){
@@ -197,6 +251,15 @@ export function briefing(d, op){
       meses.map(m => '- ' + MES[+m.slice(5,7) - 1] + ': entrou ' + brl(porMes[m].e) +
         ' · saiu ' + brl(porMes[m].s) + ' · resultado ' + brlSgn(porMes[m].e - porMes[m].s)).join('\n') +
       '\nAcumulado: entrou ' + brl(ent) + ' · saiu ' + brl(sai) + ' · resultado ' + brlSgn(ent - sai));
+  }
+  /* Separado e no futuro do verbo, pra não virar "entrou" na boca dele. */
+  const mFut = Object.keys(futMes).sort().filter(m => m >= hoje.slice(0,7));
+  if(mFut.length){
+    L.push('\n## AGENDADO ' + ano + ' — ainda NÃO aconteceu (lançamento pendente no Extrato)\n' +
+      'Isto é compromisso com data marcada, não dinheiro que passou pela conta. ' +
+      'Fale sempre no futuro: "vai sair", "está previsto". Nunca "entrou"/"saiu".\n' +
+      mFut.map(m => '- ' + MES[+m.slice(5,7) - 1] + ': a receber ' + brl(futMes[m].e) +
+        ' · a pagar ' + brl(futMes[m].s) + ' · saldo previsto ' + brlSgn(futMes[m].e - futMes[m].s)).join('\n'));
   }
   const cats = Object.entries(porCat).sort((a,b) => b[1] - a[1]).slice(0, 18);
   if(cats.length)
@@ -236,12 +299,29 @@ export function briefing(d, op){
 
   /* Os últimos lançamentos trazem nome e valor na mesma linha — é por aqui
      que o salário de alguém escaparia sem ninguém perguntar por folha. */
-  const ult = d.ext.filter(l => l && l.data && !f.lancFora(l))
-    .sort((a,b) => String(b.data).localeCompare(String(a.data))).slice(0, 12);
+  /* ATÉ HOJE, e com o ESTADO de cada linha.
+
+     Duas coisas estavam erradas aqui, e juntas faziam ele responder besteira
+     com convicção:
+
+     1. Sem corte no presente, a lista era por data decrescente e o topo virava
+        o futuro. Com as projeções de cartão até dez/2027, as 12 vagas eram 12
+        linhas de "Compras do mês · previsão" — nenhum lançamento de verdade
+        sobrava. Ele dizia, com razão sobre o que recebeu, que só via previsão
+        de 2027.
+     2. O estado não vinha. Ele não tinha como saber se algo estava recebido,
+        conciliado ou atrasado, então respondia sobre o status de um
+        lançamento sem nunca ter visto um status. */
+  const ult = d.ext.filter(l => l && l.data && String(l.data).slice(0,10) <= hoje && !f.lancFora(l))
+    .sort((a,b) => String(b.data).localeCompare(String(a.data))).slice(0, 14);
   if(ult.length)
-    L.push('\n## ÚLTIMOS LANÇAMENTOS\n' + ult.map(l => '- ' + String(l.data).slice(0,10) + ' · ' +
+    L.push('\n## ÚLTIMOS LANÇAMENTOS (até hoje — o que vem depois está em AGENDADO)\n' +
+      ult.map(l => '- ' + String(l.data).slice(0,10) + ' · ' +
       (l.tipo === 'ganho' ? '+' : l.tipo === 'gasto' ? '-' : '~') + brl(l.valor) + ' · ' +
-      (l.contraparte || l.descricao || '?') + (l.categoria ? ' [' + l.categoria + ']' : '')).join('\n'));
+      (l.contraparte || l.descricao || '?') + (l.categoria ? ' [' + l.categoria + ']' : '') +
+      ' · ' + selo(l, hoje)).join('\n') +
+      '\nO estado é o mesmo que ele vê na tela do Extrato. CONCILIADO quer dizer ' +
+      'conferido com o arquivo do banco: é o mais forte que existe, não discuta com ele.');
 
   const fora = [];
   if(op.semPessoa) fora.push('pagamento individual de qualquer pessoa (salário, pró-labore, comissão, vale)');
@@ -328,10 +408,39 @@ const _padMed = a => { const s = a.slice().sort((x,y) => x-y), m = s.length >> 1
   return s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2; };
 const _PAD_FORA = /folha|sal[áa]rio|pr[óo]\s*-?\s*labore|comiss|adiantamento|vale|empr[ée]stimo|financiamento/i;
 
+/* Lançamento ainda não baixado. Vale pra TODA leitura de "o que aconteceu":
+   realizado mês a mês, últimos lançamentos, recebido por cliente, folha paga,
+   gráficos. Desde que o Extrato passou a guardar os fixos projetados até
+   dez/2027, não filtrar isso faz o MR KASH falar de mês que não chegou como
+   se já tivesse passado — foi o que ele fez com novembro e dezembro. */
+const _pend = l => String((l && l.status) || '').toLowerCase() === 'pendente';
+
+/* GÊMEO do selo do Extrato (`_extEffStatus` + `_extConcDaLinha` no index.html).
+   A tela mostra três estados e o banco guarda dois: `pago` e `pendente`. O
+   resto é derivado — e como o Worker não derivava nada, o MR KASH falava de
+   status sem nunca ter recebido um.
+
+   CONCILIADO é baixado E conferido com o arquivo do banco. Linha importada de
+   OFX já É o extrato bancário: não existe o que conferir, ela é a fonte. */
+function selo(l, hoje){
+  const st = String((l && l.status) || '').toLowerCase();
+  const dt = String((l && l.data) || '').slice(0,10);
+  if(st === 'pendente') return dt < hoje ? 'ATRASADO' : 'em aberto';
+  const org = String((l && l.importadoDe) || '');
+  if((l && l.conciliacao) || /(^ofx|\.ofx$|extrato)/i.test(org)) return 'CONCILIADO';
+  return (l && l.tipo === 'ganho') ? 'recebido' : 'pago';
+}
+
 function _padGrupo(lancs, tipo, f, hoje){
   const g = {};
   for(const l of lancs){
     if(!l || l.tipo !== tipo || !l.data) continue;
+    /* Padrão se mede no que ACONTECEU. Lançamento pendente é intenção: com os
+       fixos projetados até dez/2027 no Extrato, qualquer fornecedor novo já
+       nasceria com "paga todo mês há 14 meses" sem nunca ter recebido nada,
+       e o "parou de pagar" nunca dispararia, porque sempre haveria um futuro
+       mais recente. */
+    if(String(l.status || '').toLowerCase() === 'pendente') continue;
     if(tipo === 'gasto' && _PAD_FORA.test(l.categoria || '')) continue;
     if(f.lancFora(l)) continue;
     const n = String(l.contraparte || '').trim();
@@ -371,7 +480,7 @@ export function padroes(d, op){
   const cli  = _padGrupo(d.ext, 'ganho', f, d.hoje).sort((a,b) => b.total - a.total);
   const porCat = {};
   for(const l of d.ext){
-    if(!l || l.tipo !== 'gasto' || !l.data) continue;
+    if(!l || l.tipo !== 'gasto' || !l.data || _pend(l)) continue;
     const c = String(l.categoria || '').trim();
     if(!c || f.catFora(c) || f.lancFora(l)) continue;
     (porCat[c] || (porCat[c] = [])).push(+String(l.data).slice(8,10));
@@ -434,7 +543,7 @@ export function cobranca(d, ano){
   }
   const cats = catsReceita(d), rec = {};
   for(const l of d.ext){
-    if(l.tipo !== 'ganho' || !l.contraparte) continue;
+    if(l.tipo !== 'ganho' || !l.contraparte || _pend(l)) continue;
     if(cats.size && !cats.has(String(l.categoria || '').trim().toLowerCase())) continue;
     const dt = String(l.dataPagamento || l.data || '').slice(0,10);
     if(dt.slice(0,4) !== ano) continue;
@@ -484,7 +593,7 @@ export function abertoDetalhado(d, ano){
   // créditos por cliente, em ordem de data
   const creditos = {};
   for(const l of d.ext){
-    if(l.tipo !== 'ganho' || !l.contraparte) continue;
+    if(l.tipo !== 'ganho' || !l.contraparte || _pend(l)) continue;
     if(cats.size && !cats.has(String(l.categoria || '').trim().toLowerCase())) continue;
     const dt = String(l.dataPagamento || l.data || '').slice(0,10);
     if(dt.slice(0,4) !== ano) continue;
@@ -543,7 +652,7 @@ export function folhaDoMes(d, ym){
     .map(p => ({ nome: p.nome, chave: nomeChave(p.nome) }));
   const pagos = new Set();
   for(const l of d.ext){
-    if(!l || !l.contraparte) continue;
+    if(!l || !l.contraparte || _pend(l)) continue;
     if(!/folha/i.test(String(l.categoria || ''))) continue;
     if(String(l.data || '').slice(0,7) !== ym) continue;
     const k = nomeChave(l.contraparte);
@@ -694,7 +803,7 @@ export function grafico(d, id, op){
   if(id === 'mes'){
     const m = {};
     for(const l of d.ext){
-      if(String(l.data).slice(0,4) !== ano) continue;
+      if(String(l.data).slice(0,4) !== ano || _pend(l)) continue;
       if(l.tipo !== 'ganho' && l.tipo !== 'gasto') continue;
       const k = String(l.data).slice(5,7);
       const b = m[k] || (m[k] = { e:0, s:0 });
@@ -773,7 +882,7 @@ export function grafico(d, id, op){
     const porCat = {};
     let folha = 0, total = 0;
     for(const l of d.ext){
-      if(l.tipo !== 'gasto' || String(l.data).slice(0,4) !== ano) continue;
+      if(l.tipo !== 'gasto' || String(l.data).slice(0,4) !== ano || _pend(l)) continue;
       const c = String(l.categoria || 'Sem categoria').trim();
       const v = Math.abs(Number(l.valor) || 0);
       /* O total conta TUDO que saiu, inclusive o que não vira barra. Somando

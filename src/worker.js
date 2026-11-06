@@ -13,7 +13,9 @@ import { carregar, briefing, vocabulario, criarLancamento,
          salvarMemoria, grafico, GRAFICOS } from './forekash.js';
 import { perguntar, postar, assinaturaValida, APRENDER,
          LANCAR, GRAFICAR, separarLancamento, separarMemoria,
-         cartaoLancamento } from './mrkash.js';
+         cartaoLancamento, analisarNoticias, copilotar, lerDiagnostico } from './mrkash.js';
+import { acompanharReceitas, avisarLancamentos } from './acompanhar.js';
+import { montarDeck, renderDeck, narrarDeck, assinarDeck, conferirDeck, listaTemas } from './deck.js';
 
 /* Toda resposta do modelo passa por aqui antes de virar mensagem.
    A marca sai do texto SEMPRE; gravar é que depende de quem falou — memória
@@ -72,31 +74,77 @@ const ok = (t) => new Response(t || '', { status: 200 });
    empresa é a mensagem. Sem isso, um segundo cliente conectaria e os
    avisos dele cairiam no canal do primeiro.                              */
 
-const SLACK_ESCOPOS = [
-  'chat:write','app_mentions:read','im:history','im:read','im:write','commands',
-  'channels:read','groups:read','users:read','channels:join',
-  'reactions:write','reactions:read'
-].join(',');
+/* ══ O QUE A CONEXÃO COM O SLACK PEDE — FONTE ÚNICA ════════════════════
+   Esta lista existia em QUATRO lugares: a string do OAuth, a tabela do
+   diagnóstico e os dois manifests. Quatro cópias da mesma verdade divergem —
+   é questão de tempo até o app pedir um escopo que o diagnóstico não confere,
+   ou prometer na tela algo que não pede.
+
+   Agora o OAuth, o diagnóstico e a TELA saem daqui. O manifest continua
+   separado porque o formato é do Slack, mas `scripts/check-escopos.js`
+   compara os dois e reclama se saírem de sincronia.
+
+   `pra` é o texto da tela do Forekash: o que a empresa ganha. `slack` é a
+   justificativa que o painel do Slack exige por escopo — lá a pergunta é
+   outra, "por que seu app precisa disso", e tem que ser funcional.
+
+   A instalação pede TUDO de uma vez, de propósito. Pedir em fatias obriga a
+   reinstalar a cada recurso novo, e até lá o recurso falha calado com
+   `missing_scope` — foi o que aconteceu com `groups:history`. */
+const SLACK_PERMISSOES = [
+  { escopo:'chat:write',       pra:'Postar no canal que você escolher',
+    slack:'O app publica avisos financeiros e cartões de acompanhamento nos canais que a empresa escolhe na própria tela de configuração.' },
+  { escopo:'app_mentions:read', pra:'Responder quando alguém chamar o MR KASH',
+    slack:'O app responde a perguntas quando é mencionado em um canal; sem isso ele não recebe a menção.' },
+  { escopo:'commands',         pra:'Os comandos /mrkash e /grafico',
+    slack:'O app oferece comandos de barra para consultar números financeiros sem sair do Slack.' },
+  { escopo:'im:read',          pra:'Receber mensagem direta',
+    slack:'Usuários conversam com o app em mensagem direta para consultar dados; sem isso ele não recebe a conversa.' },
+  { escopo:'im:history',       pra:'Manter o fio da conversa na DM',
+    slack:'O app precisa do histórico da própria DM para responder com contexto, em vez de tratar cada pergunta isoladamente.' },
+  { escopo:'im:write',         pra:'Abrir a DM para responder',
+    slack:'O app abre a conversa direta para entregar respostas privadas a quem perguntou.' },
+  { escopo:'channels:read',    pra:'Listar os canais públicos na hora de escolher',
+    slack:'A tela de configuração mostra os canais disponíveis para a empresa escolher onde cada aviso cai.' },
+  { escopo:'groups:read',      pra:'Listar também os canais privados',
+    slack:'Mesma finalidade do channels:read, para os canais privados em que o app foi adicionado.' },
+  { escopo:'channels:history', pra:'Conferir se o aviso já está no canal antes de postar',
+    slack:'Antes de publicar um cartão, o app verifica no histórico recente se aquele mesmo cartão já foi publicado, para não repetir a mensagem. Procura uma marca técnica nas mensagens que ele próprio publicou.' },
+  { escopo:'groups:history',   pra:'O mesmo, nos canais privados',
+    slack:'Mesma finalidade do channels:history, para os canais privados em que o app foi adicionado.' },
+  { escopo:'channels:join',    pra:'Entrar sozinho no canal que você escolher',
+    slack:'Quando a empresa escolhe um canal público na tela, o app entra nele sozinho em vez de exigir um convite manual.' },
+  { escopo:'users:read',       pra:'Listar o time para escolher quem pode pedir dados',
+    slack:'A empresa define quais pessoas podem consultar informação financeira pelo app; a tela precisa listar os membros para essa escolha.' },
+  { escopo:'reactions:write',  pra:'Marcar o ✅ de exemplo no aviso',
+    slack:'O app adiciona uma reação de exemplo nos avisos para que a equipe confirme leitura com um clique.' },
+  { escopo:'reactions:read',   pra:'Contar quem já confirmou',
+    slack:'O app lê as reações dos próprios avisos para saber quem já confirmou.' }
+];
+const SLACK_ESCOPOS = SLACK_PERMISSOES.map(p => p.escopo).join(',');
 
 /* O `state` viaja até o Slack e volta. Vai assinado porque é ele que diz
    em qual organização a instalação vai cair — sem assinatura, qualquer um
    forjaria um link que instala o Slack dele na empresa dos outros. */
-async function assinarEstado(env, org){
-  const dados = org + '.' + Date.now();
+async function _assinar(env, dados){
   const chave = await crypto.subtle.importKey('raw',
     new TextEncoder().encode(env.SLACK_SIGNING_SECRET || 'sem-segredo'),
     { name:'HMAC', hash:'SHA-256' }, false, ['sign']);
   const mac = await crypto.subtle.sign('HMAC', chave, new TextEncoder().encode(dados));
-  const hex = [...new Uint8Array(mac)].map(b => b.toString(16).padStart(2,'0')).join('').slice(0,32);
-  return dados + '.' + hex;
+  return [...new Uint8Array(mac)].map(b => b.toString(16).padStart(2,'0')).join('').slice(0,32);
+}
+async function assinarEstado(env, org){
+  const dados = org + '.' + Date.now();
+  return dados + '.' + await _assinar(env, dados);
 }
 async function lerEstado(env, state){
   const p = String(state || '').split('.');
   if(p.length !== 3) return null;
-  const esperado = await assinarEstado(env, p[0]);
-  /* Compara só a parte da assinatura: o carimbo de tempo do esperado é
-     outro, por definição. */
-  if(esperado.split('.')[2] !== p[2]) return null;
+  /* Reassina o MESMO par org+carimbo que veio. A versão anterior chamava
+     assinarEstado() de novo, que gera um carimbo novo — a assinatura era
+     sobre outro dado e nunca batia. O fluxo inteiro morria aqui, com
+     "link vencido", num link recém-criado. */
+  if(await _assinar(env, p[0] + '.' + p[1]) !== p[2]) return null;
   /* Meia hora. Link de instalação que vale pra sempre é link que vaza. */
   if(Date.now() - Number(p[1]) > 30*60*1000) return null;
   return p[0];
@@ -189,7 +237,10 @@ async function orgDoTime(env, teamId){
 async function envDoTime(env, teamId){
   const r = await orgDoTime(env, teamId);
   if(r.org === env.FOREKASH_ORG_ID && r.token === env.SLACK_BOT_TOKEN) return env;
-  return Object.assign({}, env, { FOREKASH_ORG_ID: r.org, SLACK_BOT_TOKEN: r.token });
+  /* ORG_ENV preserva de quem são as variáveis de ambiente, pra que o
+     padrão delas não seja herdado por outra empresa. */
+  return Object.assign({}, env, { FOREKASH_ORG_ID: r.org, SLACK_BOT_TOKEN: r.token,
+                                  ORG_ENV: env.ORG_ENV || env.FOREKASH_ORG_ID });
 }
 
 async function instalacaoDaOrg(env, org){
@@ -213,11 +264,18 @@ async function instalacaoDaOrg(env, org){
    workspace inteiro, e blob é coisa que o navegador lê. Segredo continua
    sendo segredo. */
 async function cfgSlack(env){
-  const padrao = {
-    canal: env.SLACK_CANAL_EQUIPE || '',
+  /* As variáveis de ambiente descrevem UMA empresa — o canal e o id do dono
+     da TALLER. Elas só podem valer de padrão pra ela. Sem esta checagem, um
+     segundo cliente que instalasse e ainda não tivesse escolhido canal teria
+     os avisos dele caindo no canal privado da primeira, e o dono da primeira
+     poderia escrever no financeiro da segunda. Multi-empresa não é só rotear
+     pelo team_id: é garantir que o padrão de um não vaze pro outro. */
+  const ehOrgDoAmbiente = !env.ORG_ENV || env.ORG_ENV === env.FOREKASH_ORG_ID;
+  const padrao = ehOrgDoAmbiente ? {
+    canal: env.SLACK_CANAL_EQUIPE || '', canalRec: '', cartaoCampos: null,
     quemPode: String(env.MRK_SLACK_USERS || '').split(/[\s,]+/).filter(Boolean),
-    liberar: String(env.MRK_SLACK_LIBERAR || '')
-  };
+    liberar: String(env.MRK_SLACK_LIBERAR || ''), avisosLanc: []
+  } : { canal: '', canalRec: '', cartaoCampos: null, quemPode: [], liberar: '', avisosLanc: [] };
   try{
     const r = await fetch(env.SUPABASE_URL +
       `/rest/v1/module_blobs?org_id=eq.${env.FOREKASH_ORG_ID}&module=eq.slack_cfg&select=data`,
@@ -229,8 +287,19 @@ async function cfgSlack(env){
     if(!d) return padrao;
     return {
       canal: String(d.canal || '').trim() || padrao.canal,
+      /* Vazio é intencional: quer dizer "segue o canal padrão". Sem o campo
+         aqui o blob guardava a escolha e o Worker nunca a lia — a tela
+         diria uma coisa e o cartão cairia em outra. */
+      canalRec: String(d.canalRec || '').trim(),
       quemPode: Array.isArray(d.quemPode) && d.quemPode.length ? d.quemPode : padrao.quemPode,
-      liberar: typeof d.liberar === 'string' ? d.liberar : padrao.liberar
+      liberar: typeof d.liberar === 'string' ? d.liberar : padrao.liberar,
+      /* Avisos de lançamento: cada empresa escreve os seus. Não há padrão de
+         ambiente aqui de propósito — frase e canal de uma não servem pra
+         outra, e herdar seria vazamento entre clientes. */
+      avisosLanc: Array.isArray(d.avisosLanc) ? d.avisosLanc : [],
+      /* Quais campos o cartão mostra. Ausente = o padrão do produto, que é o
+         conjunto enxuto. Empresa que quer valor no canal liga aqui. */
+      cartaoCampos: (d.cartaoCampos && typeof d.cartaoCampos === 'object') ? d.cartaoCampos : null
     };
   }catch(_){ return padrao; }
 }
@@ -246,10 +315,410 @@ function escopoSlack(cfg){
   return { semPessoa: !livre.includes('pessoa'), semDivida: !livre.includes('divida') };
 }
 
+/* ══ MANCHETES DE MERCADO ══════════════════════════════════════════════════
+   Lista fechada de feeds: o `src` que chega é uma CHAVE, nunca uma URL. Se
+   fosse a URL, este endpoint viraria um proxy aberto — qualquer um poderia
+   fazer o Worker buscar qualquer endereço e devolver o conteúdo.           */
+const FEEDS_MERCADO = {
+  /* As chaves são as mesmas de HOME_NEWS_SOURCES no index — se divergirem, o
+     select mostra a fonte e o Worker responde "Fonte desconhecida". */
+  // Brasil
+  'infomoney-mercados': 'https://www.infomoney.com.br/feed/',
+  'infomoney-economia': 'https://www.infomoney.com.br/feed/',
+  'valor':              'https://pox.globo.com/rss/valor/',
+  'folha-mercado':      'https://feeds.folha.uol.com.br/mercado/rss091.xml',
+  'estadao-economia':   'https://www.estadao.com.br/arc/outboundfeeds/feeds/rss/sections/economia/?outputType=xml',
+  'exame':              'https://exame.com/invest/feed/',
+  'braziljournal':      'https://braziljournal.com/categoria/negocios/feed/',
+  'neofeed':            'https://neofeed.com.br/feed/',
+  'capitalreset':       'https://capitalreset.uol.com.br/feed/',
+  'agenciabrasil':      'https://agenciabrasil.ebc.com.br/rss/economia/feed.xml',
+  // Global
+  /* Al Jazeera saiu: responde 403 pro Worker com qualquer user-agent — é
+     bloqueio por IP de datacenter, não por cabeçalho. Reuters e Bloomberg
+     fecharam o RSS público. */
+  'ft-home':            'https://www.ft.com/markets?format=rss',
+  'economist-finance':  'https://www.economist.com/finance-and-economics/rss.xml',
+  'wsj-markets':        'https://feeds.a.dj.com/rss/RSSMarketsMain.xml',
+  'nyt-business':       'https://rss.nytimes.com/services/xml/rss/nyt/Business.xml',
+  'guardian-business':  'https://www.theguardian.com/uk/business/rss',
+  'bbc-business':       'https://feeds.bbci.co.uk/news/business/rss.xml',
+  'cnbc-world':         'https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839135',
+  'marketwatch':        'https://feeds.content.dowjones.io/public/rss/mw_topstories',
+  'nikkei-asia':        'https://asia.nikkei.com/rss/feed/nar',
+  'bi-markets':         'https://markets.businessinsider.com/rss/news'
+};
+function _tagXml(bloco, nome){
+  /* CDATA primeiro: metade dos feeds embrulha o título nele, e a regex
+     simples devolveria "<![CDATA[..." como se fosse o texto. */
+  const cd = new RegExp('<' + nome + '[^>]*>\\s*<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>\\s*</' + nome + '>', 'i').exec(bloco);
+  if(cd) return cd[1].trim();
+  const m = new RegExp('<' + nome + '[^>]*>([\\s\\S]*?)</' + nome + '>', 'i').exec(bloco);
+  return m ? m[1].trim() : '';
+}
+function _limpaTexto(t){
+  return String(t || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"')
+    .replace(/&#39;|&apos;/g,"'").replace(/&nbsp;/g,' ').replace(/&amp;/g,'&')
+    .replace(/\s+/g,' ').trim();
+}
+/* A busca do feed vive sozinha porque dois caminhos precisam dela: a lista do
+   widget e a leitura do MR KASH. Devolve {items} ou {erro}. */
+async function buscarFeed(src){
+  const rss = FEEDS_MERCADO[src];
+  if(!rss) return { erro:'Fonte desconhecida' };
+  const r = await _feedFetch(rss);
+  return r;
+}
+async function noticiasMercado(request, env, ctx){
+  const url = new URL(request.url);
+  const src = String(url.searchParams.get('src') || '').trim();
+  const rss = FEEDS_MERCADO[src];
+  const json = (body, status) => new Response(JSON.stringify(body), {
+    status: status || 200,
+    headers: { 'content-type': 'application/json; charset=utf-8',
+               'cache-control': 'public, max-age=300' }
+  });
+  if(!rss) return json({ status:'erro', mensagem:'Fonte desconhecida' }, 400);
+  const out = await _feedFetch(rss);
+  if(out.erro) return json({ status:'erro', mensagem: out.erro }, 200);
+  return json({ status:'ok', src, items: out.items });
+}
+async function _feedFetch(rss){
+  try{
+    const r = await fetch(rss, {
+      /* Alguns feeds devolvem 403 pra cliente sem User-Agent. */
+      /* UA de navegador de verdade: Al Jazeera devolve 403 pra user-agent de
+         robô, mesmo pedindo o XML público. */
+      headers: { 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                 'accept': 'application/rss+xml, application/xml, text/xml, */*',
+                 'accept-language': 'pt-BR,pt;q=0.9,en;q=0.8' },
+      cf: { cacheTtl: 300, cacheEverything: true }
+    });
+    if(!r.ok) return { erro:'A fonte respondeu HTTP ' + r.status };
+    /* `r.text()` assume UTF-8. A Folha publica em ISO-8859-1 e o acento vinha
+       como "reequil\uFFFDbrio". Lê os bytes e decodifica pelo charset que o
+       próprio feed declara — no cabeçalho ou na primeira linha do XML. */
+    const buf = await r.arrayBuffer();
+    let charset = (/charset=([\w-]+)/i.exec(r.headers.get('content-type') || '') || [])[1];
+    if(!charset){
+      const inicio = new TextDecoder('utf-8', { fatal:false }).decode(buf.slice(0, 200));
+      charset = (/encoding=["']([\w-]+)["']/i.exec(inicio) || [])[1];
+    }
+    let xml;
+    try{ xml = new TextDecoder(charset || 'utf-8').decode(buf); }
+    catch(_){ xml = new TextDecoder('utf-8').decode(buf); }
+    /* RSS usa <item>, Atom usa <entry>. Os dois aparecem nesta lista. */
+    const blocos = xml.match(/<(item|entry)[\s>][\s\S]*?<\/(item|entry)>/gi) || [];
+    const itens = [];
+    for(const b of blocos){
+      const titulo = _limpaTexto(_tagXml(b, 'title'));
+      let link = _limpaTexto(_tagXml(b, 'link'));
+      if(!link){
+        const href = /<link[^>]*href=["\']([^"\']+)["\']/i.exec(b);
+        if(href) link = href[1];
+      }
+      const data = _tagXml(b, 'pubDate') || _tagXml(b, 'published') || _tagXml(b, 'updated');
+      if(titulo && link) itens.push({ title: titulo, link, pubDate: _limpaTexto(data) });
+      if(itens.length >= 12) break;
+    }
+    if(!itens.length) return { erro:'A fonte não trouxe manchetes' };
+    return { items: itens };
+  }catch(e){
+    return { erro:(e && e.message) || 'Falha ao buscar a fonte' };
+  }
+}
+
+/* ═══ SELIC ══════════════════════════════════════════════════════════
+   Vinha do navegador direto pro BACEN, sem timeout, sem segunda tentativa e
+   sem alternativa: bastava o BCB tossir e o painel mostrava "indisponível".
+
+   Aqui são três camadas:
+   1. cascata de séries do SGS — se a meta não vier, a efetiva serve;
+   2. o último valor bom guardado no KV, devolvido marcado como `velho`
+      quando TODAS as séries falham (número de ontem é melhor que nada);
+   3. cache de borda de uma hora, que é mais do que a Selic muda. */
+const SELIC_SERIES = [
+  { id: 432,  nome: 'meta'    },
+  { id: 1178, nome: 'efetiva' },
+  { id: 4189, nome: 'acum12m' }
+];
+const SELIC_KV = 'selic:ultimo';
+async function _selicSerie(id){
+  try{
+    const r = await fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.' + id
+                          + '/dados/ultimos/1?formato=json',
+      { headers: { 'accept':'application/json',
+                   /* O BCB responde diferente pra cliente sem user-agent de
+                      navegador quando o pedido vem de IP de datacenter. */
+                   'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' },
+        signal: AbortSignal.timeout(8000),
+        /* `cacheTtl` guarda QUALQUER status, inclusive erro — uma falha
+           momentânea do BCB ficava grudada por 30 minutos e a série boa
+           nunca mais era tentada. Só o 200 entra em cache. */
+        cf: { cacheTtlByStatus: { '200-299': 1800, '300-399': 0, '400-599': 0 } } });
+    if(!r.ok) return null;
+    const arr = await r.json();
+    if(!Array.isArray(arr) || !arr.length) return null;
+    const v = parseFloat(String(arr[arr.length - 1].valor || '').replace(',', '.'));
+    if(!isFinite(v) || v <= 0 || v > 100) return null;
+    return { valor: v, data: arr[arr.length - 1].data || '' };
+  }catch(_){ return null; }
+}
+async function selicAtual(request, env){
+  const json = (b, cc) => new Response(JSON.stringify(b), {
+    headers: { 'content-type':'application/json; charset=utf-8',
+               'cache-control': cc || 'public, max-age=3600' } });
+  for(const s of SELIC_SERIES){
+    const r = await _selicSerie(s.id);
+    if(r){
+      const out = { status:'ok', valor:r.valor, data:r.data, serie:s.id, fonte:'BACEN · SGS-' + s.id, velho:false };
+      /* Guarda o bom pra sobreviver à próxima queda do BCB. */
+      try{ if(env.SLACK_INSTALLS) await env.SLACK_INSTALLS.put(SELIC_KV, JSON.stringify({ ...out, ts:Date.now() })); }catch(_){}
+      return json(out);
+    }
+  }
+  try{
+    if(env.SLACK_INSTALLS){
+      const raw = await env.SLACK_INSTALLS.get(SELIC_KV);
+      if(raw){
+        const velho = JSON.parse(raw);
+        velho.velho = true;
+        velho.status = 'ok';
+        /* Sem cache longo num valor velho: a próxima visita tenta de novo. */
+        return json(velho, 'public, max-age=120');
+      }
+    }
+  }catch(_){}
+  return json({ status:'erro', mensagem:'BACEN fora do ar e sem valor guardado' }, 'no-store');
+}
+
+/* ═══ FITA DE COTAÇÕES ════════════════════════════════════════════════
+   Ações e indicadores pro ticker do Início. Fora daqui o que o painel ao
+   vivo já mostra — dólar, Selic, IPCA e INPC — pra não repetir o mesmo
+   número duas vezes na mesma tela.
+
+   O navegador não busca direto: a API bloqueia por CORS e, de IP
+   residencial, devolve 429. Daqui sai com o IP do Worker e cache de borda. */
+const FITA = [
+  // Brasil
+  { s:'^BVSP',    n:'Ibovespa',  g:'br', dec:0 },
+  { s:'PETR4.SA', n:'PETR4',     g:'br' },
+  { s:'VALE3.SA', n:'VALE3',     g:'br' },
+  { s:'ITUB4.SA', n:'ITUB4',     g:'br' },
+  { s:'BBDC4.SA', n:'BBDC4',     g:'br' },
+  { s:'B3SA3.SA', n:'B3SA3',     g:'br' },
+  { s:'WEGE3.SA', n:'WEGE3',     g:'br' },
+  // Mundo
+  { s:'^GSPC',    n:'S&P 500',   g:'mundo', dec:0 },
+  { s:'^IXIC',    n:'Nasdaq',    g:'mundo', dec:0 },
+  { s:'^DJI',     n:'Dow Jones', g:'mundo', dec:0 },
+  { s:'^N225',    n:'Nikkei',    g:'mundo', dec:0 },
+  { s:'^STOXX50E',n:'Euro Stoxx',g:'mundo', dec:0 },
+  // Indicadores
+  { s:'BTC-USD',  n:'Bitcoin',   g:'ind', dec:0, pre:'US$ ' },
+  { s:'CL=F',     n:'Petróleo',  g:'ind', pre:'US$ ' },
+  { s:'GC=F',     n:'Ouro',      g:'ind', dec:0, pre:'US$ ' },
+  { s:'^TNX',     n:'Treasury 10a', g:'ind', suf:'%' },
+  { s:'EURBRL=X', n:'Euro',      g:'ind', pre:'R$ ' }
+];
+async function _cotacaoUma(it){
+  try{
+    const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/'
+                          + encodeURIComponent(it.s) + '?interval=1d&range=1d', {
+      headers: { 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                 'accept': 'application/json' },
+      signal: AbortSignal.timeout(7000),
+      cf: { cacheTtl: 120, cacheEverything: true }
+    });
+    if(!r.ok) return null;
+    const j = await r.json();
+    const m = ((((j || {}).chart || {}).result || [])[0] || {}).meta;
+    if(!m) return null;
+    const preco = m.regularMarketPrice;
+    /* `previousClose` é o fechamento de ONTEM. `chartPreviousClose` é o
+       fechamento anterior à JANELA pedida — com range=5d ele devolvia a
+       variação da semana como se fosse do dia, e o Bradesco aparecia com
+       -29,97%. Prefere o de ontem; o outro é só rede de segurança. */
+    const ant = m.previousClose != null ? m.previousClose
+              : (m.chartPreviousClose != null ? m.chartPreviousClose : null);
+    if(preco == null) return null;
+    const pct = (ant && ant !== 0) ? ((preco - ant) / ant) * 100 : null;
+    return { nome: it.n, grupo: it.g, preco, pct, dec: it.dec, pre: it.pre || '', suf: it.suf || '' };
+  }catch(_){ return null; }
+}
+async function cotacoesFita(request, env){
+  const todas = await Promise.all(FITA.map(_cotacaoUma));
+  const itens = todas.filter(Boolean);
+  return new Response(JSON.stringify({
+    status: itens.length ? 'ok' : 'erro',
+    mensagem: itens.length ? undefined : 'Nenhuma cotação respondeu',
+    ts: Date.now(), itens
+  }), { headers: { 'content-type':'application/json; charset=utf-8',
+                   /* 2 minutos: fita não é pregão em tempo real, e sem isso
+                      cada visita dispara 17 buscas externas. */
+                   'cache-control':'public, max-age=120' } });
+}
+
+/* Abre a matéria e extrai o texto. Sem isso o MR KASH comenta o TÍTULO, que
+   é curto e ambíguo de propósito — e ele acabava dizendo "o título não diz
+   por quê" o tempo todo, com razão.
+
+   Devolve { texto, chars } ou { erro }. Paywall não é falha: devolve o pouco
+   que veio e quem chama decide — dizer "matéria fechada" é melhor que inventar
+   o miolo que não foi lido. */
+async function buscarMateria(url){
+  try{
+    const r = await fetch(url, {
+      headers: { 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                 'accept': 'text/html,application/xhtml+xml',
+                 'accept-language': 'pt-BR,pt;q=0.9,en;q=0.8' },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(9000),
+      cf: { cacheTtl: 1800, cacheEverything: true }
+    });
+    if(!r.ok) return { erro: 'HTTP ' + r.status };
+    const ct = r.headers.get('content-type') || '';
+    if(ct && !/html|xml|text/i.test(ct)) return { erro: 'não é página' };
+    const buf = await r.arrayBuffer();
+    let charset = (/charset=([\w-]+)/i.exec(ct) || [])[1];
+    if(!charset){
+      const ini = new TextDecoder('utf-8', { fatal:false }).decode(buf.slice(0, 1200));
+      charset = (/charset=["\']?([\w-]+)/i.exec(ini) || [])[1];
+    }
+    let html;
+    try{ html = new TextDecoder(charset || 'utf-8').decode(buf); }
+    catch(_){ html = new TextDecoder('utf-8').decode(buf); }
+
+    /* Fora o que não é matéria. Script e style primeiro, senão o código vira
+       "texto" e enche o contexto de JSON de rastreamento. */
+    html = html.replace(/<script[\s\S]*?<\/script>/gi, ' ')
+               .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+               .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+               .replace(/<(nav|header|footer|aside|form|figure)[\s\S]*?<\/\1>/gi, ' ');
+    /* Os parágrafos é onde mora a matéria. Duas armadilhas aprendidas no
+       Brazil Journal:
+       - `<article>` não-guloso casa o PRIMEIRO bloco da página, que costuma
+         ser um teaser de barra lateral. Lá eram quatro teasers de ~1,7 kB e
+         a matéria de verdade estava fora deles. Então: pega o MAIOR, e só
+         confia nele se tiver parágrafo de verdade dentro.
+       - parágrafo curto é rótulo, legenda e crédito de foto. Abaixo de 40
+         caracteres não entra. */
+    const paras = (x) => (x.match(/<p[\s>][\s\S]*?<\/p>/gi) || [])
+      .filter(t => t.replace(/<[^>]*>/g, '').trim().length > 40);
+    const arts = html.match(/<article[\s\S]*?<\/article>/gi) || [];
+    const maior = arts.length ? arts.reduce((a, b) => (b.length > a.length ? b : a)) : '';
+    let ps = maior ? paras(maior) : [];
+    if(ps.length < 3) ps = paras(html);
+    const texto = _limpaTexto(ps.length ? ps.join(' ') : html).slice(0, 4500);
+    return { texto, chars: texto.length };
+  }catch(e){
+    return { erro: (e && e.name === 'TimeoutError') ? 'demorou demais' : ((e && e.message) || 'falhou') };
+  }
+}
+
+/* Café com o MR KASH: pega as manchetes da fonte escolhida e manda ele ler.
+   Sem cache de borda — a leitura é cara e a resposta é a mesma pro dia todo,
+   então o cache quem faz é o navegador, por fonte e por dia. */
+async function cafeNoticias(request, env){
+  const url = new URL(request.url);
+  const src = String(url.searchParams.get('src') || '').trim();
+  const json = (body, status) => new Response(JSON.stringify(body), {
+    status: status || 200,
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control':'no-store' }
+  });
+  if(!env.ANTHROPIC_API_KEY) return json({ status:'erro', mensagem:'MR KASH sem chave configurada' }, 200);
+  const feed = await buscarFeed(src);
+  if(feed.erro) return json({ status:'erro', mensagem: feed.erro }, 200);
+  /* Oito, não doze: cada uma é uma página inteira baixada e lida. Acima disso
+     o tempo de resposta passa do que alguém espera com o modal aberto. */
+  const alvo = feed.items.slice(0, 8);
+  const materias = await Promise.all(alvo.map(it => buscarMateria(it.link)));
+  try{
+    const r = await analisarNoticias(env, alvo, String(url.searchParams.get('fonte') || src), materias);
+    /* Casa comentário com manchete aqui, no servidor: o front não deve ter
+       que adivinhar índice, e item sem par é melhor sumir do que aparecer
+       debaixo do título errado. */
+    const porIdx = {};
+    for(const it of (r.itens || [])) porIdx[parseInt(it.i, 10)] = it;
+    const cartas = alvo.map((it, i) => ({
+      title: it.title, link: it.link, pubDate: it.pubDate,
+      topicos: (porIdx[i + 1] || {}).topicos || [],
+      leitura: String((porIdx[i + 1] || {}).leitura || '').trim(),
+      toca: !!(porIdx[i + 1] || {}).toca,
+      lida: !!(materias[i] && !materias[i].erro && materias[i].chars > 400)
+    })).filter(c => (c.topicos && c.topicos.length) || c.leitura);
+    if(!cartas.length) throw new Error('A leitura não casou com as manchetes');
+    return json({ status:'ok', src, fio: r.fio, cartas });
+  }catch(e){
+    return json({ status:'erro', mensagem:(e && e.message) || 'Falha na leitura' }, 200);
+  }
+}
+
+/* Erro do deck não pode ser texto cru: quem abre o link pode ser o sócio,
+   não o dono do app. */
+function paginaSimples(titulo, texto){
+  const e = t => String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  return '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">'
+    + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<title>' + e(titulo) + '</title><style>'
+    + 'body{background:#060B16;color:#E2E8F0;font-family:system-ui,sans-serif;display:flex;'
+    + 'align-items:center;justify-content:center;height:100vh;margin:0;padding:24px;text-align:center}'
+    + 'div{max-width:40ch}h1{font-size:1.4rem;margin:0 0 12px}p{color:#94A3B8;line-height:1.55;margin:0;font-size:.92rem}'
+    + '</style></head><body><div><h1>' + e(titulo) + '</h1><p>' + e(texto) + '</p></div></body></html>';
+}
+
 export default {
   async fetch(request, env, ctx){
     const url = new URL(request.url);
+
+    /* O DECK AO VIVO. Precisa vir antes do despacho pro SPA: tudo que não é
+       /api/ cai no ASSETS, e /deck sumiria dentro do index.html — a mesma
+       armadilha que já engoliu /api uma vez. */
+    if(url.pathname === '/deck' || url.pathname.startsWith('/deck/')){
+      const periodo = (url.pathname.startsWith('/deck/')
+        ? url.pathname.slice(6) : (url.searchParams.get('p') || '')).toUpperCase();
+      const tok = url.searchParams.get('t') || '';
+      /* Trimestre e semestre entram aqui também — o token é assinado sobre a
+         string do período, então ela tem que ser a MESMA dos dois lados. */
+      if(!/^\d{4}(-\d{2}|-[TS]\d)?$/.test(periodo))
+        return new Response('período inválido', { status: 400 });
+      if(!await conferirDeck(env, periodo, tok))
+        return new Response(paginaSimples('Link expirado ou inválido',
+          'Peça um link novo no Forekash — eles valem 30 dias de propósito, porque carregam o número da empresa.'),
+          { status: 403, headers:{ 'content-type':'text/html; charset=utf-8' } });
+      try{
+        const d = await montarDeck(env, periodo);
+        let leitura = null;
+        try{ leitura = await narrarDeck(env, d); }catch(_){}
+        return new Response(renderDeck(d, leitura, url.searchParams.get('tema')), { headers:{
+          'content-type':'text/html; charset=utf-8',
+          /* Nunca cacheia: o valor do deck é justamente ser o número de agora. */
+          'cache-control':'no-store, must-revalidate',
+          'referrer-policy':'no-referrer' } });
+      }catch(e){
+        return new Response(paginaSimples('Não deu pra montar agora',
+          String((e && e.message) || e).slice(0,200)),
+          { status: 500, headers:{ 'content-type':'text/html; charset=utf-8' } });
+      }
+    }
+
     if(!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
+
+    /* Manchetes de mercado · o navegador não busca RSS sozinho (CORS), e a
+       ponte que usávamos (api.rss2json.com) passou a responder com a tela de
+       desafio da Cloudflare: HTML onde o app esperava JSON, e o widget
+       mostrava "Unexpected token '<'". Serviço grátis de terceiro some sem
+       avisar; aqui dentro não some.
+
+       O Worker busca o XML (servidor não tem CORS), extrai título, link e
+       data, e devolve JSON. Nada do cliente entra na requisição — a lista de
+       feeds é fixa aqui, então ninguém usa isto como proxy pra outra coisa. */
+    if(url.pathname === '/api/noticias') return noticiasMercado(request, env, ctx);
+    if(url.pathname === '/api/noticias/cafe') return cafeNoticias(request, env);
+    if(url.pathname === '/api/cotacoes') return cotacoesFita(request, env);
+    if(url.pathname === '/api/selic') return selicAtual(request, env);
 
     if(url.pathname === '/api/slack/events' && request.method === 'POST')
       return eventosSlack(request, env, ctx);
@@ -313,20 +782,16 @@ export default {
              ainda não tinham permissão. */
           const tem = String(q.headers.get('x-oauth-scopes') || '')
             .split(',').map(x => x.trim()).filter(Boolean);
-          const PRECISA = {
-            'chat:write':      'postar',
-            'app_mentions:read':'ouvir quando chamam',
-            'commands':        'os comandos /mrkash e /grafico',
-            'channels:read':   'listar canais públicos',
-            'groups:read':     'listar canais privados',
-            'users:read':      'listar o time',
-            'channels:join':   'entrar sozinho no canal escolhido',
-            'reactions:write': 'marcar o ✅ no aviso',
-            'reactions:read':  'contar quem confirmou'
-          };
-          const falta = Object.keys(PRECISA).filter(k => !tem.includes(k));
+          /* Deriva da MESMA lista que o OAuth pede. Antes era uma tabela à
+             parte, e ela já estava incompleta: não conferia im:read,
+             im:write nem im:history — o app podia estar sem eles e o
+             diagnóstico dizia "ok". */
+          const falta = SLACK_PERMISSOES.map(x => x.escopo).filter(k => !tem.includes(k));
           r.escopos = falta.length ? 'falta' : 'ok';
-          if(falta.length) r.faltaEscopo = falta.map(k => k + ' (' + PRECISA[k] + ')');
+          if(falta.length) r.faltaEscopo = falta.map(k => {
+            const p = SLACK_PERMISSOES.find(x => x.escopo === k);
+            return k + ' (' + (p ? p.pra : '') + ')';
+          });
           if(!j.ok) r.slackDisse = j.error || 'recusou';
         }catch(e){ r.escopos = 'erro: ' + (e && e.message || 'falhou'); }
       }
@@ -360,6 +825,13 @@ export default {
        not_in_channel, e oferecer na lista o que não funciona é pior que não
        oferecer. */
     /* Instalação por OAuth: o "Conectar ao Slack" da tela aponta pra cá. */
+    /* Documentação, não segredo: é a mesma lista que o botão de conectar
+       manda pro Slack. Fica aberta pra tela poder explicar ANTES de conectar
+       o que vai ser pedido — ninguém devia descobrir isso na tela de
+       autorização do Slack. */
+    if(url.pathname === '/api/slack/permissoes')
+      return Response.json({ permissoes: SLACK_PERMISSOES, escopos: SLACK_ESCOPOS },
+        { headers: { 'cache-control': 'public, max-age=3600' } });
     if(url.pathname === '/api/slack/oauth/start') return oauthComecar(request, env);
     if(url.pathname === '/api/slack/oauth')       return oauthVoltar(request, env);
     if(url.pathname === '/api/slack/instalacao'){
@@ -378,6 +850,83 @@ export default {
     if(url.pathname === '/api/mrkash/pessoas') return pessoasSlack(request, env);
     /* Quem confirmou, pra tela do Forekash mostrar no card do aviso. */
     if(url.pathname === '/api/mrkash/limpar-testes') return limparTestes(request, env);
+    /* O copiloto da tela. Recebe os SINAIS que o navegador já calculou — o
+       Worker não vai no banco buscar nada aqui de propósito: quem tem os
+       números na mão é a tela, e mandar o modelo recalcular seria duas
+       verdades pro mesmo fato. Exige sessão porque o corpo é o retrato
+       financeiro da empresa. */
+    if(url.pathname === '/api/mrkash/copiloto' && request.method === 'POST'){
+      if(!await sessaoValida(request, env))
+        return Response.json({ ok:false, erro:'sem sessão' }, { status: 401 });
+      if(!env.ANTHROPIC_API_KEY)
+        return Response.json({ ok:false, erro:'sem chave da Anthropic' }, { status: 503 });
+      let corpo;
+      try{ corpo = await request.json(); }catch(_){ return Response.json({ ok:false, erro:'corpo inválido' }, { status: 400 }); }
+      try{
+        const d = await copilotar(env, corpo.sinais || {}, corpo.acoes || []);
+        return Response.json({ ok:true, itens: d.itens });
+      }catch(e){
+        return Response.json({ ok:false, erro: String(e && e.message || e).slice(0,200) }, { status: 502 });
+      }
+    }
+
+    /* A leitura do Diagnóstico. Mesma regra do copiloto: os indicadores vêm
+       prontos da tela e ele só interpreta. */
+    if(url.pathname === '/api/mrkash/diagnostico' && request.method === 'POST'){
+      if(!await sessaoValida(request, env))
+        return Response.json({ ok:false, erro:'sem sessão' }, { status: 401 });
+      if(!env.ANTHROPIC_API_KEY)
+        return Response.json({ ok:false, erro:'sem chave da Anthropic' }, { status: 503 });
+      let corpo;
+      try{ corpo = await request.json(); }catch(_){ return Response.json({ ok:false, erro:'corpo inválido' }, { status: 400 }); }
+      try{
+        const d = await lerDiagnostico(env, corpo.ind || {}, corpo.alertas || []);
+        return Response.json({ ok:true, leitura: d });
+      }catch(e){
+        return Response.json({ ok:false, erro: String(e && e.message || e).slice(0,200) }, { status: 502 });
+      }
+    }
+
+    /* Gera o link assinado. Exige sessão: quem pede é o dono dos números.
+       Depois disso o link anda sozinho — é o que permite mandar pro sócio. */
+    if(url.pathname === '/api/deck/link'){
+      if(!await sessaoValida(request, env))
+        return Response.json({ ok:false, erro:'sem sessão' }, { status: 401 });
+      const periodo = (url.searchParams.get('p') || '').toUpperCase();
+      if(!/^\d{4}(-\d{2}|-[TS]\d)?$/i.test(periodo))
+        return Response.json({ ok:false, erro:'período inválido' }, { status: 400 });
+      const dias = Math.min(90, Math.max(1, parseInt(url.searchParams.get('dias') || '30', 10)));
+      const t = await assinarDeck(env, periodo, dias);
+      const tema = (url.searchParams.get('tema') || '').replace(/[^a-z]/g, '');
+      return Response.json({ ok:true,
+        url: url.origin + '/deck/' + periodo + '?t=' + t + (tema ? '&tema=' + tema : ''),
+        expiraEm: new Date(Number(t.split('.')[0])).toISOString() });
+    }
+
+    /* Quais temas existem — a lista mora no deck.js, não duplicada na tela. */
+    if(url.pathname === '/api/deck/temas'){
+      return Response.json({ ok:true, temas: listaTemas() });
+    }
+
+    /* Os números crus do mesmo motor do deck. Existe pra que o .pptx seja uma
+       SEGUNDA SAÍDA da mesma conta, e não uma segunda conta: quando o arquivo
+       e o link divergem num número, a empresa para de confiar nos dois. Por
+       isso o navegador não recalcula nada — ele só desenha o que vem daqui. */
+    if(url.pathname === '/api/deck/dados'){
+      if(!await sessaoValida(request, env))
+        return Response.json({ ok:false, erro:'sem sessão' }, { status: 401 });
+      const periodo = (url.searchParams.get('p') || '').toUpperCase();
+      if(!/^\d{4}(-\d{2}|-[TS]\d)?$/i.test(periodo))
+        return Response.json({ ok:false, erro:'período inválido' }, { status: 400 });
+      const dados = await montarDeck(env, periodo);
+      let leitura = null;
+      if(url.searchParams.get('ia') === '1'){
+        try{ leitura = await narrarDeck(env, dados); }catch(e){ leitura = null; }
+      }
+      return Response.json({ ok:true, dados, leitura },
+                           { headers:{ 'Cache-Control':'no-store' } });
+    }
+
     if(url.pathname === '/api/mrkash/confirmacoes'){
       if(!await sessaoValida(request, env))
         return Response.json({ ok:false, erro:'sem sessão' }, { status: 401 });
@@ -389,6 +938,9 @@ export default {
 
   async scheduled(event, env, ctx){
     ctx.waitUntil(avisosDeTodos(env).catch(e => console.error('aviso mensal:', e && e.message)));
+    /* Separado dos avisos de propósito: um lembrete que falhe não pode
+       calar o acompanhamento das receitas, nem o contrário. */
+    ctx.waitUntil(trilhasDeTodos(env).catch(e => console.error('trilha:', e && e.message)));
   }
 };
 
@@ -694,6 +1246,21 @@ async function limparTestes(request, env){
 async function canaisSlack(request, env){
   const erro = (e, st) => Response.json({ ok:false, erro:e }, { status: st || 400 });
   if(!await sessaoValida(request, env)) return erro('sem sessão', 401);
+
+  /* Varrer o workspace são até 12 idas ao Slack, uma atrás da outra — num
+     workspace de centenas de canais isso leva segundos, e acontecia a cada
+     vez que a tela abria. Guarda por 10 minutos. Convidou o MR KASH num
+     canal novo? O botão "atualizar" fura o cache; não precisa recarregar
+     a página nem esperar o prazo. */
+  const cacheKey = 'canais:' + env.FOREKASH_ORG_ID;
+  const forcar = new URL(request.url).searchParams.get('atualizar');
+  if(!forcar && env.SLACK_INSTALLS){
+    try{
+      const guardado = await env.SLACK_INSTALLS.get(cacheKey);
+      if(guardado) return new Response(guardado,
+        { headers:{ 'content-type':'application/json', 'x-cache':'kv' } });
+    }catch(_){}
+  }
   if(!env.SLACK_BOT_TOKEN) return erro('sem token do Slack');
 
   const achados = [];
@@ -731,8 +1298,12 @@ async function canaisSlack(request, env){
      punhado em que o MR KASH foi convidado é o que alguém procura em 99%
      das vezes — e era justamente o que ficava perdido no meio do alfabeto. */
   achados.sort((a, b) => (b.membro - a.membro) || a.nome.localeCompare(b.nome, 'pt-BR'));
-  return Response.json({ ok:true, padrao: (await cfgSlack(env)).canal,
-                         truncou: !!cursor, canais: achados });
+  const corpo = JSON.stringify({ ok:true, padrao: (await cfgSlack(env)).canal,
+                                 truncou: !!cursor, canais: achados });
+  if(env.SLACK_INSTALLS){
+    try{ await env.SLACK_INSTALLS.put(cacheKey, corpo, { expirationTtl: 600 }); }catch(_){}
+  }
+  return new Response(corpo, { headers:{ 'content-type':'application/json', 'x-cache':'slack' } });
 }
 
 /* avisoResolve espera um Date; agoraSP() devolve as partes em São Paulo.
@@ -816,6 +1387,36 @@ async function interativoSlack(request, env, ctx){
   return ok();
 }
 
+/* O QUE JÁ FOI DITO NESTA THREAD.
+
+   `perguntar` recebia `null` aqui: cada menção era a primeira da vida dele.
+   Ele não enxergava que acabara de dar aquela resposta, não enxergava a
+   correção que veio logo depois, e repetia o mesmo número três vezes
+   discutindo com quem estava olhando a tela. A persona manda "ele tem razão,
+   reconhece em três palavras e segue" — regra impossível de cumprir sem ver
+   a conversa. Era a maior parte do "parece uma IA qualquer".
+
+   Degrada em silêncio: instalação antiga pode não ter o escopo de histórico.
+   Sem memória ele responde pior; estourando aqui ele não responde nada. */
+async function historicoThread(env, m){
+  const ts = m && (m.thread_ts || m.ts);
+  if(!ts || !m.channel) return null;
+  try{
+    const q = new URLSearchParams({ channel: m.channel, ts: ts, limit: '20' });
+    const r = await fetch('https://slack.com/api/conversations.replies?' + q, {
+      headers: { Authorization: 'Bearer ' + env.SLACK_BOT_TOKEN } });
+    const j = await r.json();
+    if(!j.ok || !Array.isArray(j.messages)) return null;
+    const out = [];
+    for(const x of j.messages){
+      if(!x || !x.text || x.ts === m.ts) continue;   // a pergunta de agora entra depois
+      const txt = String(x.text).replace(/<@[^>]+>/g, '').trim();
+      if(txt) out.push({ role: x.bot_id ? 'assistant' : 'user', content: txt });
+    }
+    return out.length ? out : null;
+  }catch(_){ return null; }
+}
+
 async function responder(env, m){
   const texto = String(m.text || '').replace(/<@[^>]+>/g, '').trim();
   if(!texto) return;
@@ -830,7 +1431,8 @@ async function responder(env, m){
      bloco", e com a regra de aprender logo atrás disso ela ficava lida
      como mais uma exceção que não vale. */
   const cfg = cfgC;
-  const bruto = await perguntar(env, texto, briefing(d, escopoSlack(cfg)), null,
+  const hist = await historicoThread(env, m);
+  const bruto = await perguntar(env, texto, briefing(d, escopoSlack(cfg)), hist,
                                 APRENDER + LANCAR + GRAFICAR + '\n\n' + vocabulario(d));
   const resp = await colher(env, cfg, bruto, m.user);
   const thread = { thread_ts: m.thread_ts || m.ts };
@@ -1017,7 +1619,8 @@ async function idDoBot(env){
    simplesmente nunca sairiam, e sem erro nenhum pra denunciar.
 
    Uma empresa que falhe não pode calar as outras: cada uma no seu try. */
-async function avisosDeTodos(env){
+/* Uma empresa por instalação do Slack, com token e canal próprios. */
+async function orgsInstaladas(env){
   const envs = [];
   if(env.SLACK_INSTALLS){
     try{
@@ -1027,7 +1630,8 @@ async function avisosDeTodos(env){
           const i = JSON.parse(await env.SLACK_INSTALLS.get(k.name));
           if(i && i.org && i.bot_token)
             envs.push(Object.assign({}, env,
-              { FOREKASH_ORG_ID: i.org, SLACK_BOT_TOKEN: i.bot_token }));
+              { FOREKASH_ORG_ID: i.org, SLACK_BOT_TOKEN: i.bot_token,
+                ORG_ENV: env.ORG_ENV || env.FOREKASH_ORG_ID }));
         }catch(_){}
       }
     }catch(e){ console.warn('lista de instalações:', e && e.message); }
@@ -1035,9 +1639,32 @@ async function avisosDeTodos(env){
   /* Sem nenhuma instalação por OAuth, vale a configuração por variável —
      é o que mantém a TALLER funcionando enquanto ela não reconecta. */
   if(!envs.length && env.SLACK_BOT_TOKEN) envs.push(env);
-  for(const e of envs){
+  return envs;
+}
+
+async function avisosDeTodos(env){
+  for(const e of await orgsInstaladas(env)){
     try{ await avisosDoMes(e); }
     catch(err){ console.error('avisos de ' + e.FOREKASH_ORG_ID + ':', err && err.message); }
+  }
+}
+
+/* Mesma volta dos avisos: cada empresa instalada tem o próprio token e o
+   próprio canal. Reusa orgsInstaladas() pra não existirem duas listas de
+   clientes que podem discordar uma da outra. */
+async function trilhasDeTodos(env){
+  for(const e of await orgsInstaladas(env)){
+    try{
+      const cfg = await cfgSlack(e);
+      const canal = cfg.canalRec || cfg.canal;
+      if(canal) await acompanharReceitas(e, canal, cfg.cartaoCampos);
+      else console.warn('[trilha] ' + e.FOREKASH_ORG_ID + ' sem canal');
+      /* Os avisos de lançamento são independentes da trilha de receita: a
+         empresa pode querer só um dos dois. O canal padrão basta aqui. */
+      if((cfg.avisosLanc || []).length){
+        await avisarLancamentos(e, cfg, cfg.canal);
+      }
+    }catch(err){ console.error('trilha de ' + e.FOREKASH_ORG_ID + ':', err && err.message); }
   }
 }
 

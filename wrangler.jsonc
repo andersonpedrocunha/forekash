@@ -11,10 +11,20 @@
   "assets": {
     "directory": "./",
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
+    /* 404 DE VERDADE, e não o app inteiro com status 200.
+    // Com single-page-application qualquer caminho inexistente devolvia o
+    // index.html (8,6 MB) respondendo 200 — foi o que disfarçou o problema do
+    // /deck, descrito logo abaixo. Um <script src> com typo, um fetch num
+    // endpoint errado ou um asset renomeado voltavam "200 OK, tome HTML".
+    // Seguro aqui porque o app não tem rota por caminho: start_url e scope são
+    // "/", o único replaceState só limpa a query, e o fallback offline é do
+    // sw.js (caches.match('/index.html')), não do servidor. */
+    "not_found_handling": "404-page",
     // Sem isto o SPA responderia index.html para /api/* e o Slack nunca
-    // chegaria no Worker.
-    "run_worker_first": ["/api/*"]
+    // chegaria no Worker. O mesmo vale pro /deck: a apresentação ao vivo é
+    // servida pelo Worker, e sem estar nesta lista ela abria o app inteiro
+    // em vez do deck — e ainda por cima com 200, que disfarça o problema.
+    "run_worker_first": ["/api/*", "/deck", "/deck/*"]
   },
 
   // A cada 10 minutos. De hora em hora não servia: o Worker só conseguia
