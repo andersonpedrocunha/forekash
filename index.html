@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1793993901"/>
+  <meta name="fk-build" content="forekash-v1793996218"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -93719,13 +93719,15 @@ function _ecapRenderReview(file, data){
     + (data.categoria ? '<option value="__sugerido__" selected>' + _ecapEsc(data.categoria) + ' (sugerido)</option>' : '')
     + cmCats.map(c => '<option value="' + c.id + '">' + _ecapEsc(c.nome) + '</option>').join('');
 
-  // Detecta se o fornecedor é novo (não está no cadastro)
+  /* Detecta se o fornecedor é novo. A comparação era por nome EXATO, então
+     quem está cadastrado pelo apelido e assina a nota pela razão social caía
+     como novo — e o aviso oferecia duplicar alguém que já existe. Agora passa
+     pelo mesmo resolvedor que a extração usa: documento primeiro, nome
+     depois. */
   let isNewForn = false;
   if(data.fornecedor){
     try {
-      const reg = (typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.registry)) ? pessoas.registry : [];
-      const found = reg.find(p => p && (p.nome || '').toLowerCase() === data.fornecedor.toLowerCase());
-      if(!found) isNewForn = true;
+      isNewForn = !_ecapDoCadastro(data.cnpj, data.fornecedor);
     } catch(e){}
   }
 
@@ -93848,6 +93850,49 @@ function _ecapNomeChave(s){
   return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')
     .replace(/[^a-z0-9]+/g,' ').replace(/\s+(ltda|sa|s a|me|epp|eireli)\s*$/,'').trim();
 }
+
+/* O CADASTRO JÁ SABE QUEM É — a Captura é que não perguntava.
+
+   Quem trabalha como PJ aparece no documento pela RAZÃO SOCIAL e no cadastro
+   pelo NOME. A nota da MIRTILO PERFORMANCE DIGITAL LTDA é o pagamento do
+   Tiago, que está no Pessoas com `documento` 54.128.906/0001-15 e
+   `razaoSocial` "MIRTILO PERFORMANCE DIGITAL LTDA (DITI)" — tudo que era
+   preciso pra reconhecer. Sem isto a Captura oferecia criar a MIRTILO como
+   fornecedor novo, duplicando alguém que já existe, e a busca por lançamento
+   repetido comparava "MIRTILO..." com "Tiago" e não achava nada.
+
+   O documento manda, porque é identidade e não aproximação: CNPJ/CPF primeiro,
+   nome só como segunda tentativa. */
+function _ecapDoCadastro(cnpj, nome){
+  try{
+    const reg = (typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.registry))
+      ? pessoas.registry : [];
+    if(!reg.length) return null;
+    const soDigitos = v => String(v || '').replace(/\D/g, '');
+    const docsDe = p => [p.documento, p.cnpj, p.cpf, p.doc, p.taxId]
+      .map(soDigitos).filter(v => v.length === 11 || v.length === 14);
+
+    const d = soDigitos(cnpj);
+    if(d.length === 11 || d.length === 14){
+      const porDoc = reg.find(p => p && docsDe(p).indexOf(d) >= 0);
+      if(porDoc) return porDoc;
+    }
+    /* Sem documento, cai no nome — e aqui vale razão social e nome legal,
+       não só o apelido do cadastro. Mesma regra de prefixo da busca por
+       duplicata, com o mínimo de 4 letras pelo mesmo motivo. */
+    const k = _ecapNomeChave(nome);
+    if(k.length < 4) return null;
+    return reg.find(p => {
+      if(!p) return false;
+      for(const campo of [p.nome, p.razaoSocial, p.nomeLegal, p.nomeCompleto]){
+        const c = _ecapNomeChave(campo);
+        if(c.length >= 4 && (c === k || c.indexOf(k) === 0 || k.indexOf(c) === 0)) return true;
+      }
+      return false;
+    }) || null;
+  }catch(_){ return null; }
+}
+try{ window._ecapDoCadastro = _ecapDoCadastro; }catch(_){}
 function _ecapAchaExistente(alvo){
   try{
     if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return null;
@@ -148610,7 +148655,12 @@ async function mrkDocExtrair(file){
   const valor = (j.valor === '' || j.valor == null) ? null : (parseFloat(j.valor) || null);
   const data  = /^\d{4}-\d{2}-\d{2}$/.test(String(j.data || '')) ? j.data : new Date().toISOString().slice(0,10);
 
-  const { tipo, forn, cnpj } = _mrkDocDirecao(j);
+  let { tipo, forn, cnpj } = _mrkDocDirecao(j);
+  /* Antes de oferecer criar alguém, pergunta se já existe. Quando existe, o
+     campo passa a mostrar o nome DO CADASTRO — é por ele que o resto do app
+     agrupa, e é ele que a busca por lançamento repetido compara. */
+  const _cad = (typeof _ecapDoCadastro === 'function') ? _ecapDoCadastro(cnpj, forn) : null;
+  if(_cad && _cad.nome) forn = _cad.nome;
   return {
     tipo: tipo,
     valor: valor,      valorConf: valor ? conf : 'no',
@@ -148622,7 +148672,7 @@ async function mrkDocExtrair(file){
        específico e ganha. */
     dataEmissao: /^\d{4}-\d{2}-\d{2}$/.test(String(j.competencia || '')) ? j.competencia
                : (/^\d{4}-\d{2}-\d{2}$/.test(String(j.emissao || '')) ? j.emissao : ''),
-    fornecedor: forn || null, fornConf: forn ? conf : 'no', fornKnown: null,
+    fornecedor: forn || null, fornConf: forn ? conf : 'no', fornKnown: _cad || null,
     cnpj: cnpj || null,
     numero: String(j.numero || '').trim() || null,
     categoria: String(j.categoria || '').trim() || null,
