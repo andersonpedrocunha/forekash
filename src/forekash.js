@@ -782,7 +782,21 @@ export async function criarLancamento(env, dados, quem){
       status: 'pendente',
       tipo: dados.tipo === 'ganho' ? 'ganho' : 'gasto',
       importado_de: 'slack',          // dá pra auditar ou desfazer em bloco
-      metadata: { criadoPor: quem || 'slack', criadoEm: new Date().toISOString() }
+      /* `eventos` no mesmo formato do app (`{a:1, d, t}` — `a:1` marca o que o
+         sistema fez, não o que alguém escreveu). Sem isto, lançamento que
+         nasce pelo Slack abre com o Histórico vazio, e o único caminho em que
+         ninguém digitou os números é justamente o que mais precisa dizer de
+         onde veio. */
+      metadata: {
+        criadoPor: quem || 'slack',
+        criadoEm: new Date().toISOString(),
+        eventos: [{
+          a: 1,
+          t: new Date().toISOString(),
+          d: 'Lançamento criado pelo MR KASH no Slack · ' +
+             (dados.tipo === 'ganho' ? 'a receber' : 'a pagar') + ' · em aberto'
+        }]
+      }
     };
     const r = await fetch(env.SUPABASE_URL + '/rest/v1/extrato_lancamentos', {
       method: 'POST',
