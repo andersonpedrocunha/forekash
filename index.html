@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1793997032"/>
+  <meta name="fk-build" content="forekash-v1793997221"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -93983,9 +93983,24 @@ function _ecapAchaExistente(alvo){
 /* Completa o que falta no que já existe, sem sobrescrever o que ele digitou:
    campo preenchido fica como está. O anexo é sempre somado à lista. */
 function _ecapAnexarNoExistente(lan, campos){
-  if(!lan.numeroDocumento && campos.numero) lan.numeroDocumento = campos.numero;
-  if(!lan.cnpj && campos.cnpj)              lan.cnpj = campos.cnpj;
+  /* `documento` é o nome do campo no lançamento — é esse que o modal lê e
+     mostra em "Nº DO DOCUMENTO". Eu escrevia em `numeroDocumento`, que é o
+     nome da COLUNA no banco, e o número sumia: ficava no dado e não aparecia
+     em lugar nenhum da tela. */
+  if(!lan.documento && campos.numero) lan.documento = campos.numero;
   if(!lan.dataEmissao && campos.dataEmissao) lan.dataEmissao = campos.dataEmissao;
+  /* CNPJ não é campo de lançamento: pertence à PESSOA. Guardar nela é o que
+     faz a próxima nota da mesma PJ ser reconhecida sozinha — é assim que o
+     elo razão social ↔ pessoa se constrói sem ninguém cadastrar nada. */
+  if(campos.cnpj){
+    try{
+      const p = _ecapDoCadastro(campos.cnpj, lan.contraparte);
+      if(p && !p.doc && !p.documento && !p.cnpj){
+        p.doc = campos.cnpj;
+        if(typeof pessoasSave === 'function') pessoasSave();
+      }
+    }catch(_){}
+  }
   const lista = Array.isArray(lan.anexo) ? lan.anexo.slice() : [];
   const novos = [];
   if(ECAP_STATE.file){
