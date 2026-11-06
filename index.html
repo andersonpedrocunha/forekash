@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1793996638"/>
+  <meta name="fk-build" content="forekash-v1793997032"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5423,6 +5423,14 @@
       border-radius:7px;padding:8px 14px;font-family:inherit;font-size:.78rem;font-weight:700;
       cursor:pointer;white-space:nowrap;transition:background .12s}
     .ecap-ja-btn:hover{background:#92400E}
+    /* Verde: "já aconteceu" é constatação, não alerta — não disputa atenção
+       com o âmbar do lançamento duplicado, que é o que pede ação. */
+    .ecap-momento{background:#F0FDF4;border-color:#BBF7D0;color:#14532D;margin-bottom:14px}
+    .ecap-momento b{color:#14532D}
+    .ecap-mom-btn{margin-top:8px;background:#fff;color:#166534;border:1px solid #BBF7D0;
+      border-radius:6px;padding:5px 11px;font-family:inherit;font-size:.72rem;font-weight:600;
+      cursor:pointer;transition:background .12s}
+    .ecap-mom-btn:hover{background:#DCFCE7}
 
     .ecap-foot{padding:14px 22px;border-top:1px solid #E5E7EB;background:#F8FAFC;
                 display:flex;gap:10px;justify-content:flex-end;align-items:center;flex-wrap:wrap}
@@ -93159,10 +93167,14 @@ function _ecapRenderDrop(){
     + '</div>'
     + '<div class="ecap-drop" id="ecap-drop" tabindex="0">'
     +   '<span class="ecap-drop-ico fkico fkico-scan-doc"></span>'
-    +   '<h4>Clique aqui ou arraste o arquivo</h4>'
-    +   '<p>Boleto, NF-e, NFS-e, comprovante de pagamento, recibo…</p>'
-    +   '<div class="ecap-drop-formats">PDF · JPG · PNG · até 10 MB</div>'
-    +   '<input type="file" id="ecap-file" accept="application/pdf,image/jpeg,image/png,image/webp">'
+    +   '<h4>Clique aqui, arraste, ou cole um print</h4>'
+    /* O modelo lê imagem desde sempre e a tela só falava de documento fiscal,
+       então ninguém tentava fotografar nada. O que distingue isto de um
+       leitor de boleto é justamente o que não vem formatado. */
+    +   '<p>Boleto, nota, fatura — e também <b>foto de recibo</b>, cupom, '
+    +   '<b>print de PIX</b> ou de conversa onde alguém combinou um pagamento.</p>'
+    +   '<div class="ecap-drop-formats">PDF · JPG · PNG · WEBP · até 10 MB · Ctrl+V cola da área de transferência</div>'
+    +   '<input type="file" id="ecap-file" accept="application/pdf,image/jpeg,image/png,image/webp,image/gif">'
     + '</div>';
   const drop = document.getElementById('ecap-drop');
   const inp = document.getElementById('ecap-file');
@@ -93175,6 +93187,35 @@ function _ecapRenderDrop(){
       if(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) _ecapHandleFile(e.dataTransfer.files[0]);
     });
     inp.addEventListener('change', e => { if(e.target.files && e.target.files[0]) _ecapHandleFile(e.target.files[0]); });
+    /* COLAR O PRINT. É como print nasce: Cmd+Shift+4 e Ctrl+V. Obrigar a
+       salvar em disco antes de arrastar é um passo que não precisa existir.
+
+       O listener é no documento porque a área de soltar não tem foco — e
+       `_ecapOuvindoCola` evita empilhar um listener a cada vez que o modal
+       reabre, que é o jeito clássico de a mesma imagem entrar quatro vezes. */
+    if(!window._ecapOuvindoCola){
+      window._ecapOuvindoCola = true;
+      document.addEventListener('paste', ev => {
+        const ov = document.getElementById('ecap-ov');
+        if(!ov || !ov.classList.contains('show')) return;      // modal fechado, não é comigo
+        if(!document.getElementById('ecap-drop')) return;       // já passou da tela de soltar
+        const itens = (ev.clipboardData && ev.clipboardData.items) || [];
+        for(const it of itens){
+          if(it.kind !== 'file') continue;
+          const f = it.getAsFile();
+          if(!f || !/^image\//.test(f.type)) continue;
+          ev.preventDefault();
+          /* Print colado não tem nome de arquivo. Sem um, o anexo aparece
+             vazio na lista e não dá pra distinguir um do outro. */
+          const ext = (f.type.split('/')[1] || 'png').replace('jpeg','jpg');
+          const carimbo = new Date().toISOString().slice(0,16).replace('T','-').replace(':','h');
+          _ecapHandleFile(f.name && f.name !== 'image.png'
+            ? f
+            : new File([f], 'print-' + carimbo + '.' + ext, { type: f.type }));
+          return;
+        }
+      });
+    }
   }
   const foot = document.getElementById('ecap-foot');
   if(foot) foot.style.display = 'none';
@@ -93713,6 +93754,11 @@ function _ecapRenderReview(file, data){
   const foot = document.getElementById('ecap-foot');
   const fstat = document.getElementById('ecap-foot-stat');
   ECAP_STATE.tipo = data.tipo || 'gasto';
+  /* Guardados aqui porque o submit lê do estado, não do objeto extraído —
+     e porque o usuário pode trocar gasto↔recebimento sem perder isto. */
+  ECAP_STATE.momento = (data.momento === 'comprovante') ? 'comprovante' : 'cobranca';
+  ECAP_STATE.dataPagamento = data.dataPagamento || '';
+  ECAP_STATE.informal = !!data.informal;
 
   const isPDF = (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'));
   const fIco = isPDF ? '📄' : (file.type.startsWith('image/') ? '🖼' : '');
@@ -93752,6 +93798,7 @@ function _ecapRenderReview(file, data){
     +   '<button type="button" class="' + (ECAP_STATE.tipo==='gasto'?'active gasto':'') + '" onclick="extCapturaSetTipo(\'gasto\')">Lançar como gasto</button>'
     +   '<button type="button" class="' + (ECAP_STATE.tipo==='ganho'?'active ganho':'') + '" onclick="extCapturaSetTipo(\'ganho\')">Lançar como recebimento</button>'
     + '</div>'
+    + _ecapAvisoMomento(data)
     + _ecapAvisoJaExiste(data)
     + '<div class="ecap-rev-grid">'
     +   '<div class="ecap-rev-field full">'
@@ -93967,6 +94014,44 @@ function _ecapAnexarNoExistente(lan, campos){
 let _ecapCriarMesmoAssim = false;
 let _ecapJaExiste = null;          // o lançamento achado, pro botão do aviso
 
+/* O QUE ELE ENTENDEU QUE O DOCUMENTO É — e o que isso muda.
+
+   Nascer "pago" em vez de "pendente" é a diferença entre o dinheiro estar no
+   passado ou no caixa futuro. É grande demais pra acontecer calado: se ele
+   leu errado, a pessoa tem que conseguir ver e trocar antes de lançar.
+
+   Documento formal e a pagar não ganha aviso nenhum — é o caso comum, e
+   avisar o óbvio em toda captura vira ruído que ninguém lê. */
+function _ecapAvisoMomento(data){
+  const comprovante = (ECAP_STATE.momento === 'comprovante');
+  const informal = !!ECAP_STATE.informal;
+  if(!comprovante && !informal) return '';
+  const quando = ECAP_STATE.dataPagamento
+    ? ECAP_STATE.dataPagamento.split('-').reverse().join('/')
+    : (data.data || '').split('-').reverse().join('/');
+  const partes = [];
+  if(comprovante)
+    partes.push('<b>Isso já aconteceu.</b> Li como comprovante, não como cobrança — '
+      + 'o lançamento entra já baixado em ' + _ecapEsc(quando)
+      + ', e não vai somar no que ainda está por pagar.');
+  if(informal)
+    partes.push('<b>Não é documento fiscal.</b> Li de uma foto ou print, então confira '
+      + 'o valor e a data com mais atenção que o normal.');
+  return '<div class="ecap-rev-forn-new ecap-momento" id="ecap-momento"><div>'
+    + partes.join('<br>')
+    + (comprovante ? '<br><button type="button" class="ecap-mom-btn" onclick="extCapturaMomentoTrocar()">'
+        + 'Na verdade ainda não foi pago</button>' : '')
+    + '</div></div>';
+}
+function extCapturaMomentoTrocar(){
+  ECAP_STATE.momento = 'cobranca';
+  ECAP_STATE.dataPagamento = '';
+  const el = document.getElementById('ecap-momento');
+  if(el) el.remove();
+  if(typeof toast === 'function') toast('Ok — vai entrar como a pagar');
+}
+try{ window.extCapturaMomentoTrocar = extCapturaMomentoTrocar; }catch(_){}
+
 /* AVISA NA TELA, NÃO NO CLIQUE.
 
    A busca por duplicata estava só no "Lançar no extrato": ele só descobria
@@ -94004,7 +94089,14 @@ function _ecapAvisoJaExiste(data){
     + '</div>';
 }
 
-/* O caminho curto do aviso: anexa e fecha, sem passar pelo "Lançar". */
+/* Anexa e ABRE O LANÇAMENTO. Anexar é metade do trabalho: quem acabou de
+   reconhecer o documento quase sempre quer completar o resto — número da
+   nota, uma nota escrita, a conta, o centro de custo. Fechar e deixar a
+   pessoa procurar a linha no extrato pra abrir na mão é jogar fora o
+   contexto que o app acabou de montar.
+
+   Abre DEPOIS de fechar a Captura, com um respiro: os dois são overlay, e
+   abrir por cima deixa o de baixo preso com o scroll travado. */
 function extCapturaAnexarNoExistente(){
   const l = _ecapJaExiste;
   if(!l) return;
@@ -94016,7 +94108,10 @@ function extCapturaAnexarNoExistente(){
   });
   if(typeof extCapturaClose === 'function') extCapturaClose();
   try{ if(typeof renderExtrato === 'function') renderExtrato(); }catch(_){}
-  if(typeof toast === 'function') toast('Documento anexado no lançamento de ' + quando);
+  if(typeof toast === 'function') toast('Anexado no lançamento de ' + quando + ' · abrindo pra você conferir');
+  setTimeout(() => {
+    try{ if(typeof extEditManual === 'function') extEditManual('m:' + l.id); }catch(_){}
+  }, 220);
 }
 try{ window.extCapturaAnexarNoExistente = extCapturaAnexarNoExistente; }catch(_){}
 
@@ -94055,11 +94150,10 @@ function extCapturaSubmit(){
                 `Nada do que já está preenchido é sobrescrito.`,
         okText:'Anexar neste', cancelText:'Criar outro assim mesmo'
       }, () => {
-        _ecapAnexarNoExistente(jaTem, { numero, cnpj,
-          dataEmissao: (document.getElementById('ecap-f-comp')?.value || '').trim() });
-        if(typeof extCapturaClose === 'function') extCapturaClose();
-        if(typeof renderExtrato === 'function') try{ renderExtrato(); }catch(_){}
-        if(typeof toast === 'function') toast('Documento anexado no lançamento de ' + quando);
+        /* Mesmo caminho do botão do aviso — inclusive abrir o lançamento no
+           fim. Duplicar os dois era garantir que um ia ficar pra trás. */
+        _ecapJaExiste = jaTem;
+        extCapturaAnexarNoExistente();
       }, () => {
         /* Ele decidiu que são dois mesmo. Não pergunta de novo nesta captura. */
         _ecapCriarMesmoAssim = true;
@@ -94093,6 +94187,7 @@ function extCapturaSubmit(){
   }
 
   // 2. Cria lançamento no extrato
+  let _ecapNovoId = null;        // pra abrir o lançamento no fim
   try {
     if(!extratoData || !Array.isArray(extratoData.lancamentos)){
       if(typeof _extLoad === 'function') _extLoad();
@@ -94119,7 +94214,14 @@ function extCapturaSubmit(){
       conta: (document.getElementById('ecap-f-conta')?.value || '').trim(),
       documento: numero,
       centroCustoId: ccId ? (parseInt(ccId) || null) : null,
-      status: 'pendente',  // user dá baixa depois (botão Pagar) · vai pra KPI Pendentes
+      /* COMPROVANTE NASCE BAIXADO. Boleto e nota são promessa — o usuário dá
+         baixa depois, e até lá contam como pendente. Mas comprovante de PIX,
+         recibo assinado e print de transferência concluída são dinheiro que JÁ
+         andou: nascer pendente põe no caixa futuro algo que já aconteceu, e
+         obriga a dar baixa à mão numa coisa pronta. */
+      status: (ECAP_STATE.momento === 'comprovante') ? 'pago' : 'pendente',
+      dataPagamento: (ECAP_STATE.momento === 'comprovante')
+                       ? (ECAP_STATE.dataPagamento || data) : '',
       manual: true,
       origem: 'captura-ia',
       criadoEm: new Date().toISOString()
@@ -94148,6 +94250,7 @@ function extCapturaSubmit(){
       }
     }catch(_){}
     extratoData.lancamentos.push(lan);
+    _ecapNovoId = lan.id;
     extratoData.nextId = lan.id + 1;
     const gravou = (typeof _extSave === 'function') ? _extSave() : false;
 
@@ -94192,11 +94295,21 @@ function extCapturaSubmit(){
     return;
   }
 
-  // 3. Fecha modal + render + toast
+  // 3. Fecha modal + render + abre o que acabou de nascer
   extCapturaClose();
   if(typeof renderExtrato === 'function') try{ renderExtrato(); }catch(e){}
-  if(typeof toast === 'function') toast('Lançamento criado pela Captura IA — ' + descricao);
-  else if(typeof anaAlert === 'function') anaAlert({ eyebrow:'✓ Pronto', title:'Lançado!', message:'Lançamento criado com sucesso. Confere lá no extrato.' });
+  if(typeof toast === 'function') toast('Lançado · abrindo pra você completar o que falta');
+  else if(typeof anaAlert === 'function') anaAlert({ eyebrow:'✓ Pronto', title:'Lançado!', message:'Lançamento criado com sucesso.' });
+  /* ABRE O LANÇAMENTO. O documento quase nunca traz tudo: a CONTA costuma
+     sair vazia (o papel não diz por onde o dinheiro vai passar), e número,
+     centro de custo e nota são do negócio, não do PDF. Fechar com um "confere
+     lá no extrato" fazia a pessoa caçar a linha que o app acabou de criar —
+     e, até achar, o lançamento fica sem conta no fluxo de caixa.
+
+     Mesmo respiro do caminho de anexar: os dois são overlay. */
+  if(_ecapNovoId != null) setTimeout(() => {
+    try{ if(typeof extEditManual === 'function') extEditManual('m:' + _ecapNovoId); }catch(_){}
+  }, 220);
 }
 try { window.extCapturaSubmit = extCapturaSubmit; } catch(e){}
 
@@ -148576,6 +148689,13 @@ async function mrkDocPerguntar(file, instrucao, comPanorama){
   if(typeof LLM_CFG === 'undefined' || LLM_CFG.provider !== 'anthropic' || !LLM_CFG.apiKey)
     throw new Error('o modo LLM não está ligado — configure em Configurações');
   const mime = _mrkDocMime(file);
+  /* HEIC é o padrão da câmera do iPhone e o modelo não lê. Quem arrasta a
+     foto direto do Finder cai aqui, e "formato não suportado" não diz o que
+     fazer. Pelo iPhone não acontece: ao escolher pela tela do celular o
+     próprio sistema converte pra JPEG. */
+  if(!mime && /\.(heic|heif)$/i.test(file.name || ''))
+    throw new Error('foto em HEIC (padrão do iPhone) — o leitor não abre esse formato. ' +
+      'Abra no Pré-visualização e exporte como JPEG, ou mande pelo celular, que converte sozinho.');
   if(!mime) throw new Error('formato não suportado: mande PDF, JPG, PNG, GIF ou WebP');
   if(file.size > MRK_DOC_MAX) throw new Error('arquivo grande demais (máximo 9 MB)');
 
@@ -148645,6 +148765,15 @@ const MRK_DOC_CAMPOS =
      direção comparando com o CNPJ da casa, em vez de confiar no palpite. */
   '"emitenteNome":"razão social de quem EMITIU (prestador / beneficiário / cedente)","emitenteCnpj":"só dígitos",' +
   '"destinatarioNome":"razão social de quem RECEBEU a cobrança (tomador / pagador / sacado)","destinatarioCnpj":"só dígitos",' +
+  /* O QUE o documento é muda o que o lançamento significa. Boleto é promessa,
+     comprovante é fato — e nascer tudo "pendente" punha dinheiro que já andou
+     no caixa futuro. */
+  '"momento":"cobranca se o dinheiro AINDA NÃO andou (boleto, nota a pagar, fatura, invoice, orçamento); ' +
+  'comprovante se JÁ andou (comprovante de PIX ou TED, recibo assinado, print de transferência concluída, ' +
+  'cupom fiscal, extrato mostrando o lançamento). Na dúvida, cobranca",' +
+  '"dataPagamento":"AAAA-MM-DD em que o dinheiro efetivamente saiu ou entrou — só quando momento=comprovante",' +
+  '"informal":"true quando não é documento fiscal: foto de recibo escrito à mão, print de conversa, ' +
+  'anotação, bilhete. false para nota, boleto, fatura e comprovante de banco",' +
   '"numero":"número da nota ou do documento","categoria":"uma das categorias listadas","descricao":"curta, do que se trata",' +
   '"confianca":"hi, md ou lo"}';
 
@@ -148695,8 +148824,22 @@ try{ window._mrkDocDirecao = _mrkDocDirecao; }catch(_){}
    espera, pra nada mudar da revisão em diante. */
 async function mrkDocExtrair(file){
   const instrucao =
-    'Este documento é uma nota fiscal, boleto, recibo, fatura ou comprovante de pagamento de uma ' +
-    'empresa brasileira. Extraia os campos para lançar no financeiro.\n\n' +
+    'Isto é a prova de um dinheiro que entrou, saiu ou vai sair numa empresa brasileira. ' +
+    'Extraia os campos para lançar no financeiro.\n\n' +
+    /* Antes a instrução dizia "nota fiscal, boleto, recibo, fatura ou
+       comprovante" e nada mais. O modelo já lê imagem, mas com essa moldura
+       ele tentava encaixar um print de conversa no formato de nota fiscal e
+       devolvia campo vazio. O valor do produto está justamente no que NÃO vem
+       formatado — a foto do recibo do estacionamento, o print do PIX. */
+    'PODE NÃO SER DOCUMENTO FISCAL, e tudo bem. Também vale: foto de recibo escrito à mão, ' +
+    'cupom de máquina, print de comprovante de PIX ou TED, print de conversa onde alguém combina ' +
+    'ou confirma um pagamento, foto de uma anotação, bilhete, etiqueta de preço. Leia o que estiver ' +
+    'legível e preencha o que der; o que não estiver no documento fica vazio, e `confianca` diz o ' +
+    'quanto você confia na LEITURA do valor e da data.\n\n' +
+    'Num print de conversa: o valor é o que foi combinado ou confirmado, a data é a da mensagem ' +
+    '(ou a combinada, se houver), e a contraparte é a OUTRA pessoa — nunca quem está escrevendo do ' +
+    'lado direito da tela, que é o dono do celular. Se a conversa só menciona um valor sem combinar ' +
+    'pagamento nenhum, devolva valor vazio em vez de inventar um lançamento.\n\n' +
     _mrkDocEuSou() + '\n\n' +
     _mrkDocConhecido() + '\n\n' +
     'Preencha SEMPRE `emitenteNome`/`emitenteCnpj` e `destinatarioNome`/`destinatarioCnpj`, ' +
@@ -148737,6 +148880,12 @@ async function mrkDocExtrair(file){
     dataEmissao: /^\d{4}-\d{2}-\d{2}$/.test(String(j.competencia || '')) ? j.competencia
                : (/^\d{4}-\d{2}-\d{2}$/.test(String(j.emissao || '')) ? j.emissao : ''),
     fornecedor: forn || null, fornConf: forn ? conf : 'no', fornKnown: _cad || null,
+    /* Boleto é promessa, comprovante é fato. Quem já andou nasce baixado, com
+       a data em que andou — senão o dinheiro aparece no caixa futuro e alguém
+       precisa dar baixa à mão numa coisa que já aconteceu. */
+    momento: (j.momento === 'comprovante') ? 'comprovante' : 'cobranca',
+    dataPagamento: /^\d{4}-\d{2}-\d{2}$/.test(String(j.dataPagamento || '')) ? j.dataPagamento : '',
+    informal: (j.informal === true || j.informal === 'true'),
     cnpj: cnpj || null,
     numero: String(j.numero || '').trim() || null,
     categoria: String(j.categoria || '').trim() || null,
