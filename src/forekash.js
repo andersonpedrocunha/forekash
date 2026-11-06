@@ -38,6 +38,35 @@ async function sb(env, caminho){
   return r.json();
 }
 
+/* O `limit` DO CLIENTE NÃO VALE. O PostgREST tem um teto próprio no servidor
+   (Max Rows, 1000 aqui) e devolve 1000 linhas por mais alto que seja o limit
+   pedido — sem erro, sem aviso, sem cabeçalho dizendo que cortou.
+
+   Foi o pior bug desta base. O MR KASH respondia sobre 1.000 das 8.893 linhas
+   do extrato — 11% do dinheiro — com total convicção. Pior: a fatia vinha SEM
+   ORDEM definida, então mudava de uma consulta pra outra. A mesma pergunta
+   ("a BLOOM pagou outubro?") recebia uma data diferente a cada vez, e nenhum
+   número batia com o banco. Passei a tarde achando que era prompt, cache,
+   memória envenenada e metadata sobrescrevendo coluna. Era a metade do
+   extrato que nunca chegou.
+
+   `order` é OBRIGATÓRIO aqui: paginar um resultado sem ordem definida repete
+   linha numa página e pula na outra — trocaria um erro silencioso por outro. */
+async function sbTudo(env, tabela, select, ordem){
+  const PAG = 1000, TETO = 60;        // 60 mil linhas antes de desistir
+  const out = [];
+  for(let n = 0; n < TETO; n++){
+    const parte = await sb(env,
+      `${tabela}?org_id=eq.${env.FOREKASH_ORG_ID}&select=${select}` +
+      `&order=${ordem || 'id'}.asc&limit=${PAG}&offset=${n * PAG}`);
+    if(!Array.isArray(parte)) break;
+    out.push(...parte);
+    if(parte.length < PAG) return out;
+  }
+  console.warn('[FK] ' + tabela + ': teto de ' + (TETO * PAG) + ' linhas atingido');
+  return out;
+}
+
 export async function carregar(env){
   const org = env.FOREKASH_ORG_ID;
   const [blobs, lans, carts] = await Promise.all([
@@ -49,12 +78,13 @@ export async function carregar(env){
        mão": linha que veio do arquivo do banco é o próprio extrato. Sem esta
        coluna o MR KASH não tinha como dizer em que pé está um lançamento, e
        respondia "não tem recebimento" sobre algo que a tela mostra conciliado. */
-    sb(env, `extrato_lancamentos?org_id=eq.${org}&select=data,valor,tipo,status,categoria,conta,contraparte,descricao,numero_documento,data_pagamento,importado_de,metadata&limit=20000`),
+    sbTudo(env, 'extrato_lancamentos',
+      'data,valor,tipo,status,categoria,conta,contraparte,descricao,numero_documento,data_pagamento,importado_de,metadata'),
     /* Compra de cartão também é gasto da empresa, e mora em tabela própria.
        Sem isto o MR KASH do Slack responde "Infra web: R$ 1.241,28 no ano"
        com 779 compras de cartão fora da conta — número errado dito com
        convicção, que é pior que admitir que não sabe. */
-    sb(env, `cartao_lancamentos?org_id=eq.${org}&select=data_compra,valor,descricao,cartao_local_id,data&limit=20000`)
+    sbTudo(env, 'cartao_lancamentos', 'data_compra,valor,descricao,cartao_local_id,data')
   ]);
   const mods = {};
   for(const b of blobs) mods[b.module] = b.data;
