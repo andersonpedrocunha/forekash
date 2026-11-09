@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794244439"/>
+  <meta name="fk-build" content="forekash-v1794244896"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5451,8 +5451,17 @@
     .cart-dv-nunca:hover{color:#B91C1C;background:#FEF2F2}
     /* Botão que só aparece quando há sugestão: âmbar discreto, porque é
        oportunidade e não alerta. */
-    .cart-btn-sugere{background:#FFFBEB;border-color:#FDE68A;color:#92400E;font-weight:700}
-    .cart-btn-sugere:hover{background:#FEF3C7;border-color:#FCD34D}
+    /* Os dois formam um bloco só: moldura em volta e cantos colados por
+       dentro, pra lerem como um par e não como dois botões vizinhos. */
+    .cart-grupo-prev{display:inline-flex;align-items:stretch;gap:0;border:1px solid #FDE68A;
+      background:#FFFBEB;border-radius:10px;padding:3px}
+    .cart-grupo-prev .cart-btn{border:none;background:transparent;box-shadow:none}
+    .cart-grupo-prev .cart-btn:first-child{border-right:1px solid #FDE68A;border-radius:7px 0 0 7px}
+    .cart-grupo-prev .cart-btn:hover{background:#FEF3C7}
+    .cart-btn-sugere{background:#B45309;border-color:#B45309;color:#fff;font-weight:700;
+      border-radius:0 7px 7px 0}
+    .cart-grupo-prev .cart-btn-sugere{background:#B45309;color:#fff}
+    .cart-grupo-prev .cart-btn-sugere:hover{background:#92400E}
     /* Papel novo na matriz e na lista. Índigo porque os quatro existentes já
        ocupam verde, azul, âmbar e cinza. */
     .team-role-badge.contador{background:#EEF2FF;color:#4338CA}
@@ -23490,11 +23499,11 @@ td.mes.do-extrato{background:#ECFDF5}
                          aos dois menus. O badge só aparece quando há o que
                          sugerir — entrada permanente que quase sempre não faz
                          nada vira mobília. -->
-                    <button type="button" class="ext-import-pop-it" onclick="extImportMenuClose();cartSugerirRecorrentes()">
+                    <button type="button" class="ext-import-pop-it" onclick="extImportMenuClose();cartSugerirRecorrentes('extrato')">
                       <span class="ico" style="background:#B45309;color:#fff"><i class="fkico fkico-cycle"></i></span>
                       <span class="bd">
                         <b>Virou custo fixo? <span id="ext-rec-badge"></span></b>
-                        <span>O que se repete há 3 meses e ainda entra como avulso</span>
+                        <span>Gasto de conta que se repete há 3 meses e ainda entra como avulso</span>
                       </span>
                     </button>
                     <button type="button" class="ext-import-pop-it" onclick="extImportMenuClose();extIgnOpen()">
@@ -71582,7 +71591,12 @@ function cartProjetarFaturas(opts){
    Respeita `estrutura.naoRecorrentes`: o que ele recusou uma vez não volta a
    ser oferecido. Ver o comentário em `fkRecorrenteSet` — sem isso ele veria a
    própria decisão ser desfeita. */
-function cartAssinaturasCandidatas(){
+/* `fonte` recorta de onde vem a evidência: 'cartao', 'extrato' ou 'tudo'.
+   Chamada da aba de Cartões, misturar boleto e débito automático confunde —
+   ele estava olhando cartão e viu 64 itens, metade vinda de conta bancária.
+   Cada tela pergunta do que ela mostra. */
+function cartAssinaturasCandidatas(fonte){
+  fonte = fonte || 'tudo';
   const out = [];
   try{
     if(typeof estrutura === 'undefined' || !estrutura) return out;
@@ -71603,7 +71617,7 @@ function cartAssinaturasCandidatas(){
     };
 
     // ── cartão: o mês é o da FATURA, não o da compra ──────────────────
-    if(typeof cartoes !== 'undefined' && cartoes && Array.isArray(cartoes.lancamentos)){
+    if(fonte !== 'extrato' && typeof cartoes !== 'undefined' && cartoes && Array.isArray(cartoes.lancamentos)){
       const fatPorId = {};
       for(const f of (cartoes.faturas || [])) if(f) fatPorId[f.id] = f;
       const nomeCartao = {};
@@ -71620,7 +71634,7 @@ function cartAssinaturasCandidatas(){
     /* Assinatura não vive só no cartão. Servidor em boleto, ferramenta em
        débito automático e mensalidade em PIX se repetem igual — e sem olhar
        aqui, metade do custo fixo da empresa ficava invisível pra Estrutura. */
-    if(typeof extratoData !== 'undefined' && extratoData && Array.isArray(extratoData.lancamentos)){
+    if(fonte !== 'cartao' && typeof extratoData !== 'undefined' && extratoData && Array.isArray(extratoData.lancamentos)){
       for(const l of extratoData.lancamentos){
         if(!l || l.tipo !== 'gasto') continue;
         /* Pendente é intenção, e os fixos projetados até 2027 fariam qualquer
@@ -71668,18 +71682,18 @@ function cartAssinaturasCandidatas(){
    permanente que quase sempre não faz nada vira mobília. */
 function _cartBotaoRecorrentes(){
   let n = 0;
-  try{ n = cartAssinaturasCandidatas().length; }catch(_){}
+  try{ n = cartAssinaturasCandidatas('cartao').length; }catch(_){}
   if(!n) return '';
-  return '<button type="button" class="cart-btn cart-btn-sugere" onclick="cartSugerirRecorrentes()"'
-    + ' title="Serviços que se repetem há 3 meses ou mais e ainda não têm linha na Estrutura de Custos">'
-    + n + (n === 1 ? ' assinatura virou fixa?' : ' assinaturas viraram fixas?') + '</button>';
+  return '<button type="button" class="cart-btn cart-btn-sugere" onclick="cartSugerirRecorrentes(\'cartao\')"'
+    + ' title="Gastos do cartão que se repetem há 3 meses ou mais e ainda não têm linha na Estrutura de Custos">'
+    + n + (n === 1 ? ' gasto virou fixo?' : ' gastos viraram fixos?') + '</button>';
 }
 
-function cartSugerirRecorrentes(){
-  const lista = cartAssinaturasCandidatas();
+function cartSugerirRecorrentes(fonte){
+  const lista = cartAssinaturasCandidatas(fonte);
   _cartRecLista = lista;
   if(!lista.length){
-    if(typeof toast === 'function') toast('Nenhuma assinatura nova pra promover');
+    if(typeof toast === 'function') toast('Nada novo que se repita há 3 meses');
     return;
   }
   const linhas = lista.map((d, i) =>
@@ -71698,11 +71712,11 @@ function cartSugerirRecorrentes(){
     + '</div>').join('');
   anaConfirm({
     eyebrow: 'Estrutura de Custos',
-    title: lista.length + (lista.length === 1 ? ' serviço virou custo fixo' : ' serviços viraram custo fixo'),
-    message: 'Estes se repetem há 3 meses ou mais no cartão e ainda entram como gasto avulso. '
-           + 'Virando recorrente, cada um ganha linha própria na Estrutura de Custos e passa a ser '
-           + 'projetado pro ano.<br><br>O valor é pessimista — acima do mês típico e arredondado pra '
-           + 'cima. Quando a fatura real chegar, você ajusta na hora de lançar.'
+    title: lista.length + (lista.length === 1 ? ' gasto se repete todo mês' : ' gastos se repetem todo mês'),
+    message: 'Estes aparecem há 3 meses ou mais e ainda entram como gasto avulso. Virando '
+           + 'recorrente, cada um ganha linha própria na Estrutura de Custos e passa a ser projetado '
+           + 'pro ano.<br><br>O valor é pessimista — acima do mês típico e arredondado pra cima. '
+           + 'Quando o valor real chegar, você ajusta na hora de lançar.'
            + '<div class="cart-dv-lista">' + linhas + '</div>',
     okText: 'Tornar recorrentes', cancelText: 'Agora não'
   }, () => {
@@ -71717,7 +71731,7 @@ function cartSugerirRecorrentes(){
     }
     try{ renderCartoes(); }catch(_){}
     if(typeof toast === 'function')
-      toast('✓ ' + marcadas.length + (marcadas.length === 1 ? ' assinatura agora tem linha' : ' assinaturas agora têm linha')
+      toast('✓ ' + marcadas.length + (marcadas.length === 1 ? ' gasto agora tem linha' : ' gastos agora têm linha')
             + ' na Estrutura de Custos', 5000);
   });
 }
@@ -71765,9 +71779,9 @@ function cartProjDuvidososPerguntar(lista){
     + '</small></span></label>').join('');
   anaConfirm({
     eyebrow: 'Projeção do cartão',
-    title: 'Estas assinaturas falharam em algum mês',
-    message: 'Marquei as que cobraram no mês passado. Desmarque o que foi cancelado — '
-           + 'projetar assinatura morta infla a despesa futura, e não projetar uma viva '
+    title: 'Estes gastos falharam em algum mês',
+    message: 'Marquei os que apareceram no mês passado. Desmarque o que acabou — projetar '
+           + 'o que não existe mais infla a despesa futura, e não projetar o que continua '
            + 'esconde uma conta que vai chegar.<br><div class="cart-dv-lista">' + linhas + '</div>',
     okText: 'Projetar as marcadas', cancelText: 'Nenhuma'
   }, () => {
@@ -71791,7 +71805,7 @@ function cartProjDuvidososPerguntar(lista){
     }
     try{ cartSave(); }catch(_){}
     try{ renderCartoes(); }catch(_){}
-    if(typeof toast === 'function') toast('✓ ' + marcadas.length + ' assinatura(s) · ' + n + ' linha(s) projetada(s)');
+    if(typeof toast === 'function') toast('✓ ' + marcadas.length + ' item(ns) · ' + n + ' linha(s) projetada(s)');
   });
 }
 try{ window.cartProjDuvidososPerguntar = cartProjDuvidososPerguntar; }catch(e){}
@@ -71879,8 +71893,14 @@ function renderCartoes(){
     + '<div class="cart-hd-actions">'
       + '<button type="button" class="cart-btn" onclick="cartAnaliseAbrir()" title="Gasto do cartão por categoria, centro de custo e fornecedor">Análise</button>'
       + '<button type="button" class="cart-btn" onclick="fkCardCalendarOpen()" title="Próximos 6 meses de faturas">Calendário 6m</button>'
-      + '<button type="button" class="cart-btn" onclick="cartProjetarConfirmar()" title="Refaz a previsão das faturas futuras a partir do histórico: parcela que falta com valor exato, assinatura por um valor pessimista arredondado pra cima">Refazer projeção</button>'
-      + _cartBotaoRecorrentes()
+      /* Os dois andam juntos porque são o mesmo assunto: o que vai se repetir.
+         Um projeta as faturas que vêm; o outro promove a custo fixo o que já
+         virou rotina. Separados por "Análise" e "Calendário" no meio, pareciam
+         dois recursos sem relação. */
+      + '<span class="cart-grupo-prev">'
+      +   '<button type="button" class="cart-btn" onclick="cartProjetarConfirmar()" title="Refaz a previsão das faturas futuras a partir do histórico: parcela que falta com valor exato, gasto recorrente por um valor pessimista arredondado pra cima">Refazer projeção</button>'
+      +   _cartBotaoRecorrentes()
+      + '</span>'
       + '<button type="button" class="cart-btn cart-btn-primary" onclick="cartOpenModal()">+ Novo cartão</button>'
     + '</div>'
   + '</div>';
@@ -77580,7 +77600,7 @@ function _extIgnBadge(){
   const rec = document.getElementById('ext-rec-badge');
   if(rec){
     let k = 0;
-    try{ k = (typeof cartAssinaturasCandidatas === 'function') ? cartAssinaturasCandidatas().length : 0; }catch(_){}
+    try{ k = (typeof cartAssinaturasCandidatas === 'function') ? cartAssinaturasCandidatas('extrato').length : 0; }catch(_){}
     rec.textContent = k ? '(' + k + ')' : '';
   }
 }
