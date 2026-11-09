@@ -850,6 +850,9 @@ export default {
     if(url.pathname === '/api/mrkash/pessoas') return pessoasSlack(request, env);
     /* Quem confirmou, pra tela do Forekash mostrar no card do aviso. */
     if(url.pathname === '/api/mrkash/limpar-testes') return limparTestes(request, env);
+    if(url.pathname === '/api/acesso/listar')   return acessoListar(request, env);
+    if(url.pathname === '/api/acesso/convidar' && request.method === 'POST') return acessoConvidar(request, env);
+    if(url.pathname === '/api/acesso/revogar'  && request.method === 'POST') return acessoRevogar(request, env);
     /* O copiloto da tela. Recebe os SINAIS que o navegador já calculou — o
        Worker não vai no banco buscar nada aqui de propósito: quem tem os
        números na mão é a tela, e mandar o modelo recalcular seria duas
@@ -1177,11 +1180,45 @@ async function avisoAgora(request, env){
 /* Só sessão do Forekash passa: estes dois endereços expõem o quadro de
    pessoas e de canais do workspace, que não é coisa pra ficar aberta. */
 async function sessaoValida(request, env){
+  return !!(await sessaoDaOrg(request, env));
+}
+
+/* QUEM É, E SE É DAQUI.
+
+   `sessaoValida` só perguntava "este token é de um usuário do projeto?" — e
+   respondia sim pra QUALQUER conta do Supabase, de qualquer empresa. Com uma
+   organização só isso era inofensivo; com o Forekash indo pro mercado, o
+   token de um cliente passaria no portão e mexeria no Slack de outro.
+
+   Devolve `{ id, email, papel }` ou null. O papel vem de `org_members`, que
+   é a mesma fonte que as políticas do banco usam — portão e RLS concordando
+   em vez de cada um ter a sua verdade. */
+async function sessaoDaOrg(request, env){
   const jwt = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-  if(!jwt) return false;
+  if(!jwt) return null;
   const r = await fetch(env.SUPABASE_URL + '/auth/v1/user', {
     headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: 'Bearer ' + jwt } });
-  return r.ok;
+  if(!r.ok) return null;
+  let u = null;
+  try{ u = await r.json(); }catch(_){ return null; }
+  if(!u || !u.id) return null;
+  try{
+    const m = await fetch(env.SUPABASE_URL +
+      `/rest/v1/org_members?org_id=eq.${env.FOREKASH_ORG_ID}&user_id=eq.${u.id}&select=role&limit=1`,
+      { headers: { apikey: env.SUPABASE_SERVICE_KEY,
+                   Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY } });
+    if(!m.ok) return null;
+    const linhas = await m.json();
+    if(!Array.isArray(linhas) || !linhas.length) return null;   // não é desta casa
+    return { id: u.id, email: u.email || '', papel: linhas[0].role || '' };
+  }catch(_){ return null; }
+}
+
+/* Só quem manda na casa mexe em acesso. Contador e papéis de leitura não
+   convidam ninguém — senão o convidado convida de volta e o controle vaza. */
+async function sessaoDeDono(request, env){
+  const s = await sessaoDaOrg(request, env);
+  return (s && (s.papel === 'owner' || s.papel === 'admin')) ? s : null;
 }
 
 async function pessoasSlack(request, env){
@@ -1241,6 +1278,104 @@ async function limparTestes(request, env){
     body: JSON.stringify({ org_id: env.FOREKASH_ORG_ID, module: 'avisos_disparos', data: d })
   });
   return Response.json({ ok:true, apagadas, falhas: [...new Set(falhas)] });
+}
+
+/* ══ ACESSO COMPARTILHADO ═══════════════════════════════════════════
+   Quem entra no Forekash desta empresa, e com que papel. A lista vive em
+   `org_members`, a MESMA tabela que as políticas do banco consultam — então
+   tirar alguém daqui tira o acesso de verdade, não só da tela.
+
+   O e-mail precisa já ter conta no Forekash: `org_members.user_id` é NOT
+   NULL e aponta pra `auth.users`. Convidar alguém que nunca entrou criaria
+   uma linha órfã, então o fluxo é: a pessoa cria a conta, você libera aqui. */
+const FK_PAPEIS = {
+  admin:    'Administrador · vê e mexe em tudo',
+  contador: 'Contador · só o módulo Contador, somente leitura',
+  leitura:  'Somente leitura · vê tudo, não altera nada'
+};
+
+async function acessoListar(request, env){
+  const s = await sessaoDeDono(request, env);
+  if(!s) return Response.json({ ok:false, erro:'sem permissão' }, { status: 403 });
+  const base = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY };
+  const r = await fetch(env.SUPABASE_URL +
+    `/rest/v1/org_members?org_id=eq.${env.FOREKASH_ORG_ID}&select=user_id,role,invited_at,accepted_at`,
+    { headers: base });
+  if(!r.ok) return Response.json({ ok:false, erro:'não li a lista' }, { status: 502 });
+  const membros = await r.json();
+  /* O e-mail mora em auth.users, que o PostgREST não expõe. A API de admin
+     expõe, e é a única com direito — por isso isto só existe no servidor. */
+  const emails = {};
+  try{
+    const u = await fetch(env.SUPABASE_URL + '/auth/v1/admin/users?per_page=200', { headers: base });
+    if(u.ok){
+      const j = await u.json();
+      for(const x of (j.users || j || [])) if(x && x.id) emails[x.id] = x.email || '';
+    }
+  }catch(_){}
+  return Response.json({ ok:true, papeis: FK_PAPEIS, eu: s.id,
+    membros: (membros || []).map(m => ({
+      userId: m.user_id, email: emails[m.user_id] || '(e-mail não encontrado)',
+      papel: m.role, desde: m.invited_at, aceitou: !!m.accepted_at })) });
+}
+
+async function acessoConvidar(request, env){
+  const s = await sessaoDeDono(request, env);
+  if(!s) return Response.json({ ok:false, erro:'sem permissão' }, { status: 403 });
+  let email = '', papel = '';
+  try{ const b = await request.json() || {};
+       email = String(b.email || '').trim().toLowerCase();
+       papel = String(b.papel || '').trim(); }catch(_){}
+  if(!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
+    return Response.json({ ok:false, erro:'e-mail inválido' }, { status: 400 });
+  if(!FK_PAPEIS[papel])
+    return Response.json({ ok:false, erro:'papel desconhecido' }, { status: 400 });
+
+  const base = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY,
+                 'content-type': 'application/json' };
+  let achado = null;
+  try{
+    const u = await fetch(env.SUPABASE_URL + '/auth/v1/admin/users?per_page=200', { headers: base });
+    if(u.ok){
+      const j = await u.json();
+      achado = (j.users || j || []).find(x => x && String(x.email || '').toLowerCase() === email) || null;
+    }
+  }catch(_){}
+  if(!achado)
+    return Response.json({ ok:false, semConta:true,
+      erro:'esse e-mail ainda não tem conta no Forekash — peça pra pessoa criar e tente de novo' },
+      { status: 404 });
+  if(achado.id === s.id)
+    return Response.json({ ok:false, erro:'esse é você' }, { status: 400 });
+
+  const ins = await fetch(env.SUPABASE_URL + '/rest/v1/org_members?on_conflict=org_id,user_id', {
+    method: 'POST',
+    headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=representation' }, base),
+    body: JSON.stringify({ org_id: env.FOREKASH_ORG_ID, user_id: achado.id,
+                           role: papel, invited_by: s.id })
+  });
+  if(!ins.ok)
+    return Response.json({ ok:false, erro:'não gravei: ' + (await ins.text()).slice(0,160) }, { status: 502 });
+  return Response.json({ ok:true, email, papel });
+}
+
+async function acessoRevogar(request, env){
+  const s = await sessaoDeDono(request, env);
+  if(!s) return Response.json({ ok:false, erro:'sem permissão' }, { status: 403 });
+  let userId = '';
+  try{ userId = String(((await request.json()) || {}).userId || '').trim(); }catch(_){}
+  if(!userId) return Response.json({ ok:false, erro:'sem usuário' }, { status: 400 });
+  /* Tirar o próprio acesso deixaria a organização sem dono e sem volta pela
+     tela — o conserto seria no painel do Supabase. */
+  if(userId === s.id)
+    return Response.json({ ok:false, erro:'você não pode remover o próprio acesso' }, { status: 400 });
+  const r = await fetch(env.SUPABASE_URL +
+    `/rest/v1/org_members?org_id=eq.${env.FOREKASH_ORG_ID}&user_id=eq.${userId}`, {
+    method: 'DELETE',
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: 'Bearer ' + env.SUPABASE_SERVICE_KEY }
+  });
+  if(!r.ok) return Response.json({ ok:false, erro:'não removi' }, { status: 502 });
+  return Response.json({ ok:true });
 }
 
 async function canaisSlack(request, env){

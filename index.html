@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794241956"/>
+  <meta name="fk-build" content="forekash-v1794243616"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5453,6 +5453,11 @@
        oportunidade e não alerta. */
     .cart-btn-sugere{background:#FFFBEB;border-color:#FDE68A;color:#92400E;font-weight:700}
     .cart-btn-sugere:hover{background:#FEF3C7;border-color:#FCD34D}
+    /* Papel novo na matriz e na lista. Índigo porque os quatro existentes já
+       ocupam verde, azul, âmbar e cinza. */
+    .team-role-badge.contador{background:#EEF2FF;color:#4338CA}
+    .team-vazio{font-size:.82rem;color:#94A3B8;padding:16px;text-align:center;
+      border:1px dashed var(--bdr);border-radius:10px}
 
     .ecap-foot{padding:14px 22px;border-top:1px solid #E5E7EB;background:#F8FAFC;
                 display:flex;gap:10px;justify-content:flex-end;align-items:center;flex-wrap:wrap}
@@ -25897,8 +25902,13 @@ td.mes.do-extrato{background:#ECFDF5}
               <h3>Extrato gerencial</h3>
               <span class="ctb-card-sub" id="ctb-ger-sub"></span>
             </div>
-            <button class="btn btn-sec" onclick="ctbExportRazao()" title="Mesmo conteúdo em CSV">Baixar CSV</button>
-            <button class="btn btn-sec" onclick="ctbImprimirRazao()" title="Abre a versão de impressão — salve como PDF por ali">Abrir / imprimir</button>
+            <!-- Agrupados, como nos outros cards: o cabeçalho é flex com os
+                 extremos afastados, então dois botões soltos iam parar um em
+                 cada ponta da tela. -->
+            <div class="ctb-hd-acoes">
+              <button class="btn btn-sec" onclick="ctbExportRazao()" title="Mesmo conteúdo em CSV">Baixar CSV</button>
+              <button class="btn btn-sec" onclick="ctbImprimirRazao()" title="Abre a versão de impressão — salve como PDF por ali">Abrir / imprimir</button>
+            </div>
           </div>
           <div id="ctb-ger"></div>
         </div>
@@ -27674,6 +27684,7 @@ td.mes.do-extrato{background:#ECFDF5}
                     <th>Gestor</th>
                     <th>Analista</th>
                     <th>Visualizador</th>
+                    <th>Contador</th>
                   </tr>
                 </thead>
                 <tbody id="team-perm-tbody"></tbody>
@@ -27938,44 +27949,6 @@ td.mes.do-extrato{background:#ECFDF5}
              é ruído na frente do que funciona. O código continua no arquivo
              caso volte a fazer sentido. -->
 
-        <div data-cfg-tab="organizacao" class="cfg-section whitelabel" id="cfg-wl-section">
-          <div class="cfg-section-hd">
-            <div class="cfg-section-ico" style="background:#F59E0B">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>
-            </div>
-            <h3>Modo Contador (White-label)</h3>
-          </div>
-          <p class="cfg-section-sub">É contador? Use o Forekash com SUA marca pros seus clientes. Logo customizada, cores, domínio próprio (em breve) e gestão centralizada das PJs que você atende.</p>
-          <div class="cfg-section-body">
-            <div class="cfg-row">
-              <div class="cfg-field">
-                <label>Ativar modo contador</label>
-                <select id="cfg-wl-enabled" onchange="wlConfigSave()">
-                  <option value="0">Desativado</option>
-                  <option value="1">Ativado</option>
-                </select>
-              </div>
-              <div class="cfg-field">
-                <label>Nome do escritório</label>
-                <input type="text" id="cfg-wl-name" placeholder="Contabilidade XPTO" oninput="wlConfigSave()">
-              </div>
-              <div class="cfg-field">
-                <label>Cor primária</label>
-                <input type="color" id="cfg-wl-color" value="#10B981" onchange="wlConfigSave()">
-              </div>
-            </div>
-            <div style="margin-top:14px">
-              <div style="margin-bottom:6px;font-size:.78rem;color:#94A3B8">Logo do escritório (visível no header pros clientes)</div>
-              <input type="file" id="cfg-wl-logo" accept="image/png,image/jpeg,image/svg+xml" onchange="wlLogoUpload(this)">
-              <div id="cfg-wl-logo-preview" style="margin-top:8px"></div>
-            </div>
-            <div style="margin-top:14px">
-              <h4 style="margin:0 0 8px;font-size:.85rem">Clientes (PJs sob gestão)</h4>
-              <div id="cfg-wl-clients-list" style="display:flex;flex-direction:column;gap:6px"></div>
-              <button class="btn btn-p" style="margin-top:10px" onclick="wlAddClient()">+ Adicionar PJ-cliente</button>
-            </div>
-          </div>
-        </div>
 
         <!-- ── 🚀 FERRAMENTAS AVANÇADAS ────────────────── -->
 
@@ -130363,7 +130336,6 @@ const CMDK_COMMANDS = [
   { group:'Ações',   label:'Emitir recibo avulso',      ico:'', kbd:'', action:() => { switchModule('comercial',null); setTimeout(() => { if(typeof comSwitchTab==='function') comSwitchTab('rec2'); if(typeof comReciboOpen==='function') comReciboOpen(); }, 120); } },
   { group:'Configurações', label:'Configurar API & Webhooks', ico:'', kbd:'', action:() => { switchModule('configuracoes',null); setTimeout(() => { cfgSetTab('integracoes'); setTimeout(()=>{ const el=document.getElementById('cfg-api-section'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 60); }, 200); } },
   { group:'Configurações', label:'Integrações (WhatsApp/Slack/Telegram/Email...)', ico:'', kbd:'', action:() => { switchModule('configuracoes',null); setTimeout(() => { cfgSetTab('integracoes'); setTimeout(()=>{ const el=document.getElementById('cfg-integrations-section'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 60); }, 200); } },
-  { group:'Configurações', label:'Modo Contador (White-label)', ico:'', kbd:'', action:() => { switchModule('configuracoes',null); setTimeout(() => { cfgSetTab('organizacao'); setTimeout(()=>{ const el=document.getElementById('cfg-wl-section'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 60); }, 200); } },
   { group:'Configurações', label:'Ver novidades (What\'s New)', ico:'', kbd:'', action:() => { if(typeof whatsnewOpen==='function') whatsnewOpen(); } },
   { group:'Configurações', label:'LGPD · Privacidade', ico:'', kbd:'', action:() => { if(typeof lgpdOpen==='function') lgpdOpen(); } },
   { group:'Configurações', label:'Ativar/Gerenciar 2FA', ico:'', kbd:'', action:() => { if(typeof tfaOpen==='function') tfaOpen(); } },
@@ -149764,6 +149736,11 @@ function cfgSetTab(tab, btn){
     const t = document.querySelector('.cfg-tab[data-tab="'+tab+'"]');
     if(t) t.classList.add('active');
   }
+  /* A equipe vem do servidor, então pedir no boot correria antes de a sessão
+     existir e a tela diria "entre na nuvem" pra quem já está dentro. */
+  if(tab === 'organizacao'){
+    try{ teamCarregar(); }catch(_){}
+  }
   // A lista de avisos é desenhada aqui, não no boot: no boot ela corria antes
   // de a nuvem hidratar o localStorage e ficava um vazio que parecia bug.
   if(tab === 'integracoes'){
@@ -151288,99 +151265,6 @@ window.fkFireWebhook = function(event, data){
 
 // ═════════════════════════════════════════════════════════════════════
 // 🎨 WHITE-LABEL CONTADORES
-// ═════════════════════════════════════════════════════════════════════
-const WL_KEY = 'forekash:wl:v1';
-let WL = { enabled:false, name:'', color:'#10B981', logo:null, clients:[] };
-function wlLoad(){
-  try{ const raw = localStorage.getItem(WL_KEY); if(raw) WL = Object.assign(WL, JSON.parse(raw)); }catch(_){}
-  if(!Array.isArray(WL.clients)) WL.clients = [];
-  const en = document.getElementById('cfg-wl-enabled');
-  const nm = document.getElementById('cfg-wl-name');
-  const cl = document.getElementById('cfg-wl-color');
-  if(en) en.value = WL.enabled ? '1' : '0';
-  if(nm) nm.value = WL.name || '';
-  if(cl) cl.value = WL.color || '#10B981';
-  wlLogoRender();
-  wlClientsRender();
-  wlApply();
-}
-function wlConfigSave(){
-  const en = document.getElementById('cfg-wl-enabled');
-  const nm = document.getElementById('cfg-wl-name');
-  const cl = document.getElementById('cfg-wl-color');
-  if(en) WL.enabled = en.value === '1';
-  if(nm) WL.name = nm.value;
-  if(cl) WL.color = cl.value;
-  try{ localStorage.setItem(WL_KEY, JSON.stringify(WL)); }catch(_){}
-  wlApply();
-}
-function wlLogoUpload(input){
-  if(!input.files || !input.files[0]) return;
-  const f = input.files[0];
-  if(f.size > 2 * 1024 * 1024){ alert('Logo até 2MB.'); return; }
-  const r = new FileReader();
-  r.onload = e => {
-    WL.logo = e.target.result;
-    try{ localStorage.setItem(WL_KEY, JSON.stringify(WL)); }catch(_){}
-    wlLogoRender();
-    wlApply();
-  };
-  r.readAsDataURL(f);
-}
-function wlLogoRender(){
-  const el = document.getElementById('cfg-wl-logo-preview');
-  if(!el) return;
-  if(WL.logo){
-    el.innerHTML = `<img src="${WL.logo}" style="max-height:60px;max-width:200px;background:#0F172A;padding:6px;border-radius:6px">
-      <button class="btn btn-sec" style="margin-left:10px;font-size:.72rem;padding:4px 10px" onclick="WL.logo=null; localStorage.setItem('${WL_KEY}',JSON.stringify(WL)); wlLogoRender(); wlApply();">Remover</button>`;
-  } else {
-    el.innerHTML = '<small style="color:#64748B;font-size:.74rem">Nenhuma logo enviada</small>';
-  }
-}
-function wlClientsRender(){
-  const el = document.getElementById('cfg-wl-clients-list');
-  if(!el) return;
-  if(!WL.clients.length){
-    el.innerHTML = '<small style="color:#94A3B8;font-size:.74rem">Nenhum cliente cadastrado ainda.</small>';
-    return;
-  }
-  el.innerHTML = WL.clients.map((c,i) => `<div style="display:flex;align-items:center;gap:10px;background:#0F172A;padding:8px 12px;border-radius:6px">
-    <strong style="flex:1">${_repEsc(c.nome)}</strong>
-    <span style="color:#94A3B8;font-size:.74rem">${_repEsc(c.cnpj||'—')}</span>
-    <button class="btn btn-sec fkico fkico-trash" style="font-size:.7rem;padding:3px 8px" onclick="WL.clients.splice(${i},1); localStorage.setItem('${WL_KEY}',JSON.stringify(WL)); wlClientsRender();"></button>
-  </div>`).join('');
-}
-function wlAddClient(){
-  anaPrompt({eyebrow:'White-label', title:'Adicionar PJ-cliente', message:'Nome da PJ:', placeholder:'Ex: Acme Corp', okText:'Próximo'}, (nome) => {
-    if(!nome || !nome.trim()) return;
-    anaPrompt({eyebrow:'White-label', title:'CNPJ', message:'CNPJ (opcional):', placeholder:'00.000.000/0001-00', okText:'Adicionar'}, (cnpj) => {
-      WL.clients.push({ nome: nome.trim(), cnpj: (cnpj||'').trim(), criadoEm:Date.now() });
-      try{ localStorage.setItem(WL_KEY, JSON.stringify(WL)); }catch(_){}
-      wlClientsRender();
-      if(typeof auditLog==='function') auditLog('whitelabel', 'adicionou cliente PJ: '+nome);
-    });
-  });
-}
-function wlApply(){
-  // Aplica white-label se ativo
-  let styleEl = document.getElementById('fk-wl-style');
-  if(!styleEl){
-    styleEl = document.createElement('style');
-    styleEl.id = 'fk-wl-style';
-    document.head.appendChild(styleEl);
-  }
-  if(WL.enabled && WL.color){
-    styleEl.textContent = `:root { --wl-primary:${WL.color}; }
-      .sb-foot-brand strong { color:${WL.color} !important; }
-      .btn-p { background:${WL.color} !important; border-color:${WL.color} !important; }`;
-  } else {
-    styleEl.textContent = '';
-  }
-}
-
-
-// ═════════════════════════════════════════════════════════════════════
-// TEMPLATES DE DRE · adaptam linhas por setor
 // ═════════════════════════════════════════════════════════════════════
 let REP_TEMPLATE = 'generico';
 function repSetTemplate(t){
@@ -154281,27 +154165,32 @@ const TEAM_ROLES = {
   socio:        { label:'Sócio',         color:'socio',         desc:'Admin total · vê tudo, edita tudo, gerencia equipe' },
   gestor:       { label:'Gestor Financeiro', color:'gestor',     desc:'Edita todos os módulos · vê salários · não gerencia equipe' },
   analista:     { label:'Analista',      color:'analista',      desc:'Edita módulos do dia-a-dia · NÃO vê salários/folha · não vê equipe' },
-  visualizador: { label:'Visualizador',  color:'visualizador',  desc:'Somente leitura · não edita nada · útil pra contador/sócio passivo' }
+  visualizador: { label:'Visualizador',  color:'visualizador',  desc:'Somente leitura · não edita nada · vê os números sem mexer' },
+  /* O contador não é um visualizador com menos sorte: ele vê MENOS módulos,
+     não os mesmos em modo leitura. Precisa dos documentos e do extrato pra
+     fechar a contabilidade, e de nada além disso. */
+  contador:     { label:'Contador',      color:'contador',      desc:'Só o módulo Contador · baixa documentos e exporta extrato · não altera nada' }
 };
 
 // Matriz de permissões — true = pode, false = bloqueado
 const PERMISSIONS = [
-  { key:'view_dashboard',     label:'Ver Dashboard',         socio:true,  gestor:true,  analista:true,  visualizador:true  },
-  { key:'edit_receita',       label:'Editar Receita',        socio:true,  gestor:true,  analista:true,  visualizador:false },
-  { key:'edit_extrato',       label:'Editar Extrato',        socio:true,  gestor:true,  analista:true,  visualizador:false },
-  { key:'edit_dispo',         label:'Editar Disponibilidades', socio:true, gestor:true, analista:true,  visualizador:false },
-  { key:'edit_cartoes',       label:'Editar Cartões',        socio:true,  gestor:true,  analista:true,  visualizador:false },
-  { key:'edit_emprestimos',   label:'Editar Empréstimos',    socio:true,  gestor:true,  analista:false, visualizador:false },
-  { key:'view_pessoas',       label:'Ver Pessoas/Folha',     socio:true,  gestor:true,  analista:false, visualizador:false },
-  { key:'edit_pessoas',       label:'Editar Folha (salários)', socio:true, gestor:true, analista:false, visualizador:false },
-  { key:'edit_impostos',      label:'Editar Impostos',       socio:true,  gestor:true,  analista:true,  visualizador:false },
-  { key:'edit_fluxo',         label:'Editar Fluxo de Caixa', socio:true,  gestor:true,  analista:true,  visualizador:false },
-  { key:'edit_orcamento',     label:'Editar Orçamento',      socio:true,  gestor:true,  analista:false, visualizador:false },
-  { key:'export_data',        label:'Exportar dados',        socio:true,  gestor:true,  analista:true,  visualizador:true  },
-  { key:'pluggy_connect',     label:'Conectar Open Finance', socio:true,  gestor:true,  analista:false, visualizador:false },
-  { key:'manage_team',        label:'Gerenciar Equipe',      socio:true,  gestor:false, analista:false, visualizador:false },
-  { key:'manage_empresas',    label:'Gerenciar Empresas',    socio:true,  gestor:false, analista:false, visualizador:false },
-  { key:'delete_data',        label:'Apagar dados',          socio:true,  gestor:false, analista:false, visualizador:false }
+  { key:'view_dashboard',     label:'Ver Dashboard',         socio:true,  gestor:true,  analista:true,  visualizador:true, contador:false },
+  { key:'edit_receita',       label:'Editar Receita',        socio:true,  gestor:true,  analista:true,  visualizador:false, contador:false },
+  { key:'edit_extrato',       label:'Editar Extrato',        socio:true,  gestor:true,  analista:true,  visualizador:false, contador:false },
+  { key:'edit_dispo',         label:'Editar Disponibilidades', socio:true, gestor:true, analista:true,  visualizador:false, contador:false },
+  { key:'edit_cartoes',       label:'Editar Cartões',        socio:true,  gestor:true,  analista:true,  visualizador:false, contador:false },
+  { key:'edit_emprestimos',   label:'Editar Empréstimos',    socio:true,  gestor:true,  analista:false, visualizador:false, contador:false },
+  { key:'view_pessoas',       label:'Ver Pessoas/Folha',     socio:true,  gestor:true,  analista:false, visualizador:false, contador:false },
+  { key:'edit_pessoas',       label:'Editar Folha (salários)', socio:true, gestor:true, analista:false, visualizador:false, contador:false },
+  { key:'edit_impostos',      label:'Editar Impostos',       socio:true,  gestor:true,  analista:true,  visualizador:false, contador:false },
+  { key:'edit_fluxo',         label:'Editar Fluxo de Caixa', socio:true,  gestor:true,  analista:true,  visualizador:false, contador:false },
+  { key:'edit_orcamento',     label:'Editar Orçamento',      socio:true,  gestor:true,  analista:false, visualizador:false, contador:false },
+  { key:'view_contador',      label:'Módulo Contador',       socio:true,  gestor:true,  analista:false, visualizador:false, contador:true },
+  { key:'export_data',        label:'Exportar dados',        socio:true,  gestor:true,  analista:true,  visualizador:true, contador:true },
+  { key:'pluggy_connect',     label:'Conectar Open Finance', socio:true,  gestor:true,  analista:false, visualizador:false, contador:false },
+  { key:'manage_team',        label:'Gerenciar Equipe',      socio:true,  gestor:false, analista:false, visualizador:false, contador:false },
+  { key:'manage_empresas',    label:'Gerenciar Empresas',    socio:true,  gestor:false, analista:false, visualizador:false, contador:false },
+  { key:'delete_data',        label:'Apagar dados',          socio:true,  gestor:false, analista:false, visualizador:false, contador:false }
 ];
 
 // ── Persistência ────────────────────────────────────────────────────
@@ -154822,6 +154711,45 @@ async function empDelete(id){
 }
 
 // ── Equipe ─────────────────────────────────────────────────────────
+/* A EQUIPE É DE VERDADE AGORA.
+
+   Até aqui esta tela gravava em `forekash:equipe:v1`, no localStorage, e o
+   convite dizia literalmente "simulado · email seria disparado". A matriz
+   abaixo era um desenho: ninguém consultava aquelas permissões, e remover
+   alguém daqui não tirava acesso de nada.
+
+   Agora a fonte é `org_members` no Supabase — a MESMA tabela que as políticas
+   do Postgres consultam. Tirar alguém aqui tira o acesso de verdade, até em
+   sessão já aberta, porque quem recusa a linha é o banco. */
+async function teamJwt(){
+  try{ return ((await window.sb.auth.getSession()).data.session || {}).access_token || ''; }
+  catch(_){ return ''; }
+}
+async function teamCarregar(){
+  const el = document.getElementById('team-list');
+  if(!el) return;
+  const jwt = await teamJwt();
+  if(!jwt){ el.innerHTML = '<div class="team-vazio">Entre na nuvem pra ver e gerenciar a equipe.</div>'; return; }
+  try{
+    const r = await fetch('/api/acesso/listar', { headers:{ Authorization:'Bearer ' + jwt } });
+    const j = await r.json().catch(() => ({}));
+    if(!r.ok || !j.ok){
+      el.innerHTML = '<div class="team-vazio">' + _extEsc(j.erro || ('erro ' + r.status)) + '</div>';
+      return;
+    }
+    EQUIPE.members = (j.membros || []).map(m => ({
+      id: m.userId, nome: (m.email || '').split('@')[0], email: m.email,
+      role: (m.papel === 'owner') ? 'socio' : m.papel,
+      status: 'active', isOwner: (m.papel === 'owner' || m.userId === j.eu)
+    }));
+  }catch(e){
+    el.innerHTML = '<div class="team-vazio">Não consegui ler: ' + _extEsc(e && e.message || 'erro') + '</div>';
+    return;
+  }
+  teamRenderConfigList();
+}
+try{ window.teamCarregar = teamCarregar; }catch(e){}
+
 function teamRenderConfigList(){
   const el = document.getElementById('team-list');
   if(!el) return;
@@ -154855,7 +154783,8 @@ function teamRenderConfigList(){
                       '<td><span class="perm-' + (p.socio ? 'yes">✓' : 'no">—') + '</span></td>' +
                       '<td><span class="perm-' + (p.gestor ? 'yes">✓' : 'no">—') + '</span></td>' +
                       '<td><span class="perm-' + (p.analista ? 'yes">✓' : 'no">—') + '</span></td>' +
-                      '<td><span class="perm-' + (p.visualizador ? 'yes">✓' : 'no">—') + '</span></td>';
+                      '<td><span class="perm-' + (p.visualizador ? 'yes">✓' : 'no">—') + '</span></td>' +
+                      '<td><span class="perm-' + (p.contador ? 'yes">✓' : 'no">—') + '</span></td>';
       tbody.appendChild(row);
     });
   }
@@ -154915,19 +154844,31 @@ function teamSaveCurrent(){
     if(typeof showToast === 'function') showToast('Nome e email obrigatórios', 'err');
     return;
   }
-  if(TEAM_MODAL_DRAFT.id){
-    const ix = EQUIPE.members.findIndex(m => m.id === TEAM_MODAL_DRAFT.id);
-    if(ix >= 0) EQUIPE.members[ix] = Object.assign(EQUIPE.members[ix], TEAM_MODAL_DRAFT);
-  } else {
-    const novo = Object.assign({}, TEAM_MODAL_DRAFT, {
-      id: EQUIPE.nextId++, status:'pending', isOwner:false, invitedAt: Date.now()
-    });
-    EQUIPE.members.push(novo);
-  }
-  teamSave();
-  teamRenderConfigList();
-  teamCloseModal();
-  if(typeof showToast === 'function') showToast('✓ Convite enviado (simulado · email seria disparado)', 'ok');
+  teamGravar(TEAM_MODAL_DRAFT.email, TEAM_MODAL_DRAFT.role);
+}
+
+/* O convite não manda e-mail — grava o acesso. A pessoa precisa JÁ ter conta
+   no Forekash com esse endereço, porque `org_members.user_id` aponta pra
+   `auth.users`: liberar quem não existe criaria uma linha órfã.
+
+   Parece uma limitação e é uma garantia: o acesso fica preso a uma conta com
+   senha, não a um link que circula em grupo de WhatsApp. */
+async function teamGravar(email, papel){
+  const jwt = await teamJwt();
+  if(!jwt){ if(typeof toast === 'function') toast('Entre na nuvem primeiro'); return; }
+  try{
+    const r = await fetch('/api/acesso/convidar', {
+      method:'POST', headers:{ Authorization:'Bearer ' + jwt, 'content-type':'application/json' },
+      body: JSON.stringify({ email, papel }) });
+    const j = await r.json().catch(() => ({}));
+    if(!r.ok || !j.ok){
+      if(typeof toast === 'function') toast(j.erro || ('erro ' + r.status), j.semConta ? 8000 : 4000);
+      return;
+    }
+    teamCloseModal();
+    if(typeof toast === 'function') toast('✓ ' + email + ' agora tem acesso como ' + (TEAM_ROLES[papel] || {}).label);
+    teamCarregar();
+  }catch(e){ if(typeof toast === 'function') toast('Não deu: ' + (e && e.message || 'erro')); }
 }
 async function teamRemoveMember(id){
   const m = EQUIPE.members.find(x => x.id === id);
@@ -154938,10 +154879,16 @@ async function teamRemoveMember(id){
     okLabel:'Sim, remover', cancelLabel:'Cancelar'
   }) : Promise.resolve(window.confirm('Remover ' + m.nome + '?')));
   if(!ok) return;
-  EQUIPE.members = EQUIPE.members.filter(x => x.id !== id);
-  teamSave();
-  teamRenderConfigList();
-  if(typeof showToast === 'function') showToast('✓ Membro removido', 'ok');
+  const jwt = await teamJwt();
+  if(!jwt){ if(typeof toast === 'function') toast('Entre na nuvem primeiro'); return; }
+  try{
+    const r = await fetch('/api/acesso/revogar', {
+      method:'POST', headers:{ Authorization:'Bearer ' + jwt, 'content-type':'application/json' },
+      body: JSON.stringify({ userId: id }) });
+    const j = await r.json().catch(() => ({}));
+    if(typeof toast === 'function') toast((!r.ok || !j.ok) ? (j.erro || 'não deu') : ('✓ ' + (m.email || 'acesso') + ' removido'));
+    teamCarregar();
+  }catch(e){ if(typeof toast === 'function') toast('Não deu: ' + (e && e.message || 'erro')); }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -155741,7 +155688,6 @@ function fkBootApp(){
   _safeInit('dailyLoad',          () => dailyLoad());
   _safeInit('dailySchedule',      () => dailyScheduleCheck());
   _safeInit('apiLoad',            () => apiLoad());
-  _safeInit('wlLoad',             () => wlLoad());
   _safeInit('notifLoad',          () => notifLoad());
   _safeInit('auditLoad',          () => auditLoad());
   _safeInit('themeLoad',          () => themeLoad());
