@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794240587"/>
+  <meta name="fk-build" content="forekash-v1794241214"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5441,6 +5441,14 @@
     .cart-dv-item input{margin-top:2px;flex:none;width:15px;height:15px;cursor:pointer}
     .cart-dv-txt{font-size:.8rem;color:#0F172A;line-height:1.35}
     .cart-dv-txt small{display:block;font-size:.7rem;color:#94A3B8;margin-top:1px}
+    .cart-dv-txt{flex:1;min-width:0;cursor:pointer}
+    /* Apagado até o hover: é a saída de quem não quer, não um botão que
+       disputa atenção com o "sim". */
+    .cart-dv-nunca{flex:none;align-self:center;background:none;border:none;cursor:pointer;
+      font-family:inherit;font-size:.68rem;color:#CBD5E1;padding:4px 7px;border-radius:5px;
+      transition:color .12s,background .12s}
+    .cart-dv-item:hover .cart-dv-nunca{color:#94A3B8}
+    .cart-dv-nunca:hover{color:#B91C1C;background:#FEF2F2}
     /* Botão que só aparece quando há sugestão: âmbar discreto, porque é
        oportunidade e não alerta. */
     .cart-btn-sugere{background:#FFFBEB;border-color:#FDE68A;color:#92400E;font-weight:700}
@@ -23471,6 +23479,17 @@ td.mes.do-extrato{background:#ECFDF5}
                       <span class="bd">
                         <b>Captura IA</b>
                         <span>Importe um boleto ou NF, o MR KASH lê os campos</span>
+                      </span>
+                    </button>
+                    <!-- A varredura olha cartão E extrato, então ela pertence
+                         aos dois menus. O badge só aparece quando há o que
+                         sugerir — entrada permanente que quase sempre não faz
+                         nada vira mobília. -->
+                    <button type="button" class="ext-import-pop-it" onclick="extImportMenuClose();cartSugerirRecorrentes()">
+                      <span class="ico" style="background:#B45309;color:#fff"><i class="fkico fkico-cycle"></i></span>
+                      <span class="bd">
+                        <b>Virou custo fixo? <span id="ext-rec-badge"></span></b>
+                        <span>O que se repete há 3 meses e ainda entra como avulso</span>
                       </span>
                     </button>
                     <button type="button" class="ext-import-pop-it" onclick="extImportMenuClose();extIgnOpen()">
@@ -71568,30 +71587,55 @@ function cartProjetarFaturas(opts){
 function cartAssinaturasCandidatas(){
   const out = [];
   try{
-    if(typeof cartoes === 'undefined' || !cartoes || !Array.isArray(cartoes.lancamentos)) return out;
     if(typeof estrutura === 'undefined' || !estrutura) return out;
     const hoje = new Date();
     const ymHoje = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
-    const fatPorId = {};
-    for(const f of (cartoes.faturas || [])) if(f) fatPorId[f.id] = f;
-    const ymDe = l => _cartYmDaFatura(fatPorId[l && l.faturaId]);
-    const nomeCartao = {};
-    for(const c of (cartoes.list || [])) if(c) nomeCartao[c.id] = c.apelido || c.nome || 'Cartão';
-
     const g = {};
-    for(const l of cartoes.lancamentos){
-      if(!l || _cartEhProjecao(l)) continue;      // projeção não é prova de nada
-      if(_cartParcelaDe(l)) continue;             // parcelamento acaba; assinatura não
-      const ym = ymDe(l);
-      if(!ym || ym > ymHoje) continue;            // só mês que já fechou
-      const nome = String(l.descricao || '').trim();
-      const cat  = String(l.categoria || '').trim();
-      if(!nome || !cat) continue;                 // sem categoria não há linha na Estrutura
+    /* `onde` guarda CADA conta ou cartão em que o serviço apareceu. Um
+       servidor pago no C6 em março e em boleto no Unilos em abril é UM custo
+       fixo, não dois — mas na hora de decidir importa saber por onde ele
+       passa, então a origem vai junto em vez de ser descartada. */
+    const junta = (nome, cat, ym, valor, onde) => {
+      if(!nome || !cat || !ym || ym > ymHoje) return;
       const chave = _fkChaveDesp(nome, cat);
-      if(!chave || chave === '|') continue;
-      (g[chave] = g[chave] || { nome, cat, cartao: nomeCartao[l.cartaoId] || '', meses: {} });
-      g[chave].meses[ym] = (g[chave].meses[ym] || 0) + (parseFloat(l.valor) || 0);
+      if(!chave || chave === '|') return;
+      const d = (g[chave] = g[chave] || { nome, cat, meses: {}, onde: {} });
+      d.meses[ym] = (d.meses[ym] || 0) + (parseFloat(valor) || 0);
+      if(onde) d.onde[onde] = true;
+    };
+
+    // ── cartão: o mês é o da FATURA, não o da compra ──────────────────
+    if(typeof cartoes !== 'undefined' && cartoes && Array.isArray(cartoes.lancamentos)){
+      const fatPorId = {};
+      for(const f of (cartoes.faturas || [])) if(f) fatPorId[f.id] = f;
+      const nomeCartao = {};
+      for(const c of (cartoes.list || [])) if(c) nomeCartao[c.id] = c.apelido || c.nome || 'Cartão';
+      for(const l of cartoes.lancamentos){
+        if(!l || _cartEhProjecao(l)) continue;    // projeção não é prova de nada
+        if(_cartParcelaDe(l)) continue;           // parcelamento acaba; assinatura não
+        junta(String(l.descricao || '').trim(), String(l.categoria || '').trim(),
+              _cartYmDaFatura(fatPorId[l.faturaId]), l.valor, nomeCartao[l.cartaoId] || 'Cartão');
+      }
     }
+
+    // ── extrato: boleto, débito automático, PIX recorrente ────────────
+    /* Assinatura não vive só no cartão. Servidor em boleto, ferramenta em
+       débito automático e mensalidade em PIX se repetem igual — e sem olhar
+       aqui, metade do custo fixo da empresa ficava invisível pra Estrutura. */
+    if(typeof extratoData !== 'undefined' && extratoData && Array.isArray(extratoData.lancamentos)){
+      for(const l of extratoData.lancamentos){
+        if(!l || l.tipo !== 'gasto') continue;
+        /* Pendente é intenção, e os fixos projetados até 2027 fariam qualquer
+           coisa parecer recorrente desde já. Só conta o que aconteceu. */
+        if(String(l.status || '').toLowerCase() === 'pendente') continue;
+        if(/\(\s*\d{1,2}\s*\/\s*\d{1,2}\s*\)/.test(String(l.descricao || ''))) continue;  // parcela
+        const nome = String(l.contraparte || l.estabelecimento || l.descricao || '').trim();
+        junta(nome, String(l.categoria || '').trim(),
+              String(l.dataPagamento || l.data || '').slice(0, 7), l.valor,
+              String(l.conta || '').trim() || 'Sem conta');
+      }
+    }
+
     for(const chave of Object.keys(g)){
       const d = g[chave];
       const meses = Object.keys(d.meses).sort();
@@ -71613,7 +71657,8 @@ function cartAssinaturasCandidatas(){
       const varia = Math.max(...vals) - Math.min(...vals);
       const valor = (varia <= 0.01) ? +base.toFixed(2) : Math.ceil(base);
       if(!(valor > 0)) continue;
-      out.push({ chave, nome: d.nome, cat: d.cat, cartao: d.cartao,
+      out.push({ chave, nome: d.nome, cat: d.cat,
+                 onde: Object.keys(d.onde).sort(),
                  meses: meses.length, ultimo: meses[meses.length - 1], valor,
                  fixo: varia <= 0.01 });
     }
@@ -71634,18 +71679,25 @@ function _cartBotaoRecorrentes(){
 
 function cartSugerirRecorrentes(){
   const lista = cartAssinaturasCandidatas();
+  _cartRecLista = lista;
   if(!lista.length){
     if(typeof toast === 'function') toast('Nenhuma assinatura nova pra promover');
     return;
   }
   const linhas = lista.map((d, i) =>
-    '<label class="cart-dv-item">'
-    + '<input type="checkbox" class="cart-rec-chk" data-i="' + i + '" checked>'
-    + '<span class="cart-dv-txt"><b>' + _extEsc(d.nome) + '</b> · ' + _extFmtBRL(d.valor) + '/mês'
-    + '<small>' + d.meses + ' meses seguidos · ' + _extEsc(d.cat)
-    + (d.cartao ? ' · ' + _extEsc(d.cartao) : '')
-    + (d.fixo ? ' · preço fixo' : ' · valor pessimista, arredondado pra cima')
-    + '</small></span></label>').join('');
+    '<div class="cart-dv-item" data-linha="' + i + '">'
+    + '<input type="checkbox" class="cart-rec-chk" id="cart-rec-' + i + '" data-i="' + i + '" checked>'
+    + '<label class="cart-dv-txt" for="cart-rec-' + i + '"><b>' + _extEsc(d.nome) + '</b> · ' + _extFmtBRL(d.valor) + '/mês'
+    + '<small>' + d.meses + ' meses · ' + _extEsc(d.cat)
+    + (d.onde && d.onde.length ? ' · ' + _extEsc(d.onde.join(' + ')) : '')
+    + (d.fixo ? ' · preço fixo' : ' · pessimista, arredondado pra cima')
+    + '</small></label>'
+    /* "Nunca" é diferente de "agora não". Sem esta saída, quem não quiser uma
+       linha veria a mesma pergunta toda vez que abrisse a tela — e a forma
+       mais rápida de a sugestão virar ruído é ela não aceitar um não. */
+    + '<button type="button" class="cart-dv-nunca" data-i="' + i + '"'
+    + ' onclick="cartRecNuncaMais(' + i + ')" title="Não sugerir este de novo">nunca</button>'
+    + '</div>').join('');
   anaConfirm({
     eyebrow: 'Estrutura de Custos',
     title: lista.length + (lista.length === 1 ? ' serviço virou custo fixo' : ' serviços viraram custo fixo'),
@@ -71671,7 +71723,32 @@ function cartSugerirRecorrentes(){
             + ' na Estrutura de Custos', 5000);
   });
 }
+/* O "nunca" grava na hora e some da lista — não espera o OK. Se esperasse,
+   quem clicasse "nunca" e depois "Agora não" teria o nunca descartado, e a
+   mesma linha voltaria na próxima vez. `_cartRecLista` existe pra este
+   botão: o onclick do HTML só carrega o índice. */
+let _cartRecLista = [];
+function cartRecNuncaMais(i){
+  const d = _cartRecLista[i];
+  if(!d) return;
+  try{
+    if(!estrutura.naoRecorrentes) estrutura.naoRecorrentes = {};
+    estrutura.naoRecorrentes[d.chave] = true;
+    if(typeof estSave === 'function') estSave();
+  }catch(e){ console.warn('[FK] nunca mais:', e && e.message); }
+  const el = document.querySelector('.cart-dv-item[data-linha="' + i + '"]');
+  if(el) el.remove();
+  if(typeof toast === 'function') toast('Não pergunto mais sobre ' + d.nome);
+  /* Esvaziou a lista? Fecha o diálogo — ficar com uma caixa vazia na tela
+     pedindo confirmação de nada é pior que fechar sozinho. */
+  if(!document.querySelector('.cart-dv-item')){
+    const ov = document.getElementById('ana-confirm-overlay');
+    if(ov) ov.remove();
+    try{ renderCartoes(); }catch(_){}
+  }
+}
 try{ window.cartSugerirRecorrentes = cartSugerirRecorrentes;
+     window.cartRecNuncaMais = cartRecNuncaMais;
      window.cartAssinaturasCandidatas = cartAssinaturasCandidatas; }catch(e){}
 
 /* PERGUNTA QUAIS MANTER. Um serviço que falhou um mês no meio quase sempre
@@ -77500,6 +77577,13 @@ function _extIgnBadge(){
   if(el){
     const n = extIgnorados().length;
     el.textContent = n ? '(' + n + ')' : '';
+  }
+  /* Mesmo lugar, mesma ideia: o menu só mostra número quando há número. */
+  const rec = document.getElementById('ext-rec-badge');
+  if(rec){
+    let k = 0;
+    try{ k = (typeof cartAssinaturasCandidatas === 'function') ? cartAssinaturasCandidatas().length : 0; }catch(_){}
+    rec.textContent = k ? '(' + k + ')' : '';
   }
 }
 try{
