@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794245826"/>
+  <meta name="fk-build" content="forekash-v1794246458"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5451,16 +5451,17 @@
     .cart-dv-nunca:hover{color:#B91C1C;background:#FEF2F2}
     /* Botão que só aparece quando há sugestão: âmbar discreto, porque é
        oportunidade e não alerta. */
-    /* Um par, não um bloco gritando. A primeira versão pintou o grupo inteiro
-       de âmbar com o segundo botão sólido, e aí ele brigava com o "+ Novo
-       cartão" roxo do lado — dois pesos máximos na mesma barra.
-       Agora os dois têm o peso dos vizinhos; o que sinaliza é o SELO com o
-       número, que só existe quando há o que identificar. */
-    .cart-grupo-prev{display:inline-flex;align-items:stretch;border-radius:9px;overflow:hidden;
-      border:1px solid var(--bdr)}
-    .cart-grupo-prev .cart-btn{border:none;border-radius:0;box-shadow:none;margin:0}
-    .cart-grupo-prev .cart-btn + .cart-btn{border-left:1px solid var(--bdr)}
+    /* Terceira versão deste botão, e a lição é a mesma das duas anteriores:
+       dois controles separados pro mesmo assunto ocupam o dobro da barra e
+       não lêem como um conjunto. Agora é um botão com menu; o selo fica do
+       lado de fora, senão a informação de que há algo a identificar ficaria
+       escondida atrás de um clique. */
+    .cart-rec-wrap{display:inline-flex}
     .cart-btn-sugere{display:inline-flex;align-items:center;gap:7px;font-weight:600}
+    .cart-rec-v{opacity:.5;margin-left:1px}
+    .ext-pop-item small{display:block;font-size:.68rem;color:#94A3B8;font-weight:500;margin-top:1px}
+    .ext-pop-item[disabled]{opacity:.5;cursor:default}
+    .ext-pop-item[disabled]:hover{background:transparent}
     .cart-sugere-n{background:#B45309;color:#fff;border-radius:999px;min-width:19px;
       padding:1px 6px;font-size:.7rem;font-weight:700;line-height:1.5;text-align:center}
     /* ── Modal da projeção do cartão ── */
@@ -5473,7 +5474,19 @@
     .cproj-item:hover{background:#F8FAFC}
     .cproj-txt{flex:1;min-width:0;font-size:.82rem;color:#0F172A;line-height:1.35}
     .cproj-txt small{display:block;font-size:.7rem;color:#94A3B8;margin-top:1px}
-    .cproj-val{flex:none;font-size:.8rem;font-weight:700;color:#334155;font-variant-numeric:tabular-nums}
+    .cproj-val{flex:none;min-width:96px;text-align:right;font-size:.8rem;font-weight:700;
+      color:#334155;font-variant-numeric:tabular-nums}
+    /* Campo que não parece campo até ser tocado: a linha é de leitura, e o
+       valor só vira editável quando ele vai mexer. */
+    .cproj-ed{flex:none;display:inline-flex;align-items:baseline;gap:3px;color:#64748B;font-size:.72rem}
+    .cproj-ed i{font-style:normal;font-size:.7rem}
+    .cproj-inp{width:76px;text-align:right;background:transparent;border:1px solid transparent;
+      border-radius:6px;padding:3px 6px;font-family:inherit;font-size:.8rem;font-weight:600;
+      color:#0F172A;font-variant-numeric:tabular-nums;transition:border-color .12s,background .12s}
+    .cproj-item:hover .cproj-inp{border-color:var(--bdr);background:#fff}
+    .cproj-inp:focus{outline:none;border-color:#B45309;background:#fff;
+      box-shadow:0 0 0 3px rgba(180,83,9,.12)}
+    .cproj-man{font-style:normal;color:#B45309;font-weight:600}
     /* Interruptor em vez de caixinha: aqui se LIGA e DESLIGA uma previsão,
        não se marca um item de lista. */
     .cproj-sw{position:relative;flex:none;width:34px;height:20px;cursor:pointer}
@@ -71577,6 +71590,9 @@ function cartProjetarFaturas(opts){
       /* Ele desligou este item no modal da projeção. Repor na recalculada
          seria desfazer a decisão dele em silêncio. */
       if(cartNaoProjetarGet(c.id, k)) continue;
+      /* E se corrigiu o valor à mão, o número dele manda — a estimativa só
+         existe porque ninguém sabia o valor certo. */
+      const manual = (cartoes.valorProjetado || {})[_cartChaveProj(c.id, k)];
       if(duvidoso){
         duvidosos.push({ cartaoId: c.id, cartao: c.apelido || c.nome || 'Cartão',
           desc: k, valor, cat: g.cat, est: g.est, vivo,
@@ -71588,7 +71604,7 @@ function cartProjetarFaturas(opts){
         cartoes.lancamentos.push({
           id: cartoes.nextLancId++, cartaoId: c.id, faturaId: f.id,
           data: _cartYmDaFatura(f) + '-01',
-          descricao: k, valor: valor,
+          descricao: k, valor: (manual > 0) ? manual : valor,
           categoria: g.cat, estabelecimento: g.est,
           origem: 'projecao-recorrente', criadoPor: 'projecao'
         });
@@ -71635,6 +71651,7 @@ function cartProjetadosAtuais(){
       const d = (out[k] = out[k] || { chave:k, cartaoId:l.cartaoId, cartao: nome[l.cartaoId] || '',
                                       desc: l.descricao, cat: l.categoria || '', valor: 0, meses: 0 });
       d.valor = parseFloat(l.valor) || d.valor;   // igual em todos os meses
+      d.manual = !!((cartoes.valorProjetado || {})[k]);
       d.meses++;
     }
   }catch(e){ console.warn('[FK] projetados:', e && e.message); }
@@ -71650,8 +71667,17 @@ function cartProjModal(){
     '<div class="cproj-item" data-k="' + _extEsc(d.chave) + '">'
     + '<label class="cproj-sw"><input type="checkbox" checked onchange="cartProjDesligar(\'' + _extEsc(d.chave) + '\', this.checked)"><span></span></label>'
     + '<span class="cproj-txt"><b>' + _extEsc(d.desc) + '</b>'
-    + '<small>' + _extFmtBRL(d.valor) + '/mês · ' + d.meses + (d.meses === 1 ? ' mês projetado' : ' meses projetados')
-    + ' · ' + _extEsc(d.cartao) + (d.cat ? ' · ' + _extEsc(d.cat) : '') + '</small></span>'
+    + '<small>' + d.meses + (d.meses === 1 ? ' mês projetado' : ' meses projetados')
+    + ' · ' + _extEsc(d.cartao) + (d.cat ? ' · ' + _extEsc(d.cat) : '')
+    + (d.manual ? ' · <i class="cproj-man">valor seu</i>' : '') + '</small></span>'
+    /* O valor é editável AQUI: a estimativa é um chute informado, e quem
+       conhece o contrato corrige em dois segundos. Sem isto a única saída
+       era desligar e lançar à mão. */
+    + '<span class="cproj-ed"><i>R$</i>'
+    +   '<input type="text" class="cproj-inp" value="' + _extEsc(fmtBR(d.valor, 2)) + '"'
+    +   ' onkeydown="if(event.key===\'Enter\')this.blur()"'
+    +   ' onblur="cartProjValor(\'' + _extEsc(d.chave) + '\', this.value)">'
+    +   '<small>/mês</small></span>'
     + '<span class="cproj-val">' + _extFmtBRL(d.valor * d.meses) + '</span></div>';
 
   const total = projetados.reduce((s,d) => s + d.valor * d.meses, 0);
@@ -71702,6 +71728,28 @@ function cartProjDesligar(chave, ligado){
       toast(ligado ? 'Volta na próxima recalculada' : 'Removido da previsão');
   }catch(e){ console.warn('[FK] desligar projeção:', e && e.message); }
 }
+/* VALOR CORRIGIDO À MÃO VENCE A ESTIMATIVA.
+
+   Guardar em `cartoes.valorProjetado` é obrigatório: sem isso o próximo
+   "Refazer projeção" recalcularia o p75 e jogaria fora a correção — ele
+   digitaria o valor certo do contrato e veria voltar o chute. Mesma razão do
+   `naoProjetar`: decisão dele não se desfaz sozinha. */
+function cartProjValor(chave, txt){
+  const v = (typeof _fkParseInp === 'function') ? _fkParseInp(txt, 2) : parseFloat(txt);
+  if(!(v > 0)){ cartProjModal(); return; }           // inválido: redesenha com o valor de antes
+  try{
+    cartoes.valorProjetado = cartoes.valorProjetado || {};
+    cartoes.valorProjetado[chave] = +v.toFixed(2);
+    for(const l of (cartoes.lancamentos || []))
+      if(l && l.origem === 'projecao-recorrente' && _cartChaveProj(l.cartaoId, l.descricao) === chave)
+        l.valor = +v.toFixed(2);
+    cartSave();
+    try{ renderCartoes(); }catch(_){}
+  }catch(e){ console.warn('[FK] valor da projeção:', e && e.message); }
+  cartProjModal();
+  if(typeof toast === 'function') toast('Projeção ajustada para ' + _extFmtBRL(v) + '/mês');
+}
+
 function cartProjReativarTodos(){
   cartoes.naoProjetar = {};
   cartSave();
@@ -71709,6 +71757,7 @@ function cartProjReativarTodos(){
   if(typeof toast === 'function') toast('Todos voltam na próxima recalculada');
 }
 try{ window.cartProjModal = cartProjModal; window.cartProjDesligar = cartProjDesligar;
+     window.cartProjValor = cartProjValor;
      window.cartProjReativarTodos = cartProjReativarTodos;
      window.cartProjetadosAtuais = cartProjetadosAtuais; }catch(e){}
 
@@ -71835,11 +71884,47 @@ function cartAssinaturasCandidatas(fonte){
 function _cartBotaoRecorrentes(){
   let n = 0;
   try{ n = cartAssinaturasCandidatas('cartao').length; }catch(_){}
-  if(!n) return '';
-  return '<button type="button" class="cart-btn cart-btn-sugere" onclick="cartSugerirRecorrentes(\'cartao\')"'
-    + ' title="Gastos do cartão que se repetem há 3 meses ou mais e ainda não têm linha na Estrutura de Custos">'
-    + 'Identificar gastos fixos<span class="cart-sugere-n">' + n + '</span></button>';
+  return '<span class="cart-rec-wrap">'
+    + '<button type="button" class="cart-btn cart-btn-sugere" onclick="cartRecMenu(event)"'
+    + ' title="Previsão das faturas futuras e gastos que viraram rotina">'
+    + 'Gastos recorrentes'
+    + (n ? '<span class="cart-sugere-n">' + n + '</span>' : '')
+    + '<svg class="cart-rec-v" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>'
+    + '</button></span>';
 }
+
+/* O menu abre embaixo do botão e some no primeiro clique fora — mesmo
+   comportamento do ⋯ do Extrato, pra não inventar um terceiro jeito de
+   fechar popover neste app. */
+function cartRecMenu(ev){
+  ev.preventDefault(); ev.stopPropagation();
+  _extCloseAllMenus();
+  let n = 0;
+  try{ n = cartAssinaturasCandidatas('cartao').length; }catch(_){}
+  const proj = (typeof cartProjetadosAtuais === 'function') ? cartProjetadosAtuais().length : 0;
+  const r = ev.currentTarget.getBoundingClientRect();
+  const LARG = 268;
+  const m = document.createElement('div');
+  m.className = 'ext-pop-menu'; m.id = 'ext-pop-menu-active';
+  m.style.minWidth = LARG + 'px';
+  m.style.top = (r.bottom + 5) + 'px';
+  m.style.left = Math.max(8, Math.min(r.left, innerWidth - LARG - 8)) + 'px';
+  m.innerHTML =
+      '<button class="ext-pop-item" onclick="_extCloseAllMenus();cartProjModal()">'
+    +   '<span>Ver o que está projetado'
+    +   '<small>' + (proj ? proj + (proj === 1 ? ' gasto nas faturas futuras' : ' gastos nas faturas futuras') : 'nada projetado ainda') + '</small></span></button>'
+    + '<button class="ext-pop-item" onclick="_extCloseAllMenus();cartProjetarConfirmar()">'
+    +   '<span>Refazer a previsão'
+    +   '<small>recalcula tudo a partir do histórico</small></span></button>'
+    + '<button class="ext-pop-item"' + (n ? '' : ' disabled')
+    +   ' onclick="_extCloseAllMenus();cartSugerirRecorrentes(\'cartao\')">'
+    +   '<span>Identificar gastos fixos'
+    +   (n ? '<span class="cart-sugere-n" style="margin-left:7px">' + n + '</span>' : '')
+    +   '<small>' + (n ? 'se repetem há 3 meses e ainda entram como avulso' : 'nada novo que se repita há 3 meses') + '</small></span></button>';
+  document.body.appendChild(m);
+  setTimeout(() => document.addEventListener('click', _extCloseAllMenus, { once:true }), 0);
+}
+try{ window.cartRecMenu = cartRecMenu; }catch(e){}
 
 function cartSugerirRecorrentes(fonte){
   const lista = cartAssinaturasCandidatas(fonte);
@@ -72045,14 +72130,11 @@ function renderCartoes(){
     + '<div class="cart-hd-actions">'
       + '<button type="button" class="cart-btn" onclick="cartAnaliseAbrir()" title="Gasto do cartão por categoria, centro de custo e fornecedor">Análise</button>'
       + '<button type="button" class="cart-btn" onclick="fkCardCalendarOpen()" title="Próximos 6 meses de faturas">Calendário 6m</button>'
-      /* Os dois andam juntos porque são o mesmo assunto: o que vai se repetir.
-         Um projeta as faturas que vêm; o outro promove a custo fixo o que já
-         virou rotina. Separados por "Análise" e "Calendário" no meio, pareciam
-         dois recursos sem relação. */
-      + '<span class="cart-grupo-prev">'
-      +   '<button type="button" class="cart-btn" onclick="cartProjModal()" title="O que está projetado nas faturas futuras — e o que desligar">Projeção</button>'
-      +   _cartBotaoRecorrentes()
-      + '</span>'
+      /* UM BOTÃO SÓ, com as duas ações dentro. São o mesmo assunto — o que vai
+         se repetir — e ocupavam duas vagas numa barra que já tem cinco. O
+         selo do lado de fora carrega o número, senão a informação de que há
+         algo a identificar ficaria escondida atrás de um clique. */
+      + _cartBotaoRecorrentes()
       + '<button type="button" class="cart-btn cart-btn-primary" onclick="cartOpenModal()">+ Novo cartão</button>'
     + '</div>'
   + '</div>';
