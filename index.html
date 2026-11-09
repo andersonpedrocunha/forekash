@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794245144"/>
+  <meta name="fk-build" content="forekash-v1794245826"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5463,6 +5463,34 @@
     .cart-btn-sugere{display:inline-flex;align-items:center;gap:7px;font-weight:600}
     .cart-sugere-n{background:#B45309;color:#fff;border-radius:999px;min-width:19px;
       padding:1px 6px;font-size:.7rem;font-weight:700;line-height:1.5;text-align:center}
+    /* ── Modal da projeção do cartão ── */
+    .cproj-bd{padding:18px 22px;overflow:auto}
+    .cproj-sub,.cproj-vazio{margin:0 0 14px;font-size:.8rem;color:#64748B;line-height:1.5}
+    .cproj-vazio{text-align:center;padding:26px 0;color:#94A3B8}
+    .cproj-lista{display:flex;flex-direction:column;gap:2px;max-height:44vh;overflow:auto}
+    .cproj-item{display:flex;align-items:center;gap:12px;padding:9px 10px;border-radius:8px;
+      transition:background .12s}
+    .cproj-item:hover{background:#F8FAFC}
+    .cproj-txt{flex:1;min-width:0;font-size:.82rem;color:#0F172A;line-height:1.35}
+    .cproj-txt small{display:block;font-size:.7rem;color:#94A3B8;margin-top:1px}
+    .cproj-val{flex:none;font-size:.8rem;font-weight:700;color:#334155;font-variant-numeric:tabular-nums}
+    /* Interruptor em vez de caixinha: aqui se LIGA e DESLIGA uma previsão,
+       não se marca um item de lista. */
+    .cproj-sw{position:relative;flex:none;width:34px;height:20px;cursor:pointer}
+    .cproj-sw input{position:absolute;opacity:0;width:0;height:0}
+    .cproj-sw span{position:absolute;inset:0;background:#CBD5E1;border-radius:999px;transition:background .15s}
+    .cproj-sw span::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;
+      background:#fff;border-radius:50%;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+    .cproj-sw input:checked + span{background:#B45309}
+    .cproj-sw input:checked + span::after{transform:translateX(14px)}
+    .cproj-tot{display:flex;justify-content:space-between;align-items:center;margin-top:14px;
+      padding-top:12px;border-top:1px solid var(--bdr);font-size:.82rem;color:#64748B}
+    .cproj-tot b{font-size:1rem;color:#0F172A;font-variant-numeric:tabular-nums}
+    .cproj-off{margin-top:14px;font-size:.74rem;color:#94A3B8}
+    .cproj-off button{background:none;border:none;color:#1D4ED8;cursor:pointer;font-family:inherit;
+      font-size:.74rem;text-decoration:underline;padding:0}
+    .cproj-ft{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;background:#F8FAFC;
+      border-top:1px solid var(--bdr)}
     /* Papel novo na matriz e na lista. Índigo porque os quatro existentes já
        ocupam verde, azul, âmbar e cinza. */
     .team-role-badge.contador{background:#EEF2FF;color:#4338CA}
@@ -71546,6 +71574,9 @@ function cartProjetarFaturas(opts){
       const valor = (varia <= 0.01) ? +base.toFixed(2) : Math.ceil(base);
       if(!(valor > 0)) continue;
 
+      /* Ele desligou este item no modal da projeção. Repor na recalculada
+         seria desfazer a decisão dele em silêncio. */
+      if(cartNaoProjetarGet(c.id, k)) continue;
       if(duvidoso){
         duvidosos.push({ cartaoId: c.id, cartao: c.apelido || c.nome || 'Cartão',
           desc: k, valor, cat: g.cat, est: g.est, vivo,
@@ -71576,6 +71607,110 @@ function cartProjetarFaturas(opts){
   if(!silencioso && duvidosos.length) cartProjDuvidososPerguntar(duvidosos);
   return criados;
 }
+
+/* ══ O QUE ESTÁ PROJETADO NO CARTÃO, E COMO DESLIGAR ═══════════════
+   Até aqui a projeção era uma caixa-preta: ela refazia tudo e a única saída
+   era não refazer. Não dava pra ver o que estava projetado nem tirar UM item
+   — e era isso que fazia a lista de sugestões repetir coisa que já tinha
+   previsão, parecendo duplicata.
+
+   `cartoes.naoProjetar` guarda o que ele desligou, por cartão+descrição. A
+   recalculada respeita; sem isso ele desligaria e veria voltar no próximo
+   "Refazer projeção", que é o jeito mais rápido de a tela perder a
+   credibilidade. */
+function _cartChaveProj(cartaoId, desc){
+  return String(cartaoId) + '|' + String(desc || '').trim().toLowerCase();
+}
+function cartNaoProjetarGet(cartaoId, desc){
+  try{ return !!((cartoes.naoProjetar || {})[_cartChaveProj(cartaoId, desc)]); }catch(_){ return false; }
+}
+function cartProjetadosAtuais(){
+  const out = {};
+  try{
+    const nome = {};
+    for(const c of (cartoes.list || [])) if(c) nome[c.id] = c.apelido || c.nome || 'Cartão';
+    for(const l of (cartoes.lancamentos || [])){
+      if(!l || l.origem !== 'projecao-recorrente') continue;
+      const k = _cartChaveProj(l.cartaoId, l.descricao);
+      const d = (out[k] = out[k] || { chave:k, cartaoId:l.cartaoId, cartao: nome[l.cartaoId] || '',
+                                      desc: l.descricao, cat: l.categoria || '', valor: 0, meses: 0 });
+      d.valor = parseFloat(l.valor) || d.valor;   // igual em todos os meses
+      d.meses++;
+    }
+  }catch(e){ console.warn('[FK] projetados:', e && e.message); }
+  return Object.values(out).sort((a,b) => b.valor - a.valor);
+}
+
+function cartProjModal(){
+  const projetados = cartProjetadosAtuais();
+  const desligados = Object.keys(cartoes.naoProjetar || {});
+  document.getElementById('cart-proj-ov')?.remove();
+
+  const linha = d =>
+    '<div class="cproj-item" data-k="' + _extEsc(d.chave) + '">'
+    + '<label class="cproj-sw"><input type="checkbox" checked onchange="cartProjDesligar(\'' + _extEsc(d.chave) + '\', this.checked)"><span></span></label>'
+    + '<span class="cproj-txt"><b>' + _extEsc(d.desc) + '</b>'
+    + '<small>' + _extFmtBRL(d.valor) + '/mês · ' + d.meses + (d.meses === 1 ? ' mês projetado' : ' meses projetados')
+    + ' · ' + _extEsc(d.cartao) + (d.cat ? ' · ' + _extEsc(d.cat) : '') + '</small></span>'
+    + '<span class="cproj-val">' + _extFmtBRL(d.valor * d.meses) + '</span></div>';
+
+  const total = projetados.reduce((s,d) => s + d.valor * d.meses, 0);
+  const ov = document.createElement('div');
+  ov.className = 'fk-shortcuts-ov'; ov.id = 'cart-proj-ov';
+  ov.innerHTML =
+      '<div class="fk-shortcuts-card" style="width:min(640px,96vw)">'
+    +   '<div class="fk-shortcuts-hd"><h2>Gastos recorrentes projetados</h2>'
+    +     '<button class="fk-shortcuts-x" onclick="document.getElementById(\'cart-proj-ov\').remove()">×</button></div>'
+    +   '<div class="cproj-bd">'
+    +     (projetados.length
+          ? '<p class="cproj-sub">Estes entram nas faturas futuras com um valor pessimista. '
+            + 'Desligue o que não vai mais acontecer — ele some da previsão e não volta na próxima recalculada.</p>'
+            + '<div class="cproj-lista">' + projetados.map(linha).join('') + '</div>'
+            + '<div class="cproj-tot"><span>Total projetado</span><b>' + _extFmtBRL(total) + '</b></div>'
+          : '<p class="cproj-vazio">Nenhum gasto recorrente projetado ainda.<br>'
+            + 'Use <b>Refazer projeção</b> pra gerar a previsão a partir do histórico.</p>')
+    +     (desligados.length
+          ? '<div class="cproj-off">' + desligados.length
+            + (desligados.length === 1 ? ' item desligado' : ' itens desligados')
+            + ' · <button type="button" onclick="cartProjReativarTodos()">reativar todos</button></div>'
+          : '')
+    +   '</div>'
+    +   '<div class="cproj-ft">'
+    +     '<button type="button" class="btn btn-sec" onclick="document.getElementById(\'cart-proj-ov\').remove()">Fechar</button>'
+    +     '<button type="button" class="btn btn-p" onclick="document.getElementById(\'cart-proj-ov\').remove();cartProjetarConfirmar()">Refazer projeção</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e => { if(e.target === ov) ov.remove(); });
+}
+
+/* Desligar APAGA as linhas na hora, não espera a próxima recalculada: ver o
+   número sair do total é o que prova que funcionou. */
+function cartProjDesligar(chave, ligado){
+  try{
+    cartoes.naoProjetar = cartoes.naoProjetar || {};
+    if(ligado) delete cartoes.naoProjetar[chave];
+    else {
+      cartoes.naoProjetar[chave] = true;
+      cartoes.lancamentos = (cartoes.lancamentos || []).filter(l =>
+        !(l && l.origem === 'projecao-recorrente' && _cartChaveProj(l.cartaoId, l.descricao) === chave));
+    }
+    cartSave();
+    try{ renderCartoes(); }catch(_){}
+    cartProjModal();
+    if(typeof toast === 'function')
+      toast(ligado ? 'Volta na próxima recalculada' : 'Removido da previsão');
+  }catch(e){ console.warn('[FK] desligar projeção:', e && e.message); }
+}
+function cartProjReativarTodos(){
+  cartoes.naoProjetar = {};
+  cartSave();
+  cartProjModal();
+  if(typeof toast === 'function') toast('Todos voltam na próxima recalculada');
+}
+try{ window.cartProjModal = cartProjModal; window.cartProjDesligar = cartProjDesligar;
+     window.cartProjReativarTodos = cartProjReativarTodos;
+     window.cartProjetadosAtuais = cartProjetadosAtuais; }catch(e){}
 
 /* DEPOIS DE 3 MESES, A ASSINATURA VIRA ESTRUTURA.
 
@@ -71649,10 +71784,26 @@ function cartAssinaturasCandidatas(fonte){
       }
     }
 
+    /* Normalizado pelo mesmo canonizador da chave de despesa: o nome na
+       projeção e o nome no agrupamento vêm da mesma descrição, mas passar
+       pelo canon evita um espaço a mais deixar o item escapar. */
+    const jaProjetado = new Set();
+    try{
+      for(const l of ((typeof cartoes !== 'undefined' && cartoes && cartoes.lancamentos) || []))
+        if(l && l.origem === 'projecao-recorrente')
+          jaProjetado.add(_estNormCat(_fkNomeCanon(String(l.descricao || '').trim())));
+    }catch(_){}
+
     for(const chave of Object.keys(g)){
       const d = g[chave];
       const meses = Object.keys(d.meses).sort();
       if(meses.length < 3) continue;                       // hábito, não coincidência
+      /* JÁ TEM PREVISÃO? Então não é sugestão nova. Oferecer de novo o que
+         já está projetado é o que faz a lista parecer duplicada — e promover
+         a custo fixo algo que já entra na fatura contaria o gasto duas
+         vezes. Quem quiser mexer no que está projetado usa o modal da
+         projeção, que é onde isso se desliga. */
+      if(jaProjetado.has(_estNormCat(_fkNomeCanon(d.nome)))) continue;
       /* AINDA ESTÁ VIVO? Repetiu-se 4 meses e parou em junho não é custo fixo
          de novembro — é assinatura cancelada. Promovê-la inflaria a Estrutura
          com uma despesa que não existe mais. Dois meses de tolerância porque
@@ -71899,7 +72050,7 @@ function renderCartoes(){
          virou rotina. Separados por "Análise" e "Calendário" no meio, pareciam
          dois recursos sem relação. */
       + '<span class="cart-grupo-prev">'
-      +   '<button type="button" class="cart-btn" onclick="cartProjetarConfirmar()" title="Refaz a previsão das faturas futuras a partir do histórico: parcela que falta com valor exato, gasto recorrente por um valor pessimista arredondado pra cima">Refazer projeção</button>'
+      +   '<button type="button" class="cart-btn" onclick="cartProjModal()" title="O que está projetado nas faturas futuras — e o que desligar">Projeção</button>'
       +   _cartBotaoRecorrentes()
       + '</span>'
       + '<button type="button" class="cart-btn cart-btn-primary" onclick="cartOpenModal()">+ Novo cartão</button>'
