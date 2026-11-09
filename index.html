@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794246458"/>
+  <meta name="fk-build" content="forekash-v1794247937"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5435,8 +5435,15 @@
        cartão com muitos serviços a lista passa da altura do modal. */
     .cart-dv-lista{margin-top:12px;max-height:46vh;overflow:auto;display:flex;
       flex-direction:column;gap:2px;text-align:left}
-    .cart-dv-item{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;
-      border-radius:7px;cursor:pointer;transition:background .12s}
+    /* O diálogo padrão tem 440px — não cabe um formulário de cinco campos.
+       Só ESTE cresce, pela classe que o conteúdo carrega. */
+    .ana-confirm-card:has(.cart-dv-lista){width:min(980px,97vw)}
+    .cart-dv-item{display:grid;
+      grid-template-columns:18px minmax(140px,1.5fr) 112px minmax(110px,1fr) minmax(100px,1fr) 56px 44px;
+      gap:9px;align-items:center;padding:7px 8px;border-radius:7px;transition:background .12s}
+    .cart-dv-meta{font-size:.7rem;color:#94A3B8;text-align:right;line-height:1.2}
+    .cart-dv-meta small{display:block;font-size:.6rem;color:#CBD5E1;white-space:nowrap;
+      overflow:hidden;text-overflow:ellipsis}
     .cart-dv-item:hover{background:#F8FAFC}
     .cart-dv-item input{margin-top:2px;flex:none;width:15px;height:15px;cursor:pointer}
     .cart-dv-txt{font-size:.8rem;color:#0F172A;line-height:1.35}
@@ -5469,11 +5476,25 @@
     .cproj-sub,.cproj-vazio{margin:0 0 14px;font-size:.8rem;color:#64748B;line-height:1.5}
     .cproj-vazio{text-align:center;padding:26px 0;color:#94A3B8}
     .cproj-lista{display:flex;flex-direction:column;gap:2px;max-height:44vh;overflow:auto}
-    .cproj-item{display:flex;align-items:center;gap:12px;padding:9px 10px;border-radius:8px;
-      transition:background .12s}
+    /* Grade, não flex solto: com cinco campos por linha o flex deixava cada
+       linha com uma largura diferente e a leitura em coluna sumia. */
+    .cproj-item{display:grid;grid-template-columns:34px minmax(150px,1.6fr) 118px minmax(120px,1fr) minmax(110px,1fr) 104px;
+      align-items:center;gap:10px;padding:7px 10px;border-radius:8px;transition:background .12s}
     .cproj-item:hover{background:#F8FAFC}
-    .cproj-txt{flex:1;min-width:0;font-size:.82rem;color:#0F172A;line-height:1.35}
-    .cproj-txt small{display:block;font-size:.7rem;color:#94A3B8;margin-top:1px}
+    .cproj-campos{min-width:0;display:flex;flex-direction:column;gap:1px}
+    .cproj-desc,.cproj-forn,.cproj-sel{width:100%;background:transparent;border:1px solid transparent;
+      border-radius:6px;padding:4px 7px;font-family:inherit;font-size:.78rem;color:#0F172A;
+      transition:border-color .12s,background .12s}
+    .cproj-desc{font-weight:600}
+    .cproj-item:hover .cproj-desc,.cproj-item:hover .cproj-forn,.cproj-item:hover .cproj-sel{
+      border-color:var(--bdr);background:#fff}
+    .cproj-desc:focus,.cproj-forn:focus,.cproj-sel:focus{outline:none;border-color:#B45309;background:#fff;
+      box-shadow:0 0 0 3px rgba(180,83,9,.12)}
+    .cproj-sel{cursor:pointer}
+    /* A descrição da fatura, apagada: é a chave que liga a linha ao
+       histórico, e some de vista quando o nome foi trocado. */
+    .cproj-orig{font-size:.65rem;color:#CBD5E1;padding-left:8px;white-space:nowrap;overflow:hidden;
+      text-overflow:ellipsis}
     .cproj-val{flex:none;min-width:96px;text-align:right;font-size:.8rem;font-weight:700;
       color:#334155;font-variant-numeric:tabular-nums}
     /* Campo que não parece campo até ser tocado: a linha é de leitura, e o
@@ -56309,24 +56330,34 @@ function kashtrackAggregateByDay(startKey, endKey){
     if (typeof cartoes !== 'undefined' && cartoes && Array.isArray(cartoes.faturas)){
       const cartById = new Map((cartoes.list || []).map(c => [c.id, c]));
       for (const f of cartoes.faturas){
-        const dKey = f.dataVencimento || '';
+        /* O CAMPO É `vencimento`, NÃO `dataVencimento`.
+           Toda fatura do app nasce em cartGetOrCreateFatura / _extFaturaPorVenc
+           / parcelamento, e as três gravam `vencimento`. `dataVencimento` só
+           existe nas células da Receita — outro objeto. Lendo o nome errado,
+           dKey era sempre vazio e o `continue` matava a fatura inteira: o
+           cartão NUNCA entrava na projeção de caixa, por mais fatura futura
+           que existisse. Mesma história com `valorTotal` e `valorPago`, que
+           também não moram na fatura: o total é a soma dos lançamentos e o
+           pago é a soma das baixas. */
+        const dKey = f.vencimento || f.dataVencimento || '';
         if (!dKey || dKey < startKey || dKey > endKey) continue;
-        const total = Math.abs(Number(f.valorTotal) || 0);
-        if (total <= 0) continue;
         /* Fatura paga já saiu da conta, e essa saída está no Extrato como
            "PGTO FAT CARTAO". Somar as duas contava o pagamento do cartão duas
            vezes — em outubro, 8.176,12 no vencimento mais 8.176,12 no dia do
-           débito. Aqui fica só o que ainda falta pagar, que é o que o caixa
-           tem pela frente. */
-        const v = total - Math.max(0, Number(f.valorPago) || 0);
-        if (v <= 0.005) continue;
+           débito. cartFatSaldo é exatamente o que ainda falta pagar. */
+        const v = (typeof cartFatSaldo === 'function')
+          ? Math.abs(cartFatSaldo(f))
+          : Math.abs(Number(f.valorTotal) || 0) - Math.max(0, Number(f.valorPago) || 0);
+        if (!(v > 0.005)) continue;
         const status = 'pendente';
         const cart = cartById.get(f.cartaoId);
         const slot = addDay(dKey);
         slot.outflow += v;
         slot.items.push({
           kind: 'gasto',
-          desc: 'Fatura ' + (cart ? cart.nome : 'cartão') + (f.mesRef ? ' · ' + f.mesRef : ''),
+          desc: 'Fatura ' + (cart ? (cart.apelido || cart.nome) : 'cartão')
+              + (f.refY ? ' · ' + String(f.refM).padStart(2, '0') + '/' + f.refY
+                        : (f.mesRef ? ' · ' + f.mesRef : '')),
           valor: v,
           venceSemExpediente: _ktSemExpediente(_ktParseKey(dKey)) ? _ktLiquidaEm(dKey) : null,
           status: status,
@@ -70818,7 +70849,10 @@ function _faturaToRow(f, orgId){
     status: f.status || null,
     valor_total: _cartNum(f.valorTotal),
     valor_pago: _cartNum(f.valorPago),
-    data_vencimento: _cartDate(f.dataVencimento),
+    /* Mesmo nome errado de antes: a fatura guarda `vencimento`. A coluna ia
+       NULL em todas as linhas, e quem lê o banco direto (Worker, MR KASH)
+       nunca soube quando a fatura vence. */
+    data_vencimento: _cartDate(f.vencimento || f.dataVencimento),
     data: data
   };
 }
@@ -71590,9 +71624,9 @@ function cartProjetarFaturas(opts){
       /* Ele desligou este item no modal da projeção. Repor na recalculada
          seria desfazer a decisão dele em silêncio. */
       if(cartNaoProjetarGet(c.id, k)) continue;
-      /* E se corrigiu o valor à mão, o número dele manda — a estimativa só
-         existe porque ninguém sabia o valor certo. */
-      const manual = (cartoes.valorProjetado || {})[_cartChaveProj(c.id, k)];
+      /* O que ele ajustou à mão manda — valor, nome, categoria e fornecedor.
+         A estimativa só existe porque ninguém tinha corrigido ainda. */
+      const ov = cartProjOv(_cartChaveProj(c.id, k));
       if(duvidoso){
         duvidosos.push({ cartaoId: c.id, cartao: c.apelido || c.nome || 'Cartão',
           desc: k, valor, cat: g.cat, est: g.est, vivo,
@@ -71604,8 +71638,13 @@ function cartProjetarFaturas(opts){
         cartoes.lancamentos.push({
           id: cartoes.nextLancId++, cartaoId: c.id, faturaId: f.id,
           data: _cartYmDaFatura(f) + '-01',
-          descricao: k, valor: (manual > 0) ? manual : valor,
-          categoria: g.cat, estabelecimento: g.est,
+          descricao: ov.desc || k,
+          /* Guarda o nome da fatura: é a chave que liga esta linha ao
+             histórico, e sem ele renomear quebraria o reconhecimento. */
+          descOriginal: ov.desc ? k : undefined,
+          valor: (ov.valor > 0) ? ov.valor : valor,
+          categoria: ov.cat || g.cat,
+          estabelecimento: ov.forn || g.est,
           origem: 'projecao-recorrente', criadoPor: 'projecao'
         });
         criados++;
@@ -71637,9 +71676,97 @@ function cartProjetarFaturas(opts){
 function _cartChaveProj(cartaoId, desc){
   return String(cartaoId) + '|' + String(desc || '').trim().toLowerCase();
 }
+/* AJUSTES DELE, SEPARADOS DO QUE A ESTIMATIVA CALCULA.
+
+   A chave continua sendo o cartão + a descrição ORIGINAL — é ela que casa
+   com o histórico da fatura. Renomear não pode mudar a chave, senão o
+   próximo "Refazer previsão" não reconheceria mais o ajuste e tudo voltaria
+   ao chute.
+
+   `valorProjetado` é a versão anterior deste mesmo mapa, de antes de caberem
+   descrição, categoria e fornecedor. Continua sendo lido pra ninguém perder
+   o que já corrigiu. */
+function cartProjOv(chave){
+  const o = Object.assign({}, (cartoes.projOverride || {})[chave] || {});
+  const v = (cartoes.valorProjetado || {})[chave];
+  if(!(o.valor > 0) && v > 0) o.valor = v;
+  return o;
+}
+function cartProjOvSet(chave, campo, valor){
+  cartoes.projOverride = cartoes.projOverride || {};
+  const o = cartoes.projOverride[chave] = Object.assign(cartProjOv(chave), {});
+  if(valor === '' || valor == null) delete o[campo]; else o[campo] = valor;
+  if(!Object.keys(o).length) delete cartoes.projOverride[chave];
+  cartSave();
+}
+try{ window.cartProjOv = cartProjOv; window.cartProjOvSet = cartProjOvSet; }catch(e){}
+
 function cartNaoProjetarGet(cartaoId, desc){
   try{ return !!((cartoes.naoProjetar || {})[_cartChaveProj(cartaoId, desc)]); }catch(_){ return false; }
 }
+/* Options de categoria, iguais às do modal de lançar: a lista vem do mapa de
+   categorias do app, não de um enum paralelo que envelhece sozinho.
+
+   NO ESCOPO DE TOPO de propósito: os handlers `onblur`/`onchange` do HTML
+   resolvem pelo objeto global, e função aninhada dentro do modal não existe
+   pra eles — foi exatamente assim que a primeira versão quebrou com
+   "cartProjCampo is not defined". */
+/* BANCO E VENCIMENTO NÃO SE EDITAM AQUI — SÃO DA FATURA.
+
+   Gasto de cartão não escolhe conta nem data: ele cai na fatura do cartão em
+   que foi feito, e essa fatura vence no dia que o cartão define. Oferecer os
+   dois como campo seria convidar a informar uma coisa que o sistema já sabe
+   e que não pode divergir.
+
+   Mas precisa APARECER, senão some parece esquecimento. Entra como texto de
+   leitura ao lado da descrição original. */
+function _cartVencTexto(cartaoId){
+  try{
+    const c = (cartoes.list || []).find(x => x && x.id === cartaoId);
+    if(!c) return '';
+    const nome = c.apelido || c.nome || 'Cartão';
+    const dia = parseInt(c.diaVencimento, 10);
+    return nome + (dia > 0 ? ' · vence dia ' + dia : '');
+  }catch(_){ return ''; }
+}
+try{ window._cartVencTexto = _cartVencTexto; }catch(e){}
+
+function _cartCatOptions(sel){
+  let cats = [];
+  try{
+    cats = (typeof catmapData !== 'undefined' && Array.isArray(catmapData.categorias))
+      ? catmapData.categorias.map(c => c && c.nome).filter(Boolean) : [];
+  }catch(_){}
+  cats = [...new Set(cats)].sort((a,b) => String(a).localeCompare(String(b), 'pt-BR'));
+  /* A categoria que a linha já tem pode não estar no mapa (veio de fatura
+     antiga, ou alguém renomeou). Entra na lista pra não se perder só por não
+     constar. */
+  if(sel && cats.indexOf(sel) < 0) cats.unshift(sel);
+  return '<option value="">— categoria —</option>'
+    + cats.map(c => '<option' + (c === sel ? ' selected' : '') + '>' + _extEsc(c) + '</option>').join('');
+}
+
+/* Descrição, categoria e fornecedor seguem o mesmo caminho do valor: gravam
+   no override e são reaplicados a cada recalculada. */
+function cartProjCampo(chave, campo, valor){
+  const v = String(valor || '').trim();
+  if(campo === 'desc' && !v){ cartProjModal(); return; }   // sem nome a linha some da fatura
+  try{
+    cartProjOvSet(chave, campo, v);
+    for(const l of (cartoes.lancamentos || [])){
+      if(!l || l.origem !== 'projecao-recorrente') continue;
+      if(_cartChaveProj(l.cartaoId, l.descOriginal || l.descricao) !== chave) continue;
+      if(campo === 'desc'){ l.descOriginal = l.descOriginal || l.descricao; l.descricao = v; }
+      else if(campo === 'cat')  l.categoria = v;
+      else if(campo === 'forn') l.estabelecimento = v;
+    }
+    cartSave();
+    try{ renderCartoes(); }catch(_){}
+  }catch(e){ console.warn('[FK] campo da projeção:', e && e.message); }
+  cartProjModal();
+}
+try{ window.cartProjCampo = cartProjCampo; window._cartCatOptions = _cartCatOptions; }catch(e){}
+
 function cartProjetadosAtuais(){
   const out = {};
   try{
@@ -71647,11 +71774,18 @@ function cartProjetadosAtuais(){
     for(const c of (cartoes.list || [])) if(c) nome[c.id] = c.apelido || c.nome || 'Cartão';
     for(const l of (cartoes.lancamentos || [])){
       if(!l || l.origem !== 'projecao-recorrente') continue;
-      const k = _cartChaveProj(l.cartaoId, l.descricao);
+      /* A chave é a descrição ORIGINAL: renomear não pode trocar a chave,
+         senão a recalculada não reconhece mais o ajuste. */
+      const orig = l.descOriginal || l.descricao;
+      const k = _cartChaveProj(l.cartaoId, orig);
+      const ov = cartProjOv(k);
       const d = (out[k] = out[k] || { chave:k, cartaoId:l.cartaoId, cartao: nome[l.cartaoId] || '',
-                                      desc: l.descricao, cat: l.categoria || '', valor: 0, meses: 0 });
+                                      desc: l.descricao,
+                                      descOriginal: (orig !== l.descricao) ? orig : '',
+                                      cat: l.categoria || '', forn: l.estabelecimento || '',
+                                      valor: 0, meses: 0,
+                                      manual: !!(ov.valor > 0 || ov.desc || ov.cat || ov.forn) });
       d.valor = parseFloat(l.valor) || d.valor;   // igual em todos os meses
-      d.manual = !!((cartoes.valorProjetado || {})[k]);
       d.meses++;
     }
   }catch(e){ console.warn('[FK] projetados:', e && e.message); }
@@ -71663,28 +71797,43 @@ function cartProjModal(){
   const desligados = Object.keys(cartoes.naoProjetar || {});
   document.getElementById('cart-proj-ov')?.remove();
 
-  const linha = d =>
-    '<div class="cproj-item" data-k="' + _extEsc(d.chave) + '">'
-    + '<label class="cproj-sw"><input type="checkbox" checked onchange="cartProjDesligar(\'' + _extEsc(d.chave) + '\', this.checked)"><span></span></label>'
-    + '<span class="cproj-txt"><b>' + _extEsc(d.desc) + '</b>'
-    + '<small>' + d.meses + (d.meses === 1 ? ' mês projetado' : ' meses projetados')
-    + ' · ' + _extEsc(d.cartao) + (d.cat ? ' · ' + _extEsc(d.cat) : '')
-    + (d.manual ? ' · <i class="cproj-man">valor seu</i>' : '') + '</small></span>'
-    /* O valor é editável AQUI: a estimativa é um chute informado, e quem
-       conhece o contrato corrige em dois segundos. Sem isto a única saída
-       era desligar e lançar à mão. */
+  /* Os mesmos campos do modal de lançar gasto — descrição, valor, categoria e
+     fornecedor — porque é isso que a linha VAI VIRAR na fatura. Editar aqui
+     evita ter que abrir cada lançamento projetado depois.
+
+     A descrição original fica embaixo, apagada: ela é a chave que casa com o
+     histórico do cartão, e sem vê-la não dá pra saber de onde a linha veio
+     quando o nome foi trocado por algo legível. */
+  const linha = d => {
+    const k = _extEsc(d.chave);
+    const ev = " onkeydown=\"if(event.key==='Enter')this.blur()\"";
+    return '<div class="cproj-item" data-k="' + k + '">'
+    + '<label class="cproj-sw" title="Desligar esta previsão">'
+    +   '<input type="checkbox" checked onchange="cartProjDesligar(\'' + k + '\', this.checked)"><span></span></label>'
+    + '<span class="cproj-campos">'
+    +   '<input type="text" class="cproj-desc" value="' + _extEsc(d.desc) + '"' + ev
+    +     ' onblur="cartProjCampo(\'' + k + '\', \'desc\', this.value)">'
+    +   '<small class="cproj-orig" title="A conta e o vencimento vêm da fatura do cartão, não do lançamento">'
+    +     (d.descOriginal ? _extEsc(d.descOriginal) + ' · ' : '') + _extEsc(_cartVencTexto(d.cartaoId))
+    +   '</small>'
+    + '</span>'
     + '<span class="cproj-ed"><i>R$</i>'
-    +   '<input type="text" class="cproj-inp" value="' + _extEsc(fmtBR(d.valor, 2)) + '"'
-    +   ' onkeydown="if(event.key===\'Enter\')this.blur()"'
-    +   ' onblur="cartProjValor(\'' + _extEsc(d.chave) + '\', this.value)">'
-    +   '<small>/mês</small></span>'
-    + '<span class="cproj-val">' + _extFmtBRL(d.valor * d.meses) + '</span></div>';
+    +   '<input type="text" class="cproj-inp" value="' + _extEsc(fmtBR(d.valor, 2)) + '"' + ev
+    +   ' onblur="cartProjValor(\'' + k + '\', this.value)"><small>/mês</small></span>'
+    + '<select class="cproj-sel" onchange="cartProjCampo(\'' + k + '\', \'cat\', this.value)">'
+    +   _cartCatOptions(d.cat) + '</select>'
+    + '<input type="text" class="cproj-forn" placeholder="fornecedor" value="' + _extEsc(d.forn || '') + '"' + ev
+    +   ' onblur="cartProjCampo(\'' + k + '\', \'forn\', this.value)">'
+    + '<span class="cproj-val" title="' + d.meses + ' meses projetados">' + _extFmtBRL(d.valor * d.meses) + '</span>'
+    + '</div>';
+  };
+
 
   const total = projetados.reduce((s,d) => s + d.valor * d.meses, 0);
   const ov = document.createElement('div');
   ov.className = 'fk-shortcuts-ov'; ov.id = 'cart-proj-ov';
   ov.innerHTML =
-      '<div class="fk-shortcuts-card" style="width:min(640px,96vw)">'
+      '<div class="fk-shortcuts-card" style="width:min(940px,97vw)">'
     +   '<div class="fk-shortcuts-hd"><h2>Gastos recorrentes projetados</h2>'
     +     '<button class="fk-shortcuts-x" onclick="document.getElementById(\'cart-proj-ov\').remove()">×</button></div>'
     +   '<div class="cproj-bd">'
@@ -71933,14 +72082,28 @@ function cartSugerirRecorrentes(fonte){
     if(typeof toast === 'function') toast('Nada novo que se repita há 3 meses');
     return;
   }
+  /* Os mesmos campos do modal de lançar gasto, porque é nisso que a linha vai
+     virar na Estrutura de Custos — e porque o nome que a fatura imprime
+     ("ANTHROPIC* CLAUDE SU SAN FRANCISCO") não é o nome que ele quer ver no
+     relatório. Editar aqui evita abrir cada um depois.
+     A descrição da fatura fica embaixo, apagada: é ela que casa com o
+     histórico, e sem ver não dá pra saber de onde a linha veio. */
+  const ev = " onkeydown=\"if(event.key==='Enter')this.blur()\"";
   const linhas = lista.map((d, i) =>
     '<div class="cart-dv-item" data-linha="' + i + '">'
     + '<input type="checkbox" class="cart-rec-chk" id="cart-rec-' + i + '" data-i="' + i + '" checked>'
-    + '<label class="cart-dv-txt" for="cart-rec-' + i + '"><b>' + _extEsc(d.nome) + '</b> · ' + _extFmtBRL(d.valor) + '/mês'
-    + '<small>' + d.meses + ' meses · ' + _extEsc(d.cat)
-    + (d.onde && d.onde.length ? ' · ' + _extEsc(d.onde.join(' + ')) : '')
-    + (d.fixo ? ' · preço fixo' : ' · pessimista, arredondado pra cima')
-    + '</small></label>'
+    + '<span class="cproj-campos">'
+    +   '<input type="text" class="cproj-desc" data-campo="nome" data-i="' + i + '" value="' + _extEsc(d.nome) + '"' + ev + '>'
+    +   '<small class="cproj-orig" title="Como aparece na fatura">' + _extEsc(d.nome) + '</small>'
+    + '</span>'
+    + '<span class="cproj-ed"><i>R$</i>'
+    +   '<input type="text" class="cproj-inp" data-campo="valor" data-i="' + i + '" value="' + _extEsc(fmtBR(d.valor, 2)) + '"' + ev + '>'
+    +   '<small>/mês</small></span>'
+    + '<select class="cproj-sel" data-campo="cat" data-i="' + i + '">' + _cartCatOptions(d.cat) + '</select>'
+    + '<input type="text" class="cproj-forn" data-campo="forn" data-i="' + i + '" placeholder="fornecedor" value="' + _extEsc(d.forn || '') + '"' + ev + '>'
+    + '<span class="cart-dv-meta">' + d.meses + 'm'
+    +   (d.onde && d.onde.length ? '<small>' + _extEsc(d.onde.join(' + ')) + '</small>' : '')
+    + '</span>'
     /* "Nunca" é diferente de "agora não". Sem esta saída, quem não quiser uma
        linha veria a mesma pergunta toda vez que abrisse a tela — e a forma
        mais rápida de a sugestão virar ruído é ela não aceitar um não. */
@@ -71957,12 +72120,33 @@ function cartSugerirRecorrentes(fonte){
            + '<div class="cart-dv-lista">' + linhas + '</div>',
     okText: 'Tornar recorrentes', cancelText: 'Agora não'
   }, () => {
+    /* Lê o que ele editou na tela, não o que foi sugerido: o diálogo é o
+       formulário, e ignorar a edição seria gravar o chute por cima da
+       correção. */
+    const leia = (i, campo) => {
+      const el = document.querySelector('[data-campo="' + campo + '"][data-i="' + i + '"]');
+      return el ? String(el.value || '').trim() : '';
+    };
     const marcadas = Array.from(document.querySelectorAll('.cart-rec-chk'))
-      .filter(c => c.checked).map(c => lista[+c.dataset.i]).filter(Boolean);
+      .filter(c => c.checked)
+      .map(c => {
+        const i = +c.dataset.i, d = lista[i];
+        if(!d) return null;
+        const v = (typeof _fkParseInp === 'function') ? _fkParseInp(leia(i,'valor'), 2) : NaN;
+        return Object.assign({}, d, {
+          nomeFinal: leia(i,'nome') || d.nome,
+          cat:  leia(i,'cat') || d.cat,
+          forn: leia(i,'forn') || d.forn || '',
+          valor: (v > 0) ? +v.toFixed(2) : d.valor
+        });
+      }).filter(Boolean);
     if(!marcadas.length){ if(typeof toast === 'function') toast('Nenhuma promovida'); return; }
     for(const d of marcadas){
       try{
-        fkRecorrenteSet(d.chave, true, { nome: d.nome, cat: d.cat, origem: 'cartao',
+        /* A CHAVE usa o nome ORIGINAL: é ela que liga a linha ao histórico do
+           cartão. O nome editado vai no rótulo. */
+        fkRecorrenteSet(d.chave, true, { nome: d.nomeFinal, nomeOriginal: d.nome,
+                                         cat: d.cat, fornecedor: d.forn, origem: 'cartao',
                                          valorSugerido: d.valor, meses: d.meses });
       }catch(e){ console.warn('[FK] recorrente ' + d.nome + ':', e && e.message); }
     }
@@ -72030,11 +72214,14 @@ function cartProjDuvidososPerguntar(lista){
       for(const fid of d.futuras){
         const f = (cartoes.faturas || []).find(x => x && x.id === fid);
         if(!f) continue;
+        const ov2 = cartProjOv(_cartChaveProj(d.cartaoId, d.desc));
         cartoes.lancamentos.push({
           id: cartoes.nextLancId++, cartaoId: d.cartaoId, faturaId: f.id,
           data: _cartYmDaFatura(f) + '-01',
-          descricao: d.desc, valor: d.valor,
-          categoria: d.cat, estabelecimento: d.est,
+          descricao: ov2.desc || d.desc,
+          descOriginal: ov2.desc ? d.desc : undefined,
+          valor: (ov2.valor > 0) ? ov2.valor : d.valor,
+          categoria: ov2.cat || d.cat, estabelecimento: ov2.forn || d.est,
           origem: 'projecao-recorrente', criadoPor: 'projecao'
         });
         n++;
