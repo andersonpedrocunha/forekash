@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794247937"/>
+  <meta name="fk-build" content="forekash-v1794248886"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5491,6 +5491,24 @@
     .cproj-desc:focus,.cproj-forn:focus,.cproj-sel:focus{outline:none;border-color:#B45309;background:#fff;
       box-shadow:0 0 0 3px rgba(180,83,9,.12)}
     .cproj-sel{cursor:pointer}
+    /* O combobox oficial dentro da linha: mesmo componente do modal de
+       lançar, discreto até ser tocado, como os outros campos daqui. */
+    .cproj-cbx input{width:100%;background:transparent;border:1px solid transparent;
+      border-radius:6px;padding:4px 22px 4px 7px;font-family:inherit;font-size:.78rem;
+      color:#0F172A;transition:border-color .12s,background .12s}
+    .cproj-item:hover .cproj-cbx input{border-color:var(--bdr);background:#fff}
+    .cproj-cbx input:focus{outline:none;border-color:#B45309;background:#fff;
+      box-shadow:0 0 0 3px rgba(180,83,9,.12)}
+    .cproj-cbx .cart-cbx-arr{opacity:0;transition:opacity .12s;font-size:.62rem;right:6px}
+    .cproj-item:hover .cproj-cbx .cart-cbx-arr{opacity:1}
+    /* Fornecedor e selo na mesma célula: o selo responde "vai reusar ou vai
+       criar?" sem precisar de uma coluna só pra ele. */
+    .cproj-forn-cel{min-width:0;display:flex;flex-direction:column;gap:1px}
+    .cproj-selo-cel{padding-left:8px;line-height:1}
+    .cproj-selo{font-size:.6rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+    .cproj-selo.ok{color:#0F766E}
+    .cproj-selo.novo{color:#B45309}
+    .cproj-sel0{font-size:.6rem;color:#CBD5E1}
     /* A descrição da fatura, apagada: é a chave que liga a linha ao
        histórico, e some de vista quando o nome foi trocado. */
     .cproj-orig{font-size:.65rem;color:#CBD5E1;padding-left:8px;white-space:nowrap;overflow:hidden;
@@ -71731,6 +71749,64 @@ function _cartVencTexto(cartaoId){
 }
 try{ window._cartVencTexto = _cartVencTexto; }catch(e){}
 
+/* O FORNECEDOR É O MESMO CADASTRO DO RESTO DO APP.
+
+   Quem resolve é `_ecapDoCadastro(cnpj, nome)`, o mesmo da Captura: tenta
+   pelo DOCUMENTO e, só se não achar, cai no nome por prefixo. Essa ordem
+   importa — razão social quase nunca é o apelido que a fatura imprime
+   ("GOOGLE CLOUD BRASIL" × "Google Cloud Brasil Computação e Serviços").
+
+   Fornecedor estrangeiro não tem CNPJ: Slack Dublin, Notion Labs, Anthropic.
+   Para esses sobra o nome, e é por isso que o nome continua valendo como
+   segunda chave em vez de o campo exigir documento. */
+/* O CADASTRO É CARREGADO SOB DEMANDA, E ISSO QUEBRAVA O SELO.
+
+   `pessoas` nasce `null` e só vira objeto quando o módulo Pessoas é aberto.
+   Quem abrisse os Cartões primeiro — o caminho normal — lia um cadastro
+   vazio: TODO fornecedor aparecia como "novo", inclusive os que já existem,
+   e aceitar isso criaria o duplicado que o selo existe pra evitar.
+
+   Vale pro combobox do modal de lançar pelo mesmo motivo: a lista de
+   fornecedores dele vinha vazia nessa mesma situação. */
+function _cartPessoasPronto(){
+  try{
+    if((typeof pessoas === 'undefined' || !pessoas) && typeof pessoasLoad === 'function') pessoasLoad();
+    return (typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.registry));
+  }catch(_){ return false; }
+}
+try{ window._cartPessoasPronto = _cartPessoasPronto; }catch(e){}
+
+function _cartProjFornReg(d){
+  try{
+    if(!_cartPessoasPronto()) return null;
+    if(d && d.fornecedorId && Array.isArray(pessoas.registry)){
+      const porId = pessoas.registry.find(r => r && r.id === d.fornecedorId);
+      if(porId) return porId;
+    }
+    const nome = (d && d.forn || '').trim();
+    if(!nome) return null;
+    return (typeof _ecapDoCadastro === 'function')
+      ? _ecapDoCadastro((d && d.fornDoc) || '', nome) : null;
+  }catch(_){ return null; }
+}
+/* Sem isto a lista não diz se vai REUSAR um cadastro ou CRIAR outro — e
+   fornecedor duplicado é o jeito mais silencioso de quebrar relatório por
+   fornecedor. */
+function _cartProjFornSelo(d){
+  const nome = (d && d.forn || '').trim();
+  if(!nome) return '<span class="cproj-sel0" title="Sem fornecedor: a linha entra na fatura sem vínculo">—</span>';
+  const reg = _cartProjFornReg(d);
+  if(reg){
+    const rot = (reg.razaoSocial || reg.nomeLegal || reg.nome || '').trim();
+    const doc = String(reg.documento || reg.cnpj || reg.doc || '').trim();
+    return '<span class="cproj-selo ok" title="Já cadastrado'
+         + (rot && rot.toLowerCase() !== nome.toLowerCase() ? ' como ' + _extEsc(rot) : '')
+         + (doc ? ' · ' + _extEsc(doc) : ' · sem documento (estrangeiro)') + '">cadastrado</span>';
+  }
+  return '<span class="cproj-selo novo" title="Ainda não existe no cadastro — vai ser criado quando a linha virar lançamento">novo</span>';
+}
+try{ window._cartProjFornSelo = _cartProjFornSelo; window._cartProjFornReg = _cartProjFornReg; }catch(e){}
+
 function _cartCatOptions(sel){
   let cats = [];
   try{
@@ -71746,11 +71822,72 @@ function _cartCatOptions(sel){
     + cats.map(c => '<option' + (c === sel ? ' selected' : '') + '>' + _extEsc(c) + '</option>').join('');
 }
 
+/* A TELA PISCAVA PORQUE CADA TECLA REDESENHAVA TUDO.
+
+   Era `renderCartoes()` + `cartProjModal()` a cada blur: o módulo inteiro
+   atrás do modal era repintado, e o modal era destruído e reconstruído. Dava
+   pra ver o cartão aparecendo atrás no intervalo.
+
+   Agora nada repinta o que não mudou. O módulo de trás fica marcado como
+   sujo e é repintado UMA vez, quando o modal fecha — ninguém está olhando
+   pra ele enquanto o modal está aberto. */
+let _CART_PROJ_LINHAS = [];
+let _CART_PROJ_SUJO = false;
+
+function _cartProjAchaLinha(chave){
+  const ov = document.getElementById('cart-proj-ov');
+  if(!ov) return null;
+  return Array.from(ov.querySelectorAll('.cproj-item'))
+    .find(el => el.getAttribute('data-k') === chave) || null;
+}
+/* Repinta só o que DERIVA do que mudou — nunca os campos em que ele digita,
+   senão o cursor pula e o próximo Tab cai no lugar errado. */
+function _cartProjRepinta(chave){
+  try{
+    const d = cartProjetadosAtuais().find(x => x.chave === chave);
+    const el = _cartProjAchaLinha(chave);
+    if(!d || !el) return;
+    const orig = el.querySelector('.cproj-orig');
+    if(orig) orig.textContent = (d.descOriginal ? d.descOriginal + ' · ' : '') + _cartVencTexto(d.cartaoId);
+    const selo = el.querySelector('.cproj-selo-cel');
+    if(selo) selo.innerHTML = _cartProjFornSelo(d);
+    const val = el.querySelector('.cproj-val');
+    if(val) val.textContent = _extFmtBRL(d.valor * d.meses);
+    _cartProjRepintaTotal();
+  }catch(e){ console.warn('[FK] repinta projeção:', e && e.message); }
+}
+function _cartProjRepintaTotal(){
+  const ov = document.getElementById('cart-proj-ov');
+  const alvo = ov && ov.querySelector('.cproj-tot b');
+  if(!alvo) return;
+  const total = cartProjetadosAtuais().reduce((s,d) => s + d.valor * d.meses, 0);
+  alvo.textContent = _extFmtBRL(total);
+}
+/* Único caminho de saída: é aqui que o módulo de trás finalmente se atualiza. */
+function cartProjFechar(){
+  document.getElementById('cart-proj-ov')?.remove();
+  for(const k of Object.keys(_CART_CBX_HOOK)) if(k.indexOf('__p') > 0) delete _CART_CBX_HOOK[k];
+  if(_CART_PROJ_SUJO){
+    _CART_PROJ_SUJO = false;
+    try{ renderCartoes(); }catch(_){}
+  }
+}
+try{ window.cartProjFechar = cartProjFechar; }catch(e){}
+
 /* Descrição, categoria e fornecedor seguem o mesmo caminho do valor: gravam
    no override e são reaplicados a cada recalculada. */
 function cartProjCampo(chave, campo, valor){
   const v = String(valor || '').trim();
-  if(campo === 'desc' && !v){ cartProjModal(); return; }   // sem nome a linha some da fatura
+  const antes = cartProjOv(chave);
+  /* Sem nome a linha some da fatura: devolve o que estava, sem redesenhar. */
+  if(campo === 'desc' && !v){
+    const el = _cartProjAchaLinha(chave);
+    const inp = el && el.querySelector('.cproj-desc');
+    const d = cartProjetadosAtuais().find(x => x.chave === chave);
+    if(inp && d) inp.value = d.desc;
+    return;
+  }
+  if((antes[campo] || '') === v && campo !== 'desc') return;   // nada mudou
   try{
     cartProjOvSet(chave, campo, v);
     for(const l of (cartoes.lancamentos || [])){
@@ -71758,12 +71895,18 @@ function cartProjCampo(chave, campo, valor){
       if(_cartChaveProj(l.cartaoId, l.descOriginal || l.descricao) !== chave) continue;
       if(campo === 'desc'){ l.descOriginal = l.descOriginal || l.descricao; l.descricao = v; }
       else if(campo === 'cat')  l.categoria = v;
-      else if(campo === 'forn') l.estabelecimento = v;
+      else if(campo === 'forn'){
+        l.estabelecimento = v;
+        /* Vincula ao cadastro quando ele existe. Sem o id, o relatório por
+           fornecedor casa por texto e separa "Slack" de "SLACK DUBLIN IE". */
+        const reg = _cartProjFornReg({ forn: v, fornDoc: l.cnpj || '' });
+        if(reg) l.fornecedorId = reg.id; else delete l.fornecedorId;
+      }
     }
     cartSave();
-    try{ renderCartoes(); }catch(_){}
+    _CART_PROJ_SUJO = true;
   }catch(e){ console.warn('[FK] campo da projeção:', e && e.message); }
-  cartProjModal();
+  _cartProjRepinta(chave);
 }
 try{ window.cartProjCampo = cartProjCampo; window._cartCatOptions = _cartCatOptions; }catch(e){}
 
@@ -71783,6 +71926,8 @@ function cartProjetadosAtuais(){
                                       desc: l.descricao,
                                       descOriginal: (orig !== l.descricao) ? orig : '',
                                       cat: l.categoria || '', forn: l.estabelecimento || '',
+                                      fornecedorId: l.fornecedorId || null,
+                                      fornDoc: l.cnpj || l.documentoForn || '',
                                       valor: 0, meses: 0,
                                       manual: !!(ov.valor > 0 || ov.desc || ov.cat || ov.forn) });
       d.valor = parseFloat(l.valor) || d.valor;   // igual em todos os meses
@@ -71804,9 +71949,30 @@ function cartProjModal(){
      A descrição original fica embaixo, apagada: ela é a chave que casa com o
      histórico do cartão, e sem vê-la não dá pra saber de onde a linha veio
      quando o nome foi trocado por algo legível. */
-  const linha = d => {
+  /* CATEGORIA E FORNECEDOR SÃO O COMPONENTE OFICIAL, não um select nativo.
+
+     Esta linha vira um lançamento de cartão, e o lançamento de cartão se
+     edita no modal de Lançar Gasto. Se aqui a categoria fosse um <select> e
+     lá um combobox com "+ Cadastrar", seriam dois vocabulários pra mesma
+     decisão: aqui ele só escolheria entre o que já existe, lá poderia criar.
+     Mesmo componente, mesma fonte, mesmo "+ Cadastrar". */
+  _CART_PROJ_LINHAS = [];
+  const linha = (d, i) => {
     const k = _extEsc(d.chave);
+    _CART_PROJ_LINHAS[i] = d.chave;
     const ev = " onkeydown=\"if(event.key==='Enter')this.blur()\"";
+    const cbx = (tipo, valor, ph) => {
+      const nome = tipo + '__p' + i;
+      return '<div class="cart-cbx cproj-cbx" data-cbx="' + nome + '">'
+      +   '<input type="text" id="cart-l-' + nome + '" value="' + _extEsc(valor || '') + '"'
+      +     ' placeholder="' + ph + '" autocomplete="off"' + ev
+      +     ' onfocus="_cartCbxOpen(\'' + nome + '\')" oninput="_cartCbxFilter(\'' + nome + '\')"'
+      +     ' onkeydown="_cartCbxKey(event,\'' + nome + '\')"'
+      +     ' onblur="cartProjCampo(\'' + k + '\', \'' + (tipo === 'cat' ? 'cat' : 'forn') + '\', this.value)">'
+      +   '<div class="cart-cbx-arr" onclick="_cartCbxToggle(\'' + nome + '\')">▾</div>'
+      +   '<div class="cart-cbx-pop" id="cart-cbx-pop-' + nome + '"></div>'
+      + '</div>';
+    };
     return '<div class="cproj-item" data-k="' + k + '">'
     + '<label class="cproj-sw" title="Desligar esta previsão">'
     +   '<input type="checkbox" checked onchange="cartProjDesligar(\'' + k + '\', this.checked)"><span></span></label>'
@@ -71820,10 +71986,9 @@ function cartProjModal(){
     + '<span class="cproj-ed"><i>R$</i>'
     +   '<input type="text" class="cproj-inp" value="' + _extEsc(fmtBR(d.valor, 2)) + '"' + ev
     +   ' onblur="cartProjValor(\'' + k + '\', this.value)"><small>/mês</small></span>'
-    + '<select class="cproj-sel" onchange="cartProjCampo(\'' + k + '\', \'cat\', this.value)">'
-    +   _cartCatOptions(d.cat) + '</select>'
-    + '<input type="text" class="cproj-forn" placeholder="fornecedor" value="' + _extEsc(d.forn || '') + '"' + ev
-    +   ' onblur="cartProjCampo(\'' + k + '\', \'forn\', this.value)">'
+    + cbx('cat', d.cat, 'categoria')
+    + '<span class="cproj-forn-cel">' + cbx('estab', d.forn, 'fornecedor')
+    +   '<span class="cproj-selo-cel">' + _cartProjFornSelo(d) + '</span></span>'
     + '<span class="cproj-val" title="' + d.meses + ' meses projetados">' + _extFmtBRL(d.valor * d.meses) + '</span>'
     + '</div>';
   };
@@ -71835,7 +72000,7 @@ function cartProjModal(){
   ov.innerHTML =
       '<div class="fk-shortcuts-card" style="width:min(940px,97vw)">'
     +   '<div class="fk-shortcuts-hd"><h2>Gastos recorrentes projetados</h2>'
-    +     '<button class="fk-shortcuts-x" onclick="document.getElementById(\'cart-proj-ov\').remove()">×</button></div>'
+    +     '<button class="fk-shortcuts-x" onclick="cartProjFechar()">×</button></div>'
     +   '<div class="cproj-bd">'
     +     (projetados.length
           ? '<p class="cproj-sub">Estes entram nas faturas futuras com um valor pessimista. '
@@ -71851,12 +72016,20 @@ function cartProjModal(){
           : '')
     +   '</div>'
     +   '<div class="cproj-ft">'
-    +     '<button type="button" class="btn btn-sec" onclick="document.getElementById(\'cart-proj-ov\').remove()">Fechar</button>'
-    +     '<button type="button" class="btn btn-p" onclick="document.getElementById(\'cart-proj-ov\').remove();cartProjetarConfirmar()">Refazer projeção</button>'
+    +     '<button type="button" class="btn btn-sec" onclick="cartProjFechar()">Fechar</button>'
+    +     '<button type="button" class="btn btn-p" onclick="cartProjFechar();cartProjetarConfirmar()">Refazer projeção</button>'
     +   '</div>'
     + '</div>';
   document.body.appendChild(ov);
-  ov.addEventListener('click', e => { if(e.target === ov) ov.remove(); });
+  ov.addEventListener('click', e => { if(e.target === ov) cartProjFechar(); });
+  /* Escolher no popover não dispara blur do input: sem o gancho, clicar num
+     fornecedor da lista mudava o texto na tela e não gravava nada. */
+  for(let i = 0; i < _CART_PROJ_LINHAS.length; i++){
+    const chave = _CART_PROJ_LINHAS[i];
+    if(!chave) continue;
+    _CART_CBX_HOOK['cat__p' + i]   = v => cartProjCampo(chave, 'cat', v);
+    _CART_CBX_HOOK['estab__p' + i] = v => cartProjCampo(chave, 'forn', v);
+  }
 }
 
 /* Desligar APAGA as linhas na hora, não espera a próxima recalculada: ver o
@@ -71868,11 +72041,15 @@ function cartProjDesligar(chave, ligado){
     else {
       cartoes.naoProjetar[chave] = true;
       cartoes.lancamentos = (cartoes.lancamentos || []).filter(l =>
-        !(l && l.origem === 'projecao-recorrente' && _cartChaveProj(l.cartaoId, l.descricao) === chave));
+        !(l && l.origem === 'projecao-recorrente'
+          && _cartChaveProj(l.cartaoId, l.descOriginal || l.descricao) === chave));
     }
     cartSave();
-    try{ renderCartoes(); }catch(_){}
-    cartProjModal();
+    _CART_PROJ_SUJO = true;
+    /* Tira a linha da tela em vez de reconstruir o modal: o resto da lista
+       não muda, e reconstruir era metade da piscada. */
+    if(!ligado) _cartProjAchaLinha(chave)?.remove();
+    _cartProjRepintaTotal();
     if(typeof toast === 'function')
       toast(ligado ? 'Volta na próxima recalculada' : 'Removido da previsão');
   }catch(e){ console.warn('[FK] desligar projeção:', e && e.message); }
@@ -71885,17 +72062,28 @@ function cartProjDesligar(chave, ligado){
    `naoProjetar`: decisão dele não se desfaz sozinha. */
 function cartProjValor(chave, txt){
   const v = (typeof _fkParseInp === 'function') ? _fkParseInp(txt, 2) : parseFloat(txt);
-  if(!(v > 0)){ cartProjModal(); return; }           // inválido: redesenha com o valor de antes
+  if(!(v > 0)){                                       // inválido: devolve o valor de antes
+    const el = _cartProjAchaLinha(chave);
+    const inp = el && el.querySelector('.cproj-inp');
+    const d = cartProjetadosAtuais().find(x => x.chave === chave);
+    if(inp && d) inp.value = fmtBR(d.valor, 2);
+    return;
+  }
   try{
     cartoes.valorProjetado = cartoes.valorProjetado || {};
     cartoes.valorProjetado[chave] = +v.toFixed(2);
+    /* A CHAVE É A DESCRIÇÃO ORIGINAL, NÃO A DA TELA.
+       Casando por `l.descricao`, qualquer linha renomeada deixava de ser
+       encontrada: o override era gravado, o toast dizia "ajustado", e o
+       valor na fatura continuava o antigo até a próxima recalculada. */
     for(const l of (cartoes.lancamentos || []))
-      if(l && l.origem === 'projecao-recorrente' && _cartChaveProj(l.cartaoId, l.descricao) === chave)
+      if(l && l.origem === 'projecao-recorrente'
+         && _cartChaveProj(l.cartaoId, l.descOriginal || l.descricao) === chave)
         l.valor = +v.toFixed(2);
     cartSave();
-    try{ renderCartoes(); }catch(_){}
+    _CART_PROJ_SUJO = true;
   }catch(e){ console.warn('[FK] valor da projeção:', e && e.message); }
-  cartProjModal();
+  _cartProjRepinta(chave);
   if(typeof toast === 'function') toast('Projeção ajustada para ' + _extFmtBRL(v) + '/mês');
 }
 
@@ -73946,13 +74134,25 @@ function _cartProxLancId(){
 
 // ─── Combobox custom para cart-l-estab e cart-l-cat ───
 // Engine simples: input + popover filtrado + opção "+ Cadastrar 'X'" no rodapé.
-let _cartCbxActiveIdx = { estab: -1, cat: -1 };
+/* UM COMBOBOX, VÁRIAS LINHAS.
+
+   Nasceu servindo exatamente dois campos do modal de lançar: `estab` e `cat`.
+   A tela da projeção tem uma linha por gasto recorrente, cada uma com os dois
+   — e o padrão oficial do app é este combobox, não select nativo. Então o
+   nome vira `tipo__sufixo` ('estab__p3'), o tipo decide a fonte e o sufixo
+   distingue a linha. Os dois nomes antigos continuam valendo: sem '__', o
+   nome inteiro é o tipo. */
+const _cartCbxActiveIdx = {};
+const _CART_CBX_HOOK = {};          // nome → callback(valor) depois de escolher
+function _cartCbxTipo(name){ return String(name || '').split('__')[0]; }
 
 function _cartCbxSource(name){
+  name = _cartCbxTipo(name);
   if(name === 'estab'){
     const seen = new Map();
     try {
-      if(typeof pessoas !== 'undefined' && Array.isArray(pessoas.registry)){
+      if(typeof _cartPessoasPronto === 'function') _cartPessoasPronto();
+      if(typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.registry)){
         for(const r of pessoas.registry){
           if(!r || r.kind === 'colaborador') continue;
           const n = (r.nome || '').trim();
@@ -73995,17 +74195,68 @@ function _cartCbxRender(name){
   // Opção "+ Cadastrar" quando ha texto e nao bate exato
   if(q && !exact){
     const addIdx = filtered.length;
-    const lbl = name === 'estab' ? ('Cadastrar fornecedor "' + cartEsc(q) + '"') : ('Cadastrar categoria "' + cartEsc(q) + '"');
+    /* O tipo vem do prefixo, não do nome inteiro: com 'estab__p0' esta
+       comparação dava falso e o campo de FORNECEDOR oferecia "Cadastrar
+       categoria". */
+    const lbl = _cartCbxTipo(name) === 'estab'
+      ? ('Cadastrar fornecedor "' + cartEsc(q) + '"')
+      : ('Cadastrar categoria "' + cartEsc(q) + '"');
     html += '<div class="cart-cbx-add" data-idx="' + addIdx + '" onmousedown="event.preventDefault();_cartCbxCreate(\'' + name + '\')">' + lbl + '</div>';
   }
   pop.innerHTML = html;
   _cartCbxActiveIdx[name] = -1;
 }
 
+/* LISTA QUE ROLA CORTA POPOVER ABSOLUTO.
+
+   O popover é `position:absolute` dentro do campo. No modal de lançar isso
+   basta, porque nada ali tem overflow. Na projeção a lista de gastos rola, e
+   `overflow-y:auto` recorta o filho — a lista de fornecedores apareceria pela
+   metade, ou invisível, sem erro nenhum no console. Dentro de um ancestral
+   que recorta, o popover vira `fixed` e é posicionado à mão. */
+function _cartCbxClipador(el){
+  for(let p = el.parentElement; p && p !== document.body; p = p.parentElement){
+    const ov = getComputedStyle(p).overflowY;
+    if(ov === 'auto' || ov === 'scroll' || ov === 'hidden') return p;
+  }
+  return null;
+}
+function _cartCbxPosiciona(name){
+  const inp = document.getElementById('cart-l-' + name);
+  const pop = document.getElementById('cart-cbx-pop-' + name);
+  if(!inp || !pop || pop.style.position !== 'fixed') return;
+  const r = inp.getBoundingClientRect();
+  const alturaMax = 240;
+  const cabeEmbaixo = (window.innerHeight - r.bottom) > Math.min(alturaMax, 140) + 8;
+  pop.style.left  = r.left + 'px';
+  pop.style.width = r.width + 'px';
+  if(cabeEmbaixo){
+    pop.style.top = (r.bottom + 4) + 'px';
+    pop.style.bottom = 'auto';
+    pop.style.maxHeight = Math.min(alturaMax, window.innerHeight - r.bottom - 12) + 'px';
+  } else {
+    pop.style.top = 'auto';
+    pop.style.bottom = (window.innerHeight - r.top + 4) + 'px';
+    pop.style.maxHeight = Math.min(alturaMax, r.top - 12) + 'px';
+  }
+}
+try{ window._cartCbxPosiciona = _cartCbxPosiciona; }catch(e){}
+
 function _cartCbxOpen(name){
   const pop = document.getElementById('cart-cbx-pop-' + name);
   if(!pop) return;
   _cartCbxRender(name);
+  const inp = document.getElementById('cart-l-' + name);
+  const clip = inp ? _cartCbxClipador(inp) : null;
+  if(clip){
+    pop.style.position = 'fixed';
+    pop.style.right = 'auto';
+    _cartCbxPosiciona(name);
+    const segue = () => _cartCbxPosiciona(name);
+    pop._fkSegue = segue;
+    clip.addEventListener('scroll', segue, true);
+    window.addEventListener('resize', segue);
+  }
   pop.classList.add('open');
   // Fecha ao clicar fora
   setTimeout(()=>{
@@ -74022,7 +74273,15 @@ function _cartCbxOpen(name){
 }
 function _cartCbxClose(name){
   const pop = document.getElementById('cart-cbx-pop-' + name);
-  if(pop) pop.classList.remove('open');
+  if(!pop) return;
+  pop.classList.remove('open');
+  if(pop._fkSegue){
+    const inp = document.getElementById('cart-l-' + name);
+    const clip = inp ? _cartCbxClipador(inp) : null;
+    if(clip) clip.removeEventListener('scroll', pop._fkSegue, true);
+    window.removeEventListener('resize', pop._fkSegue);
+    pop._fkSegue = null;
+  }
 }
 function _cartCbxToggle(name){
   const pop = document.getElementById('cart-cbx-pop-' + name);
@@ -74044,13 +74303,15 @@ function _cartCbxPick(name, idx){
   const v = filtered[idx];
   if(v){ inp.value = v; }
   _cartCbxClose(name);
+  try{ if(v && _CART_CBX_HOOK[name]) _CART_CBX_HOOK[name](v); }catch(_){}
 }
 function _cartCbxCreate(name){
   const inp = document.getElementById('cart-l-' + name);
   if(!inp) return;
   const v = (inp.value || '').trim();
   if(!v) return;
-  if(name === 'estab'){
+  const tipo = _cartCbxTipo(name);
+  if(tipo === 'estab'){
     try {
       if(typeof pessoas !== 'undefined' && pessoas){
         if(!Array.isArray(pessoas.registry)) pessoas.registry = [];
@@ -74064,7 +74325,7 @@ function _cartCbxCreate(name){
         }
       }
     } catch(_){}
-  } else if(name === 'cat'){
+  } else if(tipo === 'cat'){
     try {
       if(typeof estrutura !== 'undefined' && estrutura){
         if(!Array.isArray(estrutura.tags)) estrutura.tags = [];
@@ -74085,6 +74346,7 @@ function _cartCbxCreate(name){
     } catch(_){}
   }
   _cartCbxClose(name);
+  try{ if(_CART_CBX_HOOK[name]) _CART_CBX_HOOK[name](v); }catch(_){}
 }
 function _cartCbxKey(e, name){
   const pop = document.getElementById('cart-cbx-pop-' + name);
@@ -74095,11 +74357,13 @@ function _cartCbxKey(e, name){
   const items = Array.from(pop.querySelectorAll('.cart-cbx-item, .cart-cbx-add'));
   if(e.key === 'ArrowDown'){
     e.preventDefault();
+    if(_cartCbxActiveIdx[name] == null) _cartCbxActiveIdx[name] = -1;
     _cartCbxActiveIdx[name] = Math.min(items.length-1, _cartCbxActiveIdx[name] + 1);
     items.forEach(it => it.classList.remove('active'));
     if(items[_cartCbxActiveIdx[name]]) items[_cartCbxActiveIdx[name]].classList.add('active');
   } else if(e.key === 'ArrowUp'){
     e.preventDefault();
+    if(_cartCbxActiveIdx[name] == null) _cartCbxActiveIdx[name] = -1;
     _cartCbxActiveIdx[name] = Math.max(0, _cartCbxActiveIdx[name] - 1);
     items.forEach(it => it.classList.remove('active'));
     if(items[_cartCbxActiveIdx[name]]) items[_cartCbxActiveIdx[name]].classList.add('active');
