@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1793997681"/>
+  <meta name="fk-build" content="forekash-v1794240587"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -5431,6 +5431,20 @@
       border-radius:6px;padding:5px 11px;font-family:inherit;font-size:.72rem;font-weight:600;
       cursor:pointer;transition:background .12s}
     .ecap-mom-btn:hover{background:#DCFCE7}
+    /* Lista de assinaturas duvidosas no diálogo da projeção. Rola porque num
+       cartão com muitos serviços a lista passa da altura do modal. */
+    .cart-dv-lista{margin-top:12px;max-height:46vh;overflow:auto;display:flex;
+      flex-direction:column;gap:2px;text-align:left}
+    .cart-dv-item{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;
+      border-radius:7px;cursor:pointer;transition:background .12s}
+    .cart-dv-item:hover{background:#F8FAFC}
+    .cart-dv-item input{margin-top:2px;flex:none;width:15px;height:15px;cursor:pointer}
+    .cart-dv-txt{font-size:.8rem;color:#0F172A;line-height:1.35}
+    .cart-dv-txt small{display:block;font-size:.7rem;color:#94A3B8;margin-top:1px}
+    /* Botão que só aparece quando há sugestão: âmbar discreto, porque é
+       oportunidade e não alerta. */
+    .cart-btn-sugere{background:#FFFBEB;border-color:#FDE68A;color:#92400E;font-weight:700}
+    .cart-btn-sugere:hover{background:#FEF3C7;border-color:#FCD34D}
 
     .ecap-foot{padding:14px 22px;border-top:1px solid #E5E7EB;background:#F8FAFC;
                 display:flex;gap:10px;justify-content:flex-end;align-items:center;flex-wrap:wrap}
@@ -71340,6 +71354,23 @@ function _cartMediana(arr){
   const m = Math.floor(a.length / 2);
   return a.length % 2 ? a[m] : (a[m-1] + a[m]) / 2;
 }
+/* PESSIMISTA SEM SER ABSURDO.
+
+   Projeção de assinatura tem que errar pra cima: faltar caixa surpreende,
+   sobrar não. Mas "pessimista" não pode virar "o pior mês que já teve" — o
+   OpenAI aqui vai de R$ 20,90 a R$ 550,19 (um mês de uso pesado), e projetar
+   550 todo mês inflaria a conta em 25x.
+
+   O p75 é o ponto certo: em 3 de cada 4 meses o gasto fica até aqui. Fica
+   acima do típico e imune ao mês fora da curva. Nos números reais desta base:
+   OpenAI 22,36 em vez de 550 · Miro 521,69 em vez de 693 · Google 2.079. */
+function _cartPercentil(arr, p){
+  const a = arr.slice().filter(n => n > 0).sort((x, y) => x - y);
+  if(!a.length) return 0;
+  const i = (a.length - 1) * p;
+  const lo = Math.floor(i), hi = Math.ceil(i);
+  return lo === hi ? a[lo] : a[lo] + (a[hi] - a[lo]) * (i - lo);
+}
 function _cartEhProjecao(l){
   return !!(l && typeof l.origem === 'string' && l.origem.indexOf('projecao') === 0);
 }
@@ -71361,9 +71392,11 @@ async function cartProjetarConfirmar(){
   const ok = (typeof showConfirm === 'function') ? await showConfirm({
     title: 'Refazer a projeção das faturas futuras?',
     message: (atuais ? ('As ' + atuais + ' linhas previstas atuais são descartadas e refeitas. ') : '')
-      + 'A previsão passa a vir do histórico: parcela que falta entra com o valor exato, '
-      + 'serviço recorrente entra pela mediana dos últimos meses, cada um na sua categoria. '
-      + 'Lançamento real não é tocado.',
+      + 'A previsão passa a vir do histórico: parcela que falta entra com o valor exato; '
+      + 'assinatura entra por um valor pessimista — acima do mês típico e arredondado pra cima — '
+      + 'porque faltar caixa surpreende e sobrar não. Preço fixo entra exato, sem arredondar. '
+      + 'Cada uma na sua categoria, e lançamento real não é tocado.<br><br>'
+      + 'No fim eu pergunto sobre as assinaturas que falharam em algum mês, em vez de decidir sozinho.',
     confirmLabel: 'Refazer'
   }) : true;
   if(!ok) return;
@@ -71386,6 +71419,7 @@ function cartProjetarFaturas(opts){
   const ymDe = l => _cartYmDaFatura(fatPorId[l && l.faturaId]);
 
   let criados = 0;
+  const duvidosos = [];          // recorrentes que falharam em algum mês
   for(const c of (cartoes.list || [])){
     if(!c || c.ativo === false) continue;
     const reais = cartoes.lancamentos.filter(l => l && l.cartaoId === c.id && ymDe(l));
@@ -71458,17 +71492,40 @@ function cartProjetarFaturas(opts){
       (porDesc[k] = porDesc[k] || { meses:{}, cat:l.categoria || '', est:l.estabelecimento || '' });
       porDesc[k].meses[ym] = (porDesc[k].meses[ym] || 0) + (parseFloat(l.valor) || 0);
     }
+    const ultimoFechado = fechados[fechados.length - 1] || '';
     for(const k of Object.keys(porDesc)){
       const g = porDesc[k];
       const vals = Object.values(g.meses);
       if(vals.length < _CART_PROJ_MIN_MESES) continue;
-      if(vals.length < Math.ceil(fechados.length * 0.5)) continue;   // sumiu, não é mais recorrente
-      const med = _cartMediana(vals);
-      if(!(med > 0)) continue;
+
+      /* QUEM FALHOU NÃO SOME CALADO — VIRA PERGUNTA.
+
+         Antes bastava aparecer em menos da metade da janela pra ser
+         descartado sem aviso, e assinatura que ficou um mês sem cobrar
+         simplesmente saía da projeção. O sinal que separa "pulou um mês" de
+         "foi cancelada" é o ÚLTIMO mês fechado: serviço vivo cobra no mês
+         passado. Quem não cobrou provavelmente acabou — mas quem decide é
+         ele, não eu. */
+      const vivo = !!g.meses[ultimoFechado];
+      const buracos = fechados.filter(m => !g.meses[m]);
+      const duvidoso = !vivo || buracos.length > 0;
+
+      const base = _cartPercentil(vals, 0.75);
+      if(!(base > 0)) continue;
       const varia = Math.max(...vals) - Math.min(...vals);
-      /* Arredonda só quando varia. Mensalidade fixa entra exata. */
-      const valor = (varia <= 0.01) ? +med.toFixed(2) : Math.round(med);
+      /* Preço fixo entra EXATO: arredondar R$ 45,25 pra 46 inventaria uma
+         despesa que ninguém tem. Só o que varia ganha a margem — e aí pra
+         cima, porque faltar caixa surpreende e sobrar não. */
+      const valor = (varia <= 0.01) ? +base.toFixed(2) : Math.ceil(base);
       if(!(valor > 0)) continue;
+
+      if(duvidoso){
+        duvidosos.push({ cartaoId: c.id, cartao: c.apelido || c.nome || 'Cartão',
+          desc: k, valor, cat: g.cat, est: g.est, vivo,
+          buracos: buracos.length, ultimoVisto: Object.keys(g.meses).sort().slice(-1)[0] || '',
+          futuras: futuras.map(f => f.id) });
+        continue;                 // só entra se ele mandar
+      }
       for(const f of futuras){
         cartoes.lancamentos.push({
           id: cartoes.nextLancId++, cartaoId: c.id, faturaId: f.id,
@@ -71485,8 +71542,184 @@ function cartProjetarFaturas(opts){
   if(!silencioso && typeof toast === 'function'){
     toast(criados ? ('Projeção refeita · ' + criados + ' linha(s)') : 'Nada a projetar');
   }
+  /* Os duvidosos ficam de fora da gravação acima e viram pergunta. No modo
+     silencioso (a recalculada automática do boot) não há ninguém pra
+     responder: ficam de fora mesmo, que é o lado seguro — projetar assinatura
+     possivelmente cancelada infla a despesa futura. */
+  if(!silencioso && duvidosos.length) cartProjDuvidososPerguntar(duvidosos);
   return criados;
 }
+
+/* DEPOIS DE 3 MESES, A ASSINATURA VIRA ESTRUTURA.
+
+   Projetar a fatura é curto prazo — resolve os meses que vêm. Mas um serviço
+   que se repete há três meses não é "gasto de cartão": é custo fixo da
+   empresa, e custo fixo precisa de linha própria na Estrutura de Custos, onde
+   dá pra projetar o ano e ver quanto a casa custa por mês. É a diferença
+   entre saber que a fatura de dezembro vem R$ 7.400 e saber que a empresa tem
+   R$ 7.400/mês de assinatura.
+
+   Três meses é o mínimo que distingue hábito de coincidência: dois podem ser
+   a mesma compra repetida, três já é padrão.
+
+   Respeita `estrutura.naoRecorrentes`: o que ele recusou uma vez não volta a
+   ser oferecido. Ver o comentário em `fkRecorrenteSet` — sem isso ele veria a
+   própria decisão ser desfeita. */
+function cartAssinaturasCandidatas(){
+  const out = [];
+  try{
+    if(typeof cartoes === 'undefined' || !cartoes || !Array.isArray(cartoes.lancamentos)) return out;
+    if(typeof estrutura === 'undefined' || !estrutura) return out;
+    const hoje = new Date();
+    const ymHoje = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
+    const fatPorId = {};
+    for(const f of (cartoes.faturas || [])) if(f) fatPorId[f.id] = f;
+    const ymDe = l => _cartYmDaFatura(fatPorId[l && l.faturaId]);
+    const nomeCartao = {};
+    for(const c of (cartoes.list || [])) if(c) nomeCartao[c.id] = c.apelido || c.nome || 'Cartão';
+
+    const g = {};
+    for(const l of cartoes.lancamentos){
+      if(!l || _cartEhProjecao(l)) continue;      // projeção não é prova de nada
+      if(_cartParcelaDe(l)) continue;             // parcelamento acaba; assinatura não
+      const ym = ymDe(l);
+      if(!ym || ym > ymHoje) continue;            // só mês que já fechou
+      const nome = String(l.descricao || '').trim();
+      const cat  = String(l.categoria || '').trim();
+      if(!nome || !cat) continue;                 // sem categoria não há linha na Estrutura
+      const chave = _fkChaveDesp(nome, cat);
+      if(!chave || chave === '|') continue;
+      (g[chave] = g[chave] || { nome, cat, cartao: nomeCartao[l.cartaoId] || '', meses: {} });
+      g[chave].meses[ym] = (g[chave].meses[ym] || 0) + (parseFloat(l.valor) || 0);
+    }
+    for(const chave of Object.keys(g)){
+      const d = g[chave];
+      const meses = Object.keys(d.meses).sort();
+      if(meses.length < 3) continue;                       // hábito, não coincidência
+      /* AINDA ESTÁ VIVO? Repetiu-se 4 meses e parou em junho não é custo fixo
+         de novembro — é assinatura cancelada. Promovê-la inflaria a Estrutura
+         com uma despesa que não existe mais. Dois meses de tolerância porque
+         cobrança atrasa e fatura fecha em dia diferente do mês. */
+      const limite = (() => {
+        const d2 = new Date(hoje.getFullYear(), hoje.getMonth() - 2, 1);
+        return d2.getFullYear() + '-' + String(d2.getMonth() + 1).padStart(2, '0');
+      })();
+      if(meses[meses.length - 1] < limite) continue;
+      if(fkRecorrenteGet(chave)) continue;                 // já é
+      if((estrutura.naoRecorrentes || {})[chave]) continue; // ele já disse que não
+      const vals = meses.map(m => d.meses[m]).filter(v => v > 0);
+      if(!vals.length) continue;
+      const base = _cartPercentil(vals, 0.75);
+      const varia = Math.max(...vals) - Math.min(...vals);
+      const valor = (varia <= 0.01) ? +base.toFixed(2) : Math.ceil(base);
+      if(!(valor > 0)) continue;
+      out.push({ chave, nome: d.nome, cat: d.cat, cartao: d.cartao,
+                 meses: meses.length, ultimo: meses[meses.length - 1], valor,
+                 fixo: varia <= 0.01 });
+    }
+  }catch(e){ console.warn('[FK] candidatas a recorrente:', e && e.message); }
+  return out.sort((a, b) => b.valor - a.valor);
+}
+
+/* Botão que só existe quando há o que sugerir — e já diz quantas são. Botão
+   permanente que quase sempre não faz nada vira mobília. */
+function _cartBotaoRecorrentes(){
+  let n = 0;
+  try{ n = cartAssinaturasCandidatas().length; }catch(_){}
+  if(!n) return '';
+  return '<button type="button" class="cart-btn cart-btn-sugere" onclick="cartSugerirRecorrentes()"'
+    + ' title="Serviços que se repetem há 3 meses ou mais e ainda não têm linha na Estrutura de Custos">'
+    + n + (n === 1 ? ' assinatura virou fixa?' : ' assinaturas viraram fixas?') + '</button>';
+}
+
+function cartSugerirRecorrentes(){
+  const lista = cartAssinaturasCandidatas();
+  if(!lista.length){
+    if(typeof toast === 'function') toast('Nenhuma assinatura nova pra promover');
+    return;
+  }
+  const linhas = lista.map((d, i) =>
+    '<label class="cart-dv-item">'
+    + '<input type="checkbox" class="cart-rec-chk" data-i="' + i + '" checked>'
+    + '<span class="cart-dv-txt"><b>' + _extEsc(d.nome) + '</b> · ' + _extFmtBRL(d.valor) + '/mês'
+    + '<small>' + d.meses + ' meses seguidos · ' + _extEsc(d.cat)
+    + (d.cartao ? ' · ' + _extEsc(d.cartao) : '')
+    + (d.fixo ? ' · preço fixo' : ' · valor pessimista, arredondado pra cima')
+    + '</small></span></label>').join('');
+  anaConfirm({
+    eyebrow: 'Estrutura de Custos',
+    title: lista.length + (lista.length === 1 ? ' serviço virou custo fixo' : ' serviços viraram custo fixo'),
+    message: 'Estes se repetem há 3 meses ou mais no cartão e ainda entram como gasto avulso. '
+           + 'Virando recorrente, cada um ganha linha própria na Estrutura de Custos e passa a ser '
+           + 'projetado pro ano.<br><br>O valor é pessimista — acima do mês típico e arredondado pra '
+           + 'cima. Quando a fatura real chegar, você ajusta na hora de lançar.'
+           + '<div class="cart-dv-lista">' + linhas + '</div>',
+    okText: 'Tornar recorrentes', cancelText: 'Agora não'
+  }, () => {
+    const marcadas = Array.from(document.querySelectorAll('.cart-rec-chk'))
+      .filter(c => c.checked).map(c => lista[+c.dataset.i]).filter(Boolean);
+    if(!marcadas.length){ if(typeof toast === 'function') toast('Nenhuma promovida'); return; }
+    for(const d of marcadas){
+      try{
+        fkRecorrenteSet(d.chave, true, { nome: d.nome, cat: d.cat, origem: 'cartao',
+                                         valorSugerido: d.valor, meses: d.meses });
+      }catch(e){ console.warn('[FK] recorrente ' + d.nome + ':', e && e.message); }
+    }
+    try{ renderCartoes(); }catch(_){}
+    if(typeof toast === 'function')
+      toast('✓ ' + marcadas.length + (marcadas.length === 1 ? ' assinatura agora tem linha' : ' assinaturas agora têm linha')
+            + ' na Estrutura de Custos', 5000);
+  });
+}
+try{ window.cartSugerirRecorrentes = cartSugerirRecorrentes;
+     window.cartAssinaturasCandidatas = cartAssinaturasCandidatas; }catch(e){}
+
+/* PERGUNTA QUAIS MANTER. Um serviço que falhou um mês no meio quase sempre
+   continua vivo; um que não cobrou no último mês quase sempre acabou. Os dois
+   casos são palpite, então o palpite vem MARCADO e ele desmarca o que não
+   quiser — em vez de sumir calado, que é o que acontecia antes. */
+function cartProjDuvidososPerguntar(lista){
+  const linhas = lista.map((d, i) =>
+    '<label class="cart-dv-item">'
+    + '<input type="checkbox" class="cart-dv-chk" data-i="' + i + '"' + (d.vivo ? ' checked' : '') + '>'
+    + '<span class="cart-dv-txt"><b>' + _extEsc(d.desc) + '</b> · ' + _extEsc(d.cartao)
+    + ' · projetar ' + _extFmtBRL(d.valor) + '/mês'
+    + '<small>' + (d.vivo
+        ? ('cobrou no mês passado, mas pulou ' + d.buracos + (d.buracos === 1 ? ' mês' : ' meses'))
+        : ('nada desde ' + _extEsc(d.ultimoVisto) + ' — provavelmente cancelada'))
+    + '</small></span></label>').join('');
+  anaConfirm({
+    eyebrow: 'Projeção do cartão',
+    title: 'Estas assinaturas falharam em algum mês',
+    message: 'Marquei as que cobraram no mês passado. Desmarque o que foi cancelado — '
+           + 'projetar assinatura morta infla a despesa futura, e não projetar uma viva '
+           + 'esconde uma conta que vai chegar.<br><div class="cart-dv-lista">' + linhas + '</div>',
+    okText: 'Projetar as marcadas', cancelText: 'Nenhuma'
+  }, () => {
+    const marcadas = Array.from(document.querySelectorAll('.cart-dv-chk'))
+      .filter(c => c.checked).map(c => lista[+c.dataset.i]).filter(Boolean);
+    if(!marcadas.length){ if(typeof toast === 'function') toast('Nenhuma projetada'); return; }
+    let n = 0;
+    for(const d of marcadas){
+      for(const fid of d.futuras){
+        const f = (cartoes.faturas || []).find(x => x && x.id === fid);
+        if(!f) continue;
+        cartoes.lancamentos.push({
+          id: cartoes.nextLancId++, cartaoId: d.cartaoId, faturaId: f.id,
+          data: _cartYmDaFatura(f) + '-01',
+          descricao: d.desc, valor: d.valor,
+          categoria: d.cat, estabelecimento: d.est,
+          origem: 'projecao-recorrente', criadoPor: 'projecao'
+        });
+        n++;
+      }
+    }
+    try{ cartSave(); }catch(_){}
+    try{ renderCartoes(); }catch(_){}
+    if(typeof toast === 'function') toast('✓ ' + marcadas.length + ' assinatura(s) · ' + n + ' linha(s) projetada(s)');
+  });
+}
+try{ window.cartProjDuvidososPerguntar = cartProjDuvidososPerguntar; }catch(e){}
 try{ window.cartProjetarFaturas = cartProjetarFaturas; }catch(e){}
 
 function cartFaturaTotal(fatId){
@@ -71571,7 +71804,8 @@ function renderCartoes(){
     + '<div class="cart-hd-actions">'
       + '<button type="button" class="cart-btn" onclick="cartAnaliseAbrir()" title="Gasto do cartão por categoria, centro de custo e fornecedor">Análise</button>'
       + '<button type="button" class="cart-btn" onclick="fkCardCalendarOpen()" title="Próximos 6 meses de faturas">Calendário 6m</button>'
-      + '<button type="button" class="cart-btn" onclick="cartProjetarConfirmar()" title="Refaz a previsão das faturas futuras a partir do histórico: parcela que falta com valor exato, assinatura recorrente pela mediana">Refazer projeção</button>'
+      + '<button type="button" class="cart-btn" onclick="cartProjetarConfirmar()" title="Refaz a previsão das faturas futuras a partir do histórico: parcela que falta com valor exato, assinatura por um valor pessimista arredondado pra cima">Refazer projeção</button>'
+      + _cartBotaoRecorrentes()
       + '<button type="button" class="cart-btn cart-btn-primary" onclick="cartOpenModal()">+ Novo cartão</button>'
     + '</div>'
   + '</div>';
