@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794243616"/>
+  <meta name="fk-build" content="forekash-v1794244377"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -46582,7 +46582,11 @@ let flxStruct = {
   dre:   { labels:{}, hidden:[] },
   custom:[]
 };
-(function _flxStructLoad(){
+/* Era um IIFE: rodava uma vez, no parse, e pronto. Agora tem nome e está na
+   janela, porque a hidratação da nuvem precisa chamá-lo DEPOIS — senão o que
+   desce fica parado no localStorage e a tela segue com o que o navegador
+   tinha. Continua rodando na hora, como antes. */
+function flxStructLoad(){
   try {
     const raw = localStorage.getItem(FLX_STRUCT_KEY);
     if(raw){
@@ -46599,7 +46603,9 @@ let flxStruct = {
   flxStruct.dre.labels = flxStruct.dre.labels || {};
   flxStruct.dre.hidden = Array.isArray(flxStruct.dre.hidden) ? flxStruct.dre.hidden : [];
   flxStruct.custom = Array.isArray(flxStruct.custom) ? flxStruct.custom : [];
-})();
+}
+flxStructLoad();
+try{ window.flxStructLoad = flxStructLoad; }catch(_){}
 function flxStructSave(){
   try { localStorage.setItem(FLX_STRUCT_KEY, JSON.stringify(flxStruct)); } catch(e){}
   try { histCommit('estrutura DRC/DRE'); } catch(e){}
@@ -125852,6 +125858,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try { sbGroupApply(_sbGroupsLoadState()); sbGroupRefresh(); } catch(e){}
 });
 
+try{ window.settingsLoad = settingsLoad; }catch(_){}   // fkRecarregarModulo resolve por window[nome]
 function settingsLoad(){
   let raw = null;
   try{ raw = localStorage.getItem(SETTINGS_KEY); }catch(e){}
@@ -126478,6 +126485,7 @@ function calculateStorageUsage(){
   return { rows: out, total };
 }
 
+try{ window.renderSettings = renderSettings; }catch(_){}
 function renderSettings(){
   if(!settings) settingsLoad();
 
@@ -158201,6 +158209,20 @@ const FK_CLOUD_MAP = {
   'forekash:share-links:v1':   'share_links',
   'forekash:academy:v1':       'academy_state',
   'forekash:catmap:v1':        'catmap_local',
+  /* DEMONSTRATIVO PERSONALIZADO. `flx_struct_v1` não é preferência de tela:
+     guarda as LINHAS CUSTOM com valores por ano e mês, além dos rótulos
+     renomeados e das linhas escondidas do DRC e do DRE. Linha custom é
+     número digitado à mão — some com o navegador e não volta de lugar
+     nenhum. Outro prefixo, mesma armadilha. */
+  'flx_struct_v1':             'flx_struct',
+  /* PERFIL DA EMPRESA. `taller_settings_v1` não começa com `forekash:`, então
+     o registro automático nunca o enxergou — e ele não tem dono que grave
+     direto na nuvem. Ficava SÓ no navegador: nome da empresa, CNPJ, logo,
+     foto e e-mail. Trocar de máquina (ou limpar o navegador) apagava tudo
+     isso, e o CNPJ é justamente o que a Captura IA usa pra saber que a nota
+     é despesa e não receita.
+     Mesma armadilha do `reg_efetivados` logo abaixo: prefixo diferente. */
+  'taller_settings_v1':        'settings',
   /* Extratos do Contador. Precisa estar AQUI, no mapa fixo, porque
      `ctbSave()` só roda em ação do usuário: num navegador que nunca mexeu no
      Contador a chave não existe, `fkRegistrarTudo()` não a enxerga, e o laço
@@ -158498,6 +158520,11 @@ const FK_SO_NUVEM = new Set(['timetravel_snaps', 'extrato_legacy']);
    sem ninguém precisar saber que existe cache. Então todo módulo que
    DESCEU diferente é relido e redesenhado aqui.                        */
 const FK_RECARREGA = {
+  /* Sem isto o perfil desce da nuvem e fica parado no localStorage: a tela
+     segue mostrando o que o navegador tinha antes. Foi o que aconteceu com o
+     Contador — ver o comentário lá embaixo. */
+  settings:   ['settingsLoad', 'renderSettings'],
+  flx_struct: ['flxStructLoad', 'renderFluxo'],
   pessoas:    ['pessoasLoad',  'renderPessoas'],
   viagens:    ['viagLoad',     'renderViagens'],
   cartoes:    ['cartLoad',     'renderCartoes'],
