@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794241294"/>
+  <meta name="fk-build" content="forekash-v1794241956"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -71456,8 +71456,27 @@ function cartProjetarFaturas(opts){
        que ainda não fechou). Quando o PDF chega, a parcela real passa a ser a
        maior vista e a projetada deixa de ser gerada na próxima recalculada. */
     const ordena = (a, b) => _cartYmDaFatura(a).localeCompare(_cartYmDaFatura(b));
+    /* O MÊS CORRENTE ENTRA SE A FATURA DELE ESTIVER VAZIA.
+
+       A regra era "recorrente só DEPOIS do mês corrente", e o motivo é bom:
+       o mês corrente ainda recebe compra de verdade, e somar estimativa com
+       realizado conta duas vezes. Mas isso vale pra fatura ABERTA.
+
+       A de novembro já fechou (vence dia 10) e o PDF ainda não chegou: ficava
+       sem o real E sem a estimativa, mostrando R$ 1.112 de parcelas quando a
+       conta verdadeira tem ~R$ 3 mil de assinatura em cima. Fatura fechada e
+       vazia é justamente onde a estimativa serve.
+
+       `reais` já exclui projeções — foram removidas no começo da função. Se o
+       PDF chegar depois, a recalculada apaga a estimativa e o real assume. */
+    const temCompraReal = fid => reais.some(l => l && l.faturaId === fid);
     const futuras = (cartoes.faturas || [])
-      .filter(f => f && f.cartaoId === c.id && _cartYmDaFatura(f) > ymHoje).sort(ordena);
+      .filter(f => {
+        if(!f || f.cartaoId !== c.id) return false;
+        const ym = _cartYmDaFatura(f);
+        if(ym > ymHoje) return true;
+        return ym === ymHoje && !temCompraReal(f.id);
+      }).sort(ordena);
     const futurasParcela = (cartoes.faturas || [])
       .filter(f => f && f.cartaoId === c.id && _cartYmDaFatura(f) >= ymHoje).sort(ordena);
     if(!futurasParcela.length) continue;
