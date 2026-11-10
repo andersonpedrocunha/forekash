@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794269712"/>
+  <meta name="fk-build" content="forekash-v1794281100"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -927,6 +927,7 @@
     .nf-selo{font-size:.6rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
     .nf-selo.ok{color:#0F766E}
     .nf-selo.novo{color:#B45309}
+    .nf-selo.exp{color:#1D4ED8}
     .nf-field .cart-cbx input{width:100%}
 
     .nf-cfg-herda{font-size:.74rem;color:#64748B;background:var(--bg);border:1px solid var(--bdr);
@@ -74357,21 +74358,25 @@ function _cartCbxSource(name){
     } catch(_){}
     return [];
   }
-  /* Tomador de nota fiscal: o MESMO cadastro, filtrado por quem pode receber
-     serviço. Lista separada seria um segundo cadastro de clientes — que é
-     exatamente o que o app não deve ter. */
+  /* TOMADOR DE NOTA É CLIENTE, NÃO QUALQUER CADASTRO.
+
+     Eu puxava de `pessoas.registry` filtrando só `kind !== 'colaborador'` —
+     e aí Amazon, AWS e Airbnb apareciam como tomadores. O registry é de
+     FORNECEDOR: `kind:'cliente'` nunca chega a ser gravado em lugar nenhum
+     do app.
+
+     Quem é cliente mora em `receita.clientes`, que além do nome já tem
+     razão social, CNPJ e — o que mais importa aqui — o PAÍS. É dele que sai
+     a marcação de exportação na DPS. */
   if(name === 'nfcli'){
     const vistos = new Map();
     try{
-      if(typeof _cartPessoasPronto === 'function') _cartPessoasPronto();
-      if(typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.registry)){
-        for(const r of pessoas.registry){
-          if(!r || r.kind === 'colaborador') continue;
-          const n = String(r.razaoSocial || r.nome || '').trim();
-          if(!n) continue;
-          const k = n.toLowerCase();
-          if(!vistos.has(k)) vistos.set(k, n);
-        }
+      if(typeof _nfClientesPronto === 'function') _nfClientesPronto();
+      for(const c of _nfClientes()){
+        const n = String(c.razaoSocial || c.nome || '').trim();
+        if(!n || c.ativo === false) continue;
+        const k = n.toLowerCase();
+        if(!vistos.has(k)) vistos.set(k, n);
       }
     }catch(_){}
     return Array.from(vistos.values()).sort((a,b) => a.localeCompare(b,'pt',{sensitivity:'base'}));
@@ -134985,21 +134990,51 @@ function nfOpenCreate(prefill){
   document.getElementById('nf-modal-create').classList.add('open');
 }
 
+/* A Receita carrega sob demanda igual a todo o resto do app. */
+function _nfClientesPronto(){
+  try{
+    if((typeof receita === 'undefined' || !receita) && typeof receitaLoad === 'function') receitaLoad();
+    return (typeof receita !== 'undefined' && receita && Array.isArray(receita.clientes));
+  }catch(_){ return false; }
+}
+function _nfClientes(){
+  try{
+    _nfClientesPronto();
+    return (typeof receita !== 'undefined' && receita && Array.isArray(receita.clientes))
+      ? receita.clientes.filter(Boolean) : [];
+  }catch(_){ return []; }
+}
+/* Casa pelo nome OU pela razão social: a lista mostra a razão social quando
+   existe, e o apelido quando não. */
+function _nfClientePorNome(nome){
+  const k = String(nome || '').trim().toLowerCase();
+  if(!k) return null;
+  return _nfClientes().find(c =>
+    String(c.razaoSocial || '').trim().toLowerCase() === k ||
+    String(c.nome || '').trim().toLowerCase() === k) || null;
+}
+try{ window._nfClientes = _nfClientes; window._nfClientePorNome = _nfClientePorNome;
+     window._nfClientesPronto = _nfClientesPronto; }catch(e){}
+
 /* Escolher no cadastro traz o resto junto — é o ponto todo de ter cadastro.
    Chamada pelo gancho do combobox (clique na lista) e pelo blur (digitado). */
 function nfCliPreencher(nome){
   try{
-    const reg = (typeof _ecapDoCadastro === 'function') ? _ecapDoCadastro('', nome) : null;
-    if(reg){
-      const doc = String(reg.documento || reg.cnpj || reg.cpf || reg.doc || reg.taxId || '').trim();
-      const mail = reg.emailNf || reg.email || '';
-      const cn = document.getElementById('nf-f-cnpj');
-      const em = document.getElementById('nf-f-email');
+    const c = _nfClientePorNome(nome);
+    const cn = document.getElementById('nf-f-cnpj');
+    const em = document.getElementById('nf-f-email');
+    if(c){
+      const doc = String(c.cnpj || c.documento || '').trim();
       if(cn && doc) cn.value = doc;
-      if(em && mail) em.value = mail;
-      NF_DRAFT.clienteRegId = reg.id;
+      if(em && (c.emailNf || c.email)) em.value = c.emailNf || c.email;
+      NF_DRAFT.clienteId = c.id;
+      /* País é o que decide exportação na DPS: ISS zerado, incidência
+         "Nenhum", IBGE 9999999 e retenção federal desligada. Guardar aqui
+         evita ter que perguntar de novo lá na frente. */
+      NF_DRAFT.pais = c.pais || 'BR';
+      NF_DRAFT.exportacao = !!(c.pais && c.pais !== 'BR') || c.tipoPessoa === 'est';
     } else {
-      NF_DRAFT.clienteRegId = null;
+      NF_DRAFT.clienteId = null; NF_DRAFT.pais = ''; NF_DRAFT.exportacao = false;
     }
   }catch(_){}
   nfCliSelo();
@@ -135012,16 +135047,16 @@ function nfCliSelo(){
   if(!el) return;
   const nome = ((document.getElementById('cart-l-nfcli') || {}).value || '').trim();
   if(!nome){ el.innerHTML = ''; return; }
-  let reg = null;
-  try{ if(typeof _ecapDoCadastro === 'function') reg = _ecapDoCadastro('', nome); }catch(_){}
-  if(reg){
-    const rot = String(reg.razaoSocial || reg.nomeLegal || reg.nome || '').trim();
-    const doc = String(reg.documento || reg.cnpj || reg.doc || '').trim();
-    el.innerHTML = '<span class="nf-selo ok">do cadastro</span>'
-      + (rot && rot.toLowerCase() !== nome.toLowerCase() ? ' <small>' + _nfEsc(rot) + '</small>' : '')
-      + (doc ? ' <small>' + _nfEsc(doc) + '</small>' : ' <small>sem documento</small>');
+  const c = _nfClientePorNome(nome);
+  if(c){
+    const doc = String(c.cnpj || c.documento || '').trim();
+    const ext = !!(c.pais && c.pais !== 'BR') || c.tipoPessoa === 'est';
+    el.innerHTML = '<span class="nf-selo ok">cliente</span>'
+      + (doc ? ' <small>' + _nfEsc(doc) + '</small>'
+             : ' <small>' + (ext ? 'sem NIF' : 'sem CNPJ') + ' — preencha antes de emitir</small>')
+      + (ext ? ' <span class="nf-selo exp">exportação</span>' : '');
   } else {
-    el.innerHTML = '<span class="nf-selo novo">tomador novo</span> <small>confira CNPJ e e-mail antes de emitir</small>';
+    el.innerHTML = '<span class="nf-selo novo">cliente novo</span> <small>vai ser cadastrado na Receita ao emitir</small>';
   }
 }
 try{ window.nfCliPreencher = nfCliPreencher; window.nfCliSelo = nfCliSelo; }catch(e){}

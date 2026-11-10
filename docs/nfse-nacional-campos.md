@@ -178,3 +178,53 @@ CNPJ, e-mail, endereço), valor, descrição, competência.
 pertencem ao *serviço*, não a cada nota — é assim que o Granatum faz, e por
 isso lá a emissão é curta. O Forekash precisa de um cadastro de serviços
 antes de a emissão ficar rápida.
+
+---
+
+# 9. Como falar com a API — provado em 10/11/2026
+
+Testado com o A1 real da TALLER contra **produção restrita**. Nada foi emitido:
+todas as tentativas pararam na validação.
+
+## O envelope
+
+```
+POST https://sefin.producaorestrita.nfse.gov.br/SefinNacional/nfse
+Content-Type: application/json
+mTLS: certificado A1 ICP-Brasil do prestador
+
+{ "dpsXmlGZipB64": "<XML da DPS assinado → gzip → base64>" }
+```
+
+Resposta (erro de validação, que prova que o caminho está certo):
+
+```json
+{ "tipoAmbiente": 2, "versaoAplicativo": "SefinNacional_1.6.0",
+  "dataHoraProcessamento": "...",
+  "erros": [{ "Codigo": "E1226", "Descricao": "Estrutura descompactada mal formada." }] }
+```
+
+`E1226` quer dizer que ele **descompactou** o gzip e achou o XML malformado —
+ou seja, content-type, nome do campo e compactação estão corretos.
+
+`application/xml` devolve **415**. O corpo é JSON, não XML cru.
+
+## O runtime NÃO pode ser Deno — e isso fecha a arquitetura
+
+| Cliente | TLS | Resultado |
+|---|---|---|
+| curl (OpenSSL) | 1.2 | **HTTP 200** |
+| **Node (OpenSSL)** | 1.2 | **POST chega na aplicação (415/400)** |
+| Deno (rustls), HTTP/2 | 1.2 | `endpoint requires HTTP/1.1` |
+| Deno (rustls), HTTP/1.1 | 1.2 | `Connection reset by peer` |
+
+`Deno.createHttpClient({cert,key})` **funciona** — contra `example.com` deu
+200 com o certificado. O problema é este servidor: IIS, **TLS 1.2 apenas**
+(1.3 é recusado), e o rustls não fecha handshake com ele.
+
+**Consequência:** Supabase Edge Functions (Deno/rustls) está fora, assim como
+o Worker da Cloudflare. A perna que fala com a Receita precisa de runtime
+**OpenSSL** — Node num container.
+
+Isso não derruba o resto do desenho: o Worker continua orquestrando, o
+container só assina e entrega.
