@@ -40,19 +40,32 @@ function _tribFed(d, exp){
      0 = nada retido. Mandar o código errado faz o tomador recolher o que
      não devia — ou deixar de recolher o que devia. */
   const tpRet = (vPis && vCof && vCsll) ? '3' : ((vPis || vCof) ? '1' : '0');
+
+  /* O MAPEAMENTO É CONTRAINTUITIVO — e provado contra a nota real.
+
+     `vPis` e `vCofins` dentro de `piscofins` são DÉBITO DE APURAÇÃO
+     PRÓPRIA, não retenção. Mandando os valores ali, a Receita devolveu
+     retenção de 180,00 (só IRRF+CSLL) e excluiu PIS/COFINS da base do
+     IBS/CBS — 6.793,20 em vez de 7.056,00. Nota diferente da real.
+
+     A retenção se declara assim:
+       piscofins → só CST e tpRetPisCofins (3 = PIS/COFINS/CSLL retidos)
+       vRetCSLL  → o TOTAL de PIS + COFINS + CSLL retidos
+
+     Com isso o retorno bate à vírgula com a NFS-e 86: retenção 442,80,
+     líquido 6.757,20, IBS 7,06, CBS 63,50. O DANFSe chama esse total de
+     "Contribuições Sociais - Retidas". */
   let x = '<tribFed>';
-  if(vPis || vCof){
+  if(tpRet !== '0'){
     x += '<piscofins>'
       +  el('CST', d.cstPisCofins || '08')
-      +  el('vBCPisCofins', dec(base))
-      +  el('pAliqPis', dec(pct('pPis'))) + el('pAliqCofins', dec(pct('pCofins')))
-      +  el('vPis', dec(vPis)) + el('vCofins', dec(vCof))
       +  el('tpRetPisCofins', tpRet)
       +  '</piscofins>';
   }
   if(vCp)   x += el('vRetCP', dec(vCp));
   if(vIrrf) x += el('vRetIRRF', dec(vIrrf));
-  if(vCsll) x += el('vRetCSLL', dec(vCsll));
+  const socRetidas = +(vPis + vCof + vCsll).toFixed(2);
+  if(socRetidas) x += el('vRetCSLL', dec(socRetidas));
   return x + '</tribFed>';
 }
 
@@ -78,7 +91,11 @@ function montaDPS(d){
   +     el('xNome', t.xNome)
   +     '<end>'
   +       (t.NIF
-          ? '<endExt>' + el('cPais', t.cPais) + el('cEndPost', t.CEP) + el('xCidade', t.xCidade) + '</endExt>'
+          /* `xEstProvReg` é OBRIGATÓRIO no endereço do exterior — estado,
+             província ou região. Sem ele: "endExt has incomplete content".
+             É o equivalente da UF, e não tem valor padrão possível. */
+          ? '<endExt>' + el('cPais', t.cPais) + el('cEndPost', t.CEP)
+            + el('xCidade', t.xCidade) + el('xEstProvReg', t.xEstProvReg || t.uf || '') + '</endExt>'
           : '<endNac>' + el('cMun', t.cMun) + el('CEP', dig(t.CEP)) + '</endNac>')
   +       el('xLgr', t.xLgr) + el('nro', t.nro) + el('xBairro', t.xBairro)
   +     '</end>'
@@ -92,6 +109,12 @@ function montaDPS(d){
   +     '<trib>'
   +       '<tribMun>'
   +         el('tribISSQN', d.tribISSQN)
+  /* PAÍS DO RESULTADO — é ele que caracteriza a exportação.
+     Sem `cPaisResult`, "exportação de serviço" fica sem o fato que a
+     sustenta: o ISSQN não incide porque o RESULTADO se verificou fora do
+     Brasil. O portal pede isso numa pergunta própria, e é prova que o
+     Fisco pode cobrar depois. */
+  +         (exp ? el('cPaisResult', d.cPaisResult || d.paisToma || '') : '')
   +         el('tpRetISSQN', '1')
   /* ALÍQUOTA NÃO SE INFORMA. E0617: "não é permitido informar alíquota
      quando o prestador não é optante do Simples". Quem define é o município,
@@ -115,7 +138,15 @@ function montaDPS(d){
   +     '</trib>'
   +   '</valores>'
   +   '<IBSCBS>'
-  +     el('cIndOp', d.cIndOp) + el('indDest','0')
+  /* indDest: 0 = destinatário É o adquirente; 1 = é outro.
+     Na EXPORTAÇÃO tem que ser 1. Com 0 a Receita exige tomador com CNPJ/CPF
+     e endereço NACIONAL — ela entende que a incidência do IBS/CBS cai no
+     município brasileiro do adquirente, e o nosso está no exterior.
+     Mensagem dela, literal: "...e houver a informação de que o destinatário
+     é o próprio adquirente (indDest = 0)". */
+  +     el('cIndOp', d.cIndOp) + el('indDest', exp ? '1' : '0')
+  +     (exp ? '<dest>' + (d.toma.NIF ? el('NIF', d.toma.NIF) : el('cNaoNIF','2'))
+               + el('xNome', d.toma.xNome) + '</dest>' : '')
   +     '<valores><trib>' + el('CST', d.CST) + el('cClassTrib', d.cClassTrib)
   +     '</trib></valores>'
   +   '</IBSCBS>'

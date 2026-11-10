@@ -292,3 +292,101 @@ positivo — **a API é a fonte da verdade**.
 2. **Os percentuais da Lei 12.741 são obrigatórios** para não optante, e são
    uma *escolha*: ou os três valores, ou os três percentuais. Não dá pra
    omitir com `indTotTrib`.
+
+---
+
+# 11. Retenção e IBS/CBS — medido, não deduzido (10/11/2026)
+
+Emiti em produção restrita e **li o que a Receita devolve**. Reproduz a
+NFS-e 86 à vírgula: retenção 442,80 · líquido 6.757,20 · IBS 7,06 · CBS 63,50.
+
+## As alíquotas de IBS/CBS não se informam
+
+Vêm calculadas na resposta:
+
+```
+pIBSUF = 0.10    pAliqEfetUF  = 0.10
+pIBSMun = 0.00   pAliqEfetMun = 0.00
+pCBS = 0.90      pAliqEfetCBS = 0.90
+```
+
+Nunca mandei nenhuma delas. Quem calcula é a Receita, a partir de CST +
+cClassTrib. É por isso que no Granatum esses campos aparecem bloqueados.
+
+## O mapeamento da retenção é contraintuitivo
+
+`vPis` e `vCofins` dentro de `piscofins` são **débito de apuração própria**,
+não retenção. Mandando os valores ali:
+
+| | com vPis/vCofins | só com tpRet |
+|---|---|---|
+| vTotalRet | 180,00 ❌ | **442,80** ✓ |
+| base IBS/CBS | 6.793,20 ❌ | **7.056,00** ✓ |
+
+O jeito certo:
+
+```xml
+<tribFed>
+  <piscofins><CST>08</CST><tpRetPisCofins>3</tpRetPisCofins></piscofins>
+  <vRetIRRF>108.00</vRetIRRF>
+  <vRetCSLL>334.80</vRetCSLL>   <!-- PIS + COFINS + CSLL, somados -->
+</tribFed>
+```
+
+`vRetCSLL` carrega o **total das três** contribuições retidas. O DANFSe
+chama isso de "Contribuições Sociais - Retidas", e `tpRetPisCofins=3` é o
+que diz quais estão incluídas.
+
+## Ordem no XSD não é sugestão
+
+`trib` é `tribMun → tribFed → totTrib`. Pus `tribFed` antes e levei E1235.
+Campo certo na posição errada é campo inválido.
+
+## E a base do IBS/CBS
+
+Confirmado: exclui o ISS (7.200 − 144 = 7.056). E exclui também PIS/COFINS
+**quando são débito próprio** — que é justamente o caso que não é o nosso.
+
+---
+
+# 12. Exportação — o que já está certo e o que ficou aberto
+
+Testado em produção restrita, 10/11/2026.
+
+## Resolvido
+
+| Campo | Papel |
+|---|---|
+| `tribISSQN = 3` | exportação de serviço — zera o ISS |
+| **`cPaisResult`** | país onde o RESULTADO se verificou (`US`) |
+| `endExt/xEstProvReg` | **obrigatório** — estado/província do tomador |
+| `indDest = 1` | na exportação o destinatário não é o adquirente |
+
+O `cPaisResult` é o que sustenta a isenção: o ISSQN não incide porque o
+resultado se verificou fora do Brasil. Sem ele, "exportação" fica sem o fato
+que a justifica — e é prova que o Fisco pode cobrar depois.
+
+## Aberto: a incidência do IBS/CBS
+
+Com tomador no exterior, a Receita recusa:
+
+> O tomador/adquirente deve ser obrigatoriamente identificado por CNPJ ou
+> CPF e seu endereço nacional informado, se houver tributação do IBS/CBS, a
+> incidência ocorrer no município do seu endereço no Brasil.
+
+Testado com `cIndOp` 100301 e 100302, `indDest` 0 e 1 — todos recusados.
+
+**A NFS-e 83 real (Bloom, 05/11/2026) usou `cIndOp 100301` e foi aceita**,
+voltando com IBGE de incidência 9999999 (Exterior). Então ou uma regra
+mudou entre 05/11 e 10/11, ou o portal envia algo a mais que o XSD não
+mostra.
+
+**Não resolver por tentativa.** Errar aqui significa pagar ISS que não é
+devido, ou emitir exportação inválida. Caminhos: perguntar ao suporte da
+NFS-e (atendimento.nfs-e@rfb.gov.br) com a chave da NFS-e 83 como exemplo,
+ou emitir a próxima exportação pelo portal e comparar o XML autorizado
+campo a campo com o nosso.
+
+**O caso nacional não regrediu:** retenção 442,80 · líquido 6.757,20 ·
+IBS 7,06 · CBS 63,50, idêntico à NFS-e 86.
+
