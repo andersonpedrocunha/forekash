@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794285877"/>
+  <meta name="fk-build" content="forekash-v1794286203"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -948,7 +948,7 @@
     [data-theme="dark"] .nf-cod b{color:#E8EAED}
 
     /* ══ CADASTRO DE SERVIÇOS ══ */
-    .nfsv-lista,.nfsv-hd{--nfsv-cols:38px minmax(140px,.85fr) minmax(430px,2.3fr) minmax(190px,1fr) 64px}
+    .nfsv-lista,.nfsv-hd{--nfsv-cols:38px minmax(130px,.8fr) minmax(360px,1.9fr) minmax(200px,1fr) 64px}
     .nfsv-hd{display:grid;grid-template-columns:var(--nfsv-cols);gap:10px;padding:0 10px 6px;
       border-bottom:1px solid var(--bdr);margin-bottom:4px}
     .nfsv-hd span{font-size:.58rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
@@ -969,9 +969,12 @@
     /* GRADE, NÃO FLEX-WRAP. Com wrap os campos quebravam onde calhava e cada
        linha ficava com um recorte diferente. Colunas fixas alinham tudo, e a
        descrição cresce pra baixo sem empurrar o vizinho. */
-    .nfsv-cods{display:grid;gap:9px 10px;min-width:0;align-items:start;
-      grid-template-columns:1.05fr 1.05fr .9fr .5fr .75fr}
-    .nfsv-cods.com-aliq{grid-template-columns:1fr 1fr .85fr .48fr .7fr .6fr}
+    /* TRÊS COLUNAS, DUAS FILAS — não seis colunas espremidas.
+       Com seis, "112013100" virava "112013" e os rótulos colidiam. Brigar
+       por largura horizontal num modal já largo é teimosia: descer uma fila
+       dá o dobro de espaço a cada campo e não custa nada. */
+    .nfsv-cods{display:grid;gap:10px 12px;min-width:0;align-items:start;
+      grid-template-columns:repeat(3,minmax(0,1fr))}
     .nfsv-cod{display:flex;flex-direction:column;gap:2px;min-width:0}
     /* Rótulo quebra em vez de cortar: "INDICADOR DE OPERA…" não diz nada a
        mais que "INDICADOR". Altura fixa de duas linhas mantém os campos
@@ -1069,8 +1072,14 @@
     .nf-ro-ajuda{display:block;font-size:.7rem;color:#94A3B8;margin-top:6px;line-height:1.45}
     .emp-hint-fiscal{font-size:.72rem;color:#64748B;background:#F8FAFC;border:1px solid #E2E8F0;
       border-radius:7px;padding:8px 11px;margin:-4px 0 14px;line-height:1.45}
-    .nfsv-desc{display:block;font-style:normal;font-size:.62rem;color:#64748B;margin-top:1px;
-      line-height:1.3;max-width:100%;overflow-wrap:anywhere}
+    /* DUAS LINHAS, E PONTO.
+       A descrição do indicador de operação é o texto legal inteiro — 400
+       caracteres que esticavam a linha pra 500px de altura. O que serve pra
+       confirmar que o código está certo são as primeiras palavras; o resto
+       vai no tooltip, pra quem precisar. */
+    .nfsv-desc{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+      overflow:hidden;font-style:normal;font-size:.62rem;color:#64748B;margin-top:2px;
+      line-height:1.3;max-width:100%;overflow-wrap:anywhere;cursor:help}
     .nfsv-desc .nao{color:#B45309;font-weight:600}
     .nf-ro small{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.68rem;
       color:#94A3B8;font-weight:500}
@@ -135321,7 +135330,7 @@ function nfServModal(){
     +     ' placeholder="Como você chama este serviço" onblur="nfServCampo(' + sv.id + ',\'nome\',this.value)">'
     +   '<small>' + _nfEsc(sv.descricaoPadrao || 'sem descrição padrão') + '</small>'
     + '</span>'
-    + '<span class="nfsv-cods' + (_nfEhSimples() ? ' com-aliq' : '') + '">'
+    + '<span class="nfsv-cods">'
     +   _nfServCampo(sv, 'cTribNac',  'Tributação nacional', '010101', 6)
     +   _nfServCampo(sv, 'cNBS',      'NBS',                 '112013100', 9)
     +   _nfServCampo(sv, 'cIndOp',    'Indicador de operação','100301', 6)
@@ -135481,7 +135490,8 @@ function _nfServCampo(sv, campo, rot, ph, tam){
       +   '<div class="cart-cbx-arr" onclick="_cartCbxToggle(\'' + nome + '\')">▾</div>'
       +   '<div class="cart-cbx-pop" id="cart-cbx-pop-' + nome + '"></div>'
       + '</div>'
-      + '<em class="nfsv-desc" id="nfsv-d-' + sv.id + '-' + campo + '">'
+      + '<em class="nfsv-desc" id="nfsv-d-' + sv.id + '-' + campo + '"'
+      +   ' title="' + _nfServDescTitle(campo, sv[campo]) + '">'
       +   _nfServDescHtml(campo, sv[campo]) + '</em>'
       + '</label>';
   }
@@ -135505,6 +135515,15 @@ function _nfServDescHtml(campo, valor){
           : campo === 'cIndOp'   ? nfDescIndOp(v) : '';
   return d ? _nfEsc(d) : '<span class="nao">código não existe na lista da Receita</span>';
 }
+/* Texto completo no title: a descrição cortada confirma, o tooltip explica. */
+function _nfServDescTitle(campo, valor){
+  const v = _nfSoCodigo(valor);
+  if(!v) return '';
+  const d = campo === 'cTribNac' ? nfDescTrib(v)
+          : campo === 'cNBS'     ? nfDescNBS(v)
+          : campo === 'cIndOp'   ? nfDescIndOp(v) : '';
+  return d ? _nfEsc(v + ' — ' + d) : '';
+}
 /* O campo mostra "código — descrição" enquanto se escolhe, mas o que se
    grava é só o código: é ele que vai na DPS. */
 function nfServCampoLista(id, campo, valor){
@@ -135513,7 +135532,8 @@ function nfServCampoLista(id, campo, valor){
   const i = document.getElementById('cart-l-' + NF_CAMPO_LISTA[campo] + '__s' + id);
   if(i) i.value = cod;
   const d = document.getElementById('nfsv-d-' + id + '-' + campo);
-  if(d) d.innerHTML = _nfServDescHtml(campo, cod);
+  if(d){ d.innerHTML = _nfServDescHtml(campo, cod);
+         d.setAttribute('title', _nfServDescTitle(campo, cod)); }
 }
 try{ window.nfServCampoLista = nfServCampoLista; }catch(e){}
 /* Confirma enquanto digita: o erro aparece antes de sair do campo, não na
@@ -135523,7 +135543,8 @@ function nfServDesc(id, campo){
   const d = document.getElementById('nfsv-d-' + id + '-' + campo);
   if(i && d) d.innerHTML = _nfServDescHtml(campo, i.value);
 }
-try{ window.nfServDesc = nfServDesc; window._nfServDescHtml = _nfServDescHtml; }catch(e){}
+try{ window.nfServDesc = nfServDesc; window._nfServDescHtml = _nfServDescHtml;
+     window._nfServDescTitle = _nfServDescTitle; }catch(e){}
 function _nfServPct(sv, campo, rot){
   const v = (sv[campo] == null || sv[campo] === '') ? '' : String(sv[campo]).replace('.', ',');
   return '<label class="nfsv-pct" title="' + rot + '"><small>' + rot + '</small>'
