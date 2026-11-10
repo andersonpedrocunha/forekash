@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794285490"/>
+  <meta name="fk-build" content="forekash-v1794285669"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1027,6 +1027,16 @@
     .nf-liquido{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 14px;margin-top:10px;
       padding:11px 14px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:9px}
     .nf-liquido:empty{display:none}
+    .nf-pend{margin-top:10px;padding:12px 14px;background:#FFFBEB;border:1px solid #FDE68A;
+      border-radius:9px}
+    .nf-pend:empty{display:none}
+    .nf-pend-tit{font-size:.58rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+      color:#92400E;margin-bottom:6px}
+    .nf-pend ul{margin:0;padding-left:18px}
+    .nf-pend li{font-size:.76rem;color:#92400E;line-height:1.55}
+    .nf-pend button{margin-top:9px;padding:7px 14px;border-radius:7px;border:1px solid #FDE68A;
+      background:#fff;color:#92400E;font-family:inherit;font-size:.74rem;font-weight:600;cursor:pointer}
+    .nf-pend button:hover{background:#FFFBEB}
     .nf-liq-lbl{font-size:.58rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#94A3B8}
     .nf-liq-lbl.r{margin-left:auto}
     .nf-liq-val{font-size:.86rem;font-weight:700;color:#B45309;font-variant-numeric:tabular-nums}
@@ -135328,6 +135338,13 @@ function nfServModal(){
     +     _nfServPct(sv, 'pCsll','CSLL') + _nfServPct(sv, 'pIrrf','IRRF')
     +     _nfServPct(sv, 'pInss','INSS')
     +   '</span>'
+    /* Obrigatório pra não optante do Simples (E0713) e sem valor padrão
+       possível: depende do CNAE e da carga do setor. */
+    +   '<small class="nfsv-ret-tit" style="margin-top:7px">Tributos aprox. % · Lei 12.741</small>'
+    +   '<span class="nfsv-ret-campos" style="grid-template-columns:repeat(3,1fr)">'
+    +     _nfServPct(sv, 'pTotTribFed','Federal') + _nfServPct(sv, 'pTotTribEst','Estadual')
+    +     _nfServPct(sv, 'pTotTribMun','Municipal')
+    +   '</span>'
     + '</span>'
     + '<button type="button" class="nfsv-del" onclick="nfServRemover(' + sv.id + ')" title="Remover serviço">remover</button>'
     + '</div>';
@@ -135523,7 +135540,7 @@ function nfServCampo(id, campo, valor){
   let v = String(valor || '').trim();
   /* Percentual é número: "1,5" digitado e guardado como texto viraria NaN
      no cálculo da retenção e a nota sairia sem ela. */
-  if(/^p(Pis|Cofins|Csll|Irrf|Inss)$|^pAliq$/.test(campo)){
+  if(/^p(Pis|Cofins|Csll|Irrf|Inss)$|^pAliq$|^pTotTrib(Fed|Est|Mun)$/.test(campo)){
     v = v === '' ? '' : (parseFloat(v.replace(',', '.')) || 0);
   }
   if(String(sv[campo] == null ? '' : sv[campo]) === String(v)) return;
@@ -135636,6 +135653,53 @@ function nfCliSelo(){
 }
 try{ window.nfCliPreencher = nfCliPreencher; window.nfCliSelo = nfCliSelo; }catch(e){}
 
+/* ENDEREÇO DO TOMADOR — BUSCADO, NÃO DIGITADO.
+
+   A DPS exige logradouro, número, bairro, CEP e código IBGE do município do
+   tomador. O cadastro de clientes guarda nome, CNPJ e país — nunca precisou
+   do resto, porque nenhuma tela anterior pedia.
+
+   Pedir agora que o usuário preencha seis campos por cliente seria empurrar
+   pra ele o que a Receita entrega de graça pelo CNPJ. Mesmo caminho do
+   cadastro da empresa. */
+async function nfClienteCompletar(clienteId, cnpj){
+  const d = String(cnpj || '').replace(/\D/g, '');
+  if(d.length !== 14) return null;
+  try{
+    const r = await fetch('https://brasilapi.com.br/api/cnpj/v1/' + d);
+    if(!r.ok) return null;
+    const j = await r.json();
+    const end = {
+      logradouro: [j.descricao_tipo_de_logradouro, j.logradouro].filter(Boolean).join(' ').trim(),
+      numero: j.numero || '', complemento: j.complemento || '', bairro: j.bairro || '',
+      cidade: j.municipio || '', uf: j.uf || '',
+      cep: String(j.cep || '').replace(/\D/g, ''),
+      ibge: String(j.codigo_municipio_ibge || j.codigo_municipio || ''),
+    };
+    if(!end.ibge && !end.cep) return null;
+    /* O ENDEREÇO VALE PARA ESTA NOTA MESMO SEM CADASTRO.
+
+       Guardava só no cliente — e se o tomador não estivesse cadastrado
+       (nota avulsa, cliente novo), a busca funcionava e a nota continuava
+       sem endereço. Agora o rascunho também recebe: quem está cadastrado
+       ganha permanência, quem não está pelo menos emite. */
+    try{ NF_DRAFT.endereco = Object.assign({}, NF_DRAFT.endereco || {}, end); }catch(_){}
+    _nfClientesPronto();
+    const c = (_nfClientes().find(x => x && x.id === clienteId)) || null;
+    if(c){
+      c.endereco = Object.assign({}, c.endereco || {}, end);
+      if(!c.razaoSocial) c.razaoSocial = j.razao_social || '';
+      if(!c.cnpj) c.cnpj = cnpj;
+      /* A função é `receitaSave`, não `saveReceita` — a segunda não existe.
+         Sem o fallback certo, o endereço se perdia no próximo reload. */
+      try{ if(typeof receitaSave === 'function') receitaSave();
+           else if(typeof saveReceita === 'function') saveReceita(); }catch(_){}
+    }
+    return end;
+  }catch(e){ console.warn('[FK] endereço do tomador:', e && e.message); return null; }
+}
+try{ window.nfClienteCompletar = nfClienteCompletar; }catch(e){}
+
 /* ═══ A PONTE ═══════════════════════════════════════════════════════
    Monta o objeto que `src/nfse/dps.js` espera, a partir do que o app sabe.
    Era a peça que faltava: tinha gerador de XML e tinha cadastro, e nada
@@ -135675,7 +135739,11 @@ function nfMontarDPS(opts){
      cidade. O cadastro de clientes guarda pouco disso hoje — então é aqui
      que a falta aparece, com o nome do campo que a pessoa reconhece. */
   const exp = !!d.exportacao;
-  const end = (cli && typeof cli.endereco === 'object') ? cli.endereco : {};
+  /* Cadastro primeiro, rascunho depois: o cadastro é a verdade duradoura,
+     o rascunho cobre o tomador que ainda não existe nele. */
+  const end = Object.assign({},
+    (d.endereco && typeof d.endereco === 'object') ? d.endereco : {},
+    (cli && typeof cli.endereco === 'object') ? cli.endereco : {});
   const toma = exp
     ? { NIF: dig(d.cnpj) || d.cnpj, xNome: d.cliente,
         cPais: (cli && cli.pais) || d.pais || '', CEP: end.cep || '',
@@ -135815,7 +135883,34 @@ function _nfFmtBRL(v){ return 'R$ ' + _nfFmt(v); }
 function nfLiquidoAtualiza(){
   const el = document.getElementById('nf-liquido');
   if(el) el.innerHTML = _nfLiquidoHtml();
+  nfPendAtualiza();
 }
+/* O QUE FALTA, ANTES DE EMITIR — não depois da rejeição.
+
+   As mensagens da Receita são precisas, mas falam de campos do XML. Quem
+   lê "E0312" não sabe que precisa abrir o cadastro de clientes. */
+function nfPendAtualiza(){
+  const el = document.getElementById('nf-pend');
+  if(!el) return;
+  let r; try{ r = nfMontarDPS(); }catch(e){ el.innerHTML = ''; return; }
+  if(!r.falta.length){ el.innerHTML = ''; return; }
+  const podeBuscar = !(NF_DRAFT || {}).exportacao
+    && String((NF_DRAFT || {}).cnpj || '').replace(/\D/g,'').length === 14
+    && r.falta.some(f => /tomador/.test(f));
+  el.innerHTML = '<div class="nf-pend-tit">Falta para emitir</div>'
+    + '<ul>' + r.falta.map(f => '<li>' + _nfEsc(f) + '</li>').join('') + '</ul>'
+    + (podeBuscar ? '<button type="button" onclick="nfBuscarEnderecoTomador()">Buscar endereço do tomador na Receita</button>' : '');
+}
+async function nfBuscarEnderecoTomador(){
+  const d = NF_DRAFT || {};
+  const el = document.getElementById('nf-pend');
+  if(el) el.querySelector('button') && (el.querySelector('button').textContent = 'Buscando...');
+  const end = await nfClienteCompletar(d.clienteId, d.cnpj);
+  if(end && typeof showToast === 'function') showToast('Endereço do tomador preenchido', 'ok');
+  else if(typeof showToast === 'function') showToast('Não achei o endereço por esse CNPJ', 'err');
+  nfPendAtualiza();
+}
+try{ window.nfPendAtualiza = nfPendAtualiza; window.nfBuscarEnderecoTomador = nfBuscarEnderecoTomador; }catch(e){}
 try{ window._nfLiquidoHtml = _nfLiquidoHtml; window.nfLiquidoAtualiza = nfLiquidoAtualiza;
      window._nfFmtBRL = _nfFmtBRL; }catch(e){}
 
@@ -135911,9 +136006,12 @@ function nfRenderCreateForm(){
     '</div>' +
     '<div class="nf-field"><label>E-mail do tomador (recebe NFS-e por email)</label>' +
       '<input type="email" id="nf-f-email" value="' + _nfEsc(d.email) + '" placeholder="financeiro@cliente.com"></div>' +
-    '<div class="nf-field-row">' +
+    '<div class="nf-field-row three">' +
       '<div class="nf-field"><label>Valor dos serviços (R$)</label>' +
         '<input type="number" id="nf-f-valor" value="' + (d.valor || '') + '" step="0.01" min="0" placeholder="1500,00" oninput="nfLiquidoAtualiza()"></div>' +
+      '<div class="nf-field"><label>Competência</label>' +
+        '<input type="date" id="nf-f-comp" value="' + _nfEsc(d.competencia || new Date().toISOString().slice(0,10)) + '"'
+        + ' onchange="NF_DRAFT.competencia=this.value"></div>' +
       '<div class="nf-field"><label>Serviço</label>' +
         '<div class="cart-cbx" data-cbx="nfsv">' +
           '<input type="text" id="cart-l-nfsv" value="' + _nfEsc(_sv ? _sv.nome : '') + '"' +
@@ -135935,7 +136033,8 @@ function nfRenderCreateForm(){
        parametrização nacional. Informar dá erro E0617 pra quem não é
        optante do Simples — era campo que só podia atrapalhar. */
     '<div class="nf-codigos" id="nf-codigos">' + _nfCodigosHtml(_sv) + '</div>' +
-    '<div class="nf-liquido" id="nf-liquido">' + _nfLiquidoHtml() + '</div>';
+    '<div class="nf-liquido" id="nf-liquido">' + _nfLiquidoHtml() + '</div>' +
+    '<div class="nf-pend" id="nf-pend"></div>';
   document.getElementById('nf-modal-create-body').innerHTML = html;
   try{
     _CART_CBX_HOOK['nfcli'] = v => nfCliPreencher(v);
@@ -135951,6 +136050,7 @@ async function nfSubmitCreate(){
   NF_DRAFT.email = (document.getElementById('nf-f-email').value || '').trim();
   NF_DRAFT.valor = Number(document.getElementById('nf-f-valor').value) || 0;
   NF_DRAFT.descricao = (document.getElementById('nf-f-desc').value || '').trim();
+  NF_DRAFT.competencia = ((document.getElementById('nf-f-comp') || {}).value || '').trim();
   if(!NF_DRAFT.cliente || NF_DRAFT.valor <= 0 || !NF_DRAFT.descricao){
     if(typeof showToast === 'function') showToast('Cliente, valor e descrição obrigatórios', 'err');
     return;
@@ -136255,6 +136355,22 @@ function nfRenderConfigForm(){
 
     _nfCertBloco(cfg) +
 
+    /* NUMERAÇÃO DA DPS — CONTINUA DE ONDE O SISTEMA ANTERIOR PAROU.
+
+       A série e o número são do EMITENTE, não da Receita. Começar do 1 numa
+       série já usada colide com o que o Granatum emitiu (1.239 na série
+       900) e a Receita recusa por duplicidade.
+
+       Por isso o campo diz "próximo número" e não "último": é o que vai ser
+       usado agora, e errar pra mais é inofensivo — errar pra menos trava. */
+    '<div class="nf-field-row">' +
+      '<div class="nf-field"><label>Série da DPS</label>' +
+        '<input type="text" id="nf-cfg-serie" value="' + _nfEsc(cfg.serieDps || '') + '" maxlength="5" placeholder="Ex: 900"></div>' +
+      '<div class="nf-field"><label>Próximo número da DPS</label>' +
+        '<input type="number" id="nf-cfg-prox" value="' + (cfg.proxDps || '') + '" min="1" placeholder="Ex: 1240"></div>' +
+    '</div>' +
+    '<div class="nf-cfg-herda">A numeração é sua, não da Receita. Se você já emitia por outro sistema, '
+      + 'comece do <b>número seguinte ao último emitido</b> naquela série — repetir faz a Receita recusar.</div>' +
     '<div class="nf-field-row">' +
       '<div class="nf-field"><label>Serviço de emissão · endereço</label>' +
         '<input type="text" id="nf-cfg-svurl" value="' + _nfEsc(cfg.servicoUrl || '') + '" placeholder="https://nfse.suaempresa.com"></div>' +
@@ -136318,6 +136434,8 @@ function nfSaveConfig(){
      é o que desfaz o "São Paulo · IBGE 4205407". */
   delete NF.cfg.municipioEmissao;
 
+  NF.cfg.serieDps = ((document.getElementById('nf-cfg-serie') || {}).value || '').replace(/\D/g,'');
+  NF.cfg.proxDps  = parseInt((document.getElementById('nf-cfg-prox') || {}).value, 10) || 0;
   NF.cfg.servicoUrl   = ((document.getElementById('nf-cfg-svurl')  || {}).value || '').trim();
   NF.cfg.servicoToken = ((document.getElementById('nf-cfg-svtok') || {}).value || '').trim();
   nfSave();
