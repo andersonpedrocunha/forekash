@@ -429,3 +429,178 @@ Três pedaços, em ordem de dependência:
 Enquanto 2 e 3 não existirem, o e-mail preenchido serve para constar na
 NFS-e — o que não é pouco: é por ele que o tomador aparece identificado.
 
+
+## 14. O DANFSe — por que o Forekash desenha, e por que sem a nossa cara
+
+`GET SefinNacional/danfse/{chave}` responde **501 Not Implemented**. A NT 008
+suspendeu o serviço: quem emite passou a ser responsável por imprimir. Não
+existe PDF pronto para baixar em lugar nenhum — o que os sistemas de mercado
+mostram é o modelo oficial desenhado por eles.
+
+**O modelo é fechado.** Item 2.2.4: *"Deverá ser utilizado o modelo de DANFSe
+conforme Anexo I, devendo a disposição de campos obrigatoriamente obedecer ao
+disposto no respectivo anexo."* E item 2.1: *"Não poderão ser impressas
+informações que não constem do arquivo da NFS-e."*
+
+Disso decorre, sem margem: **a logo do emitente não entra**. Ela não está no
+XML. O cabeçalho é definido campo a campo no item 2.4.3 — logomarca da NFS-e à
+esquerda, "DANFSe v2.0" ao centro em Arial 9pt negrito, município / ambiente
+gerador / tipo de ambiente à direita. Não sobra espaço para marca de ninguém.
+
+O que a NT deixa escolher é pouco e está no item 2.3: suprimir blocos de
+tomador, destinatário, intermediário e ISSQN quando não se aplicam (trocando-os
+pela frase "… NÃO IDENTIFICADO NA NFS-e"), e dispensar o bloco "Canhoto". Os
+tamanhos em centímetros do item 2.4.5 são sugestão; **as fontes do item 2.4 e a
+disposição do Anexo I não são**.
+
+### O que é obrigatório e está implementado
+
+| Exigência | Onde | Como |
+|---|---|---|
+| Página única, retrato, mínimo A4 | 2.2 / 2.2.1 | `@page{size:A4 portrait}`; o documento fecha em 21,73cm de 29,7cm |
+| Largura 20,40cm | 2.4.5 | grade de 4 colunas de 5,09cm |
+| Arial nos rótulos, Microsoft Sans Serif no conteúdo, K100 | 2.4 | `NF_DANFSE_CSS` |
+| Título de bloco 7pt negrito caixa alta | 2.4.1 | `.df-tt` |
+| Rótulo de campo 6pt negrito | 2.4.2 | `.df-lb` |
+| Conteúdo 7pt normal | 2.4.4 | `.df-vl` |
+| Logomarca da NFS-e à esquerda | 2.4.3 | PNG oficial embutido em `NF_DANFSE_LOGO` |
+| QR mínimo 1,52cm apontando para a consulta pública | 2.4.3 | `_qrSvg` + `NF_DANFSE_CONSULTA` |
+| Frase de autenticidade em 3 linhas, 6pt | 2.4.3 | `.df-qr .nota` |
+| "NFS-e SEM VALIDADE JURÍDICA" em vermelho quando `tpAmb`=2 | 2.4.3 obs. | `.df-cab .c .av` |
+| Campo sem informação sai com traço | Nota 12 | `_dfOuTraco` |
+| Totais aproximados de tributos (Lei 12.741) | Nota 10 | bloco de informações complementares |
+| Descrição dos códigos, não o número | 2.4.5 | `NF_DF_COD` |
+
+### O QR
+
+Não havia gerador no app e nenhuma biblioteca carregada serve — então tem um,
+escrito à mão: modo byte, correção M, versões 1 a 9, seleção de máscara pelas
+quatro regras de penalidade do padrão. Foi conferido de duas formas: matriz
+idêntica à de uma implementação de referência (segno) nas nove versões, e
+decodificação correta pelo detector do OpenCV, inclusive para a chave real da
+nota 86.
+
+Dois erros apareceram nessa conferência e valem registro: a segunda cópia dos
+bits de formato estava incompleta (faltavam os bits 7 e 8), e o polinômio
+gerador de Reed-Solomon estava montado com o grau mais baixo primeiro enquanto
+a divisão o lia ao contrário. Nenhum dos dois aparece como erro de execução —
+só como um QR que não lê.
+
+### Onde fica
+
+`nfDanfseHtml(id)` devolve o documento; `nfDanfseImprimir(id)` abre o diálogo
+do navegador, onde "Salvar como PDF" gera o arquivo. O modal da nota mostra a
+pré-visualização num iframe, ao lado dos dados — e o botão do XML ao lado,
+porque **o documento fiscal é o XML**; o DANFSe é a representação dele.
+
+O município vem no XML como código IBGE e a NT manda imprimir o nome: a
+resolução passa pela API do IBGE com cache em `fk_ibge_municipios`, e sem rede
+cai no próprio código.
+
+## 15. Exportação — o que faltava era o grupo de comércio exterior
+
+As duas NFS-e autorizadas pelo portal em 05/11 — a 84 (STRV s.r.o., República
+Tcheca) e a 85 (DOT Digital Group, nacional) — resolveram a recusa que vinha
+aparecendo como erro de indicador de operação.
+
+### O bloco que faltava
+
+Dentro de `<serv>`, logo depois de `<cServ>`, a nota de exportação traz:
+
+```xml
+<comExt>
+  <mdPrestacao>4</mdPrestacao>   <vincPrest>0</vincPrest>
+  <tpMoeda>220</tpMoeda>         <vServMoeda>11440.00</vServMoeda>
+  <mecAFComexP>01</mecAFComexP>  <mecAFComexT>01</mecAFComexT>
+  <movTempBens>1</movTempBens>   <mdic>1</mdic>
+</comExt>
+```
+
+Oito campos, **todos obrigatórios** pelo XSD (`TCComExterior`). Não era palpite:
+o **Anexo VI**, aba `EXPORTACAO_EMISSÃO_NFS-e`, traz a matriz de 117 cenários,
+e a **linha 58** é exatamente o caso da TALLER — tomador no exterior,
+intermediário no Brasil, prestação no Brasil, subitem que incide no
+estabelecimento prestador, tributação "Exportação de Serviço". Nela:
+
+| coluna | valor |
+|---|---|
+| Exibe erro? | — (nenhum) |
+| Local de incidência do ISSQN | — (nenhum) |
+| **NBS** | SIM |
+| **País Resultado** | SIM |
+| **Grupo Comex** | SIM |
+
+A recusa nunca falou em comércio exterior. Falou do `cIndOp`, que é onde o erro
+aparece — não onde ele está. Foi o que custou tempo.
+
+### E duas deduções minhas que estavam erradas
+
+**`indDest` na exportação é 0, não 1.** Eu tinha raciocinado que exportação
+exigia `indDest = 1` com um bloco `<dest>` separado. As duas notas do portal, a
+nacional e a de exportação, mandam `indDest = 0` e nenhum `<dest>`. O
+destinatário é o próprio adquirente nos dois casos.
+
+**`tpMoeda` 220 é dólar, não euro.** Pela tabela do BACEN: 220 = DOLAR DOS EUA,
+978 = EURO, 540 = LIBRA ESTERLINA, 075 = COROA TCHECA. A nota 84 foi faturada
+em USD 11.440,00 → R$ 60.924,89 (5,3256).
+
+### Diferenças que o servidor aceita das duas formas
+
+Vale registrar para não "consertar" o que funciona:
+
+| | portal | Forekash | situação |
+|---|---|---|---|
+| `finNFSe` / `indFinal` | dentro de `IBSCBS` | depois de `tpEmit` | as duas autorizadas |
+| `CST`/`cClassTrib` | dentro de `gIBSCBS` | direto em `valores/trib` | as duas autorizadas |
+| `totTrib` nacional | `vTotTrib` zerado | `pTotTrib` com percentuais | as duas autorizadas |
+| C14N da assinatura | exclusiva WithComments | inclusiva | as duas autorizadas |
+
+### Confirmação da retenção federal
+
+A nota 85 fecha a medição que já tinha sido feita por tentativa: `vServ`
+36.000,00 com `vRetIRRF` 540,00 (1,5%) e `vRetCSLL` 1.674,00 — que é 4,65% =
+PIS 0,65% + COFINS 3% + CSLL 1%. O campo `vRetCSLL` carrega mesmo o **somatório
+das três**, com `tpRetPisCofins = 3`. A NT 008 diz isso por escrito na
+descrição do campo "Contribuições Sociais - Retidas".
+
+Na exportação não há retenção: `tpRetPisCofins = 0`, sem `vRetIRRF` nem
+`vRetCSLL`, e `pTotTribFed` 7,68%.
+
+### Na tela
+
+O bloco "Comércio exterior" aparece só quando o cliente é estrangeiro. Dos oito
+campos, seis são fixos para quem presta serviço remoto (sem vínculo, sem
+mecanismo de fomento dos dois lados, sem movimentação de bens, compartilha com
+o MDIC). Os três que ficam à vista são moeda, valor na moeda e **modo de
+prestação**.
+
+O modo de prestação é classificação, e por isso não fica escondido. O padrão do
+Forekash é **1 — Transfronteiriço** (o serviço cruza a fronteira, as pessoas
+não), que é o enquadramento de software entregue remotamente. A nota 84 saiu do
+portal como **4 — Movimento Temporário de Pessoas Físicas**. São coisas
+diferentes e vale conferir com a contabilidade qual descreve a operação.
+
+### CST do PIS/COFINS: 00 na nacional, 08 na exportação
+
+Pela tabela do leiaute (`TSTipoCST`): **00 = Nenhum**, **08 = Operação sem
+Incidência da Contribuição**.
+
+Eu mandava 08 nos dois casos, e na nota nacional isso era errado de conteúdo:
+a contribuição **incide**, ela só é retida na fonte. As notas autorizadas
+separam — 85 (nacional) manda `00`, 84 (exportação) manda `08`, que é o que a
+exportação de fato é.
+
+Outra correção: na exportação o bloco `<tribFed>` **existe**, só que vazio de
+valores — `<piscofins><CST>08</CST><tpRetPisCofins>0</tpRetPisCofins></piscofins>`.
+Antes o Forekash omitia o bloco inteiro.
+
+Com isso o `tribFed` gerado passou a bater caractere por caractere com as duas
+notas autorizadas, nos dois cenários.
+
+### Série separada para produção restrita
+
+Testar em produção restrita gastava número da série de produção — e número
+gasto não volta, fica buraco na sequência. Agora há `serieDpsTeste` /
+`proxDpsTeste`, usados só quando o ambiente é `restrita`, com padrão série 901
+a partir do 1. O portal faz o mesmo: emite as dele em série 70000 e deixa a 900
+para quem emite de fora.

@@ -30,7 +30,14 @@ function idDPS(d){
    Os três valores vão separados porque a DPS os quer separados; o DANFSe é
    que soma em "Contribuições Sociais - Retidas". */
 function _tribFed(d, exp){
-  if(exp || d.semRetencao) return '';
+  /* EXPORTAÇÃO: não há retenção, mas o bloco existe assim mesmo. A NFS-e 84
+     autorizada manda `<tribFed><piscofins><CST>08</CST>
+     <tpRetPisCofins>0</tpRetPisCofins></piscofins></tribFed>` — CST 08 é
+     "operação sem incidência da contribuição", que é o que a exportação é.
+     Antes a gente omitia o bloco inteiro; agora segue o portal. */
+  if(exp) return '<tribFed><piscofins>' + el('CST', d.cstPisCofins || '08')
+                 + el('tpRetPisCofins', '0') + '</piscofins></tribFed>';
+  if(d.semRetencao) return '';
   const base = Number(d.vServ) || 0;
   const pct  = k => Number(d[k]) || 0;
   const v    = k => +(base * pct(k) / 100).toFixed(2);
@@ -58,7 +65,13 @@ function _tribFed(d, exp){
   let x = '<tribFed>';
   if(tpRet !== '0'){
     x += '<piscofins>'
-      +  el('CST', d.cstPisCofins || '08')
+  /* CST 00 = "Nenhum"; 08 = "Operação sem Incidência da Contribuição".
+
+     Eu usava 08 nos dois casos, e na nota nacional isso era errado de
+     conteúdo: a contribuição INCIDE, ela só é retida na fonte. A NFS-e 85
+     autorizada manda 00 na nacional e 08 na exportação. O default agora
+     segue essa divisão; o cadastro do serviço continua podendo sobrepor. */
+      +  el('CST', d.cstPisCofins || '00')
       +  el('tpRetPisCofins', tpRet)
       +  '</piscofins>';
   }
@@ -106,6 +119,29 @@ function montaDPS(d){
   +   '<serv>'
   +     '<locPrest>' + el('cLocPrestacao', d.cLocPrestacao) + '</locPrest>'
   +     '<cServ>' + el('cTribNac', d.cTribNac) + el('cNBS', d.cNBS) + el('xDescServ', d.xDescServ) + '</cServ>'
+  /* GRUPO DE COMÉRCIO EXTERIOR — obrigatório na exportação.
+
+     Não é opinião: o Anexo VI da NFS-e Nacional traz a matriz de cenários
+     de exportação, e a linha 58 é exatamente o caso da TALLER — tomador no
+     exterior, prestação no Brasil, subitem que incide no estabelecimento
+     prestador, tributação "Exportação de Serviço". Nela, três colunas vêm
+     marcadas SIM: NBS, País Resultado e **Grupo Comex**.
+
+     Era isto que faltava. Sem o comExt a DPS de exportação está incompleta,
+     e a recusa não fala em comércio exterior — fala do indicador de
+     operação, que é onde o erro aparece, não onde ele está.
+
+     Os oito campos são todos obrigatórios pelo XSD (TCComExterior). */
+  +     (exp ? '<comExt>'
+            + el('mdPrestacao', d.mdPrestacao || '1')
+            + el('vincPrest',   d.vincPrest   || '0')
+            + el('tpMoeda',     d.tpMoeda     || '220')
+            + el('vServMoeda',  dec(d.vServMoeda || 0))
+            + el('mecAFComexP', d.mecAFComexP || '01')
+            + el('mecAFComexT', d.mecAFComexT || '01')
+            + el('movTempBens', d.movTempBens || '1')
+            + el('mdic',        d.mdic == null ? '1' : String(d.mdic))
+            + '</comExt>' : '')
   +   '</serv>'
   +   '<valores>'
   +     '<vServPrest>' + el('vServ', dec(d.vServ)) + '</vServPrest>'
@@ -141,15 +177,15 @@ function montaDPS(d){
   +     '</trib>'
   +   '</valores>'
   +   '<IBSCBS>'
-  /* indDest: 0 = destinatário É o adquirente; 1 = é outro.
-     Na EXPORTAÇÃO tem que ser 1. Com 0 a Receita exige tomador com CNPJ/CPF
-     e endereço NACIONAL — ela entende que a incidência do IBS/CBS cai no
-     município brasileiro do adquirente, e o nosso está no exterior.
-     Mensagem dela, literal: "...e houver a informação de que o destinatário
-     é o próprio adquirente (indDest = 0)". */
-  +     el('cIndOp', d.cIndOp) + el('indDest', exp ? '1' : '0')
-  +     (exp ? '<dest>' + (d.toma.NIF ? el('NIF', d.toma.NIF) : el('cNaoNIF','2'))
-               + el('xNome', d.toma.xNome) + '</dest>' : '')
+  /* indDest = 0 SEMPRE, inclusive na exportação.
+
+     Eu tinha deduzido o contrário — que exportação exigia indDest = 1 com
+     um bloco <dest> — e a dedução era razoável e estava errada. As duas
+     NFS-e autorizadas pelo portal, a nacional e a de exportação para a
+     STRV na República Tcheca, mandam as duas `indDest = 0` e nenhum
+     <dest>. O destinatário É o adquirente; o que estava faltando na
+     exportação era o comExt lá em cima, não um destinatário diferente. */
+  +     el('cIndOp', d.cIndOp) + el('indDest', '0')
   +     '<valores><trib>' + el('CST', d.CST) + el('cClassTrib', d.cClassTrib)
   +     '</trib></valores>'
   +   '</IBSCBS>'
