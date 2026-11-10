@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794285392"/>
+  <meta name="fk-build" content="forekash-v1794285490"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -135635,6 +135635,103 @@ function nfCliSelo(){
   }
 }
 try{ window.nfCliPreencher = nfCliPreencher; window.nfCliSelo = nfCliSelo; }catch(e){}
+
+/* ═══ A PONTE ═══════════════════════════════════════════════════════
+   Monta o objeto que `src/nfse/dps.js` espera, a partir do que o app sabe.
+   Era a peça que faltava: tinha gerador de XML e tinha cadastro, e nada
+   ligava os dois.
+
+   Devolve também o que está faltando, por nome. Emitir e descobrir pela
+   rejeição da Receita é o caminho caro — e as mensagens dela, embora
+   precisas, falam de campos do XML, não de telas do app. */
+function nfMontarDPS(opts){
+  opts = opts || {};
+  const d = NF_DRAFT || {};
+  const emp = _nfEmpresaAtiva() || {};
+  nfServLoad();
+  const sv = (d.servicoId && NF_SERVICOS.list.find(x => x && x.id === d.servicoId)) || nfServPadrao() || {};
+  const cli = d.clienteId ? (_nfClientes().find(c => c && c.id === d.clienteId) || null) : null;
+  const falta = [];
+  const dig = v => String(v || '').replace(/\D/g, '');
+
+  /* REGIME → opSimpNac. 1 Não optante · 2 MEI · 3 ME/EPP.
+     Mandar errado muda se a alíquota do ISS pode ser informada (E0617). */
+  const opSimpNac = emp.regime === 'mei' ? '2' : (emp.regime === 'simples' ? '3' : '1');
+
+  if(!dig(emp.cnpj))  falta.push('CNPJ da empresa (cadastro de Empresas)');
+  if(!emp.ibge)       falta.push('código IBGE do município (cadastro de Empresas)');
+  if(!NF.cfg.serieDps) falta.push('série da DPS (Configurar)');
+  if(!(NF.cfg.proxDps > 0)) falta.push('próximo número da DPS (Configurar)');
+  if(!sv.cTribNac)    falta.push('código de tributação nacional (serviço "' + (sv.nome || '—') + '")');
+  if(!sv.cIndOp)      falta.push('indicador de operação (serviço)');
+  if(!sv.CST)         falta.push('CST IBS/CBS (serviço)');
+  if(!sv.cClassTrib)  falta.push('classificação tributária (serviço)');
+  if(opSimpNac === '1' && !(Number(sv.pTotTribFed) >= 0 && String(sv.pTotTribFed) !== ''))
+    falta.push('percentual aproximado de tributos federais — Lei 12.741 (serviço)');
+  if(!(Number(d.valor) > 0)) falta.push('valor dos serviços');
+  if(!String(d.descricao || '').trim()) falta.push('descrição dos serviços');
+
+  /* TOMADOR. No Brasil a DPS exige endereço; no exterior exige país e
+     cidade. O cadastro de clientes guarda pouco disso hoje — então é aqui
+     que a falta aparece, com o nome do campo que a pessoa reconhece. */
+  const exp = !!d.exportacao;
+  const end = (cli && typeof cli.endereco === 'object') ? cli.endereco : {};
+  const toma = exp
+    ? { NIF: dig(d.cnpj) || d.cnpj, xNome: d.cliente,
+        cPais: (cli && cli.pais) || d.pais || '', CEP: end.cep || '',
+        xCidade: end.cidade || end.municipio || '',
+        xLgr: end.logradouro || end.rua || '', nro: end.numero || '',
+        xBairro: end.bairro || '' }
+    : { CNPJ: dig(d.cnpj), xNome: d.cliente,
+        cMun: dig(end.ibge || ''), CEP: dig(end.cep || ''),
+        xLgr: end.logradouro || end.rua || '', nro: end.numero || '',
+        xBairro: end.bairro || '' };
+  if(!toma.xNome) falta.push('nome do tomador');
+  if(exp){
+    if(!toma.NIF)     falta.push('NIF do tomador no exterior');
+    if(!toma.cPais)   falta.push('país do tomador (cadastro de clientes)');
+    if(!toma.xCidade) falta.push('cidade do tomador (cadastro de clientes)');
+  } else {
+    if(!toma.CNPJ)    falta.push('CNPJ/CPF do tomador');
+    if(!toma.cMun)    falta.push('código IBGE do município do tomador (cadastro de clientes)');
+    if(!toma.CEP)     falta.push('CEP do tomador (cadastro de clientes)');
+    if(!toma.xLgr)    falta.push('logradouro do tomador (cadastro de clientes)');
+    if(!toma.nro)     falta.push('número do endereço do tomador (cadastro de clientes)');
+    if(!toma.xBairro) falta.push('bairro do tomador (cadastro de clientes)');
+  }
+
+  const agora = new Date();
+  const off = -agora.getTimezoneOffset(), sg = off >= 0 ? '+' : '-', ab = Math.abs(off);
+  const dhEmi = new Date(agora.getTime() - agora.getTimezoneOffset() * 60000)
+      .toISOString().slice(0, 19)
+    + sg + String(Math.floor(ab / 60)).padStart(2, '0') + ':' + String(ab % 60).padStart(2, '0');
+
+  const dps = {
+    tpAmb: (NF.cfg.mode === 'producao') ? '1' : '2',
+    dhEmi, verAplic: 'FOREKASH1.0',
+    serie: String(NF.cfg.serieDps || ''), nDPS: String(NF.cfg.proxDps || ''),
+    /* COMPETÊNCIA NÃO É A DATA DE EMISSÃO. A nota da Bloom tem competência
+       31/10 e foi emitida em 05/11. */
+    dCompet: d.competencia || dhEmi.slice(0, 10),
+    cLocEmi: String(emp.ibge || ''), cLocPrestacao: String(emp.ibge || ''),
+    prest: { CNPJ: dig(emp.cnpj), IM: '', opSimpNac },
+    toma,
+    cTribNac: sv.cTribNac, cNBS: sv.cNBS, xDescServ: String(d.descricao || '').trim(),
+    vServ: Number(d.valor) || 0,
+    tribISSQN: exp ? '3' : '1',
+    pAliq: Number(sv.pAliq) || 0,
+    cIndOp: sv.cIndOp, CST: sv.CST, cClassTrib: sv.cClassTrib,
+    pTotTribFed: Number(sv.pTotTribFed) || 0,
+    pTotTribEst: Number(sv.pTotTribEst) || 0,
+    pTotTribMun: Number(sv.pTotTribMun) || 0,
+    pPis: Number(sv.pPis) || 0, pCofins: Number(sv.pCofins) || 0,
+    pCsll: Number(sv.pCsll) || 0, pIrrf: Number(sv.pIrrf) || 0, pInss: Number(sv.pInss) || 0,
+    cstPisCofins: sv.cstPisCofins || '08',
+    semRetencao: exp,
+  };
+  return { dps, falta };
+}
+try{ window.nfMontarDPS = nfMontarDPS; }catch(e){}
 
 /* IBS/CBS — NÃO SE INFORMA, SE CONFERE.
 
