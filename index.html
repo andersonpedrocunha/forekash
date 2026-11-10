@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794344329"/>
+  <meta name="fk-build" content="forekash-v1794344494"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -138256,6 +138256,7 @@ async function nfCertEnviar(){
 try{ window._nfCertBloco = _nfCertBloco; window.nfCertEnviar = nfCertEnviar; }catch(e){}
 
 function nfRenderConfigForm(){
+  const _empAtiva = _nfEmpresaAtiva() || {};
   const cfg = NF.cfg;
   const _emp = _nfEmpresaAtiva();
   const munPadrao = _nfMunicipioPadrao();
@@ -138325,6 +138326,23 @@ function nfRenderConfigForm(){
        SMTP não pode passar pelo navegador. A tela só diz se está de pé —
        e diz a verdade, consultando o serviço em vez de supor. */
     '<div class="nf-cfg-herda" id="nf-cfg-email">Verificando o envio de e-mail…</div>' +
+    /* REGIME TRIBUTÁRIO AQUI, PORQUE É AQUI QUE SE CONFIGURA PARA EMITIR.
+
+       O dado continua morando na empresa — o módulo Impostos usa o mesmo
+       campo, e ter duas cópias seria garantir que divergissem. Isto é a
+       mesma gaveta, com outra porta: quem está configurando a emissão não
+       devia precisar saber que o campo fica em outro módulo. */
+    '<div class="nf-field"><label>Regime tributário da empresa</label>' +
+      '<select id="nf-cfg-regime">' +
+        [['simples','Simples Nacional'],['presumido','Lucro Presumido'],
+         ['real','Lucro Real'],['mei','MEI']].map(function(o){
+          return '<option value="' + o[0] + '"' + (_empAtiva.regime === o[0] ? ' selected' : '') +
+                 '>' + o[1] + '</option>'; }).join('') +
+      '</select>' +
+      '<div class="nf-cfg-herda">É ele que informa a <b>situação perante o Simples Nacional</b> na DPS, e a '
+      + 'Receita confere contra o cadastro do Simples: divergiu, recusa a nota (E0160). '
+      + 'É o mesmo campo de <b>Configurações › Empresas</b> — mudar aqui muda lá.</div>' +
+    '</div>' +
     '<div class="nf-field"><label>Inscrição municipal</label>' +
       '<input type="text" id="nf-cfg-im" value="' + _nfEsc(cfg.inscricaoMunicipal || '') + '" placeholder="Só dígitos, se o município exigir"></div>' +
     /* Campo vazio sem explicação parece dado perdido. Se foi a Receita que
@@ -138407,6 +138425,16 @@ function nfSaveConfig(){
 
   NF.cfg.serieDps = ((document.getElementById('nf-cfg-serie') || {}).value || '').replace(/\D/g,'');
   NF.cfg.proxDps  = parseInt((document.getElementById('nf-cfg-prox') || {}).value, 10) || 0;
+  /* Escreve na empresa — é lá que o dado mora, e é de lá que o módulo
+     Impostos e a montagem da DPS o leem. */
+  const _regSel = (document.getElementById('nf-cfg-regime') || {}).value;
+  if(_regSel){
+    const _e = _nfEmpresaAtiva();
+    if(_e && _e.regime !== _regSel){
+      _e.regime = _regSel;
+      if(typeof empSave === 'function') empSave();
+    }
+  }
   NF.cfg.serieDpsTeste = ((document.getElementById('nf-cfg-serie-teste') || {}).value || '').replace(/\D/g,'');
   NF.cfg.proxDpsTeste  = parseInt((document.getElementById('nf-cfg-prox-teste') || {}).value, 10) || 0;
   NF.cfg.servicoUrl   = ((document.getElementById('nf-cfg-svurl')  || {}).value || '').trim();
