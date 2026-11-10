@@ -390,3 +390,42 @@ campo a campo com o nosso.
 **O caso nacional não regrediu:** retenção 442,80 · líquido 6.757,20 ·
 IBS 7,06 · CBS 63,50, idêntico à NFS-e 86.
 
+---
+
+# 13. PDF e e-mail — o que falta (10/11/2026)
+
+## A Receita não gera o PDF
+
+Testado com certificado em produção restrita:
+
+| rota | resposta |
+|---|---|
+| `adn/danfse/{chave}` | 404 |
+| **`SefinNacional/danfse/{chave}`** | **501 Not Implemented** |
+
+O 501 é a resposta honesta: a rota existe e está desligada — é a suspensão
+do DANFSe pela NT 008 (03/08/2026).
+
+**Consequência:** para anexar PDF, o Forekash precisa desenhar o DANFSe a
+partir do XML autorizado. O leiaute está na NT 008, e há dois DANFSe reais
+da TALLER como referência (NFS-e 83 e 86).
+
+## O XML, esse temos
+
+Vem na resposta da emissão em `nfseXmlGZipB64`. É guardado na nota e dá pra
+baixar pela ficha. **O XML é o documento fiscal; o PDF é representação.**
+
+## Enviar por e-mail
+
+Três pedaços, em ordem de dependência:
+
+1. **Registrar o e-mail na nota** — feito: `toma/email` vai na DPS quando
+   preenchido, e some quando vazio (elemento vazio é recusado).
+2. **Gerar o PDF** — acima.
+3. **Remetente** — o Forekash não tem. Candidato natural é o Cloudflare
+   Email Service pelo Worker, já que a infra está lá; exige verificar o
+   domínio. A alternativa é SMTP no serviço `src/nfse`.
+
+Enquanto 2 e 3 não existirem, o e-mail preenchido serve para constar na
+NFS-e — o que não é pouco: é por ele que o tomador aparece identificado.
+

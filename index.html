@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794288524"/>
+  <meta name="fk-build" content="forekash-v1794288729"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -135869,7 +135869,12 @@ function nfMontarDPS(opts){
        Então vai o que a pessoa configurou. Se vier E0120, a saída é apagar
        o campo em Configurar — e a mensagem de erro diz isso. */
     prest: { CNPJ: dig(emp.cnpj), IM: String(NF.cfg.inscricaoMunicipal || '').trim(), opSimpNac },
-    toma,
+    toma: Object.assign(toma, {
+      /* Só entra se tiver: campo vazio na DPS seria elemento vazio, e a
+         Receita recusa `<email></email>`. */
+      email: String(d.email || '').trim(),
+      fone: String(d.telefone || (cli && cli.telefone) || '').trim(),
+    }),
     cTribNac: sv.cTribNac, cNBS: sv.cNBS, xDescServ: String(d.descricao || '').trim(),
     vServ: Number(d.valor) || 0,
     tribISSQN: exp ? '3' : '1',
@@ -136090,8 +136095,8 @@ function nfRenderCreateForm(){
       '<div class="nf-field"><label>CNPJ / CPF / NIF</label>' +
         '<input type="text" id="nf-f-cnpj" value="' + _nfEsc(d.cnpj) + '" placeholder="00.000.000/0000-00"></div>' +
     '</div>' +
-    '<div class="nf-field"><label>E-mail do tomador (recebe NFS-e por email)</label>' +
-      '<input type="email" id="nf-f-email" value="' + _nfEsc(d.email) + '" placeholder="financeiro@cliente.com"></div>' +
+    '<div class="nf-field"><label>E-mail do tomador <span style="font-weight:500;color:#94A3B8">(opcional)</span></label>' +
+      '<input type="email" id="nf-f-email" value="' + _nfEsc(d.email) + '" placeholder="deixe vazio para não enviar"></div>' +
     '<div class="nf-field-row three">' +
       '<div class="nf-field"><label>Valor dos serviços (R$)</label>' +
         '<input type="number" id="nf-f-valor" value="' + (d.valor || '') + '" step="0.01" min="0" placeholder="1500,00" oninput="nfLiquidoAtualiza()"></div>' +
@@ -136354,8 +136359,16 @@ function nfOpenView(id){
       '</div>' +
     '</div>' +
     '<div class="nf-view-actions">' +
-      (n.status === 'aut' && n.pdfUrl ? '<button class="primary" onclick="window.open(\'' + n.pdfUrl + '\',\'_blank\')">Baixar PDF</button>' : '<button disabled title="Disponível após autorização">PDF</button>') +
-      (n.status === 'aut' && n.xmlUrl ? '<button onclick="window.open(\'' + n.xmlUrl + '\',\'_blank\')">Baixar XML</button>' : '') +
+      /* XML: é o documento fiscal de verdade — o PDF é só representação.
+         Vem na resposta da emissão, compactado; aqui vira arquivo.
+
+         PDF: a Receita devolve 501 no endpoint do DANFSe (suspenso pela
+         NT 008). Botão desligado com o motivo no title, em vez de um botão
+         que não faz nada. */
+      (n.nfseXml
+        ? '<button class="primary" onclick="nfBaixarXmlNota(' + n.id + ')">Baixar XML da NFS-e</button>'
+        : (n.xmlUrl ? '<button class="primary" onclick="window.open(\'' + n.xmlUrl + '\',\'_blank\')">Baixar XML</button>' : '')) +
+      '<button disabled title="A Receita suspendeu o DANFSe (NT 008) e devolve 501. O PDF precisa ser desenhado pelo Forekash.">PDF</button>' +
       (n.email ? '<button onclick="nfResendEmail(' + n.id + ')">Reenviar email</button>' : '') +
       (n.status === 'aut' ? '<button class="danger" onclick="nfCancel(' + n.id + ')">✕ Cancelar NFS-e</button>' : '') +
       '<div style="flex:1"></div>' +
@@ -136364,6 +136377,27 @@ function nfOpenView(id){
   document.getElementById('nf-modal-view-body').innerHTML = html;
   document.getElementById('nf-modal-view').classList.add('open');
 }
+
+/* O XML autorizado chega gzipado e em base64 — é assim que a API devolve,
+   e guardar assim economiza espaço. Descompactar na hora de baixar. */
+function nfBaixarXmlNota(id){
+  const n = NF.notas.find(x => x && x.id === id);
+  if(!n || !n.nfseXml) return;
+  try{
+    const bin = atob(n.nfseXml);
+    const arr = new Uint8Array(bin.length);
+    for(let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const ds = new DecompressionStream('gzip');
+    new Response(new Blob([arr]).stream().pipeThrough(ds)).text().then(xml => {
+      _nfDl('NFS-e-' + (n.numero || n.id) + '.xml', xml, 'application/xml;charset=utf-8');
+    }).catch(e => {
+      if(typeof showToast === 'function') showToast('Não deu pra abrir o XML: ' + e.message, 'err');
+    });
+  }catch(e){
+    if(typeof showToast === 'function') showToast('XML inválido: ' + e.message, 'err');
+  }
+}
+try{ window.nfBaixarXmlNota = nfBaixarXmlNota; }catch(e){}
 
 function nfResendEmail(id){
   if(typeof showToast === 'function') showToast('Email reenviado pro tomador', 'ok');

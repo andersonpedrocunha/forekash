@@ -99,6 +99,9 @@ function montaDPS(d){
           : '<endNac>' + el('cMun', t.cMun) + el('CEP', dig(t.CEP)) + '</endNac>')
   +       el('xLgr', t.xLgr) + el('nro', t.nro) + el('xBairro', t.xBairro)
   +     '</end>'
+  /* Opcionais, e nessa ordem (fone antes de email, como o XSD pede).
+     `el()` some sozinho quando vazio — então sem e-mail, sem elemento. */
+  +     el('fone', t.fone) + el('email', t.email)
   +   '</toma>'
   +   '<serv>'
   +     '<locPrest>' + el('cLocPrestacao', d.cLocPrestacao) + '</locPrest>'
