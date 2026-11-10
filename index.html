@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794283073"/>
+  <meta name="fk-build" content="forekash-v1794283561"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -134600,8 +134600,7 @@ let NF = {
   filter: 'all',
   cfg: {
     mode: 'demo',           // demo | sandbox | production
-    nfeIoApiKey: '',
-    companyId: '',          // id da empresa no NFE.io
+    servicoUrl: '',         // endereço do serviço de emissão (src/nfse)
     certA1Pfx: '',          // base64 do .pfx
     certA1Pwd: '',          // senha do certificado
     cnae: '',
@@ -135195,6 +135194,9 @@ function nfServModal(){
     +   _nfServCampo(sv, 'cIndOp',    'Indicador de operação','100301', 6)
     +   _nfServCampo(sv, 'CST',       'CST IBS/CBS',         '000', 3)
     +   _nfServCampo(sv, 'cClassTrib','Classificação',       '000001', 6)
+    /* Só aparece pra quem declara a própria alíquota. Pro resto é o
+       município que define, por este mesmo código de tributação. */
+    +   (_nfEhSimples() ? _nfServCampo(sv, 'pAliq', 'Alíquota ISS %', '2,00', 5) : '')
     + '</span>'
     + '<button type="button" class="nfsv-del" onclick="nfServRemover(' + sv.id + ')" title="Remover serviço">remover</button>'
     + '</div>';
@@ -135208,7 +135210,12 @@ function nfServModal(){
     +   '<div class="cproj-bd">'
     +     '<p class="cproj-sub">Os códigos fiscais da nota pertencem ao <b>serviço</b>, não a cada emissão. '
     +       'Preencha uma vez aqui e o modal de emitir fica com três campos.<br>'
-    +       'A <b>alíquota do ISS não entra</b>: quem define é o município, pela parametrização nacional.</p>'
+    +       (_nfEhSimples()
+          ? 'Como a empresa é optante do Simples, a <b>alíquota entra por serviço</b> — '
+            + 'desenvolvimento, consultoria e treinamento costumam ter alíquotas diferentes.'
+          : '<b>A alíquota do ISS não se informa.</b> Ela muda por atividade, sim — mas quem define é o '
+            + 'município, já por código de tributação. Para quem não é optante do Simples, mandar a nossa '
+            + 'faz a Receita recusar a nota (E0617).') + '</p>'
     +     (L.length
         ? '<div class="nfsv-hd"><span>Padrão</span><span>Serviço</span><span>Códigos fiscais</span><span></span></div>'
           + '<div class="nfsv-lista">' + L.map(linha).join('') + '</div>'
@@ -135276,6 +135283,14 @@ function nfServAceitarSugestao(){
 }
 try{ window._nfServSugestao = _nfServSugestao; window.nfServAceitarSugestao = nfServAceitarSugestao; }catch(e){}
 
+/* Optante do Simples declara a própria alíquota; os demais, não. É a
+   diferença entre o campo existir e dar erro E0617 na emissão. */
+function _nfEhSimples(){
+  const e = _nfEmpresaAtiva() || {};
+  return e.regime === 'simples' || e.regime === 'mei';
+}
+try{ window._nfEhSimples = _nfEhSimples; }catch(e){}
+
 function _nfServCampo(sv, campo, rot, ph, tam){
   const temLista = (campo === 'cTribNac' || campo === 'cNBS');
   return '<label class="nfsv-cod' + (temLista ? ' larga' : '') + '" title="' + rot + '">'
@@ -135322,7 +135337,7 @@ function nfServNovo(){
   const emp = _nfEmpresaAtiva() || {};
   NF_SERVICOS.list.push({
     id: NF_SERVICOS.nextId++, nome: '', cnae: emp.cnae || '',
-    cTribNac:'', cNBS:'', cIndOp:'', CST:'000', cClassTrib:'000001',
+    cTribNac:'', cNBS:'', cIndOp:'', CST:'000', cClassTrib:'000001', pAliq:'',
     descricaoPadrao:'', pTotTribFed:0, pTotTribEst:0, pTotTribMun:0,
     padrao: NF_SERVICOS.list.length === 0
   });
@@ -135536,10 +135551,8 @@ async function nfSubmitCreate(){
   const btn = document.getElementById('nf-create-submit');
   if(btn){ btn.disabled = true; btn.textContent = 'Emitindo...'; }
   try{
-    if(NF.cfg.mode === 'production' && NF.cfg.nfeIoApiKey){
-      await nfRealEmit();
-    } else if(NF.cfg.mode === 'sandbox' && NF.cfg.nfeIoApiKey){
-      await nfSandboxEmit();
+    if(NF.cfg.mode === 'restrita' || NF.cfg.mode === 'producao'){
+      await nfEmitirPeloServico(NF.cfg.mode);
     } else {
       nfDemoEmit();
     }
@@ -135602,6 +135615,16 @@ function nfDemoEmit(){
     }
   }, 3000);
 }
+
+/* A emissão real sai pelo serviço do container (src/nfse): o navegador não
+   faz mTLS com certificado do cliente, e o Worker também não. Enquanto a
+   cola não existe, isso avisa em vez de fingir. */
+async function nfEmitirPeloServico(ambiente){
+  const url = (NF.cfg.servicoUrl || '').trim();
+  if(!url) throw new Error('Falta o endereço do serviço de emissão · configure em Configurar');
+  throw new Error('Serviço de emissão ainda não conectado (' + ambiente + ') · a emissão real roda em src/nfse');
+}
+try{ window.nfEmitirPeloServico = nfEmitirPeloServico; }catch(e){}
 
 async function nfSandboxEmit(){
   // Bate em sandbox.nfe.io · cria company se necessário e emite
@@ -135743,15 +135766,12 @@ function nfRenderConfigForm(){
   let html =
     '<div class="nf-field"><label>Modo de operação</label>' +
       '<div class="nf-cfg-mode">' +
-        '<button class="' + (cfg.mode === 'demo' ? 'active' : '') + '" onclick="nfCfgPickMode(\'demo\')">Demo<small>simulado · zero custo</small></button>' +
-        '<button class="' + (cfg.mode === 'sandbox' ? 'active' : '') + '" onclick="nfCfgPickMode(\'sandbox\')">Sandbox<small>NFE.io teste</small></button>' +
-        '<button class="' + (cfg.mode === 'production' ? 'active' : '') + '" onclick="nfCfgPickMode(\'production\')">Produção<small>NF reais Sefaz</small></button>' +
+        '<button class="' + (cfg.mode === 'demo' ? 'active' : '') + '" onclick="nfCfgPickMode(\'demo\')">Demo<small>simulado, nada sai daqui</small></button>' +
+        '<button class="' + (cfg.mode === 'restrita' ? 'active' : '') + '" onclick="nfCfgPickMode(\'restrita\')">Produção restrita<small>ambiente de teste da Receita</small></button>' +
+        '<button class="' + (cfg.mode === 'producao' ? 'active' : '') + '" onclick="nfCfgPickMode(\'producao\')">Produção<small>nota fiscal de verdade</small></button>' +
       '</div>' +
     '</div>' +
-    '<div class="nf-field"><label>NFE.io · API Key</label>' +
-      '<input type="password" id="nf-cfg-key" value="' + _nfEsc(cfg.nfeIoApiKey || '') + '" placeholder="••••••••••••"></div>' +
-    '<div class="nf-field"><label>Company ID (NFE.io)</label>' +
-      '<input type="text" id="nf-cfg-cmp" value="' + _nfEsc(cfg.companyId || '') + '" placeholder="abc-123-..."></div>' +
+
     '<div class="nf-field"><label>Certificado A1 (.pfx)</label>' +
       '<input type="file" id="nf-cfg-cert" accept=".pfx,.p12"></div>' +
     '<div class="nf-field-row">' +
@@ -135772,11 +135792,17 @@ function nfRenderConfigForm(){
         '<input type="text" id="nf-cfg-item" value="' + _nfEsc(cfg.itemListaServico || '') + '" placeholder="Ex: 01.01"></div>' +
     '</div>' +
     '<div class="nf-field-row">' +
-      /* Sem padrão inventado: 5% é só o teto da LC 116, não a alíquota de
-         ninguém. Vazio obriga a olhar — e o certo vem dos parâmetros do
-         município, que a API nacional devolve. */
-      '<div class="nf-field"><label>Alíquota ISS (%)</label>' +
-        '<input type="number" id="nf-cfg-iss" value="' + (cfg.aliquotaISS != null ? cfg.aliquotaISS : '') + '" step="0.01" placeholder="conforme o município"></div>' +
+      /* ALÍQUOTA ÚNICA ERA ERRADA DUAS VEZES.
+
+         Primeiro porque o ISS muda por ATIVIDADE: desenvolvimento,
+         consultoria e treinamento têm alíquotas diferentes no mesmo
+         município. Um campo só aplicaria a mesma a todas.
+
+         Segundo porque, para quem não é optante do Simples, não se informa
+         alíquota nenhuma: a Receita devolve E0617. Quem define é o município,
+         já por código de tributação — ou seja, já por atividade.
+
+         Sobrou lugar pra ela só no SERVIÇO, e só pro optante do Simples. */
       '<div class="nf-field"><label>Município de emissão</label>' +
         '<div class="nf-ro">' + _nfEsc(munPadrao || '— sem município no cadastro —')
         + (_emp && _emp.ibge ? ' <small>IBGE ' + _nfEsc(_emp.ibge) + '</small>' : '')
@@ -135794,14 +135820,15 @@ function nfRenderConfigForm(){
 }
 function nfCfgPickMode(m){ NF.cfg.mode = m; nfRenderConfigForm(); }
 function nfSaveConfig(){
-  NF.cfg.nfeIoApiKey = (document.getElementById('nf-cfg-key').value || '').trim();
-  NF.cfg.companyId = (document.getElementById('nf-cfg-cmp').value || '').trim();
+  /* NFE.io saiu: a emissão é direta no Emissor Nacional. Os campos de API
+     key e company id eram do intermediário e só podiam confundir. */
+  delete NF.cfg.nfeIoApiKey; delete NF.cfg.companyId;
   NF.cfg.certA1Pwd = (document.getElementById('nf-cfg-pwd').value || '').trim();
   NF.cfg.certVenc = (document.getElementById('nf-cfg-certvenc') || {}).value || '';
   NF.cfg.inscricaoMunicipal = ((document.getElementById('nf-cfg-im') || {}).value || '').trim();
   NF.cfg.cnae = (document.getElementById('nf-cfg-cnae').value || '').trim();
   NF.cfg.itemListaServico = (document.getElementById('nf-cfg-item').value || '').trim();
-  NF.cfg.aliquotaISS = Number(document.getElementById('nf-cfg-iss').value) || 5;
+  delete NF.cfg.aliquotaISS;   // mora no serviço agora, e só pro Simples
   /* Não se grava mais: o município é da empresa. Limpar o que ficou salvo
      é o que desfaz o "São Paulo · IBGE 4205407". */
   delete NF.cfg.municipioEmissao;
