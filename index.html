@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794282402"/>
+  <meta name="fk-build" content="forekash-v1794282684"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -134743,6 +134743,30 @@ function nfRender(){
    A empresa vem do cadastro do próprio app, não de uma config paralela:
    é o mesmo CNPJ que a Captura usa pra decidir direção de documento, e é
    isso que faz o módulo servir qualquer usuário sem reescrever nada. */
+/* Uma tentativa por sessão: se a Receita estiver fora do ar, não vira laço
+   de requisição a cada repintura da tela. */
+let _NF_IBGE_TENTADO = false;
+async function _nfBuscaIbge(emp, doc){
+  try{
+    const d = String(doc).replace(/\D/g,'');
+    if(d.length !== 14) return;
+    const r = await fetch('https://brasilapi.com.br/api/cnpj/v1/' + d);
+    if(!r.ok) return;
+    const j = await r.json();
+    const ibge = String(j.codigo_municipio_ibge || j.codigo_municipio || '');
+    if(!ibge) return;
+    emp.ibge = ibge;
+    if(!emp.municipio) emp.municipio = j.municipio || '';
+    if(!emp.uf)        emp.uf = j.uf || '';
+    if(!emp.cnae)      emp.cnae = String(j.cnae_fiscal || '');
+    if(typeof empSave === 'function') empSave();
+    nfRenderEmitente();
+    if(typeof showToast === 'function')
+      showToast('Código IBGE do município preenchido: ' + ibge, 'ok');
+  }catch(e){ console.warn('[FK] IBGE:', e && e.message); }
+}
+try{ window._nfBuscaIbge = _nfBuscaIbge; }catch(e){}
+
 function nfRenderEmitente(){
   const el = document.getElementById('nf-emit');
   if(!el) return;
@@ -134765,6 +134789,7 @@ function nfRenderEmitente(){
   if(doc) linha.push('CNPJ ' + _nfEsc(doc));
   if(cfg.inscricaoMunicipal) linha.push('IM ' + _nfEsc(cfg.inscricaoMunicipal));
   if(cfg.municipioEmissao)   linha.push(_nfEsc(cfg.municipioEmissao));
+  if(emp && emp.ibge)        linha.push('IBGE ' + _nfEsc(emp.ibge));
   if(cfg.itemListaServico)   linha.push('item ' + _nfEsc(cfg.itemListaServico));
 
   /* Três estados, e o do meio é o que salva: avisar ANTES de vencer. Trinta
@@ -134777,6 +134802,15 @@ function nfRenderEmitente(){
     if(dias < 0)        cert = '<span class="nf-cert bad">certificado vencido em ' + fmt + '</span>';
     else if(dias <= 30) cert = '<span class="nf-cert warn">certificado vence em ' + dias + ' dia' + (dias === 1 ? '' : 's') + ' · ' + fmt + '</span>';
     else                cert = '<span class="nf-cert ok">certificado válido até ' + fmt + '</span>';
+  }
+
+  /* O IBGE não é tarefa pra pessoa. Ele passou a ser gravado só agora, então
+     quem já tinha empresa cadastrada está sem — e a DPS exige. Pedir "vá lá
+     e consulte o CNPJ de novo" é empurrar pro usuário um trabalho que são
+     três linhas de código. Busca uma vez, grava, e cala a boca. */
+  if(emp && doc && !emp.ibge && !_NF_IBGE_TENTADO){
+    _NF_IBGE_TENTADO = true;
+    _nfBuscaIbge(emp, doc);
   }
 
   el.innerHTML =
