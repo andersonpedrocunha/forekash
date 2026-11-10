@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794328114"/>
+  <meta name="fk-build" content="forekash-v1794328948"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -136200,8 +136200,11 @@ function nfRenderCreateForm(){
       '<div class="nf-field"><label>CNPJ / CPF / NIF</label>' +
         '<input type="text" id="nf-f-cnpj" value="' + _nfEsc(d.cnpj) + '" placeholder="00.000.000/0000-00"></div>' +
     '</div>' +
-    '<div class="nf-field"><label>E-mail do tomador <span style="font-weight:500;color:#94A3B8">(opcional)</span></label>' +
-      '<input type="email" id="nf-f-email" value="' + _nfEsc(d.email) + '" placeholder="deixe vazio para não enviar"></div>' +
+    /* O campo não dispara envio nenhum — ele vai para dentro da NFS-e, no
+       cadastro do tomador. Dizer "deixe vazio para não enviar" prometia o
+       que o Forekash não faz. */
+    '<div class="nf-field"><label>E-mail do tomador <span style="font-weight:500;color:#94A3B8">(opcional · entra na nota)</span></label>' +
+      '<input type="email" id="nf-f-email" value="' + _nfEsc(d.email) + '" placeholder="identifica o tomador na NFS-e"></div>' +
     '<div class="nf-field-row three">' +
       '<div class="nf-field"><label>Valor dos serviços (R$)</label>' +
         '<input type="number" id="nf-f-valor" value="' + (d.valor || '') + '" step="0.01" min="0" placeholder="1500,00" oninput="nfLiquidoAtualiza()"></div>' +
@@ -137325,8 +137328,17 @@ function nfBaixarXmlNota(id){
 }
 try{ window.nfBaixarXmlNota = nfBaixarXmlNota; }catch(e){}
 
+/* ESTA FUNÇÃO MENTIA.
+
+   Ela mostrava "Email reenviado pro tomador" e não enviava nada — não
+   existe remetente no Forekash. Um aviso verde de sucesso sobre coisa que
+   não aconteceu é pior do que não ter o botão: o usuário para de cobrar o
+   que nunca foi feito.
+
+   Fica aqui dizendo a verdade até existir envio de verdade. */
 function nfResendEmail(id){
-  if(typeof showToast === 'function') showToast('Email reenviado pro tomador', 'ok');
+  if(typeof showToast === 'function')
+    showToast('O Forekash ainda não envia e-mail — falta configurar o remetente', 'warn');
 }
 
 async function nfCancel(id){
