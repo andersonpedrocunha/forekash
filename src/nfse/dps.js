@@ -90,7 +90,6 @@ function montaDPS(d){
   +   '<valores>'
   +     '<vServPrest>' + el('vServ', dec(d.vServ)) + '</vServPrest>'
   +     '<trib>'
-  +       _tribFed(d, exp)
   +       '<tribMun>'
   +         el('tribISSQN', d.tribISSQN)
   +         el('tpRetISSQN', '1')
@@ -100,6 +99,10 @@ function montaDPS(d){
      imposto. Só o optante do Simples (opSimpNac=3) declara a dele. */
   +         ((exp || d.prest.opSimpNac !== '3') ? '' : el('pAliq', dec(d.pAliq)))
   +       '</tribMun>'
+  /* ORDEM DO XSD: tribMun → tribFed → totTrib. Eu tinha posto tribFed
+     primeiro e a Receita recusou com E1235. Sequência em XSD não é
+     sugestão: campo certo na posição errada é campo inválido. */
+  +       _tribFed(d, exp)
   /* TOTAIS DA LEI 12.741 — é uma ESCOLHA, não uma lista.
      Ou os três valores, ou os três percentuais, ou indTotTrib, ou pTotTribSN.
      E0713: para não optante do Simples, indTotTrib e pTotTribSN são

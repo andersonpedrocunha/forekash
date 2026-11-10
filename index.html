@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794286203"/>
+  <meta name="fk-build" content="forekash-v1794287037"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1096,6 +1096,8 @@
     .nf-selo.exp{color:#1D4ED8}
     .nf-field .cart-cbx input{width:100%}
 
+    .nf-cfg-herda code{background:#EEF2F7;padding:1px 5px;border-radius:4px;
+      font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.68rem;color:#0F172A}
     .nf-cfg-herda{font-size:.74rem;color:#64748B;background:var(--bg);border:1px solid var(--bdr);
       border-radius:8px;padding:9px 12px;margin-top:4px;line-height:1.45}
 
@@ -135101,6 +135103,25 @@ function _nfVincularNoExtrato(n){
 }
 try{ window._nfVincularNoExtrato = _nfVincularNoExtrato; }catch(e){}
 
+/* Com hora, o carimbo tem fuso de verdade e pode ser convertido. Sem hora,
+   cai no `_nfData`, que fatia a string — converter data-só desloca um dia. */
+function _nfDataHora(iso){
+  const v = String(iso || '');
+  if(!v) return '—';
+  if(v.length <= 10) return _nfData(v);
+  const d = new Date(v);
+  return isNaN(d) ? _nfData(v) : d.toLocaleString('pt-BR');
+}
+/* Os modos mudaram quando a NFE.io saiu; o rótulo tinha ficado para trás e
+   chamava produção restrita de "Demo". */
+function _nfAmbiente(m){
+  return m === 'producao' ? 'Produção · nota fiscal válida'
+       : m === 'restrita' ? 'Produção restrita · ambiente de teste da Receita'
+       : m === 'production' ? 'Produção'
+       : 'Demo · não-fiscal';
+}
+try{ window._nfDataHora = _nfDataHora; window._nfAmbiente = _nfAmbiente; }catch(e){}
+
 /* Data de documento fiscal nunca passa por fuso: ela já vem como dia. */
 function _nfData(iso){
   const d = String(iso || '').slice(0, 10);
@@ -135167,7 +135188,12 @@ function nfRenderList(){
          Brasília (-3) vira 04/11. Em documento fiscal isso não é cosmético:
          muda competência e pode cair no mês errado. Fatiar a string evita o
          fuso inteiro. */
-      '<td><small style="color:#64748B">' + (n.dataEmissao ? _nfData(n.dataEmissao) : '—') + '</small></td>' +
+      /* Competência só aparece quando DIFERE da emissão: repetir a mesma
+         data duas vezes em toda linha é ruído. */
+      '<td><small style="color:#64748B">' + (n.dataEmissao ? _nfData(n.dataEmissao) : '—')
+      + ((n.competencia && _nfData(n.competencia) !== _nfData(n.dataEmissao))
+         ? '<br><span style="font-size:.9em;color:#94A3B8" title="Competência">comp. ' + _nfData(n.competencia) + '</span>' : '')
+      + '</small></td>' +
       '<td>' + vincBadge + '</td>' +
       '<td><div class="nf-row-actions">' +
         '<button onclick="event.stopPropagation();nfOpenView(' + n.id + ')" title="Visualizar" class="fkico fkico-search"></button>' +
@@ -136104,6 +136130,7 @@ function nfDemoEmit(){
     numero,
     status: 'pend',
     dataEmissao: new Date().toISOString(),
+    competencia: (NF_DRAFT && NF_DRAFT.competencia) || new Date().toISOString().slice(0,10),
     codigoVerificacao: 'DEMO-' + Math.random().toString(36).slice(2,8).toUpperCase(),
     nfeIoId: 'demo-' + Date.now(),
     pdfUrl: null, xmlUrl: null,
@@ -136205,9 +136232,20 @@ function nfOpenView(id){
     '<div class="nf-view-section">' +
       '<h4>Emissão</h4>' +
       '<div class="nf-view-table">' +
-        '<span class="lbl">Data emissão</span><span class="val">' + (n.dataEmissao ? new Date(n.dataEmissao).toLocaleString('pt-BR') : '—') + '</span>' +
-        '<span class="lbl">Data autorização</span><span class="val">' + (n.dataAutorizada ? new Date(n.dataAutorizada).toLocaleString('pt-BR') : '—') + '</span>' +
-        '<span class="lbl">Modo</span><span class="val">' + (n.mode === 'production' ? 'Produção' : n.mode === 'sandbox' ? 'Sandbox' : 'Demo (não-fiscal)') + '</span>' +
+        /* TRÊS DATAS, E AS TRÊS APARECEM.
+
+           A competência é a que pode divergir das outras duas — a nota da
+           Bloom tem competência 31/10 e foi emitida em 05/11 — e era a
+           única que não estava aqui. É ela que decide em que mês o
+           faturamento entra.
+
+           O vocabulário segue o DANFSe: a DPS é o que NÓS emitimos, a NFS-e
+           é o que a Receita autoriza. Chamar as duas de "emissão" é como a
+           confusão começa. */
+        '<span class="lbl">Competência</span><span class="val">' + _nfData(n.competencia || n.dataEmissao) + '</span>' +
+        '<span class="lbl">Emissão da DPS</span><span class="val">' + _nfDataHora(n.dataEmissao) + '</span>' +
+        '<span class="lbl">Emissão da NFS-e</span><span class="val">' + _nfDataHora(n.dataAutorizada) + '</span>' +
+        '<span class="lbl">Ambiente</span><span class="val">' + _nfAmbiente(n.mode) + '</span>' +
         (n.receitaRowId ? '<span class="lbl">Vinculada a</span><span class="val">Receita · ' + (n.receitaMes || '') + '/' + String(n.receitaYear || '').slice(2) + '</span>' : '') +
         (n.asaasId ? '<span class="lbl">Cobrança Asaas</span><span class="val">💸 ' + n.asaasId + '</span>' : '') +
       '</div>' +
@@ -136392,12 +136430,27 @@ function nfRenderConfigForm(){
     '</div>' +
     '<div class="nf-cfg-herda">A numeração é sua, não da Receita. Se você já emitia por outro sistema, '
       + 'comece do <b>número seguinte ao último emitido</b> naquela série — repetir faz a Receita recusar.</div>' +
+    /* DE ONDE VÊM ESSES DOIS VALORES.
+
+       Campo sem explicação vira pergunta — e a resposta não é adivinhável:
+       os dois saem de um serviço que a pessoa precisa subir. O placeholder
+       "https://nfse.suaempresa.com" era endereço inventado, que parece
+       exemplo mas não existe em lugar nenhum. */
     '<div class="nf-field-row">' +
       '<div class="nf-field"><label>Serviço de emissão · endereço</label>' +
-        '<input type="text" id="nf-cfg-svurl" value="' + _nfEsc(cfg.servicoUrl || '') + '" placeholder="https://nfse.suaempresa.com"></div>' +
+        '<input type="text" id="nf-cfg-svurl" value="' + _nfEsc(cfg.servicoUrl || '') + '" placeholder="https://... (endereço do seu serviço)"></div>' +
       '<div class="nf-field"><label>Token do serviço</label>' +
-        '<input type="password" id="nf-cfg-svtok" value="' + _nfEsc(cfg.servicoToken || '') + '" placeholder="••••••"></div>' +
+        '<input type="password" id="nf-cfg-svtok" value="' + _nfEsc(cfg.servicoToken || '') + '" placeholder="o FK_NFSE_TOKEN do serviço"></div>' +
     '</div>' +
+    '<div class="nf-cfg-herda">'
+      + '<b>Por que isso existe:</b> o certificado A1 assina por mTLS, e nem o navegador nem a '
+      + 'Cloudflare conseguem fazer isso. Quem assina é um serviço seu, em Node — o código está no '
+      + 'repositório, em <code>src/nfse</code>.<br><br>'
+      + '<b>Endereço:</b> a URL onde esse serviço responde. Para testar hoje, um túnel '
+      + '(<code>cloudflared tunnel --url http://localhost:8080</code>) devolve um endereço https na hora.<br>'
+      + '<b>Token:</b> o valor de <code>FK_NFSE_TOKEN</code> que você definiu ao subir o serviço — '
+      + 'é ele que impede qualquer um de mandar certificado em seu nome.'
+      + '</div>' +
     '<div class="nf-field"><label>Inscrição municipal</label>' +
       '<input type="text" id="nf-cfg-im" value="' + _nfEsc(cfg.inscricaoMunicipal || '') + '" placeholder="Ex: 4714954"></div>' +
     '<div class="nf-field-row">' +

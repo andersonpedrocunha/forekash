@@ -81,3 +81,46 @@ Separar de verdade exige KMS/HSM. É o degrau seguinte.
 npm install
 FK_NFSE_MASTER_KEY=... FK_NFSE_TOKEN=... node servidor.js
 ```
+
+## Para usar hoje, sem subir container
+
+O navegador bloqueia página HTTPS falando com `http://localhost`
+(`ERR_BLOCKED_BY_CLIENT`). O serviço precisa de endereço HTTPS, mesmo
+rodando na sua máquina. Túnel resolve:
+
+```
+brew install cloudflared
+cloudflared tunnel --url http://localhost:8080
+```
+
+Devolve uma URL `https://*.trycloudflare.com` — cole em
+**Notas Fiscais › Configurar › Serviço de emissão**, junto com o token.
+
+A URL muda a cada execução, então é para testar e guardar o certificado,
+não para produção. Produção é o container.
+
+**O `FK_NFSE_ORIGENS` tem que listar a origem do app**, senão o navegador
+recusa antes de sair: `https://forekash.com.br`.
+
+## node-forge tem que ficar em 1.4.1+
+
+A 1.3.1 carrega 19 advisories, entre elas **PKCS#12 MAC forgery** — e é
+justamente o node-forge que lê o `.pfx` aqui dentro. Num produto, um `.pfx`
+forjado seria entrada hostil vinda de cliente.
+
+`npm audit` tem que fechar em **0 vulnerabilities**. Se voltar a acusar,
+não suba.
+
+**Cuidado: `npm audit` lê o lockfile, não o disco.** Aconteceu aqui — o
+lock dizia 1.4.3, o `node_modules` tinha 1.3.1, o audit dizia zero e o
+serviço carregava a versão vulnerável. `npm install` respondeu "up to date"
+e não trocou nada.
+
+Confirme pelo que o Node realmente carrega:
+
+```
+node -p "require('node-forge/package.json').version"
+```
+
+Se divergir do package.json: `rm -rf node_modules && npm install`.
+
