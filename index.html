@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794341918"/>
+  <meta name="fk-build" content="forekash-v1794342169"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -136596,10 +136596,18 @@ async function nfEmitirPeloServico(ambiente){
     const dica = {
       E0120: ' → apague a Inscrição municipal em Configurar: este município não a aceita.',
       E0617: ' → apague a alíquota do ISS no serviço: quem define é o município.',
-      E0312: ' → o código de tributação não vale neste município nesta competência.',
+      E0312: ' → este município não administra o código nesta competência. '
+           + (ambiente === 'restrita'
+              ? 'Em PRODUÇÃO RESTRITA isso é comum: o ambiente de teste da Receita não tem '
+                + 'a parametrização de todos os municípios. Tente a mesma nota em Produção.'
+              : 'Confira o código de tributação no serviço e a data de competência.'),
       E0713: ' → preencha os percentuais da Lei 12.741 no serviço.',
     }[er.Codigo] || '';
-    throw new Error(er.Codigo + ' · ' + (er.Complemento || er.Descricao) + dica);
+    /* O ambiente entra na mensagem: o mesmo código de erro significa coisas
+       diferentes em produção e em produção restrita, e sem isso a pessoa
+       investiga o conteúdo da nota quando o problema é o ambiente. */
+    throw new Error(er.Codigo + ' · ' + (er.Complemento || er.Descricao) + dica
+      + ' [' + (ambiente === 'restrita' ? 'produção restrita' : 'produção') + ']');
   }
 
   /* NÚMERO DA DPS ANDA SÓ DEPOIS DO SUCESSO.
