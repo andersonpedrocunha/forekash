@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794341035"/>
+  <meta name="fk-build" content="forekash-v1794341435"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -136548,11 +136548,21 @@ async function nfEmitirPeloServico(ambiente){
   const { dps, falta } = nfMontarDPS({ ambiente: ambiente });
   if(falta.length) throw new Error('Falta preencher: ' + falta.join(' · '));
 
-  const r = await fetch(url + '/emitir', {
-    method: 'POST',
-    headers: { 'Content-Type':'application/json', 'x-fk-token': NF.cfg.servicoToken || '' },
-    body: JSON.stringify({ pacote: g.pacote, ambiente: (ambiente === 'producao' ? 'producao' : 'restrita'), dps })
-  });
+  /* "Failed to fetch" é o navegador falando, e não diz nada a quem está
+     tentando emitir. A causa quase sempre é uma só: o endereço do serviço
+     mudou — o túnel de teste troca de endereço a cada vez que sobe. */
+  let r;
+  try{
+    r = await fetch(url + '/emitir', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'x-fk-token': NF.cfg.servicoToken || '' },
+      body: JSON.stringify({ pacote: g.pacote, ambiente: (ambiente === 'producao' ? 'producao' : 'restrita'), dps })
+    });
+  }catch(e){
+    throw new Error('Não consegui falar com o serviço de emissão em ' + url +
+      '. Confira se ele está no ar e se o endereço em Configurar é o atual — ' +
+      'o túnel de teste troca de endereço toda vez que sobe.');
+  }
   const j = await r.json().catch(() => ({}));
 
   if(r.status !== 201 || !j.chaveAcesso){
