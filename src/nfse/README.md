@@ -28,9 +28,15 @@ O Worker continua orquestrando. Este serviço só assina e entrega.
 
 ```
 FK_NFSE_MASTER_KEY   chave-mestra da custódia (mín. 32 chars) — NUNCA no banco
-FK_NFSE_TOKEN        token que o Worker apresenta
+FK_NFSE_TOKEN        token que o app apresenta
+FK_NFSE_ORIGENS      origens permitidas no CORS, separadas por vírgula
+                     ex.: https://forekash.com.br
 PORT                 8080
 ```
+
+O `.pfx` sobe do navegador direto para este serviço — um salto a menos para
+a chave privada. Por isso o CORS, e por isso a origem é declarada: aceitar
+qualquer site convidaria outro a mandar `.pfx` em nome do usuário.
 
 **A chave-mestra não pode viver no mesmo lugar que os pacotes cifrados.** O
 banco guarda o pacote; a chave mora só no ambiente deste serviço. Quem tiver

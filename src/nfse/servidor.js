@@ -17,6 +17,19 @@ const { guardar, abrir, paraPem } = require('./cofre.js');
 const PORTA = process.env.PORT || 8080;
 const TOKEN = process.env.FK_NFSE_TOKEN || '';
 
+/* O .pfx sobe do NAVEGADOR direto pra cá, sem passar pelo Worker — é um
+   salto a menos para a chave privada do cliente. O preço é precisar de CORS.
+   A origem permitida é declarada: `*` com credencial não serve, e aceitar
+   qualquer site convidaria outro a mandar .pfx em nome do usuário. */
+const ORIGENS = (process.env.FK_NFSE_ORIGENS || '').split(',').map(s => s.trim()).filter(Boolean);
+function cors(req, res){
+  const o = req.headers.origin || '';
+  if(ORIGENS.includes(o) || ORIGENS.includes('*')) res.setHeader('Access-Control-Allow-Origin', o || '*');
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-fk-token');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+  res.setHeader('Access-Control-Max-Age', '86400');
+}
 function json(res, st, obj){
   const b = JSON.stringify(obj);
   res.writeHead(st, { 'Content-Type':'application/json; charset=utf-8', 'Content-Length':Buffer.byteLength(b) });
@@ -75,6 +88,8 @@ const rotas = {
 };
 
 http.createServer(async (req, res) => {
+  cors(req, res);
+  if(req.method === 'OPTIONS'){ res.writeHead(204); return res.end(); }
   const chave = req.method + ' ' + req.url.split('?')[0];
   const fn = rotas[chave];
   if(!fn) return json(res, 404, { erro: 'rota desconhecida' });
