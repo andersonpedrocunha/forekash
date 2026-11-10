@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794268947"/>
+  <meta name="fk-build" content="forekash-v1794269421"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -862,30 +862,25 @@
        o app já usa no cabeçalho dos diálogos e nos slides. Nota fiscal É
        documento; tratar a faixa como documento e não como card de dashboard
        é o que tira a cara de SaaS genérico. */
-    .nf-emit{background:#F5F3EE;border:1px solid #E2E0D9;border-radius:12px;
-      padding:15px 20px;margin-bottom:16px;display:flex;align-items:center;
-      justify-content:space-between;gap:18px;flex-wrap:wrap;position:relative;
-      background-image:linear-gradient(rgba(15,23,42,.045) 1px,transparent 1px),
-                       linear-gradient(90deg,rgba(15,23,42,.045) 1px,transparent 1px);
-      background-size:22px 22px}
+    .nf-emit{background:none;border:none;border-bottom:1px solid var(--bdr);
+      border-radius:0;padding:0 2px 13px;margin-bottom:16px;display:flex;
+      align-items:baseline;justify-content:space-between;gap:18px;flex-wrap:wrap}
     .nf-emit-l{min-width:0}
     .nf-emit-sel{font-size:.58rem;font-weight:700;letter-spacing:.14em;
-      text-transform:uppercase;color:#A8A29A;margin-bottom:3px}
-    .nf-emit-nome{font-size:1.02rem;font-weight:800;color:#111;letter-spacing:-.015em;
+      text-transform:uppercase;color:#94A3B8;margin-bottom:3px}
+    .nf-emit-nome{font-size:1.02rem;font-weight:800;color:#0F172A;letter-spacing:-.015em;
       line-height:1.2}
     .nf-emit-meta{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.68rem;
-      color:#6B6760;margin-top:4px;letter-spacing:-.01em}
+      color:#94A3B8;margin-top:4px;letter-spacing:-.01em}
     .nf-emit-r{flex:none}
     /* Estado do certificado: silencioso quando está tudo bem, alto quando
        falta pouco. Vencido não avisa sozinho — a emissão só para. */
     .nf-cert{font-size:.7rem;letter-spacing:.01em}
-    .nf-cert.ok{color:#6B6760}
-    .nf-cert.none{color:#A8A29A;font-style:italic}
+    .nf-cert.ok{color:#94A3B8}
+    .nf-cert.none{color:#CBD5E1}
     .nf-cert.warn{color:#B45309;font-weight:800}
     .nf-cert.bad{color:#B91C1C;font-weight:800}
-    [data-theme="dark"] .nf-emit{background:#1B2130;border-color:#2E3647;
-      background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),
-                       linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px)}
+    [data-theme="dark"] .nf-emit{border-bottom-color:#2E3647}
     [data-theme="dark"] .nf-emit-nome{color:#E8EAED}
     [data-theme="dark"] .nf-emit-meta,[data-theme="dark"] .nf-cert.ok{color:#94A3B8}
 
@@ -918,6 +913,16 @@
     .ext-row-nf svg{width:13px;height:13px;fill:none;stroke:#0F9D58;stroke-width:2;
       stroke-linecap:round;stroke-linejoin:round;transition:stroke .12s}
     .ext-row-nf:hover svg{stroke:#0B7A43}
+
+    .nf-toolbar{flex-wrap:wrap;gap:10px}
+    .nf-per{flex:none}
+    .nf-per .fkper{margin:0}
+    .nf-baixar{flex:none;padding:7px 14px;font-size:.78rem;font-weight:600;font-family:inherit;
+      background:var(--card);border:1px solid var(--bdr);border-radius:8px;color:#475569;
+      cursor:pointer;transition:border-color .12s,color .12s}
+    .nf-baixar:hover{border-color:#94A3B8;color:#0F172A}
+    .nf-cfg-herda{font-size:.74rem;color:#64748B;background:var(--bg);border:1px solid var(--bdr);
+      border-radius:8px;padding:9px 12px;margin-top:4px;line-height:1.45}
 
     .nf-empty-sel{font-size:.58rem;font-weight:700;letter-spacing:.14em;
       text-transform:uppercase;color:#CBD5E1;margin-bottom:8px}
@@ -26218,6 +26223,7 @@ td.mes.do-extrato{background:#ECFDF5}
 
         <!-- Filtros + busca -->
         <div class="nf-toolbar">
+          <div class="nf-per" id="nf-per"></div>
           <div class="nf-tb-filters">
             <button class="nf-filter active" data-st="all" onclick="nfSetFilter('all',this)">Todas</button>
             <button class="nf-filter" data-st="aut" onclick="nfSetFilter('aut',this)">Autorizadas</button>
@@ -26225,7 +26231,8 @@ td.mes.do-extrato{background:#ECFDF5}
             <button class="nf-filter" data-st="canc" onclick="nfSetFilter('canc',this)">Canceladas</button>
             <button class="nf-filter" data-st="rej" onclick="nfSetFilter('rej',this)">Rejeitadas</button>
           </div>
-          <input type="search" class="nf-search" id="nf-search" placeholder="Buscar por cliente, CNPJ, nº..." oninput="nfRender()">
+          <input type="search" class="nf-search" id="nf-search" placeholder="Buscar por cliente, CNPJ, nº..." oninput="nfRenderList()">
+          <button type="button" class="nf-baixar" onclick="nfBaixarMenu(event)" title="Baixar as notas do período ou um backup completo">Baixar</button>
         </div>
 
         <!-- Lista de NFS-e -->
@@ -134579,6 +134586,14 @@ function nfRender(){
     'em ' + MES[new Date().getMonth()] + ' de ' + new Date().getFullYear();
 
   nfRenderEmitente();
+  /* FILTRO DE PERÍODO É O COMPONENTE DO EXTRATO, não um select de mês novo.
+     Mesma navegação ‹ › , mesmos grãos, mesmo "Hoje" — tela nova que inventa
+     o próprio seletor obriga a reaprender o que já se sabe. */
+  try{
+    fkPerNovo('nf', { grain:'mes', tudo:true, onChange: nfRenderList });
+    const el = document.getElementById('nf-per');
+    if(el) el.innerHTML = fkPerHtml('nf');
+  }catch(e){ console.warn('[FK] período das notas:', e && e.message); }
   nfRenderList();
 }
 
@@ -134744,6 +134759,15 @@ function nfRenderList(){
   if(!body) return;
   let notas = NF.notas.slice();
   if(NF.filter !== 'all') notas = notas.filter(n => n.status === NF.filter);
+  /* Corta pela data de EMISSÃO, que é a que a lista mostra e a que o
+     contador procura. Competência tem coluna própria na nota. */
+  try{
+    const r = (typeof fkPerRange === 'function') ? fkPerRange('nf') : null;
+    if(r) notas = notas.filter(n => {
+      const d = String(n.dataEmissao || '').slice(0,10);
+      return d && d >= r.de && d <= r.ate;
+    });
+  }catch(_){}
   const q = (document.getElementById('nf-search') || {}).value || '';
   if(q){
     const ql = q.toLowerCase();
@@ -134764,6 +134788,7 @@ function nfRenderList(){
   body.innerHTML = '';
   notas.forEach(n => {
     const tr = document.createElement('tr');
+    tr.setAttribute('data-nf-id', n.id);
     tr.onclick = (e) => {
       if(e.target.closest('.nf-row-actions')) return;
       nfOpenView(n.id);
@@ -134794,6 +134819,111 @@ function nfRenderList(){
     body.appendChild(tr);
   });
 }
+
+/* BAIXAR — duas coisas diferentes, e misturar as duas confunde.
+
+   "As notas" é o que o contador pede: os arquivos do período filtrado.
+   "Backup" é o seguro: tudo que o módulo guarda, num arquivo que volta.
+   Separar deixa claro que um não substitui o outro. */
+function nfNotasFiltradas(){
+  const body = document.getElementById('nf-list-body');
+  if(!body) return NF.notas.slice();
+  const ids = Array.from(body.querySelectorAll('tr[data-nf-id]'))
+                   .map(tr => parseInt(tr.getAttribute('data-nf-id'), 10));
+  return NF.notas.filter(n => ids.indexOf(n.id) >= 0);
+}
+function _nfDl(nome, conteudo, mime){
+  try{
+    const blob = (conteudo instanceof Blob) ? conteudo : new Blob([conteudo], { type: mime || 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = nome; document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 400);
+  }catch(e){ console.warn('[FK] download:', e && e.message); }
+}
+function nfBaixarMenu(ev){
+  ev.preventDefault(); ev.stopPropagation();
+  if(typeof _extCloseAllMenus === 'function') _extCloseAllMenus();
+  const lista = nfNotasFiltradas();
+  const comPdf = lista.filter(n => n.pdfUrl && String(n.pdfUrl).startsWith('data:')).length;
+  const r = ev.currentTarget.getBoundingClientRect();
+  const LARG = 272;
+  const m = document.createElement('div');
+  m.className = 'ext-pop-menu'; m.id = 'ext-pop-menu-active';
+  m.style.minWidth = LARG + 'px';
+  m.style.top = (r.bottom + 5) + 'px';
+  m.style.left = Math.max(8, Math.min(r.left, innerWidth - LARG - 8)) + 'px';
+  m.innerHTML =
+      '<button class="ext-pop-item" onclick="_extCloseAllMenus();nfBaixarPlanilha()">'
+    +   '<span>Planilha do período'
+    +   '<small>' + lista.length + (lista.length === 1 ? ' nota · CSV' : ' notas · CSV') + '</small></span></button>'
+    + '<button class="ext-pop-item"' + (comPdf ? '' : ' disabled')
+    +   ' onclick="_extCloseAllMenus();nfBaixarPdfs()">'
+    +   '<span>PDFs das notas'
+    +   '<small>' + (comPdf ? comPdf + ' arquivo(s) disponível(is)' : 'nenhuma nota tem PDF ainda') + '</small></span></button>'
+    + '<button class="ext-pop-item" onclick="_extCloseAllMenus();nfBackup()">'
+    +   '<span>Backup completo'
+    +   '<small>todas as ' + NF.notas.length + ' notas + configuração · JSON</small></span></button>';
+  document.body.appendChild(m);
+  setTimeout(() => document.addEventListener('click', _extCloseAllMenus, { once:true }), 0);
+}
+function nfBaixarPlanilha(){
+  const lista = nfNotasFiltradas();
+  if(!lista.length){ if(typeof showToast === 'function') showToast('Nenhuma nota no período', 'warn'); return; }
+  const esc = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const num = v => String((Number(v) || 0).toFixed(2)).replace('.', ',');
+  const ST = { aut:'Autorizada', pend:'Aguardando', canc:'Cancelada', rej:'Rejeitada' };
+  const L = [['Número','Série','Status','Emissão','Competência','Tomador','CNPJ/CPF/NIF','Descrição','Valor','Chave de acesso']
+             .map(esc).join(';')];
+  for(const n of lista){
+    L.push([ n.numero || '', n.serie || '', ST[n.status] || n.status || '',
+             _nfData(n.dataEmissao), _nfData(n.competencia || n.dataEmissao),
+             n.cliente || '', n.cnpj || '', n.descricao || '',
+             num(n.valor), n.chaveAcesso || '' ].map(esc).join(';'));
+  }
+  const rot = (typeof fkPerRotulo === 'function') ? fkPerRotulo('nf') : '';
+  _nfDl('notas-fiscais' + (rot ? '-' + rot.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') : '') + '.csv',
+        '\ufeff' + L.join('\r\n'), 'text/csv;charset=utf-8');
+  if(typeof showToast === 'function') showToast(lista.length + ' nota(s) na planilha', 'ok');
+}
+function nfBaixarPdfs(){
+  const lista = nfNotasFiltradas().filter(n => n.pdfUrl && String(n.pdfUrl).startsWith('data:'));
+  if(!lista.length){ if(typeof showToast === 'function') showToast('Nenhuma nota com PDF', 'warn'); return; }
+  /* Um a um, espaçados: disparar vinte downloads no mesmo instante faz o
+     navegador bloquear quase todos sem avisar. */
+  lista.forEach((n, i) => setTimeout(() => {
+    _nfDl('NFS-e-' + (n.numero || n.id) + '.pdf', _nfDataUrlParaBlob(n.pdfUrl));
+  }, i * 350));
+  if(typeof showToast === 'function') showToast('Baixando ' + lista.length + ' PDF(s)...', 'ok');
+}
+function _nfDataUrlParaBlob(dataUrl){
+  try{
+    const [cab, b64] = String(dataUrl).split(',');
+    const mime = (cab.match(/data:([^;]+)/) || [])[1] || 'application/pdf';
+    const bin = atob(b64 || '');
+    const arr = new Uint8Array(bin.length);
+    for(let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  }catch(_){ return new Blob([''], { type:'application/pdf' }); }
+}
+function nfBackup(){
+  const pacote = {
+    formato: 'forekash-notas-fiscais',
+    versao: 1,
+    geradoEm: new Date().toISOString(),
+    empresa: (function(){ const e = _nfEmpresaAtiva(); return e ? { nome:e.razao || e.nome, cnpj:e.cnpj } : null; })(),
+    /* A senha do certificado NÃO vai no backup: o arquivo acaba no e-mail,
+       no Drive, no WhatsApp do contador. */
+    cfg: Object.assign({}, NF.cfg, { certA1Pwd: undefined, nfeIoApiKey: undefined }),
+    notas: NF.notas
+  };
+  _nfDl('forekash-notas-backup-' + new Date().toISOString().slice(0,10) + '.json',
+        JSON.stringify(pacote, null, 1), 'application/json');
+  if(typeof showToast === 'function') showToast('Backup de ' + NF.notas.length + ' nota(s) baixado', 'ok');
+}
+try{ window.nfBaixarMenu = nfBaixarMenu; window.nfBaixarPlanilha = nfBaixarPlanilha;
+     window.nfBaixarPdfs = nfBaixarPdfs; window.nfBackup = nfBackup;
+     window.nfNotasFiltradas = nfNotasFiltradas; }catch(e){}
 
 function nfSetFilter(f, btn){
   NF.filter = f;
@@ -135045,8 +135175,34 @@ function nfOpenConfig(){
   nfRenderConfigForm();
   document.getElementById('nf-modal-config').classList.add('open');
 }
+/* OS PADRÕES SAEM DO CADASTRO DA EMPRESA.
+
+   O formulário trazia "São Paulo", "6201-5/01" e "5,00" como exemplo — para
+   uma empresa de Florianópolis com ISS de 2%. Exemplo que parece valor
+   preenchido é pior que campo vazio: quem confia emite errado.
+
+   Município, UF, código IBGE e CNAE já vêm da Receita quando o CNPJ é
+   consultado no cadastro da empresa. Aqui eles são só herdados. */
+function _nfEmpresaAtiva(){
+  try{
+    if((typeof EMPRESAS === 'undefined' || !EMPRESAS || !(EMPRESAS.list || []).length)
+       && typeof empLoad === 'function') empLoad();
+    if(typeof EMPRESAS === 'undefined' || !EMPRESAS || !Array.isArray(EMPRESAS.list)) return null;
+    return EMPRESAS.list.find(e => e && e.id === EMPRESAS.currentId) || EMPRESAS.list[0] || null;
+  }catch(_){ return null; }
+}
+function _nfMunicipioPadrao(){
+  const e = _nfEmpresaAtiva();
+  if(!e) return '';
+  return [e.municipio, e.uf].filter(Boolean).join('/');
+}
+try{ window._nfEmpresaAtiva = _nfEmpresaAtiva; window._nfMunicipioPadrao = _nfMunicipioPadrao; }catch(e){}
+
 function nfRenderConfigForm(){
   const cfg = NF.cfg;
+  const _emp = _nfEmpresaAtiva();
+  const munPadrao = _nfMunicipioPadrao();
+  const cnaePadrao = (_emp && _emp.cnae) || '';
   let html =
     '<div class="nf-field"><label>Modo de operação</label>' +
       '<div class="nf-cfg-mode">' +
@@ -135073,23 +135229,27 @@ function nfRenderConfigForm(){
       '<input type="text" id="nf-cfg-im" value="' + _nfEsc(cfg.inscricaoMunicipal || '') + '" placeholder="Ex: 4714954"></div>' +
     '<div class="nf-field-row">' +
       '<div class="nf-field"><label>CNAE principal</label>' +
-        '<input type="text" id="nf-cfg-cnae" value="' + _nfEsc(cfg.cnae || '') + '" placeholder="6201-5/01"></div>' +
+        '<input type="text" id="nf-cfg-cnae" value="' + _nfEsc(cfg.cnae || cnaePadrao) + '"'
+        + ' placeholder="' + (cnaePadrao ? _nfEsc(cnaePadrao) + ' (do cadastro)' : 'informe no cadastro da empresa') + '"></div>' +
       '<div class="nf-field"><label>Item LC 116 (default)</label>' +
         '<input type="text" id="nf-cfg-item" value="' + _nfEsc(cfg.itemListaServico || '01.05') + '" placeholder="01.05"></div>' +
     '</div>' +
     '<div class="nf-field-row">' +
+      /* Sem padrão inventado: 5% é só o teto da LC 116, não a alíquota de
+         ninguém. Vazio obriga a olhar — e o certo vem dos parâmetros do
+         município, que a API nacional devolve. */
       '<div class="nf-field"><label>Alíquota ISS (%)</label>' +
-        '<input type="number" id="nf-cfg-iss" value="' + (cfg.aliquotaISS || 5) + '" step="0.01"></div>' +
+        '<input type="number" id="nf-cfg-iss" value="' + (cfg.aliquotaISS != null ? cfg.aliquotaISS : '') + '" step="0.01" placeholder="conforme o município"></div>' +
       '<div class="nf-field"><label>Município de emissão</label>' +
-        '<input type="text" id="nf-cfg-mun" value="' + _nfEsc(cfg.municipioEmissao || '') + '"></div>' +
+        '<input type="text" id="nf-cfg-mun" value="' + _nfEsc(cfg.municipioEmissao || munPadrao) + '"'
+        + ' placeholder="' + (munPadrao ? _nfEsc(munPadrao) + ' (do cadastro)' : 'informe no cadastro da empresa') + '"></div>' +
     '</div>' +
-    '<div class="nf-field">' +
-      '<label style="display:flex;align-items:center;gap:7px;cursor:pointer;text-transform:none;font-weight:600;color:#0F172A;font-size:.84rem">' +
-        '<input type="checkbox" id="nf-cfg-auto" ' + (cfg.autoEmitOnPayment ? 'checked' : '') + '>' +
-        'Emitir NFS-e automaticamente quando Asaas confirmar pagamento' +
-      '</label>' +
-    '</div>' +
-    '<div class="nf-cfg-warn"><b>⚠ Atenção:</b> emissão em PRODUÇÃO exige certificado A1 válido, inscrição municipal ativa e CNAE compatível. O modo DEMO simula tudo sem custo e sem cobrar quota real. SANDBOX usa contas-teste do NFE.io.</div>';
+
+    (_emp
+      ? '<div class="nf-cfg-herda">Município, UF e CNAE vêm do cadastro de <b>' + _nfEsc(_emp.razao || _emp.nome || 'sua empresa')
+        + '</b>' + (_emp.ibge ? ' · IBGE ' + _nfEsc(_emp.ibge) : ' · <b>sem código IBGE</b> — consulte o CNPJ no cadastro da empresa pra preencher') + '.</div>'
+      : '<div class="nf-cfg-herda">Nenhuma empresa cadastrada: cadastre o CNPJ primeiro e os dados fiscais vêm da Receita.</div>') +
+    '<div class="nf-cfg-warn"><b>Atenção:</b> emissão em PRODUÇÃO exige certificado A1 válido e inscrição municipal ativa. O modo DEMO simula tudo sem custo.</div>';
   document.getElementById('nf-modal-config-body').innerHTML = html;
 }
 function nfCfgPickMode(m){ NF.cfg.mode = m; nfRenderConfigForm(); }
@@ -135103,7 +135263,7 @@ function nfSaveConfig(){
   NF.cfg.itemListaServico = (document.getElementById('nf-cfg-item').value || '01.05').trim();
   NF.cfg.aliquotaISS = Number(document.getElementById('nf-cfg-iss').value) || 5;
   NF.cfg.municipioEmissao = (document.getElementById('nf-cfg-mun').value || '').trim();
-  NF.cfg.autoEmitOnPayment = document.getElementById('nf-cfg-auto').checked;
+
   // Cert A1 upload
   const certInput = document.getElementById('nf-cfg-cert');
   if(certInput && certInput.files && certInput.files[0]){
@@ -155719,6 +155879,25 @@ async function empLookupCNPJ(){
     // Inferir regime se houver opção tributária
     if(data.opcao_pelo_simples) EMP_MODAL_DRAFT.regime = 'simples';
     else if(data.opcao_pelo_mei) EMP_MODAL_DRAFT.regime = 'mei';
+    /* ENDEREÇO VINHA E ERA JOGADO FORA.
+
+       A Receita devolve município, UF, código IBGE, CEP e CNAE nessa mesma
+       resposta, e o código só aproveitava razão social e segmento. Depois o
+       módulo de Notas Fiscais pedia o município de novo, com "São Paulo" de
+       exemplo — para uma empresa de Florianópolis.
+
+       O código IBGE importa mais do que parece: é ele que a DPS exige em
+       `cMunIncid` e no local da prestação. Digitado à mão vira erro de
+       validação na Receita; aqui ele vem pronto. */
+    EMP_MODAL_DRAFT.municipio  = data.municipio  || EMP_MODAL_DRAFT.municipio  || '';
+    EMP_MODAL_DRAFT.uf         = data.uf         || EMP_MODAL_DRAFT.uf         || '';
+    EMP_MODAL_DRAFT.ibge       = String(data.codigo_municipio_ibge || data.codigo_municipio || EMP_MODAL_DRAFT.ibge || '');
+    EMP_MODAL_DRAFT.cep        = data.cep        || EMP_MODAL_DRAFT.cep        || '';
+    EMP_MODAL_DRAFT.logradouro = [data.descricao_tipo_de_logradouro, data.logradouro].filter(Boolean).join(' ').trim() || EMP_MODAL_DRAFT.logradouro || '';
+    EMP_MODAL_DRAFT.numero     = data.numero     || EMP_MODAL_DRAFT.numero     || '';
+    EMP_MODAL_DRAFT.complemento= data.complemento|| EMP_MODAL_DRAFT.complemento|| '';
+    EMP_MODAL_DRAFT.bairro     = data.bairro     || EMP_MODAL_DRAFT.bairro     || '';
+    EMP_MODAL_DRAFT.cnae       = String(data.cnae_fiscal || EMP_MODAL_DRAFT.cnae || '');
     empRenderModalForm();
     if(typeof showToast === 'function') showToast('✓ Dados preenchidos pela Receita Federal', 'ok');
   }catch(e){
