@@ -113,7 +113,17 @@ function montaDPS(d){
   /* finNFSe sobe pra cá: o XSD publicado (v1.01, 09/02/2026) coloca dentro
      de IBSCBS, mas o servidor exige logo depois de tpEmit. Quem manda é a
      API — o esquema em produção está à frente do publicado. */
-  +   el('tpEmit', '1') + el('finNFSe','0') + el('cLocEmi', d.cLocEmi)
+  /* finNFSe NÃO MORA AQUI.
+
+     Depois de tpEmit o schema só aceita cMotivoEmisTI, chNFSeRej ou
+     cLocEmi — a própria rejeição E1235 da produção lista os três. O
+     finNFSe pertence ao grupo IBSCBS, junto com indFinal, e é lá que as
+     duas NFS-e autorizadas pelo portal o colocam.
+
+     Isso passou despercebido porque a produção restrita aceitava das duas
+     formas. O ambiente de teste ser mais permissivo que o de produção é o
+     pior tipo de diferença: ela esconde o erro até a hora que importa. */
+  +   el('tpEmit', '1') + el('cLocEmi', d.cLocEmi)
   +   '<prest>' + _docEl(d.prest.CNPJ || d.prest.CPF) + el('IM', d.prest.IM)
   +     '<regTrib>' + el('opSimpNac', d.prest.opSimpNac) + el('regEspTrib','0') + '</regTrib>'
   +   '</prest>'
@@ -136,7 +146,13 @@ function montaDPS(d){
   +   '</toma>'
   +   '<serv>'
   +     '<locPrest>' + el('cLocPrestacao', d.cLocPrestacao) + '</locPrest>'
-  +     '<cServ>' + el('cTribNac', d.cTribNac) + el('cNBS', d.cNBS) + el('xDescServ', d.xDescServ) + '</cServ>'
+  /* ORDEM DENTRO DE cServ: cTribNac → cTribMun → xDescServ → cNBS.
+     A rejeição lista o que ela esperava depois de cTribNac — "cTribMun,
+     xDescServ" — e as duas notas autorizadas confirmam: o cNBS vem por
+     último, depois da descrição. Mais uma que a produção restrita deixava
+     passar fora de ordem. */
+  +     '<cServ>' + el('cTribNac', d.cTribNac) + el('cTribMun', d.cTribMun)
+            + el('xDescServ', d.xDescServ) + el('cNBS', d.cNBS) + '</cServ>'
   /* GRUPO DE COMÉRCIO EXTERIOR — obrigatório na exportação.
 
      Não é opinião: o Anexo VI da NFS-e Nacional traz a matriz de cenários
@@ -203,9 +219,12 @@ function montaDPS(d){
      STRV na República Tcheca, mandam as duas `indDest = 0` e nenhum
      <dest>. O destinatário É o adquirente; o que estava faltando na
      exportação era o comExt lá em cima, não um destinatário diferente. */
+  +     el('finNFSe', '0') + el('indFinal', '0')
   +     el('cIndOp', d.cIndOp) + el('indDest', '0')
-  +     '<valores><trib>' + el('CST', d.CST) + el('cClassTrib', d.cClassTrib)
-  +     '</trib></valores>'
+  /* CST e cClassTrib vão dentro de gIBSCBS, como nas duas notas
+     autorizadas. Sem o grupo, a produção recusa pelo mesmo motivo. */
+  +     '<valores><trib><gIBSCBS>' + el('CST', d.CST) + el('cClassTrib', d.cClassTrib)
+  +     '</gIBSCBS></trib></valores>'
   +   '</IBSCBS>'
   + '</infDPS></DPS>';
   return { xml, Id };

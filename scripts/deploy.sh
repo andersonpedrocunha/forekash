@@ -16,6 +16,11 @@ MSG="${1:-}"
 # batido no validador do bump.
 node scripts/check-funcoes.js || { echo "abortado: código engolido por comentário"; exit 1; }
 
+# O montador da DPS concatena linha a linha com `+`. Uma continuação que
+# também comece com `+` vira mais-unário e produz NaN dentro do XML — sem
+# erro de sintaxe, e a Receita recusa com uma mensagem que não aponta a causa.
+node scripts/check-nan.js || { echo "abortado: NaN escondido na DPS"; exit 1; }
+
 ./scripts/bump.sh
 VER="$(cat version.txt)"
 
