@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794344494"/>
+  <meta name="fk-build" content="forekash-v1794344789"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -849,8 +849,9 @@
     .nf-head-l{flex:1;min-width:0}
     .nf-title{margin:0;font-size:1.55rem;font-weight:900;color:#0F172A;letter-spacing:-.015em;display:flex;align-items:center;gap:10px}
     .nf-badge-status{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;background:#FEF3C7;color:#92400E;font-size:.66rem;font-weight:800;letter-spacing:.06em;border-radius:7px;border:1px solid #FDE68A;font-family:'JetBrains Mono',monospace}
-    .nf-badge-status.sandbox{background:#DBEAFE;color:#1E40AF;border-color:#BFDBFE}
-    .nf-badge-status.production{background:#D1FAE5;color:#065F46;border-color:#A7F3D0}
+    /* As cores seguiam os nomes antigos do modo e nunca pegavam. */
+    .nf-badge-status.restrita{background:#DBEAFE;color:#1E40AF;border-color:#BFDBFE}
+    .nf-badge-status.producao{background:#D1FAE5;color:#065F46;border-color:#A7F3D0}
     .nf-sub{margin:6px 0 0;color:#64748B;font-size:.84rem;line-height:1.55;max-width:760px}
     .nf-head-r{display:flex;gap:8px;flex-wrap:wrap}
     .nf-btn-new{background:linear-gradient(135deg,#0EA5E9 0%,#0284C7 100%);color:#fff;border:none;padding:10px 18px;font-weight:700;border-radius:9px}
@@ -135064,7 +135065,13 @@ function nfRender(){
   if(modeBadge){
     const m = NF.cfg.mode || 'demo';
     modeBadge.className = 'nf-badge-status ' + m;
-    modeBadge.textContent = m === 'production' ? 'PRODUÇÃO' : m === 'sandbox' ? 'SANDBOX' : 'DEMO';
+    /* Os modos são 'demo', 'restrita' e 'producao'. O selo testava
+       'production' e 'sandbox' — nomes de uma versão anterior — então
+       dizia DEMO enquanto o módulo emitia nota fiscal válida. Um rótulo
+       que mente sobre o ambiente é pior que nenhum: é por ele que se
+       decide se pode experimentar. */
+    modeBadge.textContent = m === 'producao' ? 'PRODUÇÃO'
+                          : m === 'restrita' ? 'PRODUÇÃO RESTRITA' : 'DEMO';
   }
 
   // KPIs
@@ -138381,7 +138388,9 @@ function nfRenderConfigForm(){
       ? '<div class="nf-cfg-herda">Município, UF e CNAE vêm do cadastro de <b>' + _nfEsc(_emp.razao || _emp.nome || 'sua empresa')
         + '</b>' + (_emp.ibge ? ' · IBGE ' + _nfEsc(_emp.ibge) : ' · <b>sem código IBGE</b> — consulte o CNPJ no cadastro da empresa pra preencher') + '.</div>'
       : '<div class="nf-cfg-herda">Nenhuma empresa cadastrada: cadastre o CNPJ primeiro e os dados fiscais vêm da Receita.</div>') +
-    '<div class="nf-cfg-warn"><b>Atenção:</b> emissão em PRODUÇÃO exige certificado A1 válido e inscrição municipal ativa. O modo DEMO simula tudo sem custo.</div>';
+    '<div class="nf-cfg-warn"><b>Atenção:</b> em PRODUÇÃO a nota é real e vale juridicamente — '
+    + 'desfazer significa cancelar junto à Receita. <b>Produção restrita</b> é o ambiente de teste dela, '
+    + 'com série própria. <b>Demo</b> não sai daqui.</div>';
   document.getElementById('nf-modal-config-body').innerHTML = html;
   try{ _nfCfgEmailStatus(); }catch(_){}
 }
