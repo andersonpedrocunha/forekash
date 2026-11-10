@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794287454"/>
+  <meta name="fk-build" content="forekash-v1794287871"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -135615,11 +135615,41 @@ function nfServNovo(){
   });
   nfServSave(); nfServModal();
 }
+/* REMOVER SERVIÇO PERGUNTA ANTES.
+
+   Um clique apagava cinco códigos fiscais que levaram tempo pra levantar,
+   sem volta. E o botão fica na mesma linha dos campos que se edita o tempo
+   todo — errar a mira é fácil.
+
+   O aviso diz o que se perde, pelo nome, e avisa quando é o serviço padrão:
+   nesse caso a próxima emissão passa a abrir com outro. */
 function nfServRemover(id){
   nfServLoad();
-  NF_SERVICOS.list = NF_SERVICOS.list.filter(x => x && x.id !== id);
-  if(NF_SERVICOS.list.length && !NF_SERVICOS.list.some(x => x.padrao)) NF_SERVICOS.list[0].padrao = true;
-  nfServSave(); nfServModal();
+  const sv = NF_SERVICOS.list.find(x => x && x.id === id);
+  if(!sv) return;
+  const nome = String(sv.nome || '').trim() || 'este serviço';
+  const cods = ['cTribNac','cNBS','cIndOp','CST','cClassTrib'].filter(k => sv[k]).length;
+  const outro = NF_SERVICOS.list.find(x => x && x.id !== id);
+  const apaga = () => {
+    nfServLoad();
+    NF_SERVICOS.list = NF_SERVICOS.list.filter(x => x && x.id !== id);
+    if(NF_SERVICOS.list.length && !NF_SERVICOS.list.some(x => x.padrao)) NF_SERVICOS.list[0].padrao = true;
+    nfServSave(); nfServModal();
+    if(typeof toast === 'function') toast('Serviço removido');
+  };
+  if(typeof anaConfirm !== 'function') return apaga();
+  anaConfirm({
+    eyebrow: 'Serviços',
+    title: 'Remover ' + nome + '?',
+    message: (cods ? 'Os <b>' + cods + ' código(s) fiscais</b> dele se perdem, e não há como desfazer.'
+                   : 'Não há como desfazer.')
+      + (sv.padrao && outro
+         ? '<br><br>Era o serviço <b>padrão</b> — as próximas notas vão abrir com <b>'
+           + _nfEsc(String(outro.nome || '').trim() || 'outro serviço') + '</b>.'
+         : '')
+      + (!outro ? '<br><br>É o único cadastrado. Sem nenhum, cada nota volta a pedir os códigos um por um.' : ''),
+    okText: 'Remover', cancelText: 'Cancelar', danger: true
+  }, apaga);
 }
 function nfServFechar(){
   document.getElementById('nf-serv-ov')?.remove();
