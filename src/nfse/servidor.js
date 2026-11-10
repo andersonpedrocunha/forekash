@@ -13,6 +13,7 @@
 const http = require('http');
 const { montaDPS, assina, envia } = require('./dps.js');
 const { guardar, abrir, paraPem } = require('./cofre.js');
+const correio = require('./email.js');
 
 const PORTA = process.env.PORT || 8080;
 const TOKEN = process.env.FK_NFSE_TOKEN || '';
@@ -84,7 +85,33 @@ const rotas = {
     }, b.ambiente === 'producao');
   },
 
-  'GET /saude': async (_req, res) => json(res, 200, { ok: true, servico: 'forekash-nfse' }),
+  /* Manda a nota para o tomador. O PDF e o XML vêm prontos do app — o
+     DANFSe é desenhado lá, e gerar de novo aqui seria ter dois leiautes.
+
+     Limite de 8 MB no corpo (vem de `corpo()`): um DANFSe passa longe
+     disso, e o teto evita virar repetidor de anexo de qualquer tamanho. */
+  'POST /email': async (req, res) => {
+    const b = await corpo(req);
+    if(!b.para) return json(res, 400, { erro: 'destinatário obrigatório' });
+    if(!correio.configurado())
+      return json(res, 503, { erro: 'o serviço não tem remetente configurado (FK_SMTP_*)' });
+    try{
+      const r = await correio.enviar(b);
+      return json(res, 200, Object.assign({ ok: true, enviadoEm: new Date().toISOString() }, r));
+    }catch(e){
+      return json(res, 502, { erro: 'envio: ' + e.message });
+    }
+  },
+
+  /* Diz se o envio está de pé SEM mandar mensagem: conecta e autentica.
+     O app usa isso para não prometer na tela o que o serviço não faz. */
+  'GET /email/teste': async (_req, res) => json(res, 200, await correio.testar()),
+
+  /* A saúde também conta se há remetente — é o que deixa a tela honesta. */
+  'GET /saude': async (_req, res) => json(res, 200, {
+    ok: true, servico: 'forekash-nfse',
+    email: correio.configurado(), remetente: correio.configurado() ? correio.remetente() : null,
+  }),
 };
 
 http.createServer(async (req, res) => {

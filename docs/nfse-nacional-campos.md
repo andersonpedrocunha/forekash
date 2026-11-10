@@ -604,3 +604,122 @@ gasto não volta, fica buraco na sequência. Agora há `serieDpsTeste` /
 `proxDpsTeste`, usados só quando o ambiente é `restrita`, com padrão série 901
 a partir do 1. O portal faz o mesmo: emite as dele em série 70000 e deixa a 900
 para quem emite de fora.
+
+## 16. O PDF como arquivo, e o envio para o tomador
+
+### Por que o DANFSe virou PDF de verdade
+
+A pré-visualização em HTML resolvia olhar, não anexar: o navegador só
+transforma HTML em PDF quando alguém clica em "Salvar como PDF", e e-mail
+automático não espera clique. Então o DANFSe passou a ter um gerador de PDF
+próprio, escrito à mão.
+
+Sem biblioteca: o DANFSe é uma grade de retângulos e textos curtos, que é
+exatamente o que o formato PDF faz nativamente. Sai **vetorial** — o texto
+continua texto, selecionável e pesquisável, e o `pdftotext` lê a nota inteira.
+O QR também é vetor. A logomarca oficial é embutida sem recodificar: o PDF
+aceita o fluxo do PNG como está, com `/Predictor 15`, que é o mesmo esquema de
+filtro por linha que o PNG usa.
+
+Sobre a fonte: a NT pede Arial nos rótulos e Microsoft Sans Serif no conteúdo.
+Nenhuma das duas pode ser embutida sem licença, e as duas são metricamente
+equivalentes à Helvetica, uma das 14 fontes que todo leitor de PDF tem.
+
+### Um modelo, dois desenhistas
+
+O leiaute morava dentro do gerador de HTML. Com um segundo formato, duas
+descrições do mesmo leiaute divergiriam na primeira alteração. Agora
+`_danfseModelo(xml, mun)` lê o XML e devolve o documento como **dados** —
+blocos, linhas, células — e `_danfseParaHtml` e `_danfsePdf` leem esses dados.
+O que a NT fixa mora num lugar só.
+
+### Verificação
+
+- `pdfinfo`: 1 página, 595,28 × 841,89 pt (A4)
+- `pdftotext -layout`: o conteúdo sai como texto, bloco por bloco
+- QR lido do PDF renderizado a 300 dpi pelo OpenCV: devolve exatamente
+  `https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave=` + a chave
+
+Um erro apareceu e vale registrar: eu descontava a altura da fonte ao
+posicionar cada texto, tratando a coordenada como topo quando o PDF a trata
+como linha de base. O efeito era a régua da grade passar por cima de cada
+valor — um documento inteiro riscado.
+
+### O envio
+
+O Emissor Nacional não avisa o tomador; a entrega é de quem emite. O envio vai
+por SMTP **no serviço**, não no navegador, pelo mesmo motivo da assinatura: a
+credencial não pode passar pelo cliente.
+
+- `src/nfse/email.js` — monta e envia (nodemailer, sem subdependências)
+- `POST /email` — recebe destinatário, assunto, corpo e anexos prontos
+- `GET /email/teste` — conecta e autentica sem mandar nada
+- `GET /saude` — passou a dizer se há remetente, para a tela não prometer o
+  que o serviço não faz
+
+Configuração, no `.env` do serviço: `FK_SMTP_HOST`, `FK_SMTP_PORT`,
+`FK_SMTP_USER`, `FK_SMTP_PASS`, `FK_SMTP_FROM` e `FK_SMTP_NOME`.
+
+O PDF e o XML são montados no navegador e sobem em base64 — gerar o DANFSe de
+novo no servidor seria, outra vez, ter dois leiautes. O `replyTo` é o e-mail da
+empresa emitente: quem recebe responde para quem emitiu, não para o serviço.
+
+Na nota ficam `emailEnviadoEm`, `emailPara` e `emailErro`. O erro **não some da
+tela** — é por ele que se descobre que o cliente nunca recebeu.
+
+## 17. Pessoa física, e o endereço que não tinha onde ser digitado
+
+A NFS-e 80, emitida para um CPF, fechou três lacunas de uma vez.
+
+### O endereço é exigido também para CPF
+
+A nota 80 traz o tomador pessoa física com município, código IBGE (3144805),
+CEP, logradouro, número e bairro — tudo. Não há exceção para CPF.
+
+E não havia onde digitar isso: a ficha do cliente guardava nome e documento.
+Para CNPJ dava para puxar da Receita; para CPF não existe consulta pública,
+então a emissão simplesmente parava.
+
+Agora a ficha tem uma seção **Endereço**, nos três tipos:
+
+| tipo | campos |
+|---|---|
+| PJ e PF | CEP (com busca), código IBGE, logradouro, número, complemento, bairro, município, UF |
+| Estrangeiro | cidade, estado/província, país, código postal, logradouro, número |
+
+A busca por CEP usa o **ViaCEP**, que devolve o código IBGE do município junto —
+é o campo que ninguém sabe de cor e o que a DPS exige. Conferido com o CEP da
+nota 80: devolve Rua Major Felizardo, Bonfim, Nova Lima/MG, IBGE 3144805,
+exatamente o que está na nota.
+
+E o `lookupCNPJ` passou a aproveitar o endereço que a BrasilAPI já devolvia e
+era descartado — depois a emissão parava pedindo campos que já tinham chegado.
+O que o usuário digitou prevalece: só preenche o que está vazio.
+
+### CPF e CNPJ são elementos diferentes
+
+O código montava sempre `<CNPJ>`, inclusive com 11 dígitos. Teria sido recusado
+na validação do schema. Agora `_docEl()` escolhe pelo número de dígitos — 11 vira
+`<CPF>`, 14 vira `<CNPJ>` — e isso vale para o prestador também, que pode ser
+autônomo em outra empresa que use o Forekash.
+
+### Pessoa física não retém
+
+A retenção de IRRF, PIS, COFINS e CSLL na fonte é obrigação de quem paga, e só
+quando quem paga é pessoa jurídica. Os percentuais ficam no cadastro do serviço
+porque valem para a maioria das notas, mas quem decide se incidem é o tomador
+daquela nota.
+
+A nota 80 confirma: as quatro retenções zeradas e "PIS/COFINS/CSLL Não Retidos".
+Importante — **sem retenção não é sem bloco**: o `<tribFed>` continua, com
+`tpRetPisCofins = 0` declarado. Ausência de declaração é outra coisa.
+
+### A lista de pendências mentia
+
+"Falta para emitir" era calculada a partir de `NF_DRAFT`, que só era preenchido
+no instante de emitir. A tela pedia valor, descrição, nome e documento do
+tomador com os quatro preenchidos na frente do usuário.
+
+Agora `_nfDraftDaTela()` lê os campos antes de calcular, e os campos avisam
+quando mudam. Um aviso que mente sobre o que está na tela é pior que aviso
+nenhum: ensina a ignorar a lista inteira — inclusive os itens verdadeiros.

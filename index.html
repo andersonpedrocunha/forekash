@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794329095"/>
+  <meta name="fk-build" content="forekash-v1794340332"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1037,6 +1037,11 @@
       color:#92400E;margin-bottom:6px}
     .nf-pend ul{margin:0;padding-left:18px}
     .nf-pend li{font-size:.76rem;color:#92400E;line-height:1.55}
+    .clidet-end-sel{font-size:.6rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+                    padding:3px 8px;border-radius:999px}
+    .clidet-end-sel.ok{background:#D1FAE5;color:#047857}
+    .clidet-end-sel.falta{background:#FEF3C7;color:#92400E}
+    .nf-pend-nota{margin-top:8px;font-size:.73rem;color:#92400E;line-height:1.5;opacity:.9}
     .nf-pend button{margin-top:9px;padding:7px 14px;border-radius:7px;border:1px solid #FDE68A;
       background:#fff;color:#92400E;font-family:inherit;font-size:.74rem;font-weight:600;cursor:pointer}
     .nf-pend button:hover{background:#FFFBEB}
@@ -37544,6 +37549,19 @@ async function lookupCNPJ(cid, opts){
     }
     c.razaoSocial = razao;
     c.cnpj = fmtCNPJ(cnpjDigits);
+    /* A Receita devolve o endereço junto com a razão social, e ele estava
+       sendo jogado fora — depois a emissão parava pedindo os mesmos campos
+       que já tinham chegado. O que o usuário digitou prevalece: só
+       preenche o que está vazio. */
+    const endRF = {
+      logradouro: [dados.descricao_tipo_de_logradouro, dados.logradouro].filter(Boolean).join(' ').trim(),
+      numero: dados.numero || '', complemento: dados.complemento || '',
+      bairro: dados.bairro || '', cidade: dados.municipio || '', uf: dados.uf || '',
+      cep: String(dados.cep || '').replace(/\D/g, ''),
+      ibge: String(dados.codigo_municipio_ibge || dados.codigo_municipio || ''),
+    };
+    c.endereco = Object.assign({}, c.endereco || {});
+    for(const k in endRF) if(endRF[k] && !c.endereco[k]) c.endereco[k] = endRF[k];
     _cliGuardaSlot(c);
     _cnpjLookupState[cid] = 'ok';
     receitaSave();
@@ -37721,6 +37739,135 @@ function ativoHintTxt(c, ativo){
     : 'Permanece no histórico, visualmente amortecido nas planilhas.';
 }
 
+
+/* ══════════════════════════════════════════════════════════════════
+   ENDEREÇO DO CLIENTE — exigido pela NFS-e
+
+   A ficha guardava nome e documento. A DPS exige, para tomador no
+   Brasil, município com código IBGE, CEP, logradouro, número e bairro —
+   e exige também quando o tomador é pessoa física. Não havia onde
+   digitar isso: para CNPJ dava pra puxar da Receita, mas para CPF não
+   existe consulta pública, então a nota simplesmente não saía.
+
+   O CEP resolve quase tudo: o ViaCEP devolve logradouro, bairro, cidade,
+   UF e — o que importa aqui — o código IBGE do município, que é o campo
+   que ninguém sabe de cor.
+   ══════════════════════════════════════════════════════════════════ */
+
+function setClienteEndereco(cid, campo, val){
+  const c = (receita.clientes || []).find(x => x.id === cid);
+  if(!c) return;
+  const ok = ['logradouro','numero','complemento','bairro','cidade','uf','cep','ibge',
+              'pais','estado','codPostal','email','telefone'];
+  if(ok.indexOf(campo) === -1) return;
+  c.endereco = Object.assign({}, c.endereco || {});
+  c.endereco[campo] = (val == null ? '' : String(val).trim());
+  receitaSave();
+  if(clidetCtx && clidetCtx.cid === cid) renderClidet();
+}
+try{ window.setClienteEndereco = setClienteEndereco; }catch(e){}
+
+const _CLI_CEP_ESTADO = {};
+async function buscarCepCliente(cid){
+  const c = (receita.clientes || []).find(x => x.id === cid);
+  if(!c) return;
+  const cep = String((c.endereco || {}).cep || '').replace(/\D/g, '');
+  if(cep.length !== 8){
+    if(typeof toast === 'function') toast('⚠ CEP precisa ter 8 dígitos');
+    return;
+  }
+  _CLI_CEP_ESTADO[cid] = 'loading';
+  if(clidetCtx && clidetCtx.cid === cid) renderClidet();
+  try{
+    /* O ViaCEP é o que devolve o código IBGE do município junto — que é
+       exatamente o campo que a DPS exige e que ninguém tem à mão. */
+    const r = await fetch('https://viacep.com.br/ws/' + cep + '/json/');
+    const j = await r.json();
+    if(!r.ok || j.erro) throw new Error('CEP não encontrado');
+    c.endereco = Object.assign({}, c.endereco || {}, {
+      logradouro: j.logradouro || (c.endereco || {}).logradouro || '',
+      bairro:     j.bairro     || (c.endereco || {}).bairro || '',
+      cidade:     j.localidade || '',
+      uf:         j.uf || '',
+      ibge:       String(j.ibge || ''),
+      cep:        cep,
+    });
+    receitaSave();
+    _CLI_CEP_ESTADO[cid] = 'ok';
+    if(typeof toast === 'function') toast('Endereço preenchido · ' + (j.localidade || '') + '/' + (j.uf || ''));
+  }catch(e){
+    _CLI_CEP_ESTADO[cid] = 'err';
+    if(typeof toast === 'function') toast('⚠ ' + e.message);
+  }
+  if(clidetCtx && clidetCtx.cid === cid) renderClidet();
+}
+try{ window.buscarCepCliente = buscarCepCliente; }catch(e){}
+
+/* Desenha a seção. Para cliente no exterior os campos são outros: a DPS
+   quer país, cidade e estado/província, e não conhece CEP nem IBGE. */
+function _clidetEnderecoHtml(c, tipoPessoa, esc){
+  const e = c.endereco || {};
+  const est = _CLI_CEP_ESTADO[c.id];
+  const campo = (rot, k, ph, cls) =>
+    `<div class="clidet-field${cls ? ' ' + cls : ''}">
+       <label>${esc(rot)}</label>
+       <input type="text" class="clidet-input" value="${esc(e[k] || '')}"
+              placeholder="${esc(ph || '')}"
+              onblur="setClienteEndereco(${c.id},'${k}',this.value)"
+              onkeydown="if(event.key==='Enter')this.blur()">
+     </div>`;
+
+  const corpo = tipoPessoa === 'est'
+    ? `${campo('Cidade','cidade','Ex.: Lisboa')}
+       ${campo('Estado / Província','estado','Ex.: Lisboa')}
+       ${campo('País (sigla)','pais','Ex.: PT')}
+       ${campo('Código postal','codPostal','Ex.: 1000-001')}
+       ${campo('Logradouro','logradouro','Rua e complemento','full')}
+       ${campo('Número','numero','Ex.: 120')}`
+    : `<div class="clidet-field">
+         <label>CEP</label>
+         <div class="clidet-doc-row">
+           <input type="text" class="clidet-input" value="${esc(e.cep || '')}"
+                  placeholder="00000-000"
+                  onblur="setClienteEndereco(${c.id},'cep',this.value)"
+                  onkeydown="if(event.key==='Enter')this.blur()">
+           <button type="button" class="clidet-doc-btn${est==='loading'?' loading':''}${est==='ok'?' ok':''}${est==='err'?' err':''}"
+                   ${est==='loading'?'disabled':''}
+                   onclick="buscarCepCliente(${c.id})"
+                   title="Preencher endereço e código IBGE pelo CEP">
+             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+           </button>
+         </div>
+         <div class="clidet-field-hint">${est==='err' ? '<span class="err">CEP não encontrado.</span>'
+           : 'Preenche rua, bairro, cidade e o código IBGE.'}</div>
+       </div>
+       ${campo('Código IBGE do município','ibge','Ex.: 4205407')}
+       ${campo('Logradouro','logradouro','Ex.: Rua Lauro Linhares','full')}
+       ${campo('Número','numero','Ex.: 1281')}
+       ${campo('Complemento','complemento','Ex.: Sala 04')}
+       ${campo('Bairro','bairro','Ex.: Trindade')}
+       ${campo('Município','cidade','Ex.: Florianópolis')}
+       ${campo('UF','uf','Ex.: SC')}`;
+
+  const falta = tipoPessoa === 'est'
+    ? !(e.cidade && e.pais)
+    : !(e.ibge && e.cep && e.logradouro && e.numero && e.bairro);
+
+  return `<div class="clidet-section">
+      <div class="clidet-sec-title clidet-sec-title-row">
+        <span>Endereço</span>
+        <span class="clidet-end-sel ${falta ? 'falta' : 'ok'}">${falta ? 'incompleto para NFS-e' : 'completo'}</span>
+      </div>
+      <div class="clidet-grid">
+        ${corpo}
+        ${campo('E-mail para a nota','email','cliente@empresa.com.br','full')}
+        ${campo('Telefone','telefone','48 99999-0000')}
+      </div>
+      <div class="clidet-ciclo-hint">A NFS-e exige endereço do tomador — inclusive quando é pessoa física.
+        Sem ele a Receita recusa a emissão.</div>
+    </div>`;
+}
+
 function renderClidet(){
   if(!clidetCtx) return;
   const c = (receita.clientes || []).find(x => x.id === clidetCtx.cid);
@@ -37869,6 +38016,8 @@ function renderClidet(){
           </div>
         </div>
       </div>
+
+      ${_clidetEnderecoHtml(c, tipoPessoa, esc)}
 
       <div class="clidet-section">
         <div class="clidet-sec-title clidet-sec-title-row">
@@ -135739,6 +135888,9 @@ function nfCliPreencher(nome){
     }
   }catch(_){}
   nfCliSelo();
+  /* Escolher o cliente muda tomador, endereço e retenção — a lista do que
+     falta tem que acompanhar na hora, não só na hora de emitir. */
+  try{ nfLiquidoAtualiza(); }catch(_){}
 }
 /* Diz se vai reusar cadastro ou criar tomador novo — mesmo raciocínio do
    selo da projeção: fornecedor/cliente duplicado quebra relatório em
@@ -135864,6 +136016,17 @@ function nfMontarDPS(opts){
      cidade. O cadastro de clientes guarda pouco disso hoje — então é aqui
      que a falta aparece, com o nome do campo que a pessoa reconhece. */
   const exp = !!d.exportacao;
+  /* PESSOA FÍSICA NÃO RETÉM.
+
+     A retenção de IRRF, PIS, COFINS e CSLL na fonte é obrigação de quem
+     PAGA, e só quando quem paga é pessoa jurídica. Tomador pessoa física
+     não é fonte pagadora para esse efeito — a nota 80, para um CPF, saiu
+     com as quatro retenções zeradas e tpRetPisCofins "Não Retidos".
+
+     Os percentuais ficam no cadastro do serviço porque valem para a
+     maioria das notas; quem decide se incidem é o tomador desta. */
+  const docToma = dig(d.cnpj);
+  const pessoaFisica = docToma.length === 11;
   /* Cadastro primeiro, rascunho depois: o cadastro é a verdade duradoura,
      o rascunho cobre o tomador que ainda não existe nele. */
   const end = Object.assign({},
@@ -135875,7 +136038,9 @@ function nfMontarDPS(opts){
         xCidade: end.cidade || end.municipio || '',
         xLgr: end.logradouro || end.rua || '', nro: end.numero || '',
         xBairro: end.bairro || '' }
-    : { CNPJ: dig(d.cnpj), xNome: d.cliente,
+    : { CNPJ: docToma.length === 14 ? docToma : '',
+        CPF:  docToma.length === 11 ? docToma : '',
+        xNome: d.cliente,
         cMun: dig(end.ibge || ''), CEP: dig(end.cep || ''),
         xLgr: end.logradouro || end.rua || '', nro: end.numero || '',
         xBairro: end.bairro || '' };
@@ -135886,7 +136051,7 @@ function nfMontarDPS(opts){
     if(!toma.xCidade) falta.push('cidade do tomador (cadastro de clientes)');
     if(!(Number(d.vServMoeda) > 0)) falta.push('valor na moeda da fatura (comércio exterior)');
   } else {
-    if(!toma.CNPJ)    falta.push('CNPJ/CPF do tomador');
+    if(!toma.CNPJ && !toma.CPF) falta.push('CNPJ ou CPF do tomador');
     if(!toma.cMun)    falta.push('código IBGE do município do tomador (cadastro de clientes)');
     if(!toma.CEP)     falta.push('CEP do tomador (cadastro de clientes)');
     if(!toma.xLgr)    falta.push('logradouro do tomador (cadastro de clientes)');
@@ -135947,7 +136112,7 @@ function nfMontarDPS(opts){
     pPis: Number(sv.pPis) || 0, pCofins: Number(sv.pCofins) || 0,
     pCsll: Number(sv.pCsll) || 0, pIrrf: Number(sv.pIrrf) || 0, pInss: Number(sv.pInss) || 0,
     cstPisCofins: sv.cstPisCofins || (exp ? '08' : '00'),
-    semRetencao: exp,
+    semRetencao: exp || pessoaFisica,
   };
   return { dps, falta };
 }
@@ -136013,6 +136178,15 @@ function _nfLiquidoHtml(){
       + '<span class="nf-liq-nota">sem retenção federal · entra ' + _nfFmtBRL(base) + '</span>'
       + _nfIbsCbsHtml(base);
   }
+  /* Pessoa física não retém na fonte — quem retém é tomador pessoa
+     jurídica. Mostrar retenção aqui prometeria um líquido menor do que
+     o que de fato entra, e a DPS sairia divergindo da tela. */
+  const docT = String((document.getElementById('nf-f-cnpj') || {}).value || d.cnpj || '').replace(/\D/g,'');
+  if(docT.length === 11){
+    return '<span class="nf-liq-lbl">Tomador pessoa física</span>'
+      + '<span class="nf-liq-nota">sem retenção na fonte · entra ' + _nfFmtBRL(base) + '</span>'
+      + _nfIbsCbsHtml(base);
+  }
   const pc = k => Number(d[k]) || 0;
   const v  = k => +(base * pc(k) / 100).toFixed(2);
   const pis = v('pPis'), cof = v('pCofins'), csll = v('pCsll'), irrf = v('pIrrf'), inss = v('pInss');
@@ -136037,6 +136211,31 @@ function nfLiquidoAtualiza(){
   if(el) el.innerHTML = _nfLiquidoHtml();
   nfPendAtualiza();
 }
+/* O RASCUNHO VEM DA TELA, NÃO DA MEMÓRIA.
+
+   A lista de pendências era calculada a partir de NF_DRAFT, mas NF_DRAFT
+   só era preenchido no momento de emitir. Resultado: a tela pedia valor,
+   descrição e nome do tomador com os três campos preenchidos na frente da
+   pessoa. Aviso que mente sobre o que está na tela é pior que aviso
+   nenhum — ensina a ignorar a lista inteira. */
+function _nfDraftDaTela(){
+  if(!NF_DRAFT) return;
+  const v = (id) => ((document.getElementById(id) || {}).value || '');
+  const cli = document.getElementById('cart-l-nfcli') || document.getElementById('nf-f-cliente');
+  if(cli) NF_DRAFT.cliente = String(cli.value || '').trim();
+  if(document.getElementById('nf-f-cnpj'))  NF_DRAFT.cnpj  = v('nf-f-cnpj').trim();
+  if(document.getElementById('nf-f-email')) NF_DRAFT.email = v('nf-f-email').trim();
+  if(document.getElementById('nf-f-valor')) NF_DRAFT.valor = Number(v('nf-f-valor')) || 0;
+  if(document.getElementById('nf-f-desc'))  NF_DRAFT.descricao = v('nf-f-desc').trim();
+  if(document.getElementById('nf-f-comp'))  NF_DRAFT.competencia = v('nf-f-comp').trim();
+  if(NF_DRAFT.exportacao){
+    if(document.getElementById('nf-f-moeda'))     NF_DRAFT.tpMoeda     = v('nf-f-moeda') || '220';
+    if(document.getElementById('nf-f-vmoeda'))    NF_DRAFT.vServMoeda  = Number(v('nf-f-vmoeda')) || 0;
+    if(document.getElementById('nf-f-modoprest')) NF_DRAFT.mdPrestacao = v('nf-f-modoprest') || '1';
+  }
+}
+try{ window._nfDraftDaTela = _nfDraftDaTela; }catch(e){}
+
 /* O QUE FALTA, ANTES DE EMITIR — não depois da rejeição.
 
    As mensagens da Receita são precisas, mas falam de campos do XML. Quem
@@ -136044,14 +136243,25 @@ function nfLiquidoAtualiza(){
 function nfPendAtualiza(){
   const el = document.getElementById('nf-pend');
   if(!el) return;
+  _nfDraftDaTela();
   let r; try{ r = nfMontarDPS(); }catch(e){ el.innerHTML = ''; return; }
   if(!r.falta.length){ el.innerHTML = ''; return; }
   const podeBuscar = !(NF_DRAFT || {}).exportacao
     && String((NF_DRAFT || {}).cnpj || '').replace(/\D/g,'').length === 14
     && r.falta.some(f => /tomador/.test(f));
+  /* Para CPF não existe consulta pública de endereço. Mostrar o botão
+     "buscar na Receita" seria oferecer uma saída que não existe; melhor
+     dizer por que ela não existe e para onde ir. */
+  const docT = String((NF_DRAFT || {}).cnpj || '').replace(/\D/g, '');
+  const pf = docT.length === 11;
+  const faltaEnd = r.falta.some(f => /cadastro de clientes/.test(f));
   el.innerHTML = '<div class="nf-pend-tit">Falta para emitir</div>'
     + '<ul>' + r.falta.map(f => '<li>' + _nfEsc(f) + '</li>').join('') + '</ul>'
-    + (podeBuscar ? '<button type="button" onclick="nfBuscarEnderecoTomador()">Buscar endereço do tomador na Receita</button>' : '');
+    + (podeBuscar ? '<button type="button" onclick="nfBuscarEnderecoTomador()">Buscar endereço do tomador na Receita</button>' : '')
+    + (pf && faltaEnd
+        ? '<div class="nf-pend-nota">Pessoa física não tem consulta pública de endereço — '
+          + 'preencha no cadastro do cliente. A Receita exige o endereço do tomador também para CPF.</div>'
+        : '');
 }
 async function nfBuscarEnderecoTomador(){
   const d = NF_DRAFT || {};
@@ -136198,7 +136408,8 @@ function nfRenderCreateForm(){
         '<div class="nf-cli-selo" id="nf-cli-selo"></div>' +
       '</div>' +
       '<div class="nf-field"><label>CNPJ / CPF / NIF</label>' +
-        '<input type="text" id="nf-f-cnpj" value="' + _nfEsc(d.cnpj) + '" placeholder="00.000.000/0000-00"></div>' +
+        '<input type="text" id="nf-f-cnpj" value="' + _nfEsc(d.cnpj) + '" placeholder="00.000.000/0000-00"' +
+        ' oninput="nfLiquidoAtualiza()"></div>' +
     '</div>' +
     /* O campo não dispara envio nenhum — ele vai para dentro da NFS-e, no
        cadastro do tomador. Dizer "deixe vazio para não enviar" prometia o
@@ -136223,7 +136434,7 @@ function nfRenderCreateForm(){
     '</div>' +
     (d.exportacao ? _nfComexHtml(d) : '') +
     '<div class="nf-field"><label>Descrição dos serviços prestados</label>' +
-      '<textarea id="nf-f-desc" rows="3" placeholder="Ex.: Desenvolvimento de software customizado · Maio/2026 · Contrato #1284">' + _nfEsc(d.descricao) + '</textarea></div>' +
+      '<textarea id="nf-f-desc" rows="3" oninput="nfLiquidoAtualiza()" placeholder="Ex.: Desenvolvimento de software customizado · Maio/2026 · Contrato #1284">' + _nfEsc(d.descricao) + '</textarea></div>' +
     /* OS CÓDIGOS FISCAIS APARECEM, MAS NÃO SE DIGITAM AQUI.
        Eles vêm do serviço escolhido. Mostrar em vez de esconder é o que
        permite conferir antes de assinar; editar seria convidar a divergir
@@ -136245,17 +136456,7 @@ function nfRenderCreateForm(){
 
 async function nfSubmitCreate(){
   // Captura valores
-  NF_DRAFT.cliente = ((document.getElementById('cart-l-nfcli') || document.getElementById('nf-f-cliente') || {}).value || '').trim();
-  NF_DRAFT.cnpj = (document.getElementById('nf-f-cnpj').value || '').trim();
-  NF_DRAFT.email = (document.getElementById('nf-f-email').value || '').trim();
-  NF_DRAFT.valor = Number(document.getElementById('nf-f-valor').value) || 0;
-  NF_DRAFT.descricao = (document.getElementById('nf-f-desc').value || '').trim();
-  NF_DRAFT.competencia = ((document.getElementById('nf-f-comp') || {}).value || '').trim();
-  if(NF_DRAFT.exportacao){
-    NF_DRAFT.tpMoeda     = ((document.getElementById('nf-f-moeda') || {}).value || '220');
-    NF_DRAFT.vServMoeda  = Number((document.getElementById('nf-f-vmoeda') || {}).value) || 0;
-    NF_DRAFT.mdPrestacao = ((document.getElementById('nf-f-modoprest') || {}).value || '1');
-  }
+  _nfDraftDaTela();
   if(!NF_DRAFT.cliente || NF_DRAFT.valor <= 0 || !NF_DRAFT.descricao){
     if(typeof showToast === 'function') showToast('Cliente, valor e descrição obrigatórios', 'err');
     return;
@@ -136394,6 +136595,10 @@ async function nfEmitirPeloServico(ambiente){
   NF.notas.unshift(nota);
   nfSave();
   try{ _nfVincularNoExtrato(nota); }catch(_){}
+  /* ENTREGA. A nota existe; o tomador precisa recebê-la, e a Receita não
+     avisa ninguém. Vai em paralelo para não segurar a tela — o resultado
+     fica gravado na nota e aparece quando ela for aberta. */
+  if(nota.email) nfEnviarEmail(nota.id, false).then(() => { try{ nfRender(); }catch(_){} });
   if(typeof showToast === 'function')
     showToast('NFS-e ' + nota.numero + ' autorizada'
       + (ambiente === 'restrita' ? ' (produção restrita · não vale como documento fiscal)' : ''), 'ok');
@@ -136484,7 +136689,7 @@ function nfOpenView(id){
       '<div class="nf-view-doc-hd">' +
         '<span class="t">Documento</span>' +
         (temXml
-          ? '<button class="primary" onclick="nfDanfseImprimir(' + n.id + ')">DANFSe · PDF</button>' +
+          ? '<button class="primary" onclick="nfDanfseBaixar(' + n.id + ')">DANFSe · PDF</button>' +
             '<button onclick="nfBaixarXmlNota(' + n.id + ')">XML</button>'
           : '') +
       '</div>' +
@@ -136502,13 +136707,24 @@ function nfOpenView(id){
                 : 'Esta nota não tem o XML autorizado guardado — o DANFSe é desenhado a partir dele.') +
             '</div>') +
       '</div>' +
+      /* Histórico do envio. Erro não some da tela: é por ele que se
+         descobre que o cliente nunca recebeu a nota. */
       (n.email
-        ? '<div class="nf-view-email">E-mail do tomador: <b>' + _nfEsc(n.email) + '</b>' +
+        ? '<div class="nf-view-email">' +
+            'E-mail do tomador: <b>' + _nfEsc(n.email) + '</b><br>' +
             (n.emailEnviadoEm
-              ? ' · enviado em ' + new Date(n.emailEnviadoEm).toLocaleString('pt-BR')
-              : ' · <b>ainda não enviado</b> — falta configurar o remetente do Forekash.') +
+              ? '<span style="color:#047857;font-weight:700">Enviado</span> em ' +
+                new Date(n.emailEnviadoEm).toLocaleString('pt-BR')
+              : n.emailErro
+              ? '<span style="color:#B91C1C;font-weight:700">Falhou</span> · ' + _nfEsc(n.emailErro)
+              : '<span style="color:#92400E;font-weight:700">Ainda não enviado</span>') +
+            (temXml
+              ? ' · <a href="#" style="color:#0369A1;font-weight:700" onclick="event.preventDefault();' +
+                'nfEnviarEmail(' + n.id + ').then(function(){nfOpenView(' + n.id + ')})">' +
+                (n.emailEnviadoEm ? 'reenviar' : 'enviar agora') + '</a>'
+              : '') +
           '</div>'
-        : '') +
+        : '<div class="nf-view-email">Sem e-mail do tomador — a nota não foi enviada a ninguém.</div>') +
     '</div>';
 
   document.getElementById('nf-modal-view-body').innerHTML =
@@ -136767,6 +136983,7 @@ function _qrSvg(texto, cm){
    ══════════════════════════════════════════════════════════════════ */
 
 const NF_DANFSE_LOGO = 'data:image/png;base64,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';
+const NF_DANFSE_LOGO_PDF = {"w": 560, "h": 113, "bits": 8, "cor": 3, "pal": "/////v///v/+/f399vf37O7v3OPh19bT6ME968M83bxAw8zMq7mznaGugZ6Ja5xxa5pxa5pwa5pva5hqZZdrXJFhcI+AWo9hWo9gWY9ggYeefYGYcYOKSlmSM0SKMkKL", "idat": "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"};
 const NF_DANFSE_CONSULTA = 'https://www.nfse.gov.br/ConsultaPublica/?tpc=1&chave=';
 
 /* Descrições oficiais — a NT manda imprimir o texto, não o código. */
@@ -136947,298 +137164,28 @@ body{width:21cm;padding:.3cm;font-family:"Microsoft Sans Serif",Arial,sans-serif
 `;
 
 
-/* Monta o corpo do DANFSe a partir do XML autorizado. Nada entra aqui
-   que não tenha vindo do XML — essa é a regra central da NT 008. */
-function _danfseCorpo(xml, mun, logoDataUri){
-  const doc = new DOMParser().parseFromString(xml, 'application/xml');
-  if(doc.querySelector('parsererror')) throw new Error('XML da NFS-e ilegível');
-  const inf = _dfNo(doc.documentElement, 'infNFSe') ||
-              (doc.documentElement.localName === 'infNFSe' ? doc.documentElement : null);
-  if(!inf) throw new Error('XML sem infNFSe');
-  const dps   = _dfNo(inf, 'DPS/infDPS');
-  const emit  = _dfNo(inf, 'emit');
-  const toma  = dps && _dfNo(dps, 'toma');
-  const serv  = dps && _dfNo(dps, 'serv');
-  const val   = _dfNo(inf, 'valores');
-  const ibs   = _dfNo(inf, 'IBSCBS');
-  const trib  = dps && _dfNo(dps, 'valores/trib');
+/* Frase de autenticidade: texto literal exigido pelo item 2.4.3 da NT. */
+const NF_DANFSE_AUTENT = 'A autenticidade desta NFS-e pode ser verificada pela leitura deste código QR ou pela consulta da chave de acesso no portal nacional da NFS-e';
 
-  const chave = String(inf.getAttribute('Id') || '').replace(/^NFS/, '');
-  const tpAmb = dps ? _dfTxt(dps, 'tpAmb') : '';
-  const teste = tpAmb === '2';
-
-  const cel = (rot, valor, cls) =>
-    '<div class="df-c' + (cls ? ' ' + cls : '') + '">' +
-      '<span class="df-lb">' + _dfEsc(rot) + '</span>' +
-      '<span class="df-vl">' + _dfEsc(valor) + '</span></div>';
-  const titulo = (t) => '<div class="df-c df-tt">' + _dfEsc(t) + '</div>';
-  const linha  = (...cels) => '<div class="df-lin">' + cels.join('') + '</div>';
-  const bloco  = (...linhas) => '<div class="df-bl">' + linhas.join('') + '</div>';
-
-  /* ── endereço de uma parte, como a NT pede: uma linha só ── */
-  const endereco = (raiz, base) => {
-    const e = base ? _dfNo(raiz, base) : raiz;
-    if(!e) return '';
-    const ext = _dfNo(e, 'endExt');
-    const p = [ _dfTxt(e,'xLgr'), _dfTxt(e,'nro'), _dfTxt(e,'xCpl'), _dfTxt(e,'xBairro') ];
-    if(ext) p.push(_dfTxt(ext,'xCidade'), _dfTxt(ext,'xEstProvReg'));
-    return p.filter(Boolean).join(', ');
-  };
-  const munDe = (raiz, base) => {
-    const e = base ? _dfNo(raiz, base) : raiz;
-    if(!e) return { nome:'', cep:'', cod:'' };
-    const nac = _dfNo(e, 'endNac');
-    const ext = _dfNo(e, 'endExt');
-    if(ext) return { nome: [_dfTxt(ext,'xCidade'), _dfTxt(ext,'xEstProvReg')].filter(Boolean).join(' / '),
-                     cep: _dfTxt(ext,'cEndPost'), cod: _dfTxt(ext,'cPais') };
-    const cod = nac ? _dfTxt(nac,'cMun') : _dfTxt(e,'cMun');
-    const cep = nac ? _dfTxt(nac,'CEP')  : _dfTxt(e,'CEP');
-    return { nome: _dfMun(mun, cod), cep: _dfCep(cep), cod: cod };
-  };
-  const docDe = (raiz) => raiz
-    ? _dfDoc(_dfTxt(raiz,'CNPJ') || _dfTxt(raiz,'CPF') || _dfTxt(raiz,'NIF'))
-    : '—';
-
-  /* ───────────── cabeçalho ───────────── */
-  const ufEmit = emit ? _dfTxt(emit, 'enderNac/UF') : '';
-  const cabecalho =
-    '<div class="df-cab">' +
-      '<div class="l">' + (logoDataUri ? '<img alt="NFS-e" src="' + logoDataUri + '">' : '') + '</div>' +
-      '<div class="c"><b>DANFSe v2.0</b><b>Documento Auxiliar da NFS-e</b>' +
-        (teste ? '<span class="av">NFS-e SEM VALIDADE JURÍDICA</span>' : '') + '</div>' +
-      '<div class="r">' +
-        '<div class="m">Município: ' + _dfEsc(_dfOuTraco(_dfTxt(inf,'xLocEmi') + (ufEmit ? ' / ' + ufEmit : ''))) + '</div>' +
-        '<div class="a">Ambiente Gerador: ' + _dfEsc(_dfDesc('ambGer', _dfTxt(inf,'ambGer'))) + '</div>' +
-        '<div class="a">Tipo de Ambiente: ' + _dfEsc(_dfDesc('tpAmb', tpAmb)) + '</div>' +
-      '</div>' +
-    '</div>';
-
-  /* ───────────── dados da NFS-e + QR ───────────── */
-  const qr = _qrSvg(NF_DANFSE_CONSULTA + chave, 1.52);
-  const identificacao =
-    '<div class="df-bl df-id"><div class="df-lin">' +
-      '<div style="width:15.27cm">' +
-        '<div class="df-lin"><div class="df-c df-c3 df-chave">' +
-          '<span class="df-lb">Chave de Acesso da NFS-e</span>' +
-          '<span class="df-vl">' + _dfEsc(_dfOuTraco(chave)) + '</span></div></div>' +
-        linha(cel('Número da NFS-e', _dfOuTraco(_dfTxt(inf,'nNFSe'))),
-              cel('Competência da NFS-e', _dfData(dps ? _dfTxt(dps,'dCompet') : '')),
-              cel('Data e Hora da Emissão da NFS-e', _dfDataHora(_dfTxt(inf,'dhProc')))) +
-        linha(cel('Número da DPS', _dfOuTraco(dps ? _dfTxt(dps,'nDPS') : '')),
-              cel('Série da DPS', _dfOuTraco(dps ? _dfTxt(dps,'serie') : '')),
-              cel('Data e Hora da Emissão da DPS', _dfDataHora(dps ? _dfTxt(dps,'dhEmi') : ''))) +
-        linha(cel('Emitente da NFS-e', _dfDesc('tpEmit', dps ? _dfTxt(dps,'tpEmit') : '')),
-              cel('Situação da NFS-e', _dfDesc('cStat', _dfTxt(inf,'cStat'))),
-              cel('Finalidade', _dfDesc('finNFSe', dps ? _dfTxt(dps,'finNFSe') : ''))) +
-      '</div>' +
-      '<div class="df-qr">' + qr +
-        '<div class="nota">A autenticidade desta NFS-e pode ser verificada pela leitura ' +
-        'deste código QR ou pela consulta da chave de acesso no portal nacional da NFS-e</div>' +
-      '</div>' +
-    '</div></div>';
-  return { doc, inf, dps, emit, toma, serv, val, ibs, trib, chave, teste,
-           cel, titulo, linha, bloco, endereco, munDe, docDe,
-           cabecalho, identificacao };
-}
-
-
-/* Documento completo. A ordem dos blocos é a do Anexo I da NT 008 e não
-   é negociável — é o que torna o papel reconhecível como DANFSe. */
-function _danfseHtml(xml, mun, logoDataUri){
-  const c = _danfseCorpo(xml, mun, logoDataUri);
-  const { inf, dps, emit, toma, serv, val, ibs, trib,
-          cel, titulo, linha, bloco, endereco, munDe, docDe } = c;
-
-  const vazio = (texto) => '<div class="df-bl"><div class="df-vazio">' + _dfEsc(texto) + '</div></div>';
-
-  /* ── prestador: vem de infNFSe/emit, que é a versão validada ── */
-  const mE = munDe(emit, 'enderNac');
-  const prestador = bloco(
-    linha(titulo('Prestador / Fornecedor'),
-          cel('CNPJ / CPF / NIF', docDe(emit)),
-          cel('Indicador Municipal (Inscrição)', _dfOuTraco(emit ? _dfTxt(emit,'IM') : '')),
-          cel('Telefone', _dfOuTraco(emit ? _dfTxt(emit,'fone') : ''))),
-    linha(cel('Nome / Nome Empresarial', _dfOuTraco(emit ? _dfTxt(emit,'xNome') : ''), 'df-c2'),
-          cel('Município / Sigla UF', _dfOuTraco(mE.nome)),
-          cel('Código IBGE / CEP', _dfOuTraco([mE.cod, mE.cep].filter(Boolean).join(' / ')))),
-    linha(cel('Endereço', _dfOuTraco(endereco(emit, 'enderNac')), 'df-c2'),
-          cel('E-mail', _dfOuTraco(emit ? _dfTxt(emit,'email') : ''), 'df-c2')),
-    linha(cel('Simples Nacional na Data de Competência',
-              _dfDesc('opSimpNac', dps ? _dfTxt(dps,'prest/regTrib/opSimpNac') : ''), 'df-c2'),
-          cel('Regime de Apuração Tributária pelo SN',
-              _dfDesc('regApTribSN', dps ? _dfTxt(dps,'prest/regTrib/regApTribSN') : ''), 'df-c2'))
-  );
-
-  /* ── tomador: Nota 2 manda dizer quando não foi identificado ── */
-  const mT = toma ? munDe(toma, 'end') : null;
-  const tomador = toma
-    ? bloco(
-        linha(titulo('Tomador / Adquirente'),
-              cel('CNPJ / CPF / NIF', docDe(toma)),
-              cel('Indicador Municipal (Inscrição)', _dfOuTraco(_dfTxt(toma,'IM'))),
-              cel('Telefone', _dfOuTraco(_dfTxt(toma,'fone')))),
-        linha(cel('Nome / Nome Empresarial', _dfOuTraco(_dfTxt(toma,'xNome')), 'df-c2'),
-              cel('Município / Sigla UF', _dfOuTraco(mT.nome)),
-              cel('Código IBGE / CEP', _dfOuTraco([mT.cod, mT.cep].filter(Boolean).join(' / ')))),
-        linha(cel('Endereço', _dfOuTraco(endereco(toma, 'end')), 'df-c2'),
-              cel('E-mail', _dfOuTraco(_dfTxt(toma,'email')), 'df-c2')))
-    : vazio('Tomador/Adquirente da Operação não identificado na NFS-e');
-
-  /* ── destinatário: Nota 3, quando é o próprio tomador ── */
-  const dest = dps ? _dfNo(dps, 'IBSCBS/dest') : null;
-  const indDest = dps ? _dfTxt(dps, 'IBSCBS/indDest') : '';
-  const destinatario = dest
-    ? bloco(
-        linha(titulo('Destinatário da Operação'),
-              cel('CNPJ / CPF / NIF', docDe(dest)),
-              cel('Telefone', _dfOuTraco(_dfTxt(dest,'fone'))),
-              cel('E-mail', _dfOuTraco(_dfTxt(dest,'email')))),
-        linha(cel('Nome / Nome Empresarial', _dfOuTraco(_dfTxt(dest,'xNome')), 'df-c4')))
-    : vazio(indDest === '0'
-        ? 'O destinatário é o próprio tomador/adquirente da operação'
-        : 'Destinatário da Operação não identificado na NFS-e');
-
-  const intermediario = vazio('Intermediário da Operação não identificado na NFS-e');
-
-  /* ── serviço prestado ── */
-  const cTribNac = dps ? _dfTxt(dps,'serv/cServ/cTribNac') : '';
-  const cTribMun = dps ? _dfTxt(dps,'serv/cServ/cTribMun') : '';
-  const codTrib  = [_dfCodTrib(cTribNac), _dfCodTrib(cTribMun)].filter(Boolean).join(' / ');
-  const descTrib = [_dfTxt(inf,'xTribNac'), _dfTxt(inf,'xTribMun')].filter(Boolean).join(' / ');
-  const servico = bloco(
-    linha(titulo('Serviço Prestado'),
-          cel('Cód. Tributação Nacional / Municipal', _dfOuTraco(codTrib)),
-          cel('Código NBS', _dfOuTraco(_dfCodNbs(dps ? _dfTxt(dps,'serv/cServ/cNBS') : ''))),
-          cel('Local da Prestação / Sigla UF / País', _dfOuTraco(_dfTxt(inf,'xLocPrestacao')))),
-    linha(cel('Descrição do Código de Tributação Nacional / Municipal', _dfOuTraco(descTrib), 'df-c4')),
-    '<div class="df-lin df-desc"><div class="df-c df-c4">' +
-      '<span class="df-lb">Descrição do Serviço</span>' +
-      '<span class="df-vl">' + _dfEsc(_dfOuTraco(dps ? _dfTxt(dps,'serv/cServ/xDescServ') : '')) + '</span>' +
-    '</div></div>'
-  );
-  return { c, prestador, tomador, destinatario, intermediario, servico, vazio,
-           mT: mT, indDest: indDest };
-}
-
-
-/* ── blocos fiscais e fechamento do documento ── */
-function _danfseFiscal(c){
-  const { inf, dps, val, ibs, cel, titulo, linha, bloco } = c;
-  const tribMun = dps && _dfNo(dps, 'valores/trib/tribMun');
-  const tribFed = dps && _dfNo(dps, 'valores/trib/tribFed');
-  const pTot    = dps && _dfNo(dps, 'valores/trib/totTrib/pTotTrib');
-  const ibsVal  = ibs && _dfNo(ibs, 'valores');
-  const ibsTot  = ibs && _dfNo(ibs, 'totCIBS');
-  const dpsIbs  = dps && _dfNo(dps, 'IBSCBS');
-
-  const g  = (no, p) => no ? _dfTxt(no, p) : '';
-  const $$ = (no, p) => _dfDinheiro(g(no, p));
-  const $p = (no, p) => _dfPerc(g(no, p));
-  const junta = (...v) => v.filter(Boolean).join(' / ');
-
-  /* Nota 4: operação fora do ISSQN sai com a frase, não com campos vazios. */
-  const tribISSQN = g(tribMun, 'tribISSQN');
-  const foraDoIss = tribISSQN && tribISSQN !== '1';
-  const issqn = foraDoIss
-    ? '<div class="df-bl"><div class="df-vazio">Tributação Municipal (ISSQN) &mdash; ' +
-        _dfEsc(_dfDesc('tribISSQN', tribISSQN)) + '</div></div>'
-    : bloco(
-        linha(titulo('Tributação Municipal (ISSQN)'),
-              cel('Tipo de Tributação do ISSQN', _dfDesc('tribISSQN', tribISSQN)),
-              cel('Município / UF / País da Incidência do ISSQN', _dfOuTraco(_dfTxt(inf,'xLocIncid'))),
-              cel('Regime Especial de Tributação do ISSQN',
-                  _dfDesc('regEspTrib', g(dps, 'prest/regTrib/regEspTrib')))),
-        linha(cel('Benefício Municipal', _dfDesc('tpBM', g(val,'tpBM'))),
-              cel('Cálculo do BM', $$(val,'vCalcBM')),
-              cel('Total Deduções / Reduções', $$(val,'vCalcDR')),
-              cel('Desconto Incondicionado', $$(dps,'valores/vDescCondIncond/vDescIncond'))),
-        linha(cel('BC ISSQN', $$(val,'vBC')),
-              cel('Alíquota Aplicada', $p(val,'pAliqAplic')),
-              cel('Retenção do ISSQN', _dfDesc('tpRetISSQN', g(tribMun,'tpRetISSQN'))),
-              cel('ISSQN Apurado', $$(val,'vISSQN'))));
-
-  /* As contribuições sociais retidas vêm somadas: a própria NT diz que
-     vRetCSLL devolve PIS + COFINS + CSLL quando há retenção. */
-  const federal = bloco(
-    linha(titulo('Tributação Federal (exceto CBS)'),
-          cel('IRRF', $$(tribFed,'vRetIRRF')),
-          cel('Contribuição Previdenciária - Retida', $$(tribFed,'vRetCP')),
-          cel('Contribuições Sociais - Retidas', $$(tribFed,'vRetCSLL'))),
-    linha(cel('PIS - Débito Apuração Própria', $$(tribFed,'piscofins/vPis')),
-          cel('COFINS - Débito Apuração Própria', $$(tribFed,'piscofins/vCofins')),
-          cel('Tipo de Retenção PIS / COFINS',
-              _dfDesc('tpRetPisCofins', g(tribFed,'piscofins/tpRetPisCofins')), 'df-c2')));
-
-  const ibscbs = bloco(
-    linha(titulo('Tributação IBS / CBS'),
-          cel('CST / cClassTrib', _dfOuTraco(junta(g(dpsIbs,'valores/trib/CST'),
-                                                   g(dpsIbs,'valores/trib/cClassTrib')))),
-          cel('Exclusões e Reduções da Base de Cálculo', $$(ibsVal,'vCalcReeRepRes')),
-          cel('Base de Cálculo após Exclusões e Reduções', $$(ibsVal,'vBC'))),
-    linha(cel('Localidade de Incidência do IBS / CBS', _dfOuTraco(g(ibs,'xLocalidadeIncid')), 'df-c2'),
-          cel('Red. Alíquota IBS UF / Mun / CBS',
-              _dfOuTraco(junta(g(ibsVal,'uf/pRedAliqUF') && _dfPerc(g(ibsVal,'uf/pRedAliqUF')),
-                               g(ibsVal,'mun/pRedAliqMun') && _dfPerc(g(ibsVal,'mun/pRedAliqMun')),
-                               g(ibsVal,'fed/pRedAliqCBS') && _dfPerc(g(ibsVal,'fed/pRedAliqCBS'))))),
-          cel('Alíquota - IBS UF / IBS Mun',
-              _dfOuTraco(junta(g(ibsVal,'uf/pIBSUF') && _dfPerc(g(ibsVal,'uf/pIBSUF')),
-                               g(ibsVal,'mun/pIBSMun') && _dfPerc(g(ibsVal,'mun/pIBSMun')))))),
-    linha(cel('Alíq. Efetiva Municipal - IBS', $p(ibsVal,'mun/pAliqEfetMun')),
-          cel('Valor Apurado Municipal - IBS', $$(ibsTot,'gIBS/gIBSMunTot/vIBSMun')),
-          cel('Alíq. Efetiva Estadual - IBS', $p(ibsVal,'uf/pAliqEfetUF')),
-          cel('Valor Apurado Estadual - IBS', $$(ibsTot,'gIBS/gIBSUFTot/vIBSUF'))),
-    linha(cel('Valor Total Apurado - IBS', $$(ibsTot,'gIBS/vIBSTot')),
-          cel('Alíquota - CBS', $p(ibsVal,'fed/pCBS')),
-          cel('Alíquota Efetiva - CBS', $p(ibsVal,'fed/pAliqEfetCBS')),
-          cel('Valor Total Apurado - CBS', $$(ibsTot,'gCBS/vCBS'))));
-
-  const totIbs = (parseFloat(g(ibsTot,'gIBS/vIBSTot') || 0) || 0) +
-                 (parseFloat(g(ibsTot,'gCBS/vCBS')    || 0) || 0);
-  const totais =
-    '<div class="df-bl df-tot">' +
-      linha(titulo('Valor Total da NFS-e'),
-            cel('Valor da Operação / Serviço', $$(dps,'valores/vServPrest/vServ')),
-            cel('Desconto Incondicionado', $$(dps,'valores/vDescCondIncond/vDescIncond')),
-            cel('Desconto Condicionado', $$(dps,'valores/vDescCondIncond/vDescCond'))) +
-      linha(cel('Total das Retenções (ISSQN / Federais)', $$(val,'vTotalRet')),
-            cel('Valor Líquido da NFS-e', $$(val,'vLiq')),
-            cel('Total do IBS / CBS', totIbs ? _dfDinheiro(totIbs) : '—'),
-            cel('Valor Líquido da NFS-e + IBS / CBS', $$(ibsTot,'vTotNF'))) +
-    '</div>';
-
-  /* Nota 10: os totais aproximados de tributos são obrigatórios aqui. */
-  const partes = [];
-  const xOut = _dfTxt(inf, 'xOutInf');
-  if(xOut) partes.push(xOut);
-  const ptf = g(pTot,'pTotTribFed'), pte = g(pTot,'pTotTribEst'), ptm = g(pTot,'pTotTribMun');
-  if(ptf || pte || ptm){
-    partes.push('Totais aproximados de tributos (Lei 12.741/2012) — Federal: ' +
-      _dfPerc(ptf) + ' · Estadual: ' + _dfPerc(pte) + ' · Municipal: ' + _dfPerc(ptm));
-  }
-  const complementares =
-    '<div class="df-bl df-info">' +
-      '<div class="df-lin"><div class="df-c df-c4 df-tt">Informações Complementares</div></div>' +
-      '<div class="df-lin"><div class="df-c df-c4">' +
-        '<span class="df-vl">' + _dfEsc(partes.join('\n')) + '</span>' +
-      '</div></div>' +
-    '</div>';
-
-  return issqn + federal + ibscbs + totais + complementares;
-}
-
-/* Documento inteiro, pronto pra ir num iframe ou pra impressão. */
-function _danfseDocumento(xml, mun, logoDataUri){
-  const b = _danfseHtml(xml, mun, logoDataUri);
-  const c = b.c;
-  const corpo =
-    '<div class="df">' + c.cabecalho + c.identificacao +
-      b.prestador + b.tomador + b.destinatario + b.intermediario +
-      b.servico + _danfseFiscal(c) +
-    '</div>';
-  return '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">' +
-         '<title>DANFSe ' + _dfEsc(c.chave) + '</title>' +
-         '<style>' + NF_DANFSE_CSS + '</style></head><body>' + corpo + '</body></html>';
-}
+/* Códigos do grupo de comércio exterior, para o DANFSe imprimir a
+   descrição em vez do número. */
+Object.assign(NF_DF_COD, {
+  mdPrestacao: { '0':'Desconhecido', '1':'Transfronteiriço', '2':'Consumo no Brasil',
+                 '3':'Presença Comercial no Exterior', '4':'Movimento Temporário de Pessoas Físicas' },
+  vincPrest:   { '0':'Sem vínculo', '1':'Controlada', '2':'Controladora', '3':'Coligada',
+                 '4':'Matriz', '5':'Filial ou sucursal', '6':'Outro vínculo', '9':'Desconhecido' },
+  mecAFComex:  { '00':'Desconhecido', '01':'Nenhum', '02':'ACC', '03':'ACE',
+                 '04':'BNDES-Exim Pós-Embarque', '05':'BNDES-Exim Pré-Embarque',
+                 '06':'FGE', '07':'PROEX Equalização', '08':'PROEX Financiamento' },
+  movTempBens: { '0':'Desconhecido', '1':'Não', '2':'Vinculada - Declaração de Importação',
+                 '3':'Vinculada - Declaração de Exportação' },
+  mdic:        { '0':'Não enviar ao MDIC', '1':'Enviar ao MDIC' },
+  /* Códigos do BACEN. A lista cobre o que aparece em serviço exportado; o
+     que não estiver aqui sai como o próprio código, que é o que o XML tem. */
+  tpMoeda:     { '220':'USD', '978':'EUR', '540':'GBP', '425':'CHF', '165':'CAD',
+                 '470':'JPY', '150':'AUD', '795':'CNY', '075':'CZK', '975':'PLN',
+                 '880':'ILS', '860':'INR', '195':'SGD', '205':'HKD', '790':'USD' }
+});
 
 
 /* O XML autorizado chega gzipado em base64 — é como a API devolve e como
@@ -137262,15 +137209,6 @@ function _danfseCodigosMun(xml){
   String(xml).replace(/<cMun>(\d{7})<\/cMun>/g, (_, c) => { cods.push(c); return ''; });
   String(xml).replace(/<cLocalidadeIncid>(\d{7})<\/cLocalidadeIncid>/g, (_, c) => { cods.push(c); return ''; });
   return Array.from(new Set(cods));
-}
-
-/* Devolve o HTML do DANFSe de uma nota, já com municípios resolvidos. */
-async function nfDanfseHtml(id){
-  const n = NF.notas.find(x => x && x.id === id);
-  if(!n) throw new Error('Nota não encontrada');
-  const xml = await _nfXmlDaNota(n);
-  const mun = await _dfResolveMunicipios(_danfseCodigosMun(xml));
-  return _danfseDocumento(xml, mun, NF_DANFSE_LOGO);
 }
 
 /* Abre o diálogo de impressão do navegador sobre o DANFSe. É assim que
@@ -137298,6 +137236,658 @@ async function nfDanfseImprimir(id){
 }
 try{ window.nfDanfseImprimir = nfDanfseImprimir; window.nfDanfseHtml = nfDanfseHtml; }catch(_){}
 
+
+
+/* ══════════════════════════════════════════════════════════════════
+   MODELO DO DANFSe
+
+   Antes o leiaute vivia dentro do gerador de HTML. Agora que o mesmo
+   documento precisa sair também como arquivo PDF — para ir anexado no
+   e-mail — ter duas descrições do mesmo leiaute seria garantir que elas
+   divergissem na primeira alteração.
+
+   Então: uma função lê o XML e devolve o documento como DADOS; dois
+   desenhistas leem esses dados. O que a NT 008 fixa (quais blocos, em
+   que ordem, com que rótulo) mora aqui, uma vez só.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Uma célula é {t:'TÍTULO DO BLOCO'} ou {r:'Rótulo', v:'valor', c:colunas}.
+   Um bloco é uma grade de linhas, um aviso de uma linha, ou um campo
+   livre e alto (descrição do serviço, informações complementares). */
+const _dfCel = (r, v, c) => ({ r: r, v: v, c: c || 1 });
+const _dfTit = (t) => ({ t: t });
+
+function _danfseModelo(xml, mun){
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  if(doc.querySelector('parsererror')) throw new Error('XML da NFS-e ilegível');
+  const inf = _dfNo(doc.documentElement, 'infNFSe') ||
+              (doc.documentElement.localName === 'infNFSe' ? doc.documentElement : null);
+  if(!inf) throw new Error('XML sem infNFSe');
+
+  const dps  = _dfNo(inf, 'DPS/infDPS');
+  const emit = _dfNo(inf, 'emit');
+  const toma = dps && _dfNo(dps, 'toma');
+  const val  = _dfNo(inf, 'valores');
+  const ibs  = _dfNo(inf, 'IBSCBS');
+  const tribMun = dps && _dfNo(dps, 'valores/trib/tribMun');
+  const tribFed = dps && _dfNo(dps, 'valores/trib/tribFed');
+  const pTot    = dps && _dfNo(dps, 'valores/trib/totTrib/pTotTrib');
+  const vTot    = dps && _dfNo(dps, 'valores/trib/totTrib/vTotTrib');
+  const ibsVal  = ibs && _dfNo(ibs, 'valores');
+  const ibsTot  = ibs && _dfNo(ibs, 'totCIBS');
+  const dpsIbs  = dps && _dfNo(dps, 'IBSCBS');
+  const comExt  = dps && _dfNo(dps, 'serv/comExt');
+
+  const g  = (no, p) => no ? _dfTxt(no, p) : '';
+  const $$ = (no, p) => _dfDinheiro(g(no, p));
+  const $p = (no, p) => _dfPerc(g(no, p));
+  const junta = (...v) => v.filter(Boolean).join(' / ');
+
+  const chave = String(inf.getAttribute('Id') || '').replace(/^NFS/, '');
+  const tpAmb = dps ? _dfTxt(dps, 'tpAmb') : '';
+  const ufEmit = emit ? _dfTxt(emit, 'enderNac/UF') : '';
+
+  const endereco = (raiz, base) => {
+    const e = base ? _dfNo(raiz, base) : raiz;
+    if(!e) return '';
+    const ext = _dfNo(e, 'endExt');
+    const p = [ _dfTxt(e,'xLgr'), _dfTxt(e,'nro'), _dfTxt(e,'xCpl'), _dfTxt(e,'xBairro') ];
+    if(ext) p.push(_dfTxt(ext,'xCidade'), _dfTxt(ext,'xEstProvReg'));
+    return p.filter(Boolean).join(', ');
+  };
+  const munDe = (raiz, base) => {
+    const e = base ? _dfNo(raiz, base) : raiz;
+    if(!e) return { nome:'', cep:'', cod:'' };
+    const nac = _dfNo(e, 'endNac'), ext = _dfNo(e, 'endExt');
+    if(ext) return { nome: junta(_dfTxt(ext,'xCidade'), _dfTxt(ext,'xEstProvReg')),
+                     cep: _dfTxt(ext,'cEndPost'), cod: _dfTxt(ext,'cPais') };
+    const cod = nac ? _dfTxt(nac,'cMun') : _dfTxt(e,'cMun');
+    const cep = nac ? _dfTxt(nac,'CEP')  : _dfTxt(e,'CEP');
+    return { nome: _dfMun(mun, cod), cep: _dfCep(cep), cod: cod };
+  };
+  const docDe = (raiz) => raiz
+    ? _dfDoc(_dfTxt(raiz,'CNPJ') || _dfTxt(raiz,'CPF') || _dfTxt(raiz,'NIF')) : '—';
+
+  const blocos = [];
+
+  /* ── identificação: chave, números, datas, e o QR à direita ── */
+  blocos.push({ k:'id', chave: chave, linhas: [
+    [ _dfCel('Número da NFS-e', _dfOuTraco(_dfTxt(inf,'nNFSe'))),
+      _dfCel('Competência da NFS-e', _dfData(g(dps,'dCompet'))),
+      _dfCel('Data e Hora da Emissão da NFS-e', _dfDataHora(_dfTxt(inf,'dhProc'))) ],
+    [ _dfCel('Número da DPS', _dfOuTraco(g(dps,'nDPS'))),
+      _dfCel('Série da DPS', _dfOuTraco(g(dps,'serie'))),
+      _dfCel('Data e Hora da Emissão da DPS', _dfDataHora(g(dps,'dhEmi'))) ],
+    [ _dfCel('Emitente da NFS-e', _dfDesc('tpEmit', g(dps,'tpEmit'))),
+      _dfCel('Situação da NFS-e', _dfDesc('cStat', _dfTxt(inf,'cStat'))),
+      _dfCel('Finalidade', _dfDesc('finNFSe', g(dps,'finNFSe') || g(dpsIbs,'finNFSe'))) ]
+  ]});
+
+  /* ── prestador ── */
+  const mE = munDe(emit, 'enderNac');
+  blocos.push({ k:'grade', linhas: [
+    [ _dfTit('Prestador / Fornecedor'),
+      _dfCel('CNPJ / CPF / NIF', docDe(emit)),
+      _dfCel('Indicador Municipal (Inscrição)', _dfOuTraco(g(emit,'IM'))),
+      _dfCel('Telefone', _dfOuTraco(g(emit,'fone'))) ],
+    [ _dfCel('Nome / Nome Empresarial', _dfOuTraco(g(emit,'xNome')), 2),
+      _dfCel('Município / Sigla UF', _dfOuTraco(mE.nome)),
+      _dfCel('Código IBGE / CEP', _dfOuTraco(junta(mE.cod, mE.cep))) ],
+    [ _dfCel('Endereço', _dfOuTraco(endereco(emit, 'enderNac')), 2),
+      _dfCel('E-mail', _dfOuTraco(g(emit,'email')), 2) ],
+    [ _dfCel('Simples Nacional na Data de Competência',
+             _dfDesc('opSimpNac', g(dps,'prest/regTrib/opSimpNac')), 2),
+      _dfCel('Regime de Apuração Tributária pelo SN',
+             _dfDesc('regApTribSN', g(dps,'prest/regTrib/regApTribSN')), 2) ]
+  ]});
+
+  /* ── tomador (Nota 2: diz quando não foi identificado) ── */
+  if(toma){
+    const mT = munDe(toma, 'end');
+    blocos.push({ k:'grade', linhas: [
+      [ _dfTit('Tomador / Adquirente'),
+        _dfCel('CNPJ / CPF / NIF', docDe(toma)),
+        _dfCel('Indicador Municipal (Inscrição)', _dfOuTraco(_dfTxt(toma,'IM'))),
+        _dfCel('Telefone', _dfOuTraco(_dfTxt(toma,'fone'))) ],
+      [ _dfCel('Nome / Nome Empresarial', _dfOuTraco(_dfTxt(toma,'xNome')), 2),
+        _dfCel('Município / Sigla UF', _dfOuTraco(mT.nome)),
+        _dfCel('Código IBGE / CEP', _dfOuTraco(junta(mT.cod, mT.cep))) ],
+      [ _dfCel('Endereço', _dfOuTraco(endereco(toma, 'end')), 2),
+        _dfCel('E-mail', _dfOuTraco(_dfTxt(toma,'email')), 2) ]
+    ]});
+  } else {
+    blocos.push({ k:'aviso', txt:'Tomador/Adquirente da Operação não identificado na NFS-e' });
+  }
+
+  /* ── destinatário e intermediário (Notas 2 e 3) ── */
+  const dest = dps && _dfNo(dps, 'IBSCBS/dest');
+  if(dest){
+    blocos.push({ k:'grade', linhas: [
+      [ _dfTit('Destinatário da Operação'),
+        _dfCel('CNPJ / CPF / NIF', docDe(dest)),
+        _dfCel('Nome / Nome Empresarial', _dfOuTraco(_dfTxt(dest,'xNome')), 2) ]
+    ]});
+  } else {
+    blocos.push({ k:'aviso', txt: g(dpsIbs,'indDest') === '0'
+      ? 'O destinatário é o próprio tomador/adquirente da operação'
+      : 'Destinatário da Operação não identificado na NFS-e' });
+  }
+  blocos.push({ k:'aviso', txt:'Intermediário da Operação não identificado na NFS-e' });
+
+  /* ── serviço prestado ── */
+  blocos.push({ k:'grade', linhas: [
+    [ _dfTit('Serviço Prestado'),
+      _dfCel('Cód. Tributação Nacional / Municipal',
+             _dfOuTraco(junta(_dfCodTrib(g(dps,'serv/cServ/cTribNac')),
+                              _dfCodTrib(g(dps,'serv/cServ/cTribMun'))))),
+      _dfCel('Código NBS', _dfOuTraco(_dfCodNbs(g(dps,'serv/cServ/cNBS')))),
+      _dfCel('Local da Prestação / Sigla UF / País', _dfOuTraco(_dfTxt(inf,'xLocPrestacao'))) ],
+    [ _dfCel('Descrição do Código de Tributação Nacional / Municipal',
+             _dfOuTraco(junta(_dfTxt(inf,'xTribNac'), _dfTxt(inf,'xTribMun'))), 4) ]
+  ]});
+  blocos.push({ k:'livre', rot:'Descrição do Serviço',
+                txt: _dfOuTraco(g(dps,'serv/cServ/xDescServ')), alt: 1.9 });
+
+  /* ── comércio exterior: só existe na exportação ── */
+  if(comExt){
+    blocos.push({ k:'grade', linhas: [
+      [ _dfTit('Comércio Exterior'),
+        _dfCel('Modo de Prestação', _dfDesc('mdPrestacao', _dfTxt(comExt,'mdPrestacao'))),
+        _dfCel('Moeda / Valor na Moeda',
+               _dfOuTraco(junta(_dfDesc('tpMoeda', _dfTxt(comExt,'tpMoeda')),
+                                _dfDinheiro(_dfTxt(comExt,'vServMoeda'))))),
+        _dfCel('Vínculo entre as Partes', _dfDesc('vincPrest', _dfTxt(comExt,'vincPrest'))) ],
+      [ _dfCel('Mecanismo de Apoio — Prestador',
+               _dfDesc('mecAFComex', _dfTxt(comExt,'mecAFComexP'))),
+        _dfCel('Mecanismo de Apoio — Tomador',
+               _dfDesc('mecAFComex', _dfTxt(comExt,'mecAFComexT'))),
+        _dfCel('Movimentação Temporária de Bens',
+               _dfDesc('movTempBens', _dfTxt(comExt,'movTempBens'))),
+        _dfCel('Compartilha com o MDIC', _dfDesc('mdic', _dfTxt(comExt,'mdic'))) ]
+    ]});
+  }
+
+  /* ── ISSQN (Nota 4) ── */
+  const tribISSQN = g(tribMun, 'tribISSQN');
+  if(tribISSQN && tribISSQN !== '1'){
+    blocos.push({ k:'aviso', txt:'Tributação Municipal (ISSQN) — ' + _dfDesc('tribISSQN', tribISSQN) });
+  } else {
+    blocos.push({ k:'grade', linhas: [
+      [ _dfTit('Tributação Municipal (ISSQN)'),
+        _dfCel('Tipo de Tributação do ISSQN', _dfDesc('tribISSQN', tribISSQN)),
+        _dfCel('Município / UF / País da Incidência', _dfOuTraco(_dfTxt(inf,'xLocIncid'))),
+        _dfCel('Regime Especial de Tributação',
+               _dfDesc('regEspTrib', g(dps,'prest/regTrib/regEspTrib'))) ],
+      [ _dfCel('Benefício Municipal', _dfDesc('tpBM', g(val,'tpBM'))),
+        _dfCel('Cálculo do BM', $$(val,'vCalcBM')),
+        _dfCel('Total Deduções / Reduções', $$(val,'vCalcDR')),
+        _dfCel('Desconto Incondicionado', $$(dps,'valores/vDescCondIncond/vDescIncond')) ],
+      [ _dfCel('BC ISSQN', $$(val,'vBC')),
+        _dfCel('Alíquota Aplicada', $p(val,'pAliqAplic')),
+        _dfCel('Retenção do ISSQN', _dfDesc('tpRetISSQN', g(tribMun,'tpRetISSQN'))),
+        _dfCel('ISSQN Apurado', $$(val,'vISSQN')) ]
+    ]});
+  }
+
+  /* ── tributação federal ── */
+  blocos.push({ k:'grade', linhas: [
+    [ _dfTit('Tributação Federal (exceto CBS)'),
+      _dfCel('IRRF', $$(tribFed,'vRetIRRF')),
+      _dfCel('Contribuição Previdenciária - Retida', $$(tribFed,'vRetCP')),
+      _dfCel('Contribuições Sociais - Retidas', $$(tribFed,'vRetCSLL')) ],
+    [ _dfCel('PIS - Débito Apuração Própria', $$(tribFed,'piscofins/vPis')),
+      _dfCel('COFINS - Débito Apuração Própria', $$(tribFed,'piscofins/vCofins')),
+      _dfCel('Tipo de Retenção PIS / COFINS',
+             _dfDesc('tpRetPisCofins', g(tribFed,'piscofins/tpRetPisCofins')), 2) ]
+  ]});
+
+  /* ── IBS / CBS ── */
+  blocos.push({ k:'grade', linhas: [
+    [ _dfTit('Tributação IBS / CBS'),
+      _dfCel('CST / cClassTrib', _dfOuTraco(junta(
+        g(dpsIbs,'valores/trib/CST')        || g(dpsIbs,'valores/trib/gIBSCBS/CST'),
+        g(dpsIbs,'valores/trib/cClassTrib') || g(dpsIbs,'valores/trib/gIBSCBS/cClassTrib')))),
+      _dfCel('Exclusões e Reduções da Base', $$(ibsVal,'vCalcReeRepRes')),
+      _dfCel('Base de Cálculo após Exclusões', $$(ibsVal,'vBC')) ],
+    [ _dfCel('Localidade de Incidência do IBS / CBS', _dfOuTraco(g(ibs,'xLocalidadeIncid')), 2),
+      _dfCel('Red. Alíquota IBS UF / Mun / CBS', _dfOuTraco(junta(
+        g(ibsVal,'uf/pRedAliqUF')   && $p(ibsVal,'uf/pRedAliqUF'),
+        g(ibsVal,'mun/pRedAliqMun') && $p(ibsVal,'mun/pRedAliqMun'),
+        g(ibsVal,'fed/pRedAliqCBS') && $p(ibsVal,'fed/pRedAliqCBS')))),
+      _dfCel('Alíquota - IBS UF / IBS Mun', _dfOuTraco(junta(
+        g(ibsVal,'uf/pIBSUF')   && $p(ibsVal,'uf/pIBSUF'),
+        g(ibsVal,'mun/pIBSMun') && $p(ibsVal,'mun/pIBSMun')))) ],
+    [ _dfCel('Alíq. Efetiva Municipal - IBS', $p(ibsVal,'mun/pAliqEfetMun')),
+      _dfCel('Valor Apurado Municipal - IBS', $$(ibsTot,'gIBS/gIBSMunTot/vIBSMun')),
+      _dfCel('Alíq. Efetiva Estadual - IBS', $p(ibsVal,'uf/pAliqEfetUF')),
+      _dfCel('Valor Apurado Estadual - IBS', $$(ibsTot,'gIBS/gIBSUFTot/vIBSUF')) ],
+    [ _dfCel('Valor Total Apurado - IBS', $$(ibsTot,'gIBS/vIBSTot')),
+      _dfCel('Alíquota - CBS', $p(ibsVal,'fed/pCBS')),
+      _dfCel('Alíquota Efetiva - CBS', $p(ibsVal,'fed/pAliqEfetCBS')),
+      _dfCel('Valor Total Apurado - CBS', $$(ibsTot,'gCBS/vCBS')) ]
+  ]});
+
+  /* ── totais ── */
+  const totIbs = (parseFloat(g(ibsTot,'gIBS/vIBSTot') || 0) || 0) +
+                 (parseFloat(g(ibsTot,'gCBS/vCBS')    || 0) || 0);
+  blocos.push({ k:'grade', destaque: true, linhas: [
+    [ _dfTit('Valor Total da NFS-e'),
+      _dfCel('Valor da Operação / Serviço', $$(dps,'valores/vServPrest/vServ')),
+      _dfCel('Desconto Incondicionado', $$(dps,'valores/vDescCondIncond/vDescIncond')),
+      _dfCel('Desconto Condicionado', $$(dps,'valores/vDescCondIncond/vDescCond')) ],
+    [ _dfCel('Total das Retenções (ISSQN / Federais)', $$(val,'vTotalRet')),
+      _dfCel('Valor Líquido da NFS-e', $$(val,'vLiq')),
+      _dfCel('Total do IBS / CBS', totIbs ? _dfDinheiro(totIbs) : '—'),
+      _dfCel('Valor Líquido da NFS-e + IBS / CBS', $$(ibsTot,'vTotNF')) ]
+  ]});
+
+  /* ── informações complementares (Nota 10: os totais aproximados entram aqui) ── */
+  const partes = [];
+  const xOut = _dfTxt(inf, 'xOutInf');
+  if(xOut) partes.push(xOut);
+  const ptf = g(pTot,'pTotTribFed'), pte = g(pTot,'pTotTribEst'), ptm = g(pTot,'pTotTribMun');
+  if(ptf || pte || ptm){
+    partes.push('Totais aproximados de tributos (Lei 12.741/2012) — Federal: ' +
+      _dfPerc(ptf) + ' · Estadual: ' + _dfPerc(pte) + ' · Municipal: ' + _dfPerc(ptm));
+  } else if(vTot){
+    partes.push('Totais aproximados de tributos (Lei 12.741/2012) — Federal: R$ ' +
+      $$(vTot,'vTotTribFed') + ' · Estadual: R$ ' + $$(vTot,'vTotTribEst') +
+      ' · Municipal: R$ ' + $$(vTot,'vTotTribMun'));
+  }
+  blocos.push({ k:'livre', rot:'Informações Complementares',
+                txt: partes.join('\n'), alt: 1.2, titulo: true });
+
+  return {
+    chave: chave,
+    teste: tpAmb === '2',
+    municipio: _dfOuTraco(_dfTxt(inf,'xLocEmi') + (ufEmit ? ' / ' + ufEmit : '')),
+    ambGer: _dfDesc('ambGer', _dfTxt(inf,'ambGer')),
+    tpAmb: _dfDesc('tpAmb', tpAmb),
+    numero: _dfTxt(inf,'nNFSe'),
+    blocos: blocos
+  };
+}
+
+
+/* ── desenhista 1: HTML, para a pré-visualização na tela ── */
+function _danfseParaHtml(m, logo){
+  const cel = (c) => {
+    if(c.t) return '<div class="df-c df-tt">' + _dfEsc(c.t) + '</div>';
+    return '<div class="df-c' + (c.c > 1 ? ' df-c' + c.c : '') + '">' +
+      '<span class="df-lb">' + _dfEsc(c.r) + '</span>' +
+      '<span class="df-vl">' + _dfEsc(c.v) + '</span></div>';
+  };
+  const linha = (l) => '<div class="df-lin">' + l.map(cel).join('') + '</div>';
+
+  let corpo = '';
+  for(const b of m.blocos){
+    if(b.k === 'aviso'){
+      corpo += '<div class="df-bl"><div class="df-vazio">' + _dfEsc(b.txt) + '</div></div>';
+    } else if(b.k === 'livre'){
+      corpo += '<div class="df-bl df-info">' +
+        (b.titulo ? '<div class="df-lin"><div class="df-c df-c4 df-tt">' + _dfEsc(b.rot) + '</div></div>' : '') +
+        '<div class="df-lin"><div class="df-c df-c4">' +
+          (b.titulo ? '' : '<span class="df-lb">' + _dfEsc(b.rot) + '</span>') +
+          '<span class="df-vl" style="min-height:' + b.alt + 'cm">' + _dfEsc(b.txt) + '</span>' +
+        '</div></div></div>';
+    } else if(b.k === 'id'){
+      corpo += '<div class="df-bl df-id"><div class="df-lin">' +
+        '<div style="width:15.27cm">' +
+          '<div class="df-lin"><div class="df-c df-c3 df-chave">' +
+            '<span class="df-lb">Chave de Acesso da NFS-e</span>' +
+            '<span class="df-vl">' + _dfEsc(b.chave) + '</span></div></div>' +
+          b.linhas.map(linha).join('') +
+        '</div>' +
+        '<div class="df-qr">' + _qrSvg(NF_DANFSE_CONSULTA + b.chave, 1.52) +
+          '<div class="nota">' + NF_DANFSE_AUTENT + '</div>' +
+        '</div>' +
+      '</div></div>';
+    } else {
+      corpo += '<div class="df-bl' + (b.destaque ? ' df-tot' : '') + '">' +
+               b.linhas.map(linha).join('') + '</div>';
+    }
+  }
+
+  const cab =
+    '<div class="df-cab">' +
+      '<div class="l">' + (logo ? '<img alt="NFS-e" src="' + logo + '">' : '') + '</div>' +
+      '<div class="c"><b>DANFSe v2.0</b><b>Documento Auxiliar da NFS-e</b>' +
+        (m.teste ? '<span class="av">NFS-e SEM VALIDADE JURÍDICA</span>' : '') + '</div>' +
+      '<div class="r">' +
+        '<div class="m">Município: ' + _dfEsc(m.municipio) + '</div>' +
+        '<div class="a">Ambiente Gerador: ' + _dfEsc(m.ambGer) + '</div>' +
+        '<div class="a">Tipo de Ambiente: ' + _dfEsc(m.tpAmb) + '</div>' +
+      '</div>' +
+    '</div>';
+
+  return '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">' +
+         '<title>DANFSe ' + _dfEsc(m.chave) + '</title>' +
+         '<style>' + NF_DANFSE_CSS + '</style></head><body>' +
+         '<div class="df">' + cab + corpo + '</div></body></html>';
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   desenhista 2: PDF
+
+   Escrito à mão porque o PDF precisa ser um ARQUIVO — o diálogo de
+   impressão do navegador só salva quando alguém clica, e e-mail com
+   anexo não espera clique. Nada de biblioteca: o DANFSe é uma grade de
+   retângulos e textos curtos, e o PDF nativo faz exatamente isso.
+
+   Sai vetorial: o texto continua texto, selecionável e pesquisável. O
+   QR também é vetor. A logomarca é o PNG oficial embutido sem recodificar
+   — o PDF aceita o fluxo do PNG como está, com /Predictor 15, que é o
+   mesmo esquema de filtro por linha que o PNG usa.
+
+   Sobre a fonte: a NT pede Arial nos rótulos e Microsoft Sans Serif no
+   conteúdo. Nenhuma das duas pode ser embutida sem licença, e as duas
+   são métricamente equivalentes à Helvetica, que é uma das 14 fontes que
+   todo leitor de PDF tem. É o que todo emissor faz.
+   ══════════════════════════════════════════════════════════════════ */
+
+const _PDF_CM = 28.3465;                    /* 1 cm em pontos */
+const _PDF_A4 = [595.28, 841.89];
+const _PDF_MARGEM = 0.3 * _PDF_CM;
+const _PDF_COL = 5.09 * _PDF_CM;
+const _PDF_LARG = 20.4 * _PDF_CM;
+
+/* Larguras da Helvetica e da Helvetica-Bold, em milésimos de em, para os
+   caracteres 32 a 126. Acentuadas têm a largura da letra base. */
+const _PDF_W_REG  = '2782783555565568896671913333333895842783332782785565565565565565565565565565562782785845845845561015667667722722667611778722278500667556833722778667778722667611722667944667667611278278278469556333556556500556556278556556222222500222833556556556556333500278556500722500500500334260334584';
+const _PDF_W_BOLD = '278333474556556889722238333333389584278333278278556556556556556556556556556556333333584584584611975722722722722667611778722278556722611833722778667778722667611722667944667667611333278333584556333556611556611556333611611278278556278889611611611611389556333611556778556556500389280389584';
+
+/* WinAnsi é Latin-1 nos acentos que usamos, com exceções no intervalo
+   128-159 (aspas curvas, travessão, reticências). */
+const _PDF_WINANSI = { 0x2013:150, 0x2014:151, 0x2018:145, 0x2019:146,
+                       0x201C:147, 0x201D:148, 0x2022:149, 0x2026:133 };
+
+function _pdfLargura(txt, tam, negrito){
+  const t = negrito ? _PDF_W_BOLD : _PDF_W_REG;
+  let w = 0;
+  for(const ch of String(txt)){
+    const c = ch.charCodeAt(0);
+    const i = (c >= 32 && c <= 126) ? (c - 32) : (c >= 160 && c <= 255 ? 'a'.charCodeAt(0) - 32 : 0);
+    w += parseInt(t.substr(i * 3, 3), 10) || 556;
+  }
+  return w * tam / 1000;
+}
+/* Corta com reticências, como a NT manda quando o texto não cabe. */
+function _pdfCorta(txt, tam, negrito, larg){
+  let s = String(txt == null ? '' : txt);
+  if(_pdfLargura(s, tam, negrito) <= larg) return s;
+  while(s.length && _pdfLargura(s + '...', tam, negrito) > larg) s = s.slice(0, -1);
+  return s + '...';
+}
+function _pdfTexto(s){
+  let out = '';
+  for(const ch of String(s == null ? '' : s)){
+    let c = ch.codePointAt(0);
+    if(_PDF_WINANSI[c] != null) c = _PDF_WINANSI[c];
+    if(c > 255) c = 63;                                   /* '?' */
+    if(c === 40 || c === 41 || c === 92) out += '\\' + ch; /* ( ) \ */
+    else if(c < 32 || c > 126) out += '\\' + ('000' + c.toString(8)).slice(-3);
+    else out += ch;
+  }
+  return out;
+}
+
+function _danfsePdf(m, logoPdf){
+  const L = [];                                    /* fluxo de conteúdo */
+  const Y = (cmDoTopo) => _PDF_A4[1] - _PDF_MARGEM - cmDoTopo * _PDF_CM;
+  const X = (cm) => _PDF_MARGEM + cm * _PDF_CM;
+  const n2 = (v) => (Math.round(v * 100) / 100).toString();
+
+  const retangulo = (xcm, ycm, wcm, hcm, esp) => {
+    L.push(n2(esp || 0.4) + ' w ' + n2(X(xcm)) + ' ' + n2(Y(ycm + hcm)) + ' ' +
+           n2(wcm * _PDF_CM) + ' ' + n2(hcm * _PDF_CM) + ' re S');
+  };
+  const linhaH = (xcm, ycm, wcm, esp) => {
+    L.push(n2(esp || 0.25) + ' w ' + n2(X(xcm)) + ' ' + n2(Y(ycm)) + ' m ' +
+           n2(X(xcm + wcm)) + ' ' + n2(Y(ycm)) + ' l S');
+  };
+  const linhaV = (xcm, ycm, hcm, esp) => {
+    L.push(n2(esp || 0.25) + ' w ' + n2(X(xcm)) + ' ' + n2(Y(ycm)) + ' m ' +
+           n2(X(xcm)) + ' ' + n2(Y(ycm + hcm)) + ' l S');
+  };
+  const texto = (xcm, ycm, txt, tam, negrito, cor) => {
+    if(txt == null || txt === '') return;
+    /* ycm é a LINHA DE BASE do texto, medida do topo da página para baixo.
+       Eu descontava a altura da fonte aqui, o que empurrava cada valor para
+       dentro da linha seguinte — e a régua da grade passava por cima dele. */
+    L.push('BT ' + (cor || '0 g') + ' /' + (negrito ? 'F2' : 'F1') + ' ' + tam + ' Tf ' +
+           n2(X(xcm)) + ' ' + n2(Y(ycm)) + ' Td (' + _pdfTexto(txt) + ') Tj ET');
+    L.push('0 g');
+  };
+  const textoCentro = (xcm, wcm, ycm, txt, tam, negrito, cor) => {
+    const larg = _pdfLargura(txt, tam, negrito) / _PDF_CM;
+    texto(xcm + (wcm - larg) / 2, ycm, txt, tam, negrito, cor);
+  };
+
+  const PAD = 0.1, ALT_LIN = 0.63, ALT_ID = 0.69, ALT_CAB = 1.16;
+  let y = 0;
+
+  /* ── cabeçalho ── */
+  if(logoPdf) L.push('q ' + n2(4 * _PDF_CM) + ' 0 0 ' +
+    n2(4 * _PDF_CM * logoPdf.h / logoPdf.w) + ' ' + n2(X(0.19)) + ' ' +
+    n2(Y(0.14 + 4 * logoPdf.h / logoPdf.w * _PDF_CM / _PDF_CM)) + ' cm /Im1 Do Q');
+  textoCentro(5.11, 10.19, y + 0.42, 'DANFSe v2.0', 9, true);
+  textoCentro(5.11, 10.19, y + 0.78, 'Documento Auxiliar da NFS-e', 9, true);
+  if(m.teste) textoCentro(5.11, 10.19, y + 1.12, 'NFS-e SEM VALIDADE JURÍDICA', 9, true, '0.89 0.02 0.07 rg');
+  texto(15.32 + PAD, y + 0.36, _pdfCorta('Município: ' + m.municipio, 8, false, (5.09 - 2*PAD) * _PDF_CM), 8, false);
+  texto(15.32 + PAD, y + 0.68, _pdfCorta('Ambiente Gerador: ' + m.ambGer, 6, false, (5.09 - 2*PAD) * _PDF_CM), 6, false);
+  texto(15.32 + PAD, y + 0.93, _pdfCorta('Tipo de Ambiente: ' + m.tpAmb, 6, false, (5.09 - 2*PAD) * _PDF_CM), 6, false);
+  linhaV(15.32, y, ALT_CAB);
+  y += ALT_CAB;
+  linhaH(0, y, 20.4, 0.4);
+
+  /* ── uma linha de células ── */
+  const desenhaLinha = (cels, alt, larguraTotal, xIni) => {
+    let x = xIni || 0;
+    for(const c of cels){
+      const w = (c.c || 1) * _PDF_COL / _PDF_CM;
+      const livre = (w - 2 * PAD) * _PDF_CM;
+      if(c.t){
+        texto(x + PAD, y + 0.40, _pdfCorta(String(c.t).toUpperCase(), 7, true, livre), 7, true);
+      } else {
+        texto(x + PAD, y + 0.24, _pdfCorta(c.r, 6, true, livre), 6, true);
+        texto(x + PAD, y + 0.53, _pdfCorta(c.v, 7, false, livre), 7, false);
+      }
+      x += w;
+      if(x < larguraTotal - 0.01) linhaV(x, y, alt);
+    }
+    y += alt;
+  };
+
+  /* ── blocos ── */
+  for(const b of m.blocos){
+    if(b.k === 'aviso'){
+      texto(PAD, y + 0.26, _pdfCorta(b.txt.toUpperCase(), 7, true, (20.4 - 2*PAD) * _PDF_CM), 7, true);
+      y += 0.39;
+      linhaH(0, y, 20.4, 0.4);
+    } else if(b.k === 'livre'){
+      if(b.titulo){
+        texto(PAD, y + 0.3, b.rot.toUpperCase(), 7, true);
+        y += 0.42;
+      } else {
+        texto(PAD, y + 0.26, b.rot, 6, true);
+        y += 0.3;
+      }
+      for(const ln of String(b.txt || '').split('\n')){
+        /* Quebra em pedaços que cabem na largura útil. */
+        let resto = ln;
+        do {
+          let corte = resto;
+          while(corte && _pdfLargura(corte, 7, false) > (20.4 - 2*PAD) * _PDF_CM){
+            const p = corte.lastIndexOf(' ');
+            corte = p > 0 ? corte.slice(0, p) : corte.slice(0, -1);
+          }
+          texto(PAD, y + 0.23, corte, 7, false);
+          y += 0.3;
+          resto = resto.slice(corte.length).replace(/^ /, '');
+        } while(resto);
+      }
+      y += 0.12;
+      linhaH(0, y, 20.4, 0.4);
+    } else if(b.k === 'id'){
+      const yIni = y;
+      texto(PAD, y + 0.26, 'CHAVE DE ACESSO DA NFS-E', 7, true);
+      texto(PAD, y + 0.62, b.chave, 8, false);
+      y += 0.77;
+      linhaH(0, y, 15.32, 0.25);
+      for(const ln of b.linhas){
+        desenhaLinha(ln, ALT_ID, 15.32);
+        if(ln !== b.linhas[b.linhas.length - 1]) linhaH(0, y, 15.32, 0.25);
+      }
+      /* QR à direita, ocupando a altura toda do bloco */
+      const q = _qrGerar(NF_DANFSE_CONSULTA + b.chave);
+      const lado = 1.52, px = lado / q.tamanho;
+      const qx = 17.48 - 0.3, qy = yIni + 0.2;
+      L.push('0 g');
+      for(let r = 0; r < q.tamanho; r++){
+        let c = 0;
+        while(c < q.tamanho){
+          if(!q.modulos[r][c]){ c++; continue; }
+          let w = 1;
+          while(c + w < q.tamanho && q.modulos[r][c+w]) w++;
+          L.push(n2(X(qx + c * px)) + ' ' + n2(Y(qy + (r + 1) * px)) + ' ' +
+                 n2(w * px * _PDF_CM) + ' ' + n2(px * _PDF_CM) + ' re f');
+          c += w;
+        }
+      }
+      const nota = NF_DANFSE_AUTENT;
+      let linhaAtual = '', linhas = [];
+      for(const p of nota.split(' ')){
+        const tent = linhaAtual ? linhaAtual + ' ' + p : p;
+        if(_pdfLargura(tent, 6, false) > 4.55 * _PDF_CM){ linhas.push(linhaAtual); linhaAtual = p; }
+        else linhaAtual = tent;
+      }
+      if(linhaAtual) linhas.push(linhaAtual);
+      linhas.slice(0, 4).forEach((t, i) => texto(15.45, qy + lado + 0.3 + i * 0.22, t, 6, false));
+      linhaV(15.32, yIni, y - yIni);
+      linhaH(0, y, 20.4, 0.4);
+    } else {
+      for(const ln of b.linhas){
+        desenhaLinha(ln, ALT_LIN, 20.4);
+        if(ln !== b.linhas[b.linhas.length - 1]) linhaH(0, y, 20.4, 0.25);
+      }
+      linhaH(0, y, 20.4, 0.4);
+    }
+  }
+
+  retangulo(0, 0, 20.4, y, 0.4);
+  return _pdfMonta(L.join('\n'), logoPdf, m);
+}
+
+
+/* Monta o arquivo PDF: objetos, tabela de referência cruzada e trailer.
+   Precisa ser montado em BYTES, não em texto — o fluxo da imagem é
+   binário e os deslocamentos do xref têm que bater byte a byte. */
+function _pdfMonta(conteudo, logoPdf, m){
+  const pedacos = [];
+  let tamanho = 0;
+  const ascii = (s) => {
+    const a = new Uint8Array(s.length);
+    for(let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i) & 0xFF;
+    return a;
+  };
+  const põe = (x) => {
+    const a = typeof x === 'string' ? ascii(x) : x;
+    pedacos.push(a); tamanho += a.length;
+  };
+  const b64Bytes = (b64) => {
+    const bin = atob(b64), a = new Uint8Array(bin.length);
+    for(let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+    return a;
+  };
+
+  const temImagem = !!logoPdf;
+  const total = temImagem ? 8 : 7;
+  const desloc = new Array(total + 1).fill(0);
+  const obj = (n, corpo, fluxo) => {
+    desloc[n] = tamanho;
+    põe(n + ' 0 obj\n' + corpo + '\n');
+    if(fluxo){ põe('stream\n'); põe(fluxo); põe('\nendstream\n'); }
+    põe('endobj\n');
+  };
+
+  põe('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+
+  obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  obj(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+  obj(3, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' +
+         _PDF_A4[0] + ' ' + _PDF_A4[1] + ']' +
+         ' /Resources << /Font << /F1 5 0 R /F2 6 0 R >>' +
+         (temImagem ? ' /XObject << /Im1 7 0 R >>' : '') + ' >>' +
+         ' /Contents 4 0 R >>');
+  const fluxo = ascii(conteudo);
+  obj(4, '<< /Length ' + fluxo.length + ' >>', fluxo);
+  obj(5, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+  obj(6, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+
+  if(temImagem){
+    const idat = b64Bytes(logoPdf.idat);
+    const pal  = b64Bytes(logoPdf.pal);
+    let hex = '';
+    for(let i = 0; i < pal.length; i++) hex += ('0' + pal[i].toString(16)).slice(-2);
+    /* O PDF aceita o fluxo do PNG como está: /Predictor 15 é o mesmo
+       filtro por linha que o PNG usa, então nada é recodificado. */
+    obj(7, '<< /Type /XObject /Subtype /Image /Width ' + logoPdf.w +
+           ' /Height ' + logoPdf.h +
+           ' /ColorSpace [/Indexed /DeviceRGB ' + (pal.length / 3 - 1) + ' <' + hex + '>]' +
+           ' /BitsPerComponent ' + logoPdf.bits + ' /Filter /FlateDecode' +
+           ' /DecodeParms << /Predictor 15 /Colors 1 /BitsPerComponent ' + logoPdf.bits +
+           ' /Columns ' + logoPdf.w + ' >> /Length ' + idat.length + ' >>', idat);
+  }
+
+  const nInfo = temImagem ? 8 : 7;
+  obj(nInfo, '<< /Title (DANFSe ' + _pdfTexto(m.chave) + ')' +
+             ' /Producer (Forekash) /Creator (Forekash) >>');
+
+  const xref = tamanho;
+  let tab = 'xref\n0 ' + (total + 1) + '\n0000000000 65535 f \n';
+  for(let i = 1; i <= total; i++) tab += ('0000000000' + desloc[i]).slice(-10) + ' 00000 n \n';
+  põe(tab);
+  põe('trailer\n<< /Size ' + (total + 1) + ' /Root 1 0 R /Info ' + nInfo + ' 0 R >>\n' +
+      'startxref\n' + xref + '\n%%EOF\n');
+
+  const saida = new Uint8Array(tamanho);
+  let p = 0;
+  for(const c of pedacos){ saida.set(c, p); p += c.length; }
+  return saida;
+}
+
+/* ── pontos de entrada ── */
+
+/* Devolve {modelo, html, pdf} de uma nota, já com municípios resolvidos. */
+async function nfDanfse(id){
+  const n = NF.notas.find(x => x && x.id === id);
+  if(!n) throw new Error('Nota não encontrada');
+  const xml = await _nfXmlDaNota(n);
+  const mun = await _dfResolveMunicipios(_danfseCodigosMun(xml));
+  const modelo = _danfseModelo(xml, mun);
+  return {
+    modelo: modelo,
+    xml: xml,
+    html: () => _danfseParaHtml(modelo, NF_DANFSE_LOGO),
+    pdf:  () => _danfsePdf(modelo, NF_DANFSE_LOGO_PDF)
+  };
+}
+async function nfDanfseHtml(id){ return (await nfDanfse(id)).html(); }
+
+/* Baixa o DANFSe como arquivo PDF de verdade — sem diálogo de impressão. */
+async function nfDanfseBaixar(id){
+  try{
+    const d = await nfDanfse(id);
+    const nome = 'DANFSe-' + (d.modelo.numero || id) + '.pdf';
+    _nfDl(nome, new Blob([d.pdf()], { type:'application/pdf' }));
+    if(typeof showToast === 'function') showToast(nome + ' baixado', 'ok');
+  }catch(e){
+    if(typeof showToast === 'function') showToast('Não deu pra gerar o PDF: ' + e.message, 'err');
+  }
+}
+try{ window.nfDanfse = nfDanfse; window.nfDanfseHtml = nfDanfseHtml;
+     window.nfDanfseBaixar = nfDanfseBaixar; }catch(_){}
+
 /* Preenche o quadro de pré-visualização dentro do modal da nota. */
 async function _nfDanfsePreencher(id){
   const quadro = document.getElementById('nf-danfse-frame');
@@ -137315,6 +137905,147 @@ async function _nfDanfsePreencher(id){
   }
 }
 
+
+/* ══════════════════════════════════════════════════════════════════
+   ENVIO DA NOTA PARA O TOMADOR
+
+   O Emissor Nacional não avisa ninguém: quem emite entrega. Então o
+   Forekash entrega — DANFSe em PDF e o XML, que é o documento fiscal de
+   verdade, os dois anexados.
+
+   Quem manda é o serviço, não o navegador: credencial de SMTP não pode
+   passar por aqui. O navegador só monta os anexos, porque é aqui que o
+   DANFSe é desenhado, e gerá-lo de novo no servidor seria ter dois
+   leiautes para divergirem.
+   ══════════════════════════════════════════════════════════════════ */
+
+function _b64DeBytes(bytes){
+  let s = '';
+  const passo = 0x8000;                /* fatiado: apply() estoura com array grande */
+  for(let i = 0; i < bytes.length; i += passo)
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + passo));
+  return btoa(s);
+}
+const _b64DeTexto = (t) => _b64DeBytes(new TextEncoder().encode(t));
+
+function _nfEmailCorpo(n, modelo){
+  const emp = _nfEmpresaAtiva() || {};
+  const quem = String(emp.razaoSocial || emp.nome || 'o prestador').trim();
+  const valor = 'R$ ' + _nfFmt(n.valor);
+  const link = NF_DANFSE_CONSULTA + (n.chaveAcesso || '');
+  const teste = n.mode === 'restrita';
+
+  const texto =
+    'Olá,\n\n' +
+    'Segue a Nota Fiscal de Serviços Eletrônica nº ' + (n.numero || '—') +
+    ', emitida por ' + quem + ' em ' + _nfData(n.dataAutorizada || n.dataEmissao) + '.\n\n' +
+    'Valor: ' + valor + '\n' +
+    'Competência: ' + _nfData(n.competencia) + '\n' +
+    (n.descricao ? 'Serviço: ' + n.descricao.split('\n')[0] + '\n' : '') +
+    '\nEm anexo: o DANFSe em PDF e o XML da NFS-e, que é o documento fiscal.\n\n' +
+    'A autenticidade pode ser conferida no portal nacional:\n' + link + '\n' +
+    (teste ? '\nATENÇÃO: nota emitida em ambiente de teste. Não tem validade jurídica.\n' : '');
+
+  /* O HTML é sóbrio de propósito: é um documento fiscal chegando na caixa
+     de alguém, não uma peça de marketing. */
+  const esc = (s) => _nfEsc(String(s == null ? '' : s));
+  const html =
+    '<div style="font:14px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;color:#0F172A;max-width:560px">' +
+      (teste ? '<p style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:10px 12px;' +
+               'color:#92400E;font-weight:700;margin:0 0 16px">Nota emitida em ambiente de teste — sem validade jurídica.</p>' : '') +
+      '<p style="margin:0 0 14px">Olá,</p>' +
+      '<p style="margin:0 0 18px">Segue a <b>Nota Fiscal de Serviços Eletrônica nº ' + esc(n.numero || '—') +
+        '</b>, emitida por <b>' + esc(quem) + '</b> em ' + esc(_nfData(n.dataAutorizada || n.dataEmissao)) + '.</p>' +
+      '<table style="border-collapse:collapse;margin:0 0 18px;font-size:13px">' +
+        '<tr><td style="padding:3px 16px 3px 0;color:#64748B">Valor</td>' +
+            '<td style="padding:3px 0;font-weight:700">' + esc(valor) + '</td></tr>' +
+        '<tr><td style="padding:3px 16px 3px 0;color:#64748B">Competência</td>' +
+            '<td style="padding:3px 0">' + esc(_nfData(n.competencia)) + '</td></tr>' +
+        (n.descricao ? '<tr><td style="padding:3px 16px 3px 0;color:#64748B">Serviço</td>' +
+            '<td style="padding:3px 0">' + esc(n.descricao.split('\n')[0]) + '</td></tr>' : '') +
+      '</table>' +
+      '<p style="margin:0 0 18px">Em anexo o <b>DANFSe em PDF</b> e o <b>XML da NFS-e</b>, ' +
+        'que é o documento fiscal.</p>' +
+      '<p style="margin:0 0 18px"><a href="' + esc(link) + '" ' +
+        'style="color:#0369A1">Conferir a autenticidade no portal nacional</a></p>' +
+      '<p style="margin:24px 0 0;font-size:11px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:12px">' +
+        'Chave de acesso: ' + esc(n.chaveAcesso || '—') + '</p>' +
+    '</div>';
+
+  return {
+    assunto: quem + ' · NFS-e nº ' + (n.numero || '—') + (teste ? ' (teste)' : ''),
+    texto: texto, html: html
+  };
+}
+
+/* Envia (ou reenvia) a nota. Devolve o que aconteceu, para quem chamou
+   decidir se mostra aviso. */
+async function nfEnviarEmail(id, silencioso){
+  const n = NF.notas.find(x => x && x.id === id);
+  if(!n) return { ok:false, motivo:'nota não encontrada' };
+  const para = String(n.email || '').trim();
+  if(!para) return { ok:false, motivo:'sem e-mail do tomador' };
+  const url = (NF.cfg.servicoUrl || '').trim().replace(/\/+$/, '');
+  if(!url) return { ok:false, motivo:'serviço de emissão não configurado' };
+
+  try{
+    const d = await nfDanfse(id);
+    const msg = _nfEmailCorpo(n, d.modelo);
+    const emp = _nfEmpresaAtiva() || {};
+    const base = 'NFS-e-' + (n.numero || id);
+
+    const r = await fetch(url + '/email', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'x-fk-token': NF.cfg.servicoToken || '' },
+      body: JSON.stringify({
+        para: para,
+        responderPara: String(emp.emailNf || emp.email || '').trim() || undefined,
+        assunto: msg.assunto, texto: msg.texto, html: msg.html,
+        anexos: [
+          { nome: 'DANFSe-' + (n.numero || id) + '.pdf', tipo:'application/pdf',
+            b64: _b64DeBytes(d.pdf()) },
+          { nome: base + '.xml', tipo:'application/xml', b64: _b64DeTexto(d.xml) }
+        ]
+      })
+    });
+    const j = await r.json().catch(() => ({}));
+    if(!r.ok){
+      n.emailErro = j.erro || ('HTTP ' + r.status);
+      nfSave();
+      if(!silencioso && typeof showToast === 'function')
+        showToast('Não deu pra enviar: ' + n.emailErro, 'err');
+      return { ok:false, motivo: n.emailErro };
+    }
+    n.emailEnviadoEm = j.enviadoEm || new Date().toISOString();
+    n.emailPara = para;
+    delete n.emailErro;
+    nfSave();
+    if(!silencioso && typeof showToast === 'function') showToast('Nota enviada para ' + para, 'ok');
+    return { ok:true, para: para };
+  }catch(e){
+    n.emailErro = e.message;
+    nfSave();
+    if(!silencioso && typeof showToast === 'function')
+      showToast('Não deu pra enviar: ' + e.message, 'err');
+    return { ok:false, motivo: e.message };
+  }
+}
+try{ window.nfEnviarEmail = nfEnviarEmail; }catch(_){}
+
+/* O serviço diz se tem remetente. A tela usa isso para não prometer o que
+   não acontece — e para avisar antes da emissão, não depois. */
+let NF_EMAIL_PRONTO = null;
+async function nfChecarEmail(){
+  const url = (NF.cfg.servicoUrl || '').trim().replace(/\/+$/, '');
+  if(!url){ NF_EMAIL_PRONTO = null; return null; }
+  try{
+    const r = await fetch(url + '/saude');
+    const j = await r.json();
+    NF_EMAIL_PRONTO = { pronto: !!j.email, remetente: j.remetente || '' };
+  }catch(_){ NF_EMAIL_PRONTO = null; }
+  return NF_EMAIL_PRONTO;
+}
+try{ window.nfChecarEmail = nfChecarEmail; }catch(_){}
 
 /* O XML é o documento fiscal; o DANFSe acima é só a representação dele. */
 function nfBaixarXmlNota(id){
@@ -137538,6 +138269,11 @@ function nfRenderConfigForm(){
       + '<b>Token:</b> o valor de <code>FK_NFSE_TOKEN</code> que você definiu ao subir o serviço — '
       + 'é ele que impede qualquer um de mandar certificado em seu nome.'
       + '</div>' +
+    /* ENVIO DA NOTA POR E-MAIL.
+       Quem manda é o serviço, pelo mesmo motivo da assinatura: a senha do
+       SMTP não pode passar pelo navegador. A tela só diz se está de pé —
+       e diz a verdade, consultando o serviço em vez de supor. */
+    '<div class="nf-cfg-herda" id="nf-cfg-email">Verificando o envio de e-mail…</div>' +
     '<div class="nf-field"><label>Inscrição municipal</label>' +
       '<input type="text" id="nf-cfg-im" value="' + _nfEsc(cfg.inscricaoMunicipal || '') + '" placeholder="Ex: 4714954"></div>' +
     '<div class="nf-field-row">' +
@@ -137571,6 +138307,22 @@ function nfRenderConfigForm(){
       : '<div class="nf-cfg-herda">Nenhuma empresa cadastrada: cadastre o CNPJ primeiro e os dados fiscais vêm da Receita.</div>') +
     '<div class="nf-cfg-warn"><b>Atenção:</b> emissão em PRODUÇÃO exige certificado A1 válido e inscrição municipal ativa. O modo DEMO simula tudo sem custo.</div>';
   document.getElementById('nf-modal-config-body').innerHTML = html;
+  try{ _nfCfgEmailStatus(); }catch(_){}
+}
+/* Pergunta ao serviço se há remetente e escreve o resultado na tela. */
+async function _nfCfgEmailStatus(){
+  const el = document.getElementById('nf-cfg-email');
+  if(!el) return;
+  const url = (NF.cfg.servicoUrl || '').trim();
+  if(!url){ el.innerHTML = '<b>E-mail:</b> configure o endereço do serviço primeiro.'; return; }
+  const st = await nfChecarEmail();
+  if(!st){ el.innerHTML = '<b>E-mail:</b> não consegui falar com o serviço.'; return; }
+  el.innerHTML = st.pronto
+    ? '<b>E-mail:</b> ligado — as notas saem de <code>' + _nfEsc(st.remetente) + '</code> ' +
+      'com o DANFSe em PDF e o XML anexados, assim que forem autorizadas.'
+    : '<b>E-mail: desligado.</b> O serviço não tem remetente. Defina <code>FK_SMTP_HOST</code>, ' +
+      '<code>FK_SMTP_PORT</code>, <code>FK_SMTP_USER</code>, <code>FK_SMTP_PASS</code> e ' +
+      '<code>FK_SMTP_FROM</code> no <code>.env</code> e reinicie — a senha fica só lá, nunca no app.';
 }
 function nfCfgPickMode(m){ NF.cfg.mode = m; nfRenderConfigForm(); }
 function nfSaveConfig(){

@@ -5,6 +5,15 @@ const { SignedXml } = require('xml-crypto');
 const esc = v => String(v == null ? '' : v)
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const el  = (t, v) => (v === '' || v == null) ? '' : '<'+t+'>'+esc(v)+'</'+t+'>';
+/* CPF e CNPJ são ELEMENTOS DIFERENTES no leiaute, não um campo "documento".
+   Mandar um CPF de 11 dígitos dentro de <CNPJ> é recusa na validação do
+   schema — e o cliente pessoa física é caso comum, não exceção. */
+const _docEl = (v) => {
+  const d = String(v || '').replace(/\D/g, '');
+  if(d.length === 11) return '<CPF>' + d + '</CPF>';
+  if(d.length === 14) return '<CNPJ>' + d + '</CNPJ>';
+  return '';
+};
 const dec = v => Number(v).toFixed(2);               // TSDec15V2: ponto, 2 casas
 const dig = v => String(v||'').replace(/\D/g,'');
 
@@ -37,12 +46,21 @@ function _tribFed(d, exp){
      Antes a gente omitia o bloco inteiro; agora segue o portal. */
   if(exp) return '<tribFed><piscofins>' + el('CST', d.cstPisCofins || '08')
                  + el('tpRetPisCofins', '0') + '</piscofins></tribFed>';
-  if(d.semRetencao) return '';
+  /* SEM RETENÇÃO ≠ SEM BLOCO.
+
+     Tomador pessoa física não retém — quem retém é fonte pagadora pessoa
+     jurídica. Mas o bloco continua: a NFS-e 80, emitida para um CPF, traz
+     "PIS/COFINS/CSLL Não Retidos", que é tpRetPisCofins = 0 declarado, e
+     não a ausência da declaração. */
+  if(d.semRetencao) return '<tribFed><piscofins>' + el('CST', d.cstPisCofins || '00')
+                           + el('tpRetPisCofins', '0') + '</piscofins></tribFed>';
   const base = Number(d.vServ) || 0;
   const pct  = k => Number(d[k]) || 0;
   const v    = k => +(base * pct(k) / 100).toFixed(2);
   const vPis = v('pPis'), vCof = v('pCofins'), vCsll = v('pCsll'), vIrrf = v('pIrrf'), vCp = v('pInss');
-  if(!(vPis || vCof || vCsll || vIrrf || vCp)) return '';
+  if(!(vPis || vCof || vCsll || vIrrf || vCp))
+    return '<tribFed><piscofins>' + el('CST', d.cstPisCofins || '00')
+           + el('tpRetPisCofins', '0') + '</piscofins></tribFed>';
   /* tpRetPisCofins: 3 = PIS/COFINS/CSLL retidos; 1 = só PIS/COFINS;
      0 = nada retido. Mandar o código errado faz o tomador recolher o que
      não devia — ou deixar de recolher o que devia. */
@@ -96,11 +114,11 @@ function montaDPS(d){
      de IBSCBS, mas o servidor exige logo depois de tpEmit. Quem manda é a
      API — o esquema em produção está à frente do publicado. */
   +   el('tpEmit', '1') + el('finNFSe','0') + el('cLocEmi', d.cLocEmi)
-  +   '<prest>' + el('CNPJ', dig(d.prest.CNPJ)) + el('IM', d.prest.IM)
+  +   '<prest>' + _docEl(d.prest.CNPJ || d.prest.CPF) + el('IM', d.prest.IM)
   +     '<regTrib>' + el('opSimpNac', d.prest.opSimpNac) + el('regEspTrib','0') + '</regTrib>'
   +   '</prest>'
   +   '<toma>'
-  +     (t.NIF ? el('NIF', t.NIF) : el('CNPJ', dig(t.CNPJ)))
+  +     (t.NIF ? el('NIF', t.NIF) : _docEl(t.CPF || t.CNPJ))
   +     el('xNome', t.xNome)
   +     '<end>'
   +       (t.NIF
