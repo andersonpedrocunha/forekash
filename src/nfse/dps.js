@@ -16,6 +16,46 @@ function idDPS(d){
        + String(d.nDPS).padStart(15,'0');
 }
 
+/* RETENÇÃO FEDERAL — só existe para tomador no Brasil.
+
+   Nota de exportação sai com `0 - PIS/COFINS/CSLL Não Retidos` e valor
+   nenhum; foi assim que a nota da Bloom saiu. Para tomador nacional, a
+   retenção é o que separa o que a empresa fatura do que ela recebe:
+   7.200,00 viram 6.757,20 no caixa.
+
+   As alíquotas vêm do SERVIÇO, não daqui: variam por atividade e por quem
+   é o tomador (órgão público retém diferente). O padrão é o da lei —
+   PIS 0,65 + COFINS 3 + CSLL 1 = 4,65 (CSRF), e IRRF 1,5.
+
+   Os três valores vão separados porque a DPS os quer separados; o DANFSe é
+   que soma em "Contribuições Sociais - Retidas". */
+function _tribFed(d, exp){
+  if(exp || d.semRetencao) return '';
+  const base = Number(d.vServ) || 0;
+  const pct  = k => Number(d[k]) || 0;
+  const v    = k => +(base * pct(k) / 100).toFixed(2);
+  const vPis = v('pPis'), vCof = v('pCofins'), vCsll = v('pCsll'), vIrrf = v('pIrrf'), vCp = v('pInss');
+  if(!(vPis || vCof || vCsll || vIrrf || vCp)) return '';
+  /* tpRetPisCofins: 3 = PIS/COFINS/CSLL retidos; 1 = só PIS/COFINS;
+     0 = nada retido. Mandar o código errado faz o tomador recolher o que
+     não devia — ou deixar de recolher o que devia. */
+  const tpRet = (vPis && vCof && vCsll) ? '3' : ((vPis || vCof) ? '1' : '0');
+  let x = '<tribFed>';
+  if(vPis || vCof){
+    x += '<piscofins>'
+      +  el('CST', d.cstPisCofins || '08')
+      +  el('vBCPisCofins', dec(base))
+      +  el('pAliqPis', dec(pct('pPis'))) + el('pAliqCofins', dec(pct('pCofins')))
+      +  el('vPis', dec(vPis)) + el('vCofins', dec(vCof))
+      +  el('tpRetPisCofins', tpRet)
+      +  '</piscofins>';
+  }
+  if(vCp)   x += el('vRetCP', dec(vCp));
+  if(vIrrf) x += el('vRetIRRF', dec(vIrrf));
+  if(vCsll) x += el('vRetCSLL', dec(vCsll));
+  return x + '</tribFed>';
+}
+
 function montaDPS(d){
   const Id = idDPS(d);
   const t = d.toma;
@@ -50,6 +90,7 @@ function montaDPS(d){
   +   '<valores>'
   +     '<vServPrest>' + el('vServ', dec(d.vServ)) + '</vServPrest>'
   +     '<trib>'
+  +       _tribFed(d, exp)
   +       '<tribMun>'
   +         el('tribISSQN', d.tribISSQN)
   +         el('tpRetISSQN', '1')
