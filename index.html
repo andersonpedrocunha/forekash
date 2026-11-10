@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794287871"/>
+  <meta name="fk-build" content="forekash-v1794288471"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -135859,7 +135859,16 @@ function nfMontarDPS(opts){
        31/10 e foi emitida em 05/11. */
     dCompet: d.competencia || dhEmi.slice(0, 10),
     cLocEmi: String(emp.ibge || ''), cLocPrestacao: String(emp.ibge || ''),
-    prest: { CNPJ: dig(emp.cnpj), IM: '', opSimpNac },
+    /* INSCRIÇÃO MUNICIPAL: SÓ SE O MUNICÍPIO QUISER.
+
+       Florianópolis recusa — erro E0120, "IM do prestador não deve ser
+       informado, pois não existem informações complementares registradas
+       no CNC". Mas outros municípios exigem, e deixar chumbado em vazio
+       quebraria o produto fora daqui.
+
+       Então vai o que a pessoa configurou. Se vier E0120, a saída é apagar
+       o campo em Configurar — e a mensagem de erro diz isso. */
+    prest: { CNPJ: dig(emp.cnpj), IM: String(NF.cfg.inscricaoMunicipal || '').trim(), opSimpNac },
     toma,
     cTribNac: sv.cTribNac, cNBS: sv.cNBS, xDescServ: String(d.descricao || '').trim(),
     vServ: Number(d.valor) || 0,
@@ -136201,14 +136210,78 @@ function nfDemoEmit(){
   }, 3000);
 }
 
-/* A emissão real sai pelo serviço do container (src/nfse): o navegador não
-   faz mTLS com certificado do cliente, e o Worker também não. Enquanto a
-   cola não existe, isso avisa em vez de fingir. */
+/* A EMISSÃO REAL — do app ao serviço, do serviço à Receita.
+
+   O navegador não faz mTLS com certificado do cliente, e o Worker também
+   não. Então o app monta a DPS, o serviço assina e entrega, e o que volta
+   é a NFS-e autorizada com chave de acesso.
+
+   Nada é inventado no caminho: se faltar campo, a lista de pendências diz
+   qual, pelo nome da tela. Se a Receita recusar, o código dela aparece
+   como veio — as mensagens são precisas e esconder isso só atrasa. */
 async function nfEmitirPeloServico(ambiente){
-  const url = (NF.cfg.servicoUrl || '').trim();
-  if(!url) throw new Error('Falta o endereço do serviço de emissão · configure em Configurar');
-  throw new Error('Serviço de emissão ainda não conectado (' + ambiente + ') · a emissão real roda em src/nfse');
+  const url = (NF.cfg.servicoUrl || '').trim().replace(/\/+$/, '');
+  if(!url) throw new Error('Configure o endereço do serviço de emissão');
+  const g = NF.cfg.certGuardado;
+  if(!g || !g.pacote) throw new Error('Guarde o certificado digital antes de emitir');
+
+  const { dps, falta } = nfMontarDPS();
+  if(falta.length) throw new Error('Falta preencher: ' + falta.join(' · '));
+
+  const r = await fetch(url + '/emitir', {
+    method: 'POST',
+    headers: { 'Content-Type':'application/json', 'x-fk-token': NF.cfg.servicoToken || '' },
+    body: JSON.stringify({ pacote: g.pacote, ambiente: (ambiente === 'producao' ? 'producao' : 'restrita'), dps })
+  });
+  const j = await r.json().catch(() => ({}));
+
+  if(r.status !== 201 || !j.chaveAcesso){
+    const er = (j.erros || [])[0];
+    if(!er) throw new Error(j.erro || ('HTTP ' + r.status));
+    /* Alguns erros têm conserto óbvio que a mensagem da Receita não dá,
+       porque ela fala do XML e a pessoa está olhando uma tela. */
+    const dica = {
+      E0120: ' → apague a Inscrição municipal em Configurar: este município não a aceita.',
+      E0617: ' → apague a alíquota do ISS no serviço: quem define é o município.',
+      E0312: ' → o código de tributação não vale neste município nesta competência.',
+      E0713: ' → preencha os percentuais da Lei 12.741 no serviço.',
+    }[er.Codigo] || '';
+    throw new Error(er.Codigo + ' · ' + (er.Complemento || er.Descricao) + dica);
+  }
+
+  /* NÚMERO DA DPS ANDA SÓ DEPOIS DO SUCESSO.
+     Avançar antes abriria um buraco na sequência a cada rejeição — e
+     sequência com buraco é pergunta do contador no fechamento. */
+  NF.cfg.proxDps = (parseInt(NF.cfg.proxDps, 10) || 0) + 1;
+
+  const nota = Object.assign({}, NF_DRAFT, {
+    id: NF.nextId++,
+    numero: _nfNumeroDaChave(j.chaveAcesso),
+    chaveAcesso: j.chaveAcesso,
+    serie: dps.serie, nDPS: dps.nDPS,
+    status: 'aut',
+    dataEmissao: dps.dhEmi,
+    competencia: dps.dCompet,
+    dataAutorizada: j.dataHoraProcessamento || new Date().toISOString(),
+    cTribNac: dps.cTribNac, cNBS: dps.cNBS, cIndOp: dps.cIndOp,
+    CST: dps.CST, cClassTrib: dps.cClassTrib,
+    mode: ambiente,
+    nfseXml: j.nfseXmlGZipB64 || '',
+  });
+  NF.notas.unshift(nota);
+  nfSave();
+  try{ _nfVincularNoExtrato(nota); }catch(_){}
+  if(typeof showToast === 'function')
+    showToast('NFS-e ' + nota.numero + ' autorizada'
+      + (ambiente === 'restrita' ? ' (produção restrita · não vale como documento fiscal)' : ''), 'ok');
+  return nota;
 }
+/* O número da NFS-e mora na chave: posições 23 a 35 dos 50 dígitos. */
+function _nfNumeroDaChave(ch){
+  const d = String(ch || '').replace(/\D/g, '');
+  return d.length === 50 ? String(parseInt(d.slice(23, 36), 10)) : '';
+}
+try{ window.nfEmitirPeloServico = nfEmitirPeloServico; window._nfNumeroDaChave = _nfNumeroDaChave; }catch(e){}
 try{ window.nfEmitirPeloServico = nfEmitirPeloServico; }catch(e){}
 
 async function nfSandboxEmit(){
