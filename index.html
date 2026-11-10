@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794269421"/>
+  <meta name="fk-build" content="forekash-v1794269605"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -921,6 +921,14 @@
       background:var(--card);border:1px solid var(--bdr);border-radius:8px;color:#475569;
       cursor:pointer;transition:border-color .12s,color .12s}
     .nf-baixar:hover{border-color:#94A3B8;color:#0F172A}
+    .nf-cli-selo{margin-top:5px;min-height:14px;font-size:.66rem;color:#94A3B8;
+      display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+    .nf-cli-selo small{font-size:.66rem;color:#94A3B8}
+    .nf-selo{font-size:.6rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+    .nf-selo.ok{color:#0F766E}
+    .nf-selo.novo{color:#B45309}
+    .nf-field .cart-cbx input{width:100%}
+
     .nf-cfg-herda{font-size:.74rem;color:#64748B;background:var(--bg);border:1px solid var(--bdr);
       border-radius:8px;padding:9px 12px;margin-top:4px;line-height:1.45}
 
@@ -74349,6 +74357,25 @@ function _cartCbxSource(name){
     } catch(_){}
     return [];
   }
+  /* Tomador de nota fiscal: o MESMO cadastro, filtrado por quem pode receber
+     serviço. Lista separada seria um segundo cadastro de clientes — que é
+     exatamente o que o app não deve ter. */
+  if(name === 'nfcli'){
+    const vistos = new Map();
+    try{
+      if(typeof _cartPessoasPronto === 'function') _cartPessoasPronto();
+      if(typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.registry)){
+        for(const r of pessoas.registry){
+          if(!r || r.kind === 'colaborador') continue;
+          const n = String(r.razaoSocial || r.nome || '').trim();
+          if(!n) continue;
+          const k = n.toLowerCase();
+          if(!vistos.has(k)) vistos.set(k, n);
+        }
+      }
+    }catch(_){}
+    return Array.from(vistos.values()).sort((a,b) => a.localeCompare(b,'pt',{sensitivity:'base'}));
+  }
   return [];
 }
 
@@ -134484,7 +134511,7 @@ let NF = {
     certA1Pfx: '',          // base64 do .pfx
     certA1Pwd: '',          // senha do certificado
     cnae: '',
-    itemListaServico: '01.05',
+    itemListaServico: '',
     aliquotaISS: 5.0,
     municipioEmissao: '',
     autoEmitOnPayment: true
@@ -134958,6 +134985,47 @@ function nfOpenCreate(prefill){
   document.getElementById('nf-modal-create').classList.add('open');
 }
 
+/* Escolher no cadastro traz o resto junto — é o ponto todo de ter cadastro.
+   Chamada pelo gancho do combobox (clique na lista) e pelo blur (digitado). */
+function nfCliPreencher(nome){
+  try{
+    const reg = (typeof _ecapDoCadastro === 'function') ? _ecapDoCadastro('', nome) : null;
+    if(reg){
+      const doc = String(reg.documento || reg.cnpj || reg.cpf || reg.doc || reg.taxId || '').trim();
+      const mail = reg.emailNf || reg.email || '';
+      const cn = document.getElementById('nf-f-cnpj');
+      const em = document.getElementById('nf-f-email');
+      if(cn && doc) cn.value = doc;
+      if(em && mail) em.value = mail;
+      NF_DRAFT.clienteRegId = reg.id;
+    } else {
+      NF_DRAFT.clienteRegId = null;
+    }
+  }catch(_){}
+  nfCliSelo();
+}
+/* Diz se vai reusar cadastro ou criar tomador novo — mesmo raciocínio do
+   selo da projeção: fornecedor/cliente duplicado quebra relatório em
+   silêncio. */
+function nfCliSelo(){
+  const el = document.getElementById('nf-cli-selo');
+  if(!el) return;
+  const nome = ((document.getElementById('cart-l-nfcli') || {}).value || '').trim();
+  if(!nome){ el.innerHTML = ''; return; }
+  let reg = null;
+  try{ if(typeof _ecapDoCadastro === 'function') reg = _ecapDoCadastro('', nome); }catch(_){}
+  if(reg){
+    const rot = String(reg.razaoSocial || reg.nomeLegal || reg.nome || '').trim();
+    const doc = String(reg.documento || reg.cnpj || reg.doc || '').trim();
+    el.innerHTML = '<span class="nf-selo ok">do cadastro</span>'
+      + (rot && rot.toLowerCase() !== nome.toLowerCase() ? ' <small>' + _nfEsc(rot) + '</small>' : '')
+      + (doc ? ' <small>' + _nfEsc(doc) + '</small>' : ' <small>sem documento</small>');
+  } else {
+    el.innerHTML = '<span class="nf-selo novo">tomador novo</span> <small>confira CNPJ e e-mail antes de emitir</small>';
+  }
+}
+try{ window.nfCliPreencher = nfCliPreencher; window.nfCliSelo = nfCliSelo; }catch(e){}
+
 function nfRenderCreateForm(){
   const d = NF_DRAFT;
   const plan = NF_PLANS[NF_PLAN.current] || NF_PLANS.starter;
@@ -134972,10 +135040,27 @@ function nfRenderCreateForm(){
     html += '<div class="nf-cfg-warn"><b>⚠ Você já usou as ' + plan.nfMonth + ' NFS-e incluídas no plano ' + plan.name + '.</b> Esta emissão será cobrada como overage: <b>R$ ' + plan.overagePrice + '</b> ao final do mês.</div>';
   }
   html +=
+    /* CLIENTE SAI DO CADASTRO, COM UM CLIQUE.
+
+       Era um campo de texto solto: digitar "ECBR" aqui emite a nota com
+       "ECBR" de razão social, sem CNPJ, sem e-mail, sem endereço — e cria um
+       tomador que não casa com ninguém no relatório.
+
+       É o mesmo combobox do modal de lançar gasto (`cart-cbx`), que já tem
+       busca e "+ Cadastrar". Escolher preenche CNPJ, e-mail e endereço de
+       uma vez; o selo diz se é cadastro existente ou gente nova. */
     '<div class="nf-field-row">' +
       '<div class="nf-field"><label>Cliente · razão social</label>' +
-        '<input type="text" id="nf-f-cliente" value="' + _nfEsc(d.cliente) + '" placeholder="Ex.: Acme LTDA"></div>' +
-      '<div class="nf-field"><label>CNPJ / CPF</label>' +
+        '<div class="cart-cbx" data-cbx="nfcli">' +
+          '<input type="text" id="cart-l-nfcli" value="' + _nfEsc(d.cliente) + '" placeholder="Busque no cadastro ou digite" autocomplete="off"' +
+          ' onfocus="_cartCbxOpen(\'nfcli\')" oninput="_cartCbxFilter(\'nfcli\')" onkeydown="_cartCbxKey(event,\'nfcli\')"' +
+          ' onblur="nfCliSelo()">' +
+          '<div class="cart-cbx-arr" onclick="_cartCbxToggle(\'nfcli\')">▾</div>' +
+          '<div class="cart-cbx-pop" id="cart-cbx-pop-nfcli"></div>' +
+        '</div>' +
+        '<div class="nf-cli-selo" id="nf-cli-selo"></div>' +
+      '</div>' +
+      '<div class="nf-field"><label>CNPJ / CPF / NIF</label>' +
         '<input type="text" id="nf-f-cnpj" value="' + _nfEsc(d.cnpj) + '" placeholder="00.000.000/0000-00"></div>' +
     '</div>' +
     '<div class="nf-field"><label>E-mail do tomador (recebe NFS-e por email)</label>' +
@@ -134984,24 +135069,28 @@ function nfRenderCreateForm(){
       '<div class="nf-field"><label>Valor dos serviços (R$)</label>' +
         '<input type="number" id="nf-f-valor" value="' + (d.valor || '') + '" step="0.01" min="0" placeholder="1500,00"></div>' +
       '<div class="nf-field"><label>Item Lista Serviço (LC 116)</label>' +
-        '<input type="text" id="nf-f-item" value="' + (NF.cfg.itemListaServico || '01.05') + '" placeholder="01.05"></div>' +
+        '<input type="text" id="nf-f-item" value="' + _nfEsc(NF.cfg.itemListaServico || '') + '" placeholder="defina em Configurar"></div>' +
     '</div>' +
     '<div class="nf-field"><label>Descrição dos serviços prestados</label>' +
       '<textarea id="nf-f-desc" rows="3" placeholder="Ex.: Desenvolvimento de software customizado · Maio/2026 · Contrato #1284">' + _nfEsc(d.descricao) + '</textarea></div>' +
     '<div class="nf-field-row three">' +
       '<div class="nf-field"><label>CNAE</label>' +
-        '<input type="text" id="nf-f-cnae" value="' + (NF.cfg.cnae || '') + '" placeholder="6201-5/01"></div>' +
+        '<input type="text" id="nf-f-cnae" value="' + _nfEsc(NF.cfg.cnae || (_nfEmpresaAtiva() || {}).cnae || '') + '" placeholder="do cadastro da empresa"></div>' +
       '<div class="nf-field"><label>Alíquota ISS (%)</label>' +
-        '<input type="number" id="nf-f-iss" value="' + (NF.cfg.aliquotaISS || 5) + '" step="0.01" min="0" max="100"></div>' +
+        '<input type="number" id="nf-f-iss" value="' + (NF.cfg.aliquotaISS != null ? NF.cfg.aliquotaISS : '') + '" step="0.01" min="0" max="100" placeholder="conforme o município"></div>' +
       '<div class="nf-field"><label>Município emissão</label>' +
         '<input type="text" id="nf-f-mun" value="' + (NF.cfg.municipioEmissao || 'São Paulo') + '"></div>' +
     '</div>';
   document.getElementById('nf-modal-create-body').innerHTML = html;
+  try{
+    _CART_CBX_HOOK['nfcli'] = v => nfCliPreencher(v);
+    nfCliSelo();
+  }catch(_){}
 }
 
 async function nfSubmitCreate(){
   // Captura valores
-  NF_DRAFT.cliente = (document.getElementById('nf-f-cliente').value || '').trim();
+  NF_DRAFT.cliente = ((document.getElementById('cart-l-nfcli') || document.getElementById('nf-f-cliente') || {}).value || '').trim();
   NF_DRAFT.cnpj = (document.getElementById('nf-f-cnpj').value || '').trim();
   NF_DRAFT.email = (document.getElementById('nf-f-email').value || '').trim();
   NF_DRAFT.valor = Number(document.getElementById('nf-f-valor').value) || 0;
@@ -135232,7 +135321,7 @@ function nfRenderConfigForm(){
         '<input type="text" id="nf-cfg-cnae" value="' + _nfEsc(cfg.cnae || cnaePadrao) + '"'
         + ' placeholder="' + (cnaePadrao ? _nfEsc(cnaePadrao) + ' (do cadastro)' : 'informe no cadastro da empresa') + '"></div>' +
       '<div class="nf-field"><label>Item LC 116 (default)</label>' +
-        '<input type="text" id="nf-cfg-item" value="' + _nfEsc(cfg.itemListaServico || '01.05') + '" placeholder="01.05"></div>' +
+        '<input type="text" id="nf-cfg-item" value="' + _nfEsc(cfg.itemListaServico || '') + '" placeholder="Ex: 01.01"></div>' +
     '</div>' +
     '<div class="nf-field-row">' +
       /* Sem padrão inventado: 5% é só o teto da LC 116, não a alíquota de
@@ -135260,7 +135349,7 @@ function nfSaveConfig(){
   NF.cfg.certVenc = (document.getElementById('nf-cfg-certvenc') || {}).value || '';
   NF.cfg.inscricaoMunicipal = ((document.getElementById('nf-cfg-im') || {}).value || '').trim();
   NF.cfg.cnae = (document.getElementById('nf-cfg-cnae').value || '').trim();
-  NF.cfg.itemListaServico = (document.getElementById('nf-cfg-item').value || '01.05').trim();
+  NF.cfg.itemListaServico = (document.getElementById('nf-cfg-item').value || '').trim();
   NF.cfg.aliquotaISS = Number(document.getElementById('nf-cfg-iss').value) || 5;
   NF.cfg.municipioEmissao = (document.getElementById('nf-cfg-mun').value || '').trim();
 
