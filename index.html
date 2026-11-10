@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794341435"/>
+  <meta name="fk-build" content="forekash-v1794341853"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -136539,6 +136539,8 @@ function nfDemoEmit(){
    Nada é inventado no caminho: se faltar campo, a lista de pendências diz
    qual, pelo nome da tela. Se a Receita recusar, o código dela aparece
    como veio — as mensagens são precisas e esconder isso só atrasa. */
+/* Trava de uma tentativa: sem ela, um E0120 que persista viraria laço. */
+let _jaTentouSemIM = false;
 async function nfEmitirPeloServico(ambiente){
   const url = (NF.cfg.servicoUrl || '').trim().replace(/\/+$/, '');
   if(!url) throw new Error('Configure o endereço do serviço de emissão');
@@ -136568,6 +136570,27 @@ async function nfEmitirPeloServico(ambiente){
   if(r.status !== 201 || !j.chaveAcesso){
     const er = (j.erros || [])[0];
     if(!er) throw new Error(j.erro || ('HTTP ' + r.status));
+
+    /* E0120 TEM UM CONSERTO SÓ, E O APP SABE QUAL É.
+
+       "IM do prestador não deve ser informado" quer dizer que o município
+       do emitente não tem informações complementares no cadastro nacional
+       — então a inscrição municipal não entra na DPS. Mandar a pessoa até
+       Configurar para apagar um campo, quando a resposta da Receita já
+       disse exatamente o que fazer, é empurrar trabalho que é nosso.
+
+       A inscrição não some da nota: a Receita a preenche do cadastro dela.
+       E o número da DPS ainda não avançou, então repetir é seguro. */
+    if(er.Codigo === 'E0120' && String(NF.cfg.inscricaoMunicipal || '').trim() && !_jaTentouSemIM){
+      NF.cfg.imRecusada = String(NF.cfg.inscricaoMunicipal).trim();
+      NF.cfg.inscricaoMunicipal = '';
+      nfSave();
+      _jaTentouSemIM = true;
+      if(typeof showToast === 'function')
+        showToast('Este município não aceita a inscrição municipal na DPS — removida, emitindo de novo', 'warn');
+      try{ return await nfEmitirPeloServico(ambiente); }
+      finally{ _jaTentouSemIM = false; }
+    }
     /* Alguns erros têm conserto óbvio que a mensagem da Receita não dá,
        porque ela fala do XML e a pessoa está olhando uma tela. */
     const dica = {
@@ -138286,6 +138309,13 @@ function nfRenderConfigForm(){
     '<div class="nf-cfg-herda" id="nf-cfg-email">Verificando o envio de e-mail…</div>' +
     '<div class="nf-field"><label>Inscrição municipal</label>' +
       '<input type="text" id="nf-cfg-im" value="' + _nfEsc(cfg.inscricaoMunicipal || '') + '" placeholder="Só dígitos, se o município exigir"></div>' +
+    /* Campo vazio sem explicação parece dado perdido. Se foi a Receita que
+       recusou, a tela diz qual era o número e por que ele saiu. */
+    (cfg.imRecusada && !String(cfg.inscricaoMunicipal || '').trim()
+      ? '<div class="nf-cfg-herda">A inscrição <b>' + _nfEsc(cfg.imRecusada) + '</b> foi removida daqui porque '
+        + 'a Receita a recusou (E0120): este município não tem informações complementares no cadastro nacional, '
+        + 'então a inscrição não entra na DPS. Ela continua aparecendo na nota — quem preenche é a Receita.</div>'
+      : '') +
     '<div class="nf-field-row">' +
       '<div class="nf-field"><label>CNAE principal</label>' +
         '<input type="text" id="nf-cfg-cnae" value="' + _nfEsc(cfg.cnae || cnaePadrao) + '"'
