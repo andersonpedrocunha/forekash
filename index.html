@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794343143"/>
+  <meta name="fk-build" content="forekash-v1794344329"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -136287,7 +136287,15 @@ function _nfCodigosHtml(sv){
   const par = [
     ['Tributação nacional', sv.cTribNac], ['NBS', sv.cNBS],
     ['Indicador de operação', sv.cIndOp], ['CST', sv.CST], ['Classificação', sv.cClassTrib],
-    ['Município de emissão', mun]
+    ['Município de emissão', mun],
+    /* O REGIME VAI NA NOTA, ENTÃO ELE APARECE.
+
+       Ele decide o opSimpNac da DPS, e a Receita confere contra o cadastro
+       do Simples Nacional: divergiu, recusa com E0160. Ficava invisível no
+       cadastro da empresa, com um texto de ajuda que só falava de impostos
+       correntes — ninguém adivinharia que travava a emissão. */
+    ['Regime tributário', ({simples:'Simples Nacional', presumido:'Lucro Presumido',
+                            real:'Lucro Real', mei:'MEI'})[emp.regime] || '—']
   ];
   const faltando = ['cTribNac','cNBS','cIndOp','CST','cClassTrib'].filter(k => !sv[k]);
   return par.map(([r,v]) =>
@@ -136602,6 +136610,8 @@ async function nfEmitirPeloServico(ambiente){
                 + 'a parametrização de todos os municípios. Tente a mesma nota em Produção.'
               : 'Confira o código de tributação no serviço e a data de competência.'),
       E0713: ' → preencha os percentuais da Lei 12.741 no serviço.',
+      E0160: ' → o regime tributário da empresa não bate com o cadastro do Simples Nacional. '
+           + 'Ajuste em Configurações › Empresas › Regime tributário.',
     }[er.Codigo] || '';
     /* O ambiente entra na mensagem: o mesmo código de erro significa coisas
        diferentes em produção e em produção restrita, e sem isso a pessoa
@@ -158876,6 +158886,8 @@ function empRenderModalForm(){
       '<small style="font-size:.7rem;color:#64748B;margin-top:5px;line-height:1.4;display:block">' +
         '<b>Define o padrão</b> usado no módulo <code style="background:#F1F5F9;padding:1px 5px;border-radius:4px;color:#0F172A;font-weight:600">Impostos &rsaquo; Impostos Correntes</code>. ' +
         'Trocar aqui atualiza a alíquota base, as guias geradas e os relatórios fiscais ao trocar de empresa.' +
+        '<br><b>E vai na NFS-e:</b> é ele que informa a situação perante o Simples Nacional. ' +
+        'A Receita confere contra o cadastro do Simples e recusa a nota se divergir (E0160).' +
       '</small>' +
     '</div>' +
     /* ENDEREÇO FISCAL — faltava, e sem ele não há onde mudar o município.
