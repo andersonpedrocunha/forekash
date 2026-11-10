@@ -228,3 +228,67 @@ o Worker da Cloudflare. A perna que fala com a Receita precisa de runtime
 
 Isso não derruba o resto do desenho: o Worker continua orquestrando, o
 container só assina e entrega.
+
+---
+
+# 10. Emissão funcionando — 10/11/2026
+
+**NFS-e geradas em produção restrita.** Pipeline completo: montar XML →
+assinar XMLDSig → gzip → base64 → POST com mTLS → `HTTP 201`.
+
+Código em `src/nfse/dps.js` (Node; depende de `xml-crypto`).
+
+## A assinatura que funcionou
+
+```
+SignatureMethod        rsa-sha256
+CanonicalizationMethod http://www.w3.org/TR/2001/REC-xml-c14n-20010315
+DigestMethod           sha256
+Reference URI          #<Id do infDPS>
+Transforms             enveloped-signature → c14n
+Posição                <Signature> irmã de <infDPS>, dentro de <DPS>
+```
+
+Não precisou de canonicalização exclusiva nem de truque nenhum. `xml-crypto`
+resolve; o que custa é acertar o XML, não a cripto.
+
+## Resposta de sucesso
+
+```json
+{ "tipoAmbiente": 2, "versaoAplicativo": "SefinNacional_1.6.0",
+  "chaveAcesso": "42054072212819834000102000000000000326113941057315",
+  "nfseXmlGZipB64": "...", "alertas": null }
+```
+
+`nfseXmlGZipB64` descompactado é a **NFS-e autorizada** (~10 KB) com o número
+definitivo. É esse XML que vira o DANFSe e o anexo do lançamento.
+
+## A escada de erros — o caminho inteiro
+
+Cada erro da API é preciso e aponta o campo. Valeu mais que o manual:
+
+| Código | O que era |
+|---|---|
+| `E1229` | faltava `<?xml ... encoding="UTF-8"?>` |
+| `E1235` serie | `99999` recusado; `900`, `1`, `00900`, `12345` passam |
+| `E1235` cLocEmi | **`finNFSe` vai depois de `tpEmit`**, não dentro de `IBSCBS` |
+| `E1235` cNBS | `cNBS` vem **antes** de `xDescServ` |
+| `E1235` gIBSCBS | não existe: `CST` e `cClassTrib` vão direto em `valores/trib` |
+| `E0120` | **não informar IM** — Florianópolis não tem complemento no CNC |
+| `E0312` | `010101` não está administrado na produção restrita; `010201` e `010501` estão |
+| `E0617` | **não informar `pAliq`** se o prestador não é optante do Simples |
+| `E0713` | `indTotTrib` e `pTotTribSN` proibidos p/ não optante → usar `pTotTrib` |
+
+**⚠ O esquema do servidor está à frente do XSD publicado.** Os três erros de
+ordem (`finNFSe`, `cNBS`, `gIBSCBS`) contradizem o pacote
+`NFSe-ESQUEMAS_XSD-v1.01-20260209`. Validar contra o XSD baixado dá falso
+positivo — **a API é a fonte da verdade**.
+
+## Duas regras que mudam o desenho do app
+
+1. **Alíquota não se informa.** Para não optante do Simples, quem define é o
+   município pela parametrização nacional. O campo "Alíquota ISS" na config
+   só serve para optante do Simples — para o resto é informação morta.
+2. **Os percentuais da Lei 12.741 são obrigatórios** para não optante, e são
+   uma *escolha*: ou os três valores, ou os três percentuais. Não dá pra
+   omitir com `indTotTrib`.
