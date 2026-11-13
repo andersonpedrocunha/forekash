@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794595158"/>
+  <meta name="fk-build" content="forekash-v1794595253"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -138177,12 +138177,19 @@ function _nfErroReceita(j, status){
     if(typeof v === 'number' || typeof v === 'boolean') return String(v);
     try{ return JSON.stringify(v); }catch(_){ return String(v); }
   };
-  const lista = Array.isArray(j && j.erros) ? j.erros
+  /* A resposta de erro vem em três formatos observados: {erros:[…]},
+     {Erros:[…]} e — no cancelamento — um array direto na raiz. */
+  const lista = Array.isArray(j) ? j
+              : Array.isArray(j && j.erros) ? j.erros
               : Array.isArray(j && j.Erros) ? j.Erros : [];
   if(lista.length){
     const e = lista[0] || {};
     const cod = txt(e.Codigo || e.codigo);
-    const msg = txt(e.Complemento || e.complemento || e.Descricao || e.descricao || e.Mensagem || e.mensagem);
+    /* O complemento é o que localiza o erro ("o elemento X esperava Y");
+       a descrição é genérica. Quando há os dois, os dois importam. */
+    const comp = txt(e.Complemento || e.complemento);
+    const desc = txt(e.Descricao || e.descricao || e.Mensagem || e.mensagem);
+    const msg = [desc, comp].filter(Boolean).join(' — ');
     if(cod || msg) return [cod, msg].filter(Boolean).join(' · ');
   }
   const simples = txt(j && (j.erro || j.Erro || j.mensagem || j.Mensagem || j.message || j.title));

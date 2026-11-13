@@ -43,7 +43,15 @@ function montaCancelamento(d){
   +     el('dhEvento', agora)
   +     el('CNPJAutor', String(d.cnpjAutor || '').replace(/\D/g, ''))
   +     el('chNFSe', String(d.chave).replace(/\D/g, ''))
+  /* xDesc É OBRIGATÓRIO E TEM VALOR FIXO.
+
+     O XSD define xDesc com o tipo embutido — uma enumeração de um valor
+     só, "Cancelamento de NFS-e" — em vez de um `type=` nomeado. Meu
+     extrator listava só os elementos com `type=`, então ele ficou
+     invisível e eu montei o evento sem ele. A Receita recusou com E1235
+     dizendo exatamente qual elemento esperava. */
   +     '<e101101>'
+  +       el('xDesc', 'Cancelamento de NFS-e')
   +       el('cMotivo', d.cMotivo || '1')
   +       el('xMotivo', d.xMotivo)
   +     '</e101101>'
