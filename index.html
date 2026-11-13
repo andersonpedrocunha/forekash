@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794594670"/>
+  <meta name="fk-build" content="forekash-v1794595073"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -136606,7 +136606,7 @@ async function nfEmitirPeloServico(ambiente){
 
   if(r.status !== 201 || !j.chaveAcesso){
     const er = (j.erros || [])[0];
-    if(!er) throw new Error(j.erro || ('HTTP ' + r.status));
+    if(!er) throw new Error(_nfErroReceita(j, r.status));
 
     /* E0120 TEM UM CONSERTO SÓ, E O APP SABE QUAL É.
 
@@ -138160,6 +138160,39 @@ function nfResendEmail(id){
     showToast('O Forekash ainda não envia e-mail — falta configurar o remetente', 'warn');
 }
 
+/* A RESPOSTA DE ERRO DA RECEITA NÃO TEM UM FORMATO SÓ.
+
+   Às vezes vem `erros[]` com Codigo/Descricao, às vezes um `erro` em
+   texto, às vezes um objeto aninhado que eu concatenei com string e
+   virou "[object Object]" na tela — que é pior que não mostrar nada,
+   porque não dá nem o que pesquisar.
+
+   Esta função nunca devolve isso: se não reconhecer o formato, mostra o
+   JSON cru. Feio, mas legível, e é com ele que se descobre o formato
+   novo na próxima vez. */
+function _nfErroReceita(j, status){
+  const txt = (v) => {
+    if(v == null) return '';
+    if(typeof v === 'string') return v.trim();
+    if(typeof v === 'number' || typeof v === 'boolean') return String(v);
+    try{ return JSON.stringify(v); }catch(_){ return String(v); }
+  };
+  const lista = Array.isArray(j && j.erros) ? j.erros
+              : Array.isArray(j && j.Erros) ? j.Erros : [];
+  if(lista.length){
+    const e = lista[0] || {};
+    const cod = txt(e.Codigo || e.codigo);
+    const msg = txt(e.Complemento || e.complemento || e.Descricao || e.descricao || e.Mensagem || e.mensagem);
+    if(cod || msg) return [cod, msg].filter(Boolean).join(' · ');
+  }
+  const simples = txt(j && (j.erro || j.Erro || j.mensagem || j.Mensagem || j.message || j.title));
+  if(simples) return simples;
+  const cru = txt(j);
+  return (cru && cru !== '{}') ? 'resposta inesperada ' + cru.slice(0, 300)
+                               : 'HTTP ' + status;
+}
+try{ window._nfErroReceita = _nfErroReceita; }catch(e){}
+
 /* CANCELAR É UM EVENTO NA RECEITA, NÃO UM CAMPO NO BANCO.
 
    Antes isto só fazia `n.status = 'canc'`. A nota continuava válida no
@@ -138199,8 +138232,9 @@ async function nfCancel(id){
   }
 
   if(typeof showToast === 'function') showToast('Cancelando na Receita...', 'info');
+  let r;
   try{
-    const r = await fetch(url + '/cancelar', {
+    r = await fetch(url + '/cancelar', {
       method: 'POST',
       headers: { 'Content-Type':'application/json', 'x-fk-token': NF.cfg.servicoToken || '' },
       body: JSON.stringify({
@@ -138211,12 +138245,20 @@ async function nfCancel(id){
         cMotivo: motivo.codigo, xMotivo: motivo.texto,
       })
     });
+  }catch(e){
+    /* "Failed to fetch" é o navegador falando. A causa é quase sempre a
+       mesma da emissão: o endereço do serviço mudou. Dizer qual endereço
+       foi tentado resolve sozinho na maioria das vezes. */
+    n.cancErro = 'não alcancei ' + url;
+    nfSave();
+    if(typeof showToast === 'function')
+      showToast('Não consegui falar com o serviço em ' + url +
+                '. Confira o endereço em Configurar — o túnel de teste troca a cada vez que sobe.', 'err');
+    return;
+  }
+  try{
     const j = await r.json().catch(() => ({}));
-    if(r.status !== 200 && r.status !== 201){
-      const er = (j.erros || [])[0];
-      throw new Error(er ? (er.Codigo + ' · ' + (er.Complemento || er.Descricao))
-                         : (j.erro || ('HTTP ' + r.status)));
-    }
+    if(r.status !== 200 && r.status !== 201) throw new Error(_nfErroReceita(j, r.status));
     /* Só agora: a Receita confirmou. */
     n.status = 'canc';
     n.dataCancelamento = new Date().toISOString();
