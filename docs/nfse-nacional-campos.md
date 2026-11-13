@@ -723,3 +723,63 @@ tomador com os quatro preenchidos na frente do usuário.
 Agora `_nfDraftDaTela()` lê os campos antes de calcular, e os campos avisam
 quando mudam. Um aviso que mente sobre o que está na tela é pior que aviso
 nenhum: ensina a ignorar a lista inteira — inclusive os itens verdadeiros.
+
+## 18. Cancelamento — era um campo no banco, virou um evento na Receita
+
+Até 13/11/2026 "cancelar" fazia só isto:
+
+```js
+n.status = 'canc';
+n.dataCancelamento = new Date().toISOString();
+```
+
+Nenhuma chamada à Receita. A nota seguia válida no Emissor Nacional, contando
+para apuração, enquanto a tela dizia CANCELADA — e o aviso de confirmação
+afirmava, em maiúsculas, que cancelava "junto à prefeitura".
+
+É a pior categoria de erro que um sistema fiscal pode ter: não dá sintoma. Só
+se descobre abrindo o portal por outro motivo, ou no fechamento do mês.
+
+### Como se cancela de verdade
+
+`POST /nfse/{chaveAcesso}/eventos`, corpo
+`{"pedidoRegistroEventoXmlGZipB64": …}` — mesmo padrão da DPS: XML assinado com
+o A1, gzipado, base64, por mTLS. Implementado em `src/nfse/evento.js`.
+
+O Id do pedido é `PRE` + chave (50) + código do evento (6) = os 56 dígitos que o
+XSD exige (`PRE[0-9]{56}`). Cancelamento é evento único por nota, então não há
+sequencial a acrescentar.
+
+```xml
+<pedRegEvento versao="1.01"><infPedReg Id="PRE…101101">
+  <tpAmb/><verAplic/><dhEvento/><CNPJAutor/><chNFSe/>
+  <e101101>
+    <xDesc>Cancelamento de NFS-e</xDesc>   <!-- valor fixo, obrigatório -->
+    <cMotivo>1</cMotivo>                   <!-- 1 erro, 2 não prestado, 9 outros -->
+    <xMotivo>…</xMotivo>
+  </e101101>
+</infPedReg></pedRegEvento>
+```
+
+**O `xDesc` custou uma rejeição.** O XSD o define com o tipo embutido — uma
+enumeração de um valor só — em vez de um `type=` nomeado. O extrator que usei
+listava apenas elementos com `type=`, então ele ficou invisível e eu montei o
+evento sem ele. Lição: ao ler um XSD por regex, elementos com simpleType inline
+somem.
+
+### Três formatos de erro, não um
+
+A emissão responde `{erros:[…]}`. O cancelamento respondeu com um **array na
+raiz**. Concatenar isso com string produzia `[object Object]` na tela — pior que
+não mostrar nada, porque não dá nem o que pesquisar.
+
+`_nfErroReceita(j, status)` agora cobre os três formatos e, quando não reconhece,
+mostra o JSON cru. Foi exatamente essa saída feia que entregou a mensagem do
+`xDesc`.
+
+### E o estado inventado foi desfeito
+
+Notas marcadas como canceladas pela versão antiga voltam a AUTORIZADA ao carregar,
+com um aviso dizendo que o pedido nunca chegou à Receita. Cancelar sozinho seria
+tomar uma decisão fiscal no lugar do usuário; deixar como estava seria repetir a
+mentira todo dia.

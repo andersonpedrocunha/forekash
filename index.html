@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794595253"/>
+  <meta name="fk-build" content="forekash-v1794595772"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -26458,6 +26458,7 @@ td.mes.do-extrato{background:#ECFDF5}
                 <th>Cliente</th>
                 <th style="width:130px">CNPJ/CPF</th>
                 <th class="r" style="width:130px">Valor</th>
+                <th style="width:100px">Competência</th>
                 <th style="width:100px">Emissão</th>
                 <th style="width:120px">Vinculada</th>
                 <th style="width:120px">Ações</th>
@@ -135338,6 +135339,14 @@ function _nfData(iso){
 }
 try{ window._nfData = _nfData; }catch(e){}
 
+/* Competência em MM/AAAA — é um mês, não um dia. */
+function _nfCompetMesAno(v){
+  const d = String(v || '').slice(0, 10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return '—';
+  return d.slice(5, 7) + '/' + d.slice(0, 4);
+}
+try{ window._nfCompetMesAno = _nfCompetMesAno; }catch(e){}
+
 function nfRenderList(){
   const body = document.getElementById('nf-list-body');
   const empty = document.getElementById('nf-empty');
@@ -135396,12 +135405,17 @@ function nfRenderList(){
          Brasília (-3) vira 04/11. Em documento fiscal isso não é cosmético:
          muda competência e pode cair no mês errado. Fatiar a string evita o
          fuso inteiro. */
-      /* Competência só aparece quando DIFERE da emissão: repetir a mesma
-         data duas vezes em toda linha é ruído. */
-      '<td><small style="color:#64748B">' + (n.dataEmissao ? _nfData(n.dataEmissao) : '—')
-      + ((n.competencia && _nfData(n.competencia) !== _nfData(n.dataEmissao))
-         ? '<br><span style="font-size:.9em;color:#94A3B8" title="Competência">comp. ' + _nfData(n.competencia) + '</span>' : '')
-      + '</small></td>' +
+      /* COMPETÊNCIA TEM COLUNA PRÓPRIA.
+
+         Antes só aparecia quando divergia da emissão, para não repetir a
+         mesma data — mas é ela que decide em que mês o faturamento entra,
+         e quem confere o fechamento precisa vê-la em toda linha, não só
+         nas excepcionais.
+
+         Em mês/ano, como o portal mostra: competência é um mês, e exibir
+         o dia sugere uma precisão que o conceito não tem. */
+      '<td><small style="color:#64748B">' + _nfCompetMesAno(n.competencia || n.dataEmissao) + '</small></td>' +
+      '<td><small style="color:#64748B">' + (n.dataEmissao ? _nfData(n.dataEmissao) : '—') + '</small></td>' +
       '<td>' + vincBadge + '</td>' +
       '<td><div class="nf-row-actions">' +
         '<button onclick="event.stopPropagation();nfOpenView(' + n.id + ')" title="Visualizar" class="fkico fkico-search"></button>' +
