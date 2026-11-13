@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794593599"/>
+  <meta name="fk-build" content="forekash-v1794594670"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -136577,8 +136577,10 @@ function nfDemoEmit(){
 /* Trava de uma tentativa: sem ela, um E0120 que persista viraria laço. */
 let _jaTentouSemIM = false;
 async function nfEmitirPeloServico(ambiente){
-  const url = (NF.cfg.servicoUrl || '').trim().replace(/\/+$/, '');
-  if(!url) throw new Error('Configure o endereço do serviço de emissão');
+  const url = _nfUrlServico(NF.cfg.servicoUrl);
+  if(!_nfUrlValida(url)) throw new Error(url
+    ? 'Endereço do serviço inválido: "' + url + '" — confira em Configurar'
+    : 'Configure o endereço do serviço de emissão');
   const g = NF.cfg.certGuardado;
   if(!g || !g.pacote) throw new Error('Guarde o certificado digital antes de emitir');
 
@@ -138071,7 +138073,7 @@ async function nfEnviarEmail(id, silencioso){
   if(!n) return { ok:false, motivo:'nota não encontrada' };
   const para = String(n.email || '').trim();
   if(!para) return { ok:false, motivo:'sem e-mail do tomador' };
-  const url = (NF.cfg.servicoUrl || '').trim().replace(/\/+$/, '');
+  const url = _nfUrlServico(NF.cfg.servicoUrl);
   if(!url) return { ok:false, motivo:'serviço de emissão não configurado' };
 
   try{
@@ -138122,7 +138124,7 @@ try{ window.nfEnviarEmail = nfEnviarEmail; }catch(_){}
    não acontece — e para avisar antes da emissão, não depois. */
 let NF_EMAIL_PRONTO = null;
 async function nfChecarEmail(){
-  const url = (NF.cfg.servicoUrl || '').trim().replace(/\/+$/, '');
+  const url = _nfUrlServico(NF.cfg.servicoUrl);
   if(!url){ NF_EMAIL_PRONTO = null; return null; }
   try{
     const r = await fetch(url + '/saude');
@@ -138182,11 +138184,17 @@ async function nfCancel(id){
   const motivo = await _nfMotivoCancelamento(n);
   if(!motivo) return;
 
-  const url = (NF.cfg.servicoUrl || '').trim().replace(/\/+$/, '');
+  const url = _nfUrlServico(NF.cfg.servicoUrl);
   const g = NF.cfg.certGuardado;
-  if(!url || !g || !g.pacote){
+  if(!_nfUrlValida(url)){
     if(typeof showToast === 'function')
-      showToast('Configure o serviço de emissão e o certificado antes de cancelar', 'err');
+      showToast(url ? 'Endereço do serviço inválido: "' + url + '" — confira em Configurar'
+                    : 'Configure o endereço do serviço de emissão', 'err');
+    return;
+  }
+  if(!g || !g.pacote){
+    if(typeof showToast === 'function')
+      showToast('Guarde o certificado digital antes de cancelar', 'err');
     return;
   }
 
@@ -138229,10 +138237,16 @@ async function nfCancel(id){
 /* A Receita exige código e texto da justificativa, e é o texto que o
    fisco lê depois. Perguntar é melhor que inventar um padrão. */
 async function _nfMotivoCancelamento(n){
-  const texto = window.prompt(
-    'Cancelar a NFS-e #' + (n.numero || '—') + ' na Receita Federal.\n\n' +
-    'Descreva o motivo (vai registrado no evento, e o fisco lê):',
-    'Erro na emissão');
+  /* `window.prompt` está interceptado no app: mostra a caixa e devolve
+     null sempre, por segurança. Usar o nativo aqui fazia o cancelamento
+     abortar em silêncio — a pessoa digitava, clicava OK, e nada. */
+  const texto = await anaPromptAsync({
+    eyebrow: 'Cancelar NFS-e',
+    title: 'Cancelar a NFS-e #' + (n.numero || '—') + ' na Receita Federal',
+    message: 'Descreva o motivo. Ele vai registrado no evento de cancelamento, e é o que o fisco lê depois.',
+    defaultValue: 'Erro na emissão',
+    okText: 'Cancelar a nota', cancelText: 'Voltar'
+  });
   if(texto == null) return null;
   const t = String(texto).trim();
   if(!t){
@@ -138246,6 +138260,23 @@ async function _nfMotivoCancelamento(n){
 }
 
 // ── CONFIG modal ───────────────────────────────────────────────────
+/* O ENDEREÇO DO SERVIÇO CHEGA COLADO, E COLAGEM TRAZ LIXO.
+
+   O cloudflared imprime a URL dentro de uma caixa de bordas `|`, e é
+   natural copiar as bordas junto. Já aconteceu: o campo ficou com
+   "| https://... |" e toda chamada falhava com um erro de rede que não
+   explicava nada. Limpar aqui custa uma linha; descobrir isso na hora de
+   cancelar uma nota custa uma tarde. */
+function _nfUrlServico(bruta){
+  let u = String(bruta == null ? '' : bruta).trim();
+  u = u.replace(/^[|\s>*·-]+/, '').replace(/[|\s>*·-]+$/, '');  /* bordas de caixa */
+  u = u.replace(/\s+/g, '');                                     /* espaços no meio */
+  u = u.replace(/\/+$/, '');                                     /* barra final */
+  return u;
+}
+function _nfUrlValida(u){ return /^https?:\/\/[^\s/]+/i.test(u); }
+try{ window._nfUrlServico = _nfUrlServico; }catch(e){}
+
 function nfOpenConfig(){
   nfRenderConfigForm();
   document.getElementById('nf-modal-config').classList.add('open');
@@ -138331,7 +138362,7 @@ function _nfCertBloco(cfg){
     + '</div>';
 }
 async function nfCertEnviar(){
-  const url = (NF.cfg.servicoUrl || '').trim().replace(/\/+$/, '');
+  const url = _nfUrlServico(NF.cfg.servicoUrl);
   const f = (document.getElementById('nf-cfg-cert') || {}).files;
   const senha = (document.getElementById('nf-cfg-pwd') || {}).value || '';
   if(!url) return showToast && showToast('Configure o serviço de emissão primeiro', 'err');
@@ -138496,7 +138527,7 @@ function nfRenderConfigForm(){
 async function _nfCfgEmailStatus(){
   const el = document.getElementById('nf-cfg-email');
   if(!el) return;
-  const url = (NF.cfg.servicoUrl || '').trim();
+  const url = _nfUrlServico(NF.cfg.servicoUrl);
   if(!url){ el.innerHTML = '<b>E-mail:</b> configure o endereço do serviço primeiro.'; return; }
   const st = await nfChecarEmail();
   if(!st){ el.innerHTML = '<b>E-mail:</b> não consegui falar com o serviço.'; return; }
@@ -138544,7 +138575,7 @@ function nfSaveConfig(){
   }
   NF.cfg.serieDpsTeste = ((document.getElementById('nf-cfg-serie-teste') || {}).value || '').replace(/\D/g,'');
   NF.cfg.proxDpsTeste  = parseInt((document.getElementById('nf-cfg-prox-teste') || {}).value, 10) || 0;
-  NF.cfg.servicoUrl   = ((document.getElementById('nf-cfg-svurl')  || {}).value || '').trim();
+  NF.cfg.servicoUrl   = _nfUrlServico((document.getElementById('nf-cfg-svurl') || {}).value);
   NF.cfg.servicoToken = ((document.getElementById('nf-cfg-svtok') || {}).value || '').trim();
   nfSave();
   if(typeof showToast === 'function') showToast('Configuração salva', 'ok');
