@@ -14,6 +14,7 @@ const http = require('http');
 const { montaDPS, assina, envia } = require('./dps.js');
 const { guardar, abrir, paraPem } = require('./cofre.js');
 const correio = require('./email.js');
+const { montaCancelamento, assinaEvento, enviaEvento } = require('./evento.js');
 
 const PORTA = process.env.PORT || 8080;
 const TOKEN = process.env.FK_NFSE_TOKEN || '';
@@ -82,6 +83,34 @@ const rotas = {
       /* Repassa o status da Receita: 201 é nota gerada, 400 traz os códigos
          de erro dela, que são precisos e o app deve mostrar como vieram. */
       return json(res, st, Object.assign({ idDPS: Id }, j));
+    }, b.ambiente === 'producao');
+  },
+
+  /* CANCELA DE VERDADE, na Receita.
+
+     O app marcava a nota como cancelada no próprio banco e pronto — a
+     nota seguia válida lá, contando para apuração, com a tela dizendo o
+     contrário. Cancelar é registrar um evento vinculado à chave. */
+  'POST /cancelar': async (req, res) => {
+    const b = await corpo(req);
+    if(!b.pacote || !b.chave) return json(res, 400, { erro: 'pacote e chave obrigatórios' });
+    if(!String(b.xMotivo || '').trim()) return json(res, 400, { erro: 'motivo do cancelamento obrigatório' });
+    let pem;
+    try { const c = abrir(b.pacote); pem = paraPem(c.pfx, c.senha); }
+    catch(e){ return json(res, 400, { erro: 'certificado: ' + e.message }); }
+
+    let xml, Id;
+    try { ({ xml, Id } = montaCancelamento(b)); }
+    catch(e){ return json(res, 400, { erro: e.message }); }
+
+    let assinado;
+    try { assinado = assinaEvento(xml, Id, pem.key, pem.cert); }
+    catch(e){ return json(res, 500, { erro: 'assinatura: ' + e.message }); }
+
+    enviaEvento(assinado, b.chave, pem.cert, pem.key, (err, st, resp) => {
+      if(err) return json(res, 502, { erro: 'rede: ' + err.message });
+      let j = {}; try{ j = JSON.parse(resp); }catch(_){ j = { bruto: String(resp).slice(0, 500) }; }
+      return json(res, st, Object.assign({ idEvento: Id }, j));
     }, b.ambiente === 'producao');
   },
 

@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794344789"/>
+  <meta name="fk-build" content="forekash-v1794593599"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -135043,6 +135043,26 @@ function nfLoad(){
      `itemListaServico` virou `cTribNac` (no serviço), `aliquotaISS` virou
      por serviço e só pro Simples, `municipioEmissao` é da empresa, e as
      chaves da NFE.io não têm mais dono. */
+  /* CANCELAMENTO QUE NUNCA ACONTECEU.
+
+     Até 13/11/2026 "cancelar" só mudava o status aqui dentro; a Receita
+     nunca ficava sabendo. Então toda nota marcada como cancelada sem um
+     evento registrado continua VÁLIDA lá — e deixá-la como "cancelada"
+     na tela seria repetir a mentira todo dia.
+
+     Volta para autorizada e guarda o pedido, para a nota poder dizer o
+     que de fato aconteceu. Quem cancelou pelo portal à mão vai ver o
+     aviso e pode ignorá-lo; quem não cancelou descobre a tempo. */
+  for(const nt of NF.notas){
+    if(nt && nt.status === 'canc' && nt.chaveAcesso && !nt.cancEvento && !nt.cancRevisado){
+      nt.status = 'aut';
+      nt.cancPedidoEm = nt.dataCancelamento || null;
+      nt.cancNuncaEnviado = true;
+      nt.cancRevisado = true;
+      delete nt.dataCancelamento;
+      try{ nfSave(); }catch(_){}
+    }
+  }
   for(const morto of ['certA1Pfx','certA1Pwd','nfeIoApiKey','companyId',
                       'itemListaServico','aliquotaISS','municipioEmissao','certVenc']){
     if(NF.cfg && morto in NF.cfg){ delete NF.cfg[morto]; try{ nfSave(); }catch(_){} }
@@ -136716,6 +136736,14 @@ function nfOpenView(id){
         (n.status === 'rej' ? campo('Motivo', _nfEsc(n.motivoRejeicao || '—')) : '') +
         (n.status === 'canc' ? campo('Cancelada em',
           n.dataCancelamento ? new Date(n.dataCancelamento).toLocaleString('pt-BR') : '—') : '') +
+        (n.status === 'canc' && n.cancEvento ? campo('Evento',
+          '<code style="font-size:.66rem;word-break:break-all">' + _nfEsc(n.cancEvento) + '</code>') : '') +
+        (n.cancNuncaEnviado ? campo('Atenção',
+          '<span style="color:#B91C1C;font-weight:700">Esta nota foi marcada como cancelada em ' +
+          (n.cancPedidoEm ? new Date(n.cancPedidoEm).toLocaleDateString('pt-BR') : 'data desconhecida') +
+          ', mas o cancelamento nunca chegou à Receita.</span><br>' +
+          '<small>Versão antiga do Forekash só mudava o status aqui dentro. ' +
+          'Confira no Emissor Nacional: se ainda estiver ativa, cancele de novo.</small>') : '') +
       '</div>' +
     '</div>' +
     '<div class="nf-view-section">' +
@@ -138130,21 +138158,91 @@ function nfResendEmail(id){
     showToast('O Forekash ainda não envia e-mail — falta configurar o remetente', 'warn');
 }
 
+/* CANCELAR É UM EVENTO NA RECEITA, NÃO UM CAMPO NO BANCO.
+
+   Antes isto só fazia `n.status = 'canc'`. A nota continuava válida no
+   Emissor Nacional, contando para apuração, enquanto a tela dizia
+   CANCELADA — e o aviso de confirmação afirmava, em letras maiúsculas,
+   que cancelava "junto à prefeitura". Não cancelava nada.
+
+   Estado fiscal inventado é a pior categoria de erro que um sistema
+   assim pode ter: não dá sintoma, e ninguém vai conferir no portal o que
+   o próprio sistema afirma ter feito.
+
+   Agora o status só muda quando a Receita confirma o evento. */
 async function nfCancel(id){
   const n = NF.notas.find(x => x.id === id);
   if(!n) return;
-  const ok = await (typeof anaConfirmAsync === 'function' ? anaConfirmAsync({
-    title:'Cancelar NFS-e #' + n.numero + '?',
-    body:'Esta operação CANCELA a nota fiscal junto à prefeitura. Geralmente disponível até 24h após emissão. Confirme.',
-    okLabel:'Sim, cancelar', cancelLabel:'Voltar'
-  }) : Promise.resolve(window.confirm('Cancelar NFS-e?')));
-  if(!ok) return;
-  n.status = 'canc';
-  n.dataCancelamento = new Date().toISOString();
-  nfSave();
-  nfRender();
-  nfCloseModal('view');
-  if(typeof showToast === 'function') showToast('✓ NFS-e #' + n.numero + ' cancelada', 'ok');
+  if(!n.chaveAcesso){
+    if(typeof showToast === 'function')
+      showToast('Esta nota não tem chave de acesso — nada a cancelar na Receita', 'warn');
+    return;
+  }
+
+  const motivo = await _nfMotivoCancelamento(n);
+  if(!motivo) return;
+
+  const url = (NF.cfg.servicoUrl || '').trim().replace(/\/+$/, '');
+  const g = NF.cfg.certGuardado;
+  if(!url || !g || !g.pacote){
+    if(typeof showToast === 'function')
+      showToast('Configure o serviço de emissão e o certificado antes de cancelar', 'err');
+    return;
+  }
+
+  if(typeof showToast === 'function') showToast('Cancelando na Receita...', 'info');
+  try{
+    const r = await fetch(url + '/cancelar', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'x-fk-token': NF.cfg.servicoToken || '' },
+      body: JSON.stringify({
+        pacote: g.pacote, chave: n.chaveAcesso,
+        ambiente: n.mode === 'producao' ? 'producao' : 'restrita',
+        tpAmb: n.mode === 'producao' ? '1' : '2',
+        cnpjAutor: String((_nfEmpresaAtiva() || {}).cnpj || '').replace(/\D/g, ''),
+        cMotivo: motivo.codigo, xMotivo: motivo.texto,
+      })
+    });
+    const j = await r.json().catch(() => ({}));
+    if(r.status !== 200 && r.status !== 201){
+      const er = (j.erros || [])[0];
+      throw new Error(er ? (er.Codigo + ' · ' + (er.Complemento || er.Descricao))
+                         : (j.erro || ('HTTP ' + r.status)));
+    }
+    /* Só agora: a Receita confirmou. */
+    n.status = 'canc';
+    n.dataCancelamento = new Date().toISOString();
+    n.cancMotivo = motivo.texto;
+    n.cancEvento = j.idEvento || '';
+    delete n.cancErro;
+    nfSave(); nfRender(); nfCloseModal('view');
+    if(typeof showToast === 'function')
+      showToast('NFS-e #' + n.numero + ' cancelada na Receita', 'ok');
+  }catch(e){
+    n.cancErro = e.message;
+    nfSave();
+    if(typeof showToast === 'function')
+      showToast('Não cancelou: ' + e.message, 'err');
+  }
+}
+
+/* A Receita exige código e texto da justificativa, e é o texto que o
+   fisco lê depois. Perguntar é melhor que inventar um padrão. */
+async function _nfMotivoCancelamento(n){
+  const texto = window.prompt(
+    'Cancelar a NFS-e #' + (n.numero || '—') + ' na Receita Federal.\n\n' +
+    'Descreva o motivo (vai registrado no evento, e o fisco lê):',
+    'Erro na emissão');
+  if(texto == null) return null;
+  const t = String(texto).trim();
+  if(!t){
+    if(typeof showToast === 'function') showToast('O motivo é obrigatório', 'warn');
+    return null;
+  }
+  /* 1 = erro na emissão, 2 = serviço não prestado, 9 = outros. */
+  const codigo = /n[ãa]o\s*(foi\s*)?prestad/i.test(t) ? '2'
+               : /erro/i.test(t) ? '1' : '9';
+  return { codigo: codigo, texto: t.slice(0, 255) };
 }
 
 // ── CONFIG modal ───────────────────────────────────────────────────
