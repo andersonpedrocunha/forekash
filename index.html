@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794857812"/>
+  <meta name="fk-build" content="forekash-v1794858415"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1268,6 +1268,18 @@
     .nf-envio-cab .lbl{flex:0 0 68px;color:#94A3B8;font-size:.72rem;text-transform:uppercase;
                        letter-spacing:.05em;font-weight:700;padding-top:1px}
     .nf-envio-cab b{color:#0F172A;font-weight:600;word-break:break-word}
+    /* O "Para" é campo, não rótulo: parece texto até receber o cursor, porque
+       na maioria das vezes ele já está certo e só precisa ser conferido. */
+    .nf-envio-para{flex:1;min-width:0;font:inherit;font-weight:600;color:#0F172A;
+      background:transparent;border:1px solid transparent;border-radius:6px;
+      padding:1px 7px;margin:-2px 0 -2px -7px;transition:border-color .12s,background .12s}
+    .nf-envio-para::placeholder{color:#B45309;font-weight:500}
+    .nf-envio-para:hover{border-color:#E2E8F0;background:#fff}
+    .nf-envio-para:focus{outline:none;border-color:#0EA5E9;background:#fff}
+    /* Botão travado tem que PARECER travado. `.btn-p` não tinha estado
+       desabilitado: continuava azul e convidativo enquanto não fazia nada —
+       e quem clica sem resposta conclui que o sistema quebrou. */
+    .btn.btn-p:disabled, .btn.btn-p[disabled]{opacity:.45;cursor:not-allowed;filter:grayscale(.3)}
     .nf-row-actions button.nf-enviado{background:#ECFDF5;border-color:#A7F3D0;color:#047857}
     .nf-row-actions button.nf-enviado:hover{background:#D1FAE5;color:#065F46}
     .nf-row-actions button[disabled]{opacity:.4;cursor:not-allowed}
@@ -135852,8 +135864,15 @@ function nfRenderList(){
                 ? 'Enviado para ' + _nfEsc(n.emailPara || n.email || '') + ' em '
                   + new Date(n.emailEnviadoEm).toLocaleString('pt-BR') + ' · clique para reenviar'
                 : n.emailErro ? 'Falhou: ' + _nfEsc(n.emailErro) + ' · clique para tentar de novo'
-                : n.email ? 'Enviar para ' + _nfEsc(n.email) : 'Sem e-mail do tomador')
-            + '"' + (n.email ? '' : ' disabled') + '>'
+                : (_nfDestinoDaNota(n)
+                    ? 'Enviar para ' + _nfEsc(_nfDestinoDaNota(n))
+                    /* Antes o botão ficava apagado e a nota virava beco sem
+                       saída: o destinatário se congelava no instante da
+                       emissão. Agora ele abre a prévia, onde o endereço é
+                       um campo — escolher pra quem mandar é decisão da hora
+                       de mandar. */
+                    : 'Escolher o destinatário e enviar'))
+            + '">'
             + (n.emailEnviadoEm ? '✓ enviado' : n.emailErro ? '✉ falhou' : '✉ enviar') + '</button>'
           : '') +
         (n.status === 'aut' ? '<button class="danger" onclick="event.stopPropagation();nfCancel(' + n.id + ')" title="Cancelar">✕</button>' : '') +
@@ -136354,7 +136373,8 @@ function nfCliPreencher(nome){
     if(c){
       const doc = String(c.cnpj || c.documento || '').trim();
       if(cn && doc) cn.value = doc;
-      if(em && (c.emailNf || c.email)) em.value = c.emailNf || c.email;
+      const mail = _nfEmailDoCliente(c);
+      if(em && mail) em.value = mail;
       NF_DRAFT.clienteId = c.id;
       /* País é o que decide exportação na DPS: ISS zerado, incidência
          "Nenhum", IBGE 9999999 e retenção federal desligada. Guardar aqui
@@ -136870,7 +136890,7 @@ function _nfDraftDoCadastro(d){
     if(!c) return;
     d.cliente = c.razaoSocial || c.nome || d.cliente;
     if(!String(d.cnpj  || '').trim()) d.cnpj  = String(c.cnpj || c.documento || '').trim();
-    if(!String(d.email || '').trim()) d.email = c.emailNf || c.email || '';
+    if(!String(d.email || '').trim()) d.email = _nfEmailDoCliente(c);
     /* Estes três não se digitam nesta tela: saem do cadastro e seguem o
        cliente. Mesma regra do `nfCliPreencher`, pra abrir e escolher darem
        no mesmo resultado. */
@@ -138921,10 +138941,10 @@ let _NF_ENVIO_PENDENTE = null;
 async function nfEnviarComPrevia(id){
   const n = NF.notas.find(x => x && x.id === id);
   if(!n) return;
-  if(!n.email){
-    if(typeof showToast === 'function') showToast('Esta nota não tem e-mail do tomador', 'warn');
-    return;
-  }
+  /* NOTA SEM E-MAIL NÃO É BECO SEM SAÍDA. O endereço era fixado no instante
+     da emissão: esqueceu de preencher, a nota nunca mais podia ser enviada
+     por aqui. Agora a prévia abre com o que achar — na nota ou no cadastro —
+     e o campo aceita correção. É a hora certa de decidir pra quem vai. */
   _NF_ENVIO_PENDENTE = id;
   const doCli = _nfCfgEmailDoCliente(n);
   const m = _nfEmailMontar(n, true);
@@ -138932,7 +138952,10 @@ async function nfEnviarComPrevia(id){
 
   document.getElementById('nf-modal-envio-body').innerHTML =
     '<div class="nf-envio-cab">' +
-      '<div><span class="lbl">Para</span><b>' + _nfEsc(n.email) + '</b></div>' +
+      '<div><span class="lbl">Para</span>' +
+        '<input type="email" id="nf-envio-para" class="nf-envio-para" value="' +
+        _nfEsc(_nfDestinoDaNota(n)) + '" placeholder="e-mail de quem recebe a nota"' +
+        ' oninput="_nfEnvioParaMudou()" autocomplete="off"></div>' +
       (doCli.cc ? '<div><span class="lbl">Cópia</span><b>' + _nfEsc(doCli.cc) + '</b></div>' : '') +
       '<div><span class="lbl">De</span><b>' + _nfEsc(g ? g.de : '— remetente não configurado') + '</b></div>' +
       '<div><span class="lbl">Assunto</span><b>' + _nfEsc(m.assunto) + '</b></div>' +
@@ -138945,15 +138968,42 @@ async function nfEnviarComPrevia(id){
 
   const f = document.getElementById('nf-envio-frame');
   const d = f.contentDocument; d.open(); d.write(m.html); d.close();
-  const btn = document.getElementById('nf-envio-ok');
-  if(btn) btn.disabled = !g;
   document.getElementById('nf-modal-envio').classList.add('open');
+  _nfEnvioParaMudou();
 }
 try{ window.nfEnviarComPrevia = nfEnviarComPrevia; }catch(e){}
+
+/* Endereço vazio ou torto trava o botão. Validação de e-mail não precisa ser
+   esperta — só precisa pegar o dedo escorregado antes de o envio falhar lá
+   no provedor, com uma mensagem que ninguém entende. */
+function _nfEmailParece(v){
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v || '').trim());
+}
+function _nfEnvioParaMudou(){
+  const btn = document.getElementById('nf-envio-ok');
+  const campo = document.getElementById('nf-envio-para');
+  if(!btn) return;
+  const temRemetente = !!NF.cfg.smtpGuardado;
+  const ok = temRemetente && _nfEmailParece(campo && campo.value);
+  btn.disabled = !ok;
+  btn.title = !temRemetente ? 'Configure o remetente em E-mail'
+            : ok ? '' : 'Preencha o e-mail de quem recebe';
+}
+try{ window._nfEnvioParaMudou = _nfEnvioParaMudou; }catch(e){}
 
 async function nfEnvioConfirmar(){
   const id = _NF_ENVIO_PENDENTE;
   if(!id) return;
+  /* O que foi digitado na prévia passa a ser o e-mail da nota: da próxima vez
+     o ✉ já sabe pra onde vai, e a lista mostra o destinatário certo. */
+  const campo = document.getElementById('nf-envio-para');
+  const para = String((campo && campo.value) || '').trim();
+  if(!_nfEmailParece(para)){
+    if(typeof showToast === 'function') showToast('Preencha o e-mail de quem recebe', 'warn');
+    return;
+  }
+  const n = NF.notas.find(x => x && x.id === id);
+  if(n && n.email !== para){ n.email = para; nfSave(); }
   const btn = document.getElementById('nf-envio-ok');
   if(btn){ btn.disabled = true; btn.textContent = 'Enviando...'; }
   try{
@@ -138967,6 +139017,40 @@ async function nfEnvioConfirmar(){
 try{ window.nfEnvioConfirmar = nfEnvioConfirmar; }catch(e){}
 
 /* O que o cliente configurou na ficha dele manda neste e-mail. */
+/* ONDE MORA O E-MAIL DO CLIENTE.
+
+   Em três lugares, por camadas de idade: `emailNf` e `email` no topo do
+   cadastro, e `endereco.email` — que é o campo "E-mail para a nota", na ficha
+   do cliente, e o único que a tela oferece hoje.
+
+   O formulário de emitir lia só os dois primeiros. Resultado: a pessoa
+   preenchia o e-mail na ficha, emitia, e a nota saía sem destinatário — com o
+   ✉ apagado e o motivo "sem e-mail do tomador", enquanto o endereço estava
+   cadastrado a dois cliques dali.
+
+   Um leitor só, usado por todo mundo. */
+function _nfEmailDoCliente(c){
+  if(!c) return '';
+  const e = (c.endereco && typeof c.endereco === 'object') ? c.endereco : {};
+  return String(c.emailNf || c.email || e.email || '').trim();
+}
+try{ window._nfEmailDoCliente = _nfEmailDoCliente; }catch(e){}
+
+/* Pra quem esta nota vai. O que está gravado na nota manda — foi o que quem
+   emitiu escolheu. Faltando, procura no cadastro: o cliente pode ter ganhado
+   e-mail DEPOIS da emissão, e a nota não deixa de ter dono por isso. */
+function _nfDestinoDaNota(n){
+  if(!n) return '';
+  const direto = String(n.emailPara || n.email || '').trim();
+  if(direto) return direto;
+  try{
+    const c = (n.clienteId != null)
+      ? _nfClientes().find(x => x && String(x.id) === String(n.clienteId)) : null;
+    return _nfEmailDoCliente(c) || _nfEmailDoCliente(_nfClientePorNome(n.cliente));
+  }catch(_){ return ''; }
+}
+try{ window._nfDestinoDaNota = _nfDestinoDaNota; }catch(e){}
+
 function _nfCfgEmailDoCliente(n){
   try{
     const c = n.clienteId ? _nfClientes().find(x => x && x.id === n.clienteId) : null;
@@ -139060,7 +139144,7 @@ function _nfEmailCorpo(n, modelo){
 async function nfEnviarEmail(id, silencioso){
   const n = NF.notas.find(x => x && x.id === id);
   if(!n) return { ok:false, motivo:'nota não encontrada' };
-  const para = String(n.email || '').trim();
+  const para = _nfDestinoDaNota(n);
   if(!para) return { ok:false, motivo:'sem e-mail do tomador' };
   const url = _nfUrlServico(NF.cfg.servicoUrl);
   if(!url) return { ok:false, motivo:'serviço de emissão não configurado' };
