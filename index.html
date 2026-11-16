@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794856662"/>
+  <meta name="fk-build" content="forekash-v1794857812"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -136847,8 +136847,43 @@ function _nfComexHtml(d){
     '</div></div>';
 }
 
+/* ══ O CADASTRO PREENCHE O QUE O RASCUNHO NÃO TROUXE ══════════════════════
+
+   A tela de emitir abre de vários lugares — da Receita, de um lançamento, do
+   botão de nova nota — e nem todos conhecem CNPJ, e-mail ou o nome completo
+   do cliente: alguns só sabem como ele é chamado por aqui. O campo do cliente
+   aparecia preenchido, o CNPJ vazio, e a pessoa tinha que escolher de novo o
+   MESMO cliente pra destravar o resto.
+
+   Pior que o incômodo: o que está nesse campo vai pra nota como `xNome`, o
+   nome do tomador. Abrir com o apelido e emitir sairia com o apelido no lugar
+   da razão social — e, em pessoa física, o nome é conferido contra o CPF.
+
+   Então, ao abrir: achou o cliente no cadastro, traz o que falta. Só o que
+   falta — o que veio preenchido é de quem abriu a tela e tem precedência.
+   Nome que não existe no cadastro não é tocado: é cliente novo, e o selo já
+   diz isso. */
+function _nfDraftDoCadastro(d){
+  try{
+    if(!d || !String(d.cliente || '').trim()) return;
+    const c = _nfClientePorNome(d.cliente);
+    if(!c) return;
+    d.cliente = c.razaoSocial || c.nome || d.cliente;
+    if(!String(d.cnpj  || '').trim()) d.cnpj  = String(c.cnpj || c.documento || '').trim();
+    if(!String(d.email || '').trim()) d.email = c.emailNf || c.email || '';
+    /* Estes três não se digitam nesta tela: saem do cadastro e seguem o
+       cliente. Mesma regra do `nfCliPreencher`, pra abrir e escolher darem
+       no mesmo resultado. */
+    d.clienteId  = c.id;
+    d.pais       = c.pais || 'BR';
+    d.exportacao = !!(c.pais && c.pais !== 'BR') || c.tipoPessoa === 'est';
+  }catch(e){ console.warn('[FK] cliente do cadastro:', e && e.message); }
+}
+try{ window._nfDraftDoCadastro = _nfDraftDoCadastro; }catch(e){}
+
 function nfRenderCreateForm(){
   const d = NF_DRAFT;
+  _nfDraftDoCadastro(d);
   nfServLoad();
   const _temServ = NF_SERVICOS.list.length > 0;
   const _sv = (d.servicoId && NF_SERVICOS.list.find(x => x && x.id === d.servicoId)) || nfServPadrao();
