@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794865219"/>
+  <meta name="fk-build" content="forekash-v1794867803"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -72051,6 +72051,31 @@ function _fkForasteirosAviso(tableName, quantos){
 }
 try{ window._fkConhecidos = _fkConhecidos; }catch(_){}
 
+/* ══ SÓ SOBE O QUE MUDOU ══════════════════════════════════════════════════
+
+   Cada save reenviava a TABELA INTEIRA. Com 8.900 lançamentos e anexos
+   embutidos, uma vírgula trocada na descrição custava 4,9 MB de upload e
+   alguns segundos de tela parada — e pior: enquanto o envio não terminava, um
+   F5 trazia a versão antiga da nuvem por cima da edição recém-feita. O
+   sintoma que se vê é "não está ficando"; a causa é a janela entre salvar e
+   terminar de subir.
+
+   Agora cada linha carrega uma assinatura do que foi enviado por último. Sobe
+   só quem difere. A primeira sincronização da sessão continua integral — é o
+   que garante que a nuvem tem tudo antes de a aba começar a confiar no memo.
+
+   A assinatura é gravada DEPOIS do upsert dar certo: assinatura guardada é
+   promessa de que a nuvem recebeu. Se o envio falhar, nada é marcado e a
+   rodada seguinte reenvia. Em dúvida, sobe — nunca o contrário. */
+const _FK_SYNC_ASSIN = new Map();
+function _fkAssinatura(o){
+  let s;
+  try{ s = JSON.stringify(o); }catch(_){ return null; }   // null = sobe sempre
+  let h = 5381;
+  for(let i = 0; i < s.length; i++) h = (((h << 5) + h) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36) + ':' + s.length;
+}
+
 async function _cloudSyncTable(tableName, localRows, toRowFn, orgId){
   /* PAGINA. O PostgREST corta em 1000 linhas por resposta, e esta lista decide
      o que vai ser APAGADO lá embaixo: lida pela metade, tudo que ficou de fora
@@ -72075,8 +72100,22 @@ async function _cloudSyncTable(tableName, localRows, toRowFn, orgId){
     }
   }
 
+  let _assinNovas = null;
   if (localRows.length > 0) {
-    const toUpsert = localRows.map(r => toRowFn(r, orgId));
+    const _todas = localRows.map(r => toRowFn(r, orgId));
+    const _memo = _FK_SYNC_ASSIN.get(tableName);
+    const _primeira = !_memo;
+    _assinNovas = new Map();
+    const toUpsert = [];
+    for(const row of _todas){
+      const a = _fkAssinatura(row);
+      if(a != null) _assinNovas.set(row.local_id, a);
+      if(_primeira || a == null || _memo.get(row.local_id) !== a) toUpsert.push(row);
+    }
+    if(!_primeira){
+      try{ console.log('[FK] ' + tableName + ': subindo ' + toUpsert.length
+        + ' de ' + _todas.length + ' linha(s)'); }catch(_){}
+    }
     /* Lote por TAMANHO, não por contagem. 500 linhas magras cabem numa
        requisição; 500 linhas com um comprovante em base64 cada viram um POST
        de centenas de MB, que o servidor recusa — e aí o módulo inteiro parava
@@ -72096,6 +72135,9 @@ async function _cloudSyncTable(tableName, localRows, toRowFn, orgId){
         .from(tableName).upsert(batch, { onConflict: 'org_id,local_id' });
       if (upErr) throw upErr;
     }
+    /* Só aqui: nenhum `throw` aconteceu, então a nuvem tem o que foi enviado
+       e o que já estava marcado de antes. */
+    if(_assinNovas) _FK_SYNC_ASSIN.set(tableName, _assinNovas);
   }
   const localIds = new Set(localRows.map(r => r.id));
   const ausentes = (cloudRows || []).filter(r => !localIds.has(r.local_id));
@@ -80068,10 +80110,38 @@ try{
 }catch(_){}
 try{ window.fkNuvemConferir = fkNuvemConferir; window.fkNuvemPendente = fkNuvemPendente;
      window.fkNuvemOk = fkNuvemOk; }catch(e){}
+/* Relógio único: vários saves enquanto a nuvem não desce não criam vários
+   relógios — o que importa é haver UM esperando para enviar o estado atual,
+   que já inclui tudo que foi salvo no meio tempo. */
+let _extSyncEspera = 0;
+function _extSyncRetentar(){
+  if(_extSyncEspera) return;
+  let tentativas = 0;
+  _extSyncEspera = setInterval(() => {
+    tentativas++;
+    if(fkPodeSincronizar()){
+      clearInterval(_extSyncEspera); _extSyncEspera = 0;
+      try{ cloudExtratoSync(); }catch(_){}
+    } else if(tentativas > 40){            // ~2 minutos
+      clearInterval(_extSyncEspera); _extSyncEspera = 0;
+      try{ console.warn('[FK] extrato: a nuvem não desceu em 2 min — o que foi salvo está só neste navegador'); }catch(_){}
+      try{ if(typeof toast === 'function')
+        toast('⚠ Salvo só neste navegador — a nuvem não respondeu. Não feche sem recarregar.'); }catch(_){}
+    }
+  }, 3000);
+}
+
 async function cloudExtratoSync(){
   if (window.FK_MODE !== 'cloud' || !window.sb || !window._FK_CLOUD_USER) return;
   if (!fkPodeSincronizar()){
+    /* ADIADO NÃO PODE VIRAR ESQUECIDO.
+
+       Antes isto era um `return` seco: o save ficava só no navegador e, na
+       hidratação seguinte, a versão da nuvem — a antiga — vinha por cima.
+       A edição sumia sem erro nenhum, e de fora parece que "não salvou".
+       Agora espera a nuvem descer e envia. Se ela não descer, avisa. */
     try{ console.warn('[FK] sync do extrato adiado — nuvem ainda não desceu'); }catch(_){}
+    _extSyncRetentar();
     return;
   }
   if (_extCloudSyncInFlight) { _extCloudSyncPending = true; return; }
