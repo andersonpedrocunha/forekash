@@ -818,8 +818,8 @@ A nota não guardava vínculo nenhum com o Extrato: `extratoLancId` só é
 preenchido pelo fluxo do Asaas, e `receitaRowId` só quando a emissão parte do
 kanban da Receita. O que ela sempre tem é **cliente e competência**.
 
-A busca, então: entre os lançamentos **acompanhados** (`slackTrack.ativo`), de
-tipo ganho, no mesmo mês de competência — pela regra do resto do app,
+A busca, então: entre os lançamentos de **entrada** (tipo ganho) no mesmo mês
+de competência — pela regra do resto do app,
 `dataEmissao || dataVencimento || data` — vale
 
 1. o **marcador**: `receitaRowId` do lançamento (próprio ou de um item) numa
@@ -828,10 +828,27 @@ tipo ganho, no mesmo mês de competência — pela regra do resto do app,
 2. na falta dele, o **nome**, por `recNomeChave`, comparado com o apelido do
    cliente na Receita — não com a razão social da nota, que é outro texto.
 
-Dois recebimentos do mesmo cliente no mesmo mês: fica com o que ainda não tem
-nota e, entre eles, o de valor mais próximo. Só lançamento acompanhado entra
-na busca: o carimbo existe para o cartão do canal, e procurar dono entre nove
-mil lançamentos convidaria o erro sem ter a quem contar o acerto.
+Dois recebimentos do mesmo cliente no mesmo mês desempatam nesta ordem: quem
+ainda não tem outra nota, depois o valor mais próximo, e só então o
+acompanhado no Slack. O que segura o erro é o filtro de cliente e competência,
+não o tamanho da lista — por isso a busca vale para qualquer entrada, e não só
+para as sete acompanhadas: é o mesmo carimbo que acende o ícone da nota na
+linha do Extrato, e isso serve a quem nem usa Slack.
+
+### O ícone na linha
+
+A linha do Extrato já tinha um documento cinza quando havia nota — mas ele só
+dizia "existe". Emitida, cancelada e recusada são três coisas diferentes para
+quem passa o olho na lista, e as três cabem num **selo** no canto do papel:
+check verde, × cinza, ! âmbar. Situação desconhecida não ganha selo — é o caso
+dos vínculos antigos, que gravaram só o id, e inventar um "emitida" ali seria
+afirmar o que não se sabe.
+
+A cor vai toda para o selo e o papel fica cinza: a linha já tem um ícone azul
+(conciliação) e um chip colorido (categoria), e mais uma cor forte competiria
+com eles. A auréola que recorta o selo é uma variável própria, não `--card` —
+esse é branco e não muda no tema escuro, e desenharia um anel branco em volta
+do selo.
 
 ### O que só produção carimba
 

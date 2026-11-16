@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794855630"/>
+  <meta name="fk-build" content="forekash-v1794856662"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -909,11 +909,42 @@
     /* Verde do Granatum, mas no peso do Forekash: sem caixa, sem fundo —
        só o traço. Fundo colorido em linha de tabela compete com o selo de
        status, que é quem tem que gritar. */
-    .ext-row-nf{background:none;border:none;padding:0 5px 0 0;cursor:pointer;
-      vertical-align:-2px;line-height:0;flex:none}
-    .ext-row-nf svg{width:13px;height:13px;fill:none;stroke:#0F9D58;stroke-width:2;
+    /* ÍCONE DA NOTA NA LINHA — documento com SELO DE SITUAÇÃO.
+
+       O documento sozinho dizia só "existe nota". Nota emitida, cancelada e
+       recusada são três coisas diferentes para quem olha a linha, e as três
+       cabem num selo de 11px no canto.
+
+       O papel fica cinza e a cor vai toda pro selo: a linha do Extrato já tem
+       um ícone azul (conciliação) e um chip colorido (categoria), e mais uma
+       cor forte competiria com eles. O olho pega o selo; o papel só diz que é
+       documento.
+
+       A auréola do selo recorta o selo do papel. Ela é uma variável própria
+       porque `--card` é branco e NÃO é redefinido no tema escuro — usá-lo
+       direto desenharia um anel branco em volta do selo no escuro. */
+    .ext-row-nf{--selo-halo:#FFFFFF;background:none;border:none;padding:0 5px 0 0;
+      cursor:pointer;vertical-align:-3px;line-height:0;flex:none}
+    .ext-row-nf svg{width:16px;height:16px;display:block;overflow:visible}
+    .ext-row-nf .doc{fill:none;stroke:#64748B;stroke-width:2;
       stroke-linecap:round;stroke-linejoin:round;transition:stroke .12s}
-    .ext-row-nf:hover svg{stroke:#0B7A43}
+    .ext-row-nf .selo{stroke:var(--selo-halo);stroke-width:2.2;transition:fill .12s}
+    .ext-row-nf .marca{fill:none;stroke:#FFFFFF;stroke-width:2.8;
+      stroke-linecap:round;stroke-linejoin:round}
+    .ext-row-nf .pingo{fill:#FFFFFF;stroke:none}
+    .ext-row-nf:hover .doc{stroke:#0F172A}
+    .ext-row-nf.is-aut  .selo{fill:#10B981}
+    .ext-row-nf.is-aut:hover  .selo{fill:#059669}
+    .ext-row-nf.is-rej  .selo{fill:#D97706}
+    .ext-row-nf.is-pend .selo{fill:#94A3B8}
+    /* Cancelada é história: o papel desbota e o selo não chama. */
+    .ext-row-nf.is-canc .selo{fill:#94A3B8}
+    .ext-row-nf.is-canc .doc{stroke:#CBD5E1}
+    .ext-row-nf.is-canc:hover .doc{stroke:#94A3B8}
+    [data-theme="dark"] .ext-row-nf{--selo-halo:#0F172A}
+    [data-theme="dark"] .ext-row-nf .doc{stroke:#94A3B8}
+    [data-theme="dark"] .ext-row-nf:hover .doc{stroke:#E2E8F0}
+    [data-theme="dark"] .ext-row-nf.is-canc .doc{stroke:#475569}
 
     .nf-toolbar{flex-wrap:wrap;gap:10px}
     .nf-per{flex:none}
@@ -81963,16 +81994,7 @@ function renderExtrato(){
        Ícone e não rótulo porque a linha do Extrato é densa e "NFS-e 1239"
        roubaria a largura da descrição; o número fica no title e no campo
        Nº do documento. */
-    if(it.raw && it.raw.nfId){
-      descPrefix = '<button type="button" class="ext-row-nf" title="NFS-e '
-        + _extEsc(String(it.raw.nfNumero || '')) + ' — clique pra abrir a nota"'
-        + ' onclick="event.stopPropagation();nfAbrirDoLancamento(' + it.raw.nfId + ')">'
-        + '<svg viewBox="0 0 24 24" aria-hidden="true">'
-        + '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>'
-        + '<polyline points="14 2 14 8 20 8"/>'
-        + '<line x1="8.5" y1="13" x2="15.5" y2="13"/>'
-        + '<line x1="8.5" y1="17" x2="13" y2="17"/></svg></button>' + descPrefix;
-    }
+    descPrefix = _extIconeNf(it.raw) + descPrefix;
     const _concManual = (_conc && _conc.origem !== 'arquivo') ? _conc : null;
     if(_concManual){
       const quando = String(_conc.conciliadoEm || '').slice(0,10).split('-').reverse().join('/');
@@ -86131,6 +86153,53 @@ async function _extTrackCanais(jaUsado){
    (mira, alvo, ondas, olho) que ainda se lê em 11px — alvo e olho viram bolha
    e ondas viram wi-fi. Verde #10B981 porque é A cor do Forekash, a mesma do
    KASH na marca; cinza enquanto o cartão não foi ao ar. */
+
+/* ══ O SELO DA NOTA NA LINHA DO EXTRATO ═══════════════════════════════════
+   Um documento pequeno antes da descrição, que diz num relance que aquele
+   lançamento já virou nota — e, no selo do canto, em que pé ela está.
+
+   Ícone e não rótulo porque a linha do Extrato é densa: "NFS-e 1239" roubaria
+   a largura da descrição. O número fica no title, no campo Nº do documento e
+   dentro da nota, que abre com um clique.
+
+   Situação desconhecida não ganha selo. É o caso das notas vinculadas por
+   caminhos antigos, que gravaram só o id: inventar um "emitida" ali seria
+   afirmar o que não se sabe. */
+const _EXT_NF_SIT = { aut:'emitida', canc:'cancelada', rej:'rejeitada', pend:'em processamento' };
+const _EXT_NF_MARCA = {
+  aut:  '<path class="marca" d="M14.7 17.8l2 2 3.7-4"/>',
+  canc: '<path class="marca" d="M15.2 15.2l4.8 4.8M20 15.2l-4.8 4.8"/>',
+  rej:  '<path class="marca" d="M17.6 14v3.8"/><circle class="pingo" cx="17.6" cy="20.7" r="1.3"/>',
+  pend: '<circle class="pingo" cx="17.6" cy="17.6" r="1.9"/>'
+};
+function _extIconeNf(raw){
+  if(!raw || !raw.nfId) return '';
+  const nf  = raw.nf || null;
+  const st  = (nf && _EXT_NF_MARCA[nf.status]) ? nf.status : '';
+  const num = String((nf && nf.numero) || raw.nfNumero || '').trim();
+  const dia = (iso) => {
+    const d = String(iso || '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(d) ? (d.slice(8,10) + '/' + d.slice(5,7) + '/' + d.slice(0,4)) : '';
+  };
+  const quando = st === 'canc' ? dia(nf.canceladaEm) : (nf ? dia(nf.em) : '');
+  const titulo = 'NFS-e ' + (num || '—')
+    + (st ? (' · ' + _EXT_NF_SIT[st] + (quando ? ' em ' + quando : '')) : '')
+    + ' — clique pra abrir a nota';
+  return '<button type="button" class="ext-row-nf' + (st ? (' is-' + st) : '') + '"'
+    + ' title="' + _extEsc(titulo) + '"'
+    + ' onclick="event.stopPropagation();nfAbrirDoLancamento(' + raw.nfId + ')">'
+    + '<svg viewBox="0 0 24 24" aria-hidden="true">'
+    +   '<g transform="scale(0.8)">'
+    +     '<path class="doc" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>'
+    +     '<polyline class="doc" points="14 2 14 8 20 8"/>'
+    +     '<line class="doc" x1="8.5" y1="13" x2="15.5" y2="13"/>'
+    +     '<line class="doc" x1="8.5" y1="17" x2="13" y2="17"/>'
+    +   '</g>'
+    +   (st ? ('<circle class="selo" cx="17.6" cy="17.6" r="6.2"/>' + _EXT_NF_MARCA[st]) : '')
+    + '</svg></button>';
+}
+try{ window._extIconeNf = _extIconeNf; }catch(e){}
+
 function _extSeloTrack(it){
   if(!it) return '';
 
@@ -135550,11 +135619,13 @@ function _nfTrilhaAlvo(n){
   let lancs = [];
   try{ lancs = (typeof extratoData !== 'undefined' && extratoData && extratoData.lancamentos) || []; }
   catch(_){ return null; }
-  /* Só lançamento acompanhado. O carimbo existe pro cartão do canal; sair
-     procurando dono entre nove mil lançamentos convidaria o erro sem ter
-     pra quem contar o acerto. */
-  const trilhados = lancs.filter(l => l && l.tipo === 'ganho' && l.slackTrack && l.slackTrack.ativo);
-  if(!trilhados.length) return null;
+  /* TODO lançamento de entrada entra na busca, não só o acompanhado no
+     Slack. O carimbo nasceu pro cartão do canal, mas é ele também que acende
+     o ícone da nota na linha do Extrato e preenche o nº do documento — e
+     isso vale pra quem nem usa Slack. O que segura o erro é o filtro de
+     cliente e competência logo abaixo, não o tamanho da lista. */
+  const entradas = lancs.filter(l => l && l.tipo === 'ganho');
+  if(!entradas.length) return null;
 
   const mesNota = String(n.competencia || n.dataEmissao || '').slice(0, 7);
   if(mesNota.length !== 7) return null;
@@ -135582,7 +135653,7 @@ function _nfTrilhaAlvo(n){
   const chaveNota = (typeof recNomeChave === 'function')
     ? (recNomeChave(nomeCli) || recNomeChave(n.cliente)) : '';
 
-  const candidatos = trilhados.filter(l => {
+  const candidatos = entradas.filter(l => {
     /* Mesma regra de competência que o resto do app usa: emissão, depois
        vencimento, depois a data do lançamento. */
     const mes = String(l.dataEmissao || l.dataVencimento || l.data || '').slice(0, 7);
@@ -135598,14 +135669,21 @@ function _nfTrilhaAlvo(n){
   if(!candidatos.length) return null;
   if(candidatos.length === 1) return candidatos[0];
 
-  /* Dois recebimentos do mesmo cliente no mesmo mês: fica com o que ainda não
-     tem nota e, entre eles, o de valor mais próximo. Chutar o primeiro
-     carimbaria o lançamento errado — e o canal anunciaria a nota errada. */
-  const livres = candidatos.filter(l => !(l.nf && l.nf.id != null && String(l.nf.id) !== String(n.id)));
-  const pool = livres.length ? livres : candidatos;
+  /* Dois recebimentos do mesmo cliente no mesmo mês. A ordem de desempate:
+     1. quem ainda não tem OUTRA nota — carimbar por cima seria trocar o
+        documento de um lançamento que já estava resolvido;
+     2. valor mais próximo, que é o que de fato identifica qual é qual;
+     3. acompanhado no Slack, só quando os dois primeiros empatam: entre
+        iguais, o que tem cartão no canal é o que erra mais caro se ficar
+        sem o selo.
+     Chutar o primeiro da lista carimbaria o lançamento errado — e o canal
+     anunciaria a nota errada. */
   const alvo = Math.abs(Number(n.valor) || 0);
-  const dist = l => Math.abs(Math.abs(Number(l.valor) || 0) - alvo);
-  return pool.slice().sort((a, b) => dist(a) - dist(b))[0];
+  const outra = l => (l.nf && l.nf.id != null && String(l.nf.id) !== String(n.id)) ? 1 : 0;
+  const dist  = l => Math.abs(Math.abs(Number(l.valor) || 0) - alvo);
+  const trk   = l => (l.slackTrack && l.slackTrack.ativo) ? 0 : 1;
+  return candidatos.slice().sort((a, b) =>
+    (outra(a) - outra(b)) || (dist(a) - dist(b)) || (trk(a) - trk(b)))[0];
 }
 
 /* Carimba o estado da nota no lançamento acompanhado. Vale pra emissão e pro
