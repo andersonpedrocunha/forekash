@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794844483"/>
+  <meta name="fk-build" content="forekash-v1794853673"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -52101,6 +52101,119 @@ function diagAlertas(snap, ind, ml){
   if(snap.impostos.totalProjetado > 0 && snap.impostos.totalProjetado > snap.dispo.saldoAtual){
     push('sev-med','Impostos acima do caixa',`Impostos correntes em aberto (<b>${fmtBRL(snap.impostos.totalProjetado)}</b>) superam o caixa disponível (<b>${fmtBRL(snap.dispo.saldoAtual)}</b>). Provisione antecipadamente ou repriorize para evitar problema tributário.`);
   }
+
+
+  /* ════════════════════════════════════════════════════════════════
+     NOTA FISCAL — o que o MR KASH vigia
+
+     Só entra aqui o que já aconteceu e tem conserto: receita de mês
+     fechado sem nota, nota autorizada que nunca chegou ao cliente,
+     rejeição parada, certificado vencendo. Nada de palpite.
+
+     Quem não emite pelo Forekash não vê nada disto: sem notas e sem
+     certificado, todo bloco é pulado. */
+  try{
+    if(typeof NF !== 'undefined' && NF){
+      if(typeof nfLoad === 'function' && !(NF.notas || []).length) nfLoad();
+      const notas = (NF.notas || []).filter(Boolean);
+      const emite = notas.length > 0 || !!(NF.cfg && NF.cfg.certGuardado);
+      const brl = (v) => (typeof fmtBRL === 'function') ? fmtBRL(v) : ('R$ ' + Number(v||0).toFixed(2));
+
+      if(emite){
+        const hoje = new Date();
+        const anoAtual = hoje.getFullYear();
+        const mesAtual = hoje.getMonth();              /* 0-11 */
+        const MS = (typeof REC_MESES !== 'undefined') ? REC_MESES
+                 : ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+
+        /* ── 1. Receita de mês fechado sem nota emitida ──
+           É o mais caro dos quatro: o dinheiro foi reconhecido, o mês
+           virou, e não existe documento fiscal. Descobre-se no
+           fechamento, quando já não dá para emitir na competência. */
+        const semNota = [];
+        try{
+          const anos = (typeof receita !== 'undefined' && receita && receita.years) ? receita.years : null;
+          if(anos){
+            for(const ano of Object.keys(anos)){
+              const y = parseInt(ano, 10);
+              if(y !== anoAtual) continue;                   /* só o ano corrente */
+              for(const row of (anos[ano].clients || [])){
+                for(let m = 0; m < 12; m++){
+                  if(m >= mesAtual) continue;                /* mês ainda aberto, não cobra */
+                  if(m < mesAtual - 3) continue;             /* mais de 3 meses: já é outro assunto */
+                  const cel = row.meses && row.meses[MS[m]];
+                  const v = cel ? (Number(cel.valor) || 0) : 0;
+                  if(v <= 0) continue;
+                  const temNota = notas.some(n => n.status === 'aut' &&
+                    n.receitaRowId === row.id && n.receitaMes === MS[m] &&
+                    String(n.receitaYear) === String(y));
+                  if(!temNota) semNota.push({ mes: MS[m], valor: v, rowId: row.id });
+                }
+              }
+            }
+          }
+        }catch(_){}
+        if(semNota.length){
+          const total = semNota.reduce((s, x) => s + x.valor, 0);
+          const meses = Array.from(new Set(semNota.map(x => x.mes))).join(', ');
+          push(semNota.length > 2 ? 'sev-high' : 'sev-med',
+            'Receita lançada sem nota emitida',
+            '<b>' + semNota.length + '</b> lançamento(s) de receita em <b>' + meses + '</b> somando <b>' +
+            brl(total) + '</b> não têm NFS-e autorizada. O mês fechou e o documento fiscal não existe — ' +
+            'emitir agora sai com competência retroativa, e o ISS da época já venceu.', '!');
+        }
+
+        /* ── 2. Nota autorizada que nunca chegou ao cliente ──
+           A obrigação fiscal foi cumprida, a comercial não: o cliente
+           não recebeu a nota e por isso não paga. */
+        const naoEnviadas = notas.filter(n => n.status === 'aut' && n.email && !n.emailEnviadoEm);
+        if(naoEnviadas.length){
+          const total = naoEnviadas.reduce((s, n) => s + (Number(n.valor) || 0), 0);
+          push(naoEnviadas.length > 3 ? 'sev-med' : 'sev-low',
+            'Notas emitidas e não enviadas',
+            '<b>' + naoEnviadas.length + '</b> NFS-e autorizada(s), somando <b>' + brl(total) +
+            '</b>, ainda não foram enviadas ao cliente. Nota que o cliente não recebe é nota que ele não paga — ' +
+            'o envio é o <b>✉</b> na lista de Notas Fiscais.');
+        }
+
+        /* ── 3. Rejeição parada ── */
+        const rejeitadas = notas.filter(n => n.status === 'rej');
+        if(rejeitadas.length){
+          push('sev-med', 'Notas rejeitadas pela Receita',
+            '<b>' + rejeitadas.length + '</b> nota(s) foram recusadas e não foram reemitidas. ' +
+            'Enquanto isso o serviço está prestado e sem documento. Abra a nota para ver o código do erro.');
+        }
+
+        /* ── 4. Cancelamento que nunca chegou à Receita ──
+           Resquício da versão em que cancelar só mudava o status aqui. */
+        const fantasma = notas.filter(n => n.cancNuncaEnviado);
+        if(fantasma.length){
+          push('sev-high', 'Cancelamento que não chegou à Receita',
+            '<b>' + fantasma.length + '</b> nota(s) foram marcadas como canceladas no Forekash, mas o ' +
+            'cancelamento nunca foi registrado na Receita — elas seguem válidas e contando para apuração. ' +
+            'Confira no Emissor Nacional e cancele de novo.', '!');
+        }
+
+        /* ── 5. Certificado vencendo ──
+           Sem ele a emissão para por completo, e certificado não se
+           compra na véspera: exige validação presencial ou por vídeo. */
+        const g = NF.cfg && NF.cfg.certGuardado;
+        if(g && g.validade){
+          const dias = Math.floor((new Date(g.validade + 'T12:00:00') - hoje) / 864e5);
+          if(dias < 0){
+            push('sev-high', 'Certificado digital vencido',
+              'O certificado A1 venceu em <b>' + g.validade.slice(8,10) + '/' + g.validade.slice(5,7) + '/' +
+              g.validade.slice(0,4) + '</b>. Nenhuma nota pode ser emitida nem cancelada até a renovação.', '!');
+          } else if(dias <= 30){
+            push(dias <= 10 ? 'sev-high' : 'sev-med', 'Certificado digital vence em ' + dias + ' dia(s)',
+              'Vence em <b>' + g.validade.slice(8,10) + '/' + g.validade.slice(5,7) + '/' + g.validade.slice(0,4) +
+              '</b>. Sem ele a emissão para — e a renovação exige validação presencial ou por vídeo, ' +
+              'que leva dias para agendar. Peça agora.', dias <= 10 ? '!' : '');
+          }
+        }
+      }
+    }
+  }catch(e){ try{ console.warn('[FK] alertas de NFS-e:', e && e.message); }catch(_){} }
 
   // positivos
   if(ind.margemOp != null && ind.margemOp > 25 && ind.recYoY != null && ind.recYoY > 10){
