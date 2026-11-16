@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794868990"/>
+  <meta name="fk-build" content="forekash-v1794869568"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -165970,6 +165970,7 @@ function _fkCurvaDesenha(ano, linha){
     }
   }
 
+  let _projX0 = null;          // onde a faixa de projeção começa, em pixels
   const rotulos = {
     id: 'fkCurvaRotulos',
     beforeDatasetsDraw(c){
@@ -165985,15 +165986,31 @@ function _fkCurvaDesenha(ano, linha){
       g.strokeStyle = '#CBD5E1'; g.lineWidth = 1; g.setLineDash([4,4]);
       g.beginPath(); g.moveTo(x0, ys.top); g.lineTo(x0, ys.bottom); g.stroke();
       g.setLineDash([]);
-      g.font = '700 9px Inter, system-ui, sans-serif';
-      g.fillStyle = '#94A3B8'; g.textAlign = 'left';
-      g.fillText('PROJEÇÃO', x0 + 6, ys.top + 11);
       g.restore();
+      /* O carimbo "PROJEÇÃO" sai daqui e vai para depois dos rótulos: só lá
+         se sabe se o canto de cima está livre. Desenhado antes, ele disputava
+         o lugar com o número do último mês. */
+      _projX0 = x0;
     },
+    /* ══ RÓTULO NÃO ATROPELA EIXO ═══════════════════════════════════════
+
+       Dois encontros ruins, os dois por desenhar o número num ponto fixo sem
+       olhar onde ele cai:
+
+       · HORIZONTAL — centrado no primeiro ponto, metade do "190 mil" saía da
+         área do gráfico e caía em cima do "200 mil" do eixo. Lia-se
+         "200 m190 mil". Agora encosta na borda em vez de centralizar.
+
+       · VERTICAL — barra que desce até o fim do gráfico (julho, −197 mil) não
+         deixa espaço embaixo, e o rótulo pousava sobre "jul/26". Agora, quando
+         não cabe fora, entra na barra, em branco.
+
+       Na curva não existe "dentro da barra": lá o número só é mantido dentro
+       da área, com a cor de sempre. */
     afterDatasetsDraw(c){
-      const g = c.ctx;
+      const g = c.ctx, xs = c.scales.x, ys = c.scales.y;
       g.save();
-      g.textAlign = 'center';
+      const _ysProj = [];
       const m0 = c.getDatasetMeta(0), m1 = c.getDatasetMeta(1);
       c.data.labels.forEach((_, i) => {
         const v = vals[i];
@@ -166004,12 +166021,41 @@ function _fkCurvaDesenha(ano, linha){
           ? ((m0.data[i] && m0.data[i].y != null) ? m0.data[i] : (m1 && m1.data[i]))
           : m0.data[i];
         if(!pt) return;
-        const p = _proj(i);
+        const p = _proj(i), neg = v < 0;
         g.font = (p ? 'italic 600 10px ' : '600 10px ') + 'Inter, system-ui, sans-serif';
-        g.fillStyle = v < 0 ? (p ? '#F87171' : '#DC2626') : (p ? '#7DA7E8' : '#2563EB');
-        const y = v < 0 ? pt.y + 15 : pt.y - 8;
-        g.fillText(_fkNumCurto(v), pt.x, y);
+        const txt = _fkNumCurto(v);
+        const larg = g.measureText(txt).width;
+
+        let x = pt.x;
+        if(pt.x - larg / 2 < xs.left + 1){ x = xs.left + 1; g.textAlign = 'left'; }
+        else if(pt.x + larg / 2 > xs.right - 1){ x = xs.right - 1; g.textAlign = 'right'; }
+        else g.textAlign = 'center';
+
+        let y = neg ? pt.y + 15 : pt.y - 8;
+        let dentro = false;
+        if(acumulado){
+          y = Math.min(Math.max(y, ys.top + 9), ys.bottom - 3);
+        } else {
+          if(neg  && y > ys.bottom - 3){ y = pt.y - 6;  dentro = true; }
+          if(!neg && y < ys.top + 9)   { y = pt.y + 14; dentro = true; }
+        }
+        /* Dentro da barra cheia, branco. Dentro da barra de projeção, que é
+           clara, branco sumiria — vai a cor forte. */
+        g.fillStyle = dentro
+          ? (p ? (neg ? '#991B1B' : '#1D4ED8') : '#FFFFFF')
+          : (neg ? (p ? '#F87171' : '#DC2626') : (p ? '#7DA7E8' : '#2563EB'));
+        g.fillText(txt, x, y);
+        if(_projX0 != null && pt.x >= _projX0 - 2) _ysProj.push(y);
       });
+      /* CARIMBO DEPOIS DOS NÚMEROS. Se algum rótulo da área projetada está
+         na faixa de cima, o carimbo desce para o rodapé da faixa — texto
+         sobre texto é pior que carimbo em lugar incomum. */
+      if(_projX0 != null){
+        const topoOcupado = _ysProj.some(yy => yy < ys.top + 22);
+        g.font = '700 9px Inter, system-ui, sans-serif';
+        g.fillStyle = '#94A3B8'; g.textAlign = 'left';
+        g.fillText('PROJEÇÃO', _projX0 + 6, topoOcupado ? (ys.bottom - 5) : (ys.top + 11));
+      }
       g.restore();
     }
   };
