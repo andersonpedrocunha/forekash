@@ -94,7 +94,7 @@ const MARCA = 'https://forekash.com.br/forekash-marca-v2.png';
    canal de Slack é lido por gente que não precisa ver quanto a empresa
    recebe ou paga. Quem quiser liga em Integrações; o produto não decide isso
    pelo cliente. */
-const CARTAO_PADRAO = { descricao:true, documento:true, vencimento:true,
+const CARTAO_PADRAO = { descricao:true, documento:true, vencimento:true, nf:true,
                         categoria:false, conta:false, valor:false };
 const mostra = (campos, k) =>
   (campos && typeof campos[k] === 'boolean') ? campos[k] : CARTAO_PADRAO[k];
@@ -106,6 +106,26 @@ const moedaBR = v => {
     { minimumFractionDigits:2, maximumFractionDigits:2 });
 };
 
+/* ══ A NOTA FISCAL NO CARTÃO ═══════════════════════════════════════════════
+   O Worker não sabe emitir nota e não lê o módulo fiscal. Quem carimba é o
+   app, em `metadata.nf`, no mesmo objeto de onde já vem o `slackTrack` — e
+   por isso a nota chega de carona na consulta que já era feita.
+
+   A linha só aparece em lançamento que TEM nota. Num Forekash sem emissão o
+   cartão continua exatamente como era: campo vazio ensina a ignorar o campo,
+   e "NFS-e: não emitida" em todo cartão seria cobrança de quem não emite.
+
+   Sem link pro portal nacional de propósito: lá a nota aparece inteira, com
+   valor. O cartão esconde valor por padrão justamente porque o canal é lido
+   por gente que não precisa saber quanto é — um link faria a volta por fora
+   dessa escolha, calado. */
+const NF_ICO = { aut:'●', canc:'✕', rej:'!', pend:'○' };
+const NF_SIT = { aut:'emitida', canc:'cancelada', rej:'rejeitada', pend:'em processamento' };
+function nfTexto(nf){
+  const sit = NF_SIT[nf.status] || nf.status || '—';
+  return (NF_ICO[nf.status] || '○') + '  nº ' + nf.numero + ' · ' + sit;
+}
+
 function cartao(linha, campos){
   const st   = statusDe(linha);
   const ehGasto = (linha.tipo === 'gasto');
@@ -116,7 +136,14 @@ function cartao(linha, campos){
   /* O número é o que o time usa pra achar a nota no sistema do cliente —
      sem ele, cobrar vira "aquela do mês passado". Vazio sai do cartão em
      vez de virar um traço: campo vazio ensina a ignorar o campo. */
-  const doc  = String(linha.numero_documento || '').trim();
+  /* DOIS CAMPOS, UM DOCUMENTO. `numero_documento` é coluna e vem de cartão,
+     Receita e importação de OFX; o editor do Extrato grava em
+     `metadata.documento`. Lendo só a coluna, o número digitado à mão no
+     lançamento nunca chegava ao cartão — e o campo sumia como se estivesse
+     vazio. Mesma ordem de precedência que o app usa. */
+  const doc  = String(linha.numero_documento ||
+                      ((linha.metadata && linha.metadata.documento) || '')).trim();
+  const nf   = (linha.metadata && linha.metadata.nf) || null;
 
   /* A linha de baixo muda de texto conforme o estado — um rodapé que diz
      sempre a mesma coisa some da vista depois do terceiro cartão. */
@@ -145,10 +172,18 @@ function cartao(linha, campos){
         /* Status é a espinha do cartão — é por ele que o cartão existe, então
            não entra na escolha. O resto é opcional. */
         { type:'section', fields: [].concat(
-            (doc && mostra(campos,'documento'))
+            /* DOCUMENTO E NFS-e NÃO DIZEM A MESMA COISA DUAS VEZES. Quando o
+               lançamento não tinha número, a emissão grava "NFS-e 88" ali — e
+               aí os dois campos repetiriam o mesmo número lado a lado. A
+               comparação é com o texto exato que a emissão escreve; número
+               digitado à mão continua aparecendo. */
+            (doc && mostra(campos,'documento') &&
+             !(nf && nf.numero && mostra(campos,'nf') && doc === ('NFS-e ' + nf.numero)))
               ? [{ type:'mrkdwn', text:'*Documento*\n' + doc }] : [],
             mostra(campos,'vencimento')
               ? [{ type:'mrkdwn', text:'*Vencimento*\n' + dataBR(venc) }] : [],
+            (nf && nf.numero && mostra(campos,'nf'))
+              ? [{ type:'mrkdwn', text:'*NFS-e*\n' + nfTexto(nf) }] : [],
             (mostra(campos,'valor') && linha.valor != null)
               ? [{ type:'mrkdwn', text:'*Valor*\n' + moedaBR(linha.valor) }] : [],
             (mostra(campos,'categoria') && linha.categoria)
@@ -181,6 +216,25 @@ function recado(linha, antes, agora, recAntes, recAgora){
   if(agora === 'atrasado') return '●  *Atrasado* — venceu em ' + dataBR(vencimento(linha));
   if(antes === 'pago') return '○  Baixa desfeita — voltou pra ' + rotuloStatus(linha, agora);
   return '○  Agora: ' + rotuloStatus(linha, agora);
+}
+
+/* O recado da nota. Separado do recado de status porque são dois fatos
+   diferentes: um é o dinheiro, o outro é o documento. Podem mudar no mesmo
+   disparo, e aí o canal recebe os dois — o que é o certo: "recebido" e
+   "nota cancelada" na mesma hora é exatamente o que o time precisa ver. */
+function recadoNf(nf){
+  if(!nf || !nf.numero) return '○  Nota desvinculada deste recebimento';
+  const num = 'nº ' + nf.numero;
+  if(nf.status === 'aut')
+    return '🧾  *NFS-e ' + num + ' emitida*'
+         + (nf.em ? ' em ' + dataBR(String(nf.em).slice(0,10)) : '');
+  if(nf.status === 'canc')
+    return '🧾  NFS-e ' + num + ' *cancelada*'
+         + (nf.canceladaEm ? ' em ' + dataBR(String(nf.canceladaEm).slice(0,10)) : '')
+         + ' — confira se vai sair outra';
+  if(nf.status === 'rej')
+    return '🧾  NFS-e ' + num + ' *rejeitada pela Receita* — o serviço está prestado e sem documento';
+  return '🧾  NFS-e ' + num + ' · ' + (NF_SIT[nf.status] || nf.status || 'situação desconhecida');
 }
 
 /* ── Slack ───────────────────────────────────────────────────────────── */
@@ -336,6 +390,11 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
     if(!canal){ console.warn('[trilha] sem canal pra ' + l.local_id); continue; }
     const st  = statusDe(l);
     const rec = recebido(l);
+    /* A assinatura da nota é o par situação+número. Comparar o objeto inteiro
+       faria o canal receber recado a cada reemissão de carimbo; comparar só o
+       número calaria o cancelamento. */
+    const nfl = (l.metadata && l.metadata.nf) || null;
+    const nfAs = (nfl && nfl.numero) ? ((nfl.status || '') + ':' + nfl.numero) : '';
     const c   = cartao(l, cfgCampos);
 
     try{
@@ -353,7 +412,7 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
                          ') — carimbo perdido, recuperando em vez de repostar');
             t.ts = v.ts;
             if(v.canalId) t.canalId = v.canalId;
-            t.statusVisto = st; t.recebidoVisto = rec;
+            t.statusVisto = st; t.recebidoVisto = rec; t.nfVisto = nfAs;
             delete t.postando;
             await gravarTrilha(env, l.id, t);
             continue;
@@ -366,7 +425,7 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
           console.warn('[trilha] ' + l.local_id + ' já está no canal (' + tsNoCanal +
                        ') — adotando em vez de repostar');
           t.ts = tsNoCanal; t.canalId = t.canalId || canal;
-          t.statusVisto = st; t.recebidoVisto = rec;
+          t.statusVisto = st; t.recebidoVisto = rec; t.nfVisto = nfAs;
           delete t.postando;
           await trkAnotado(env, l.local_id, t.ts, t.canalId);
           await gravarTrilha(env, l.id, t);
@@ -389,7 +448,7 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
             t.ts = r2.ts; t.canalId = r2.channel;
           } else throw new Error(r.error);
         } else { t.ts = r.ts; t.canalId = r.channel; }
-        t.statusVisto = st; t.recebidoVisto = rec;
+        t.statusVisto = st; t.recebidoVisto = rec; t.nfVisto = nfAs;
         t.desde = t.desde || new Date().toISOString();
         delete t.postando;                     // reserva cumprida
         /* O livro ANTES do banco: se a gravação do metadata falhar, o KV já
@@ -404,15 +463,29 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
       /* Nada mudou: não custa nada e não diz nada. Sai. */
       const mudouStatus = t.statusVisto !== st;
       const mudouValor  = Math.abs((Number(t.recebidoVisto) || 0) - rec) > 0.005;
-      if(!mudouStatus && !mudouValor) continue;
+      /* A NOTA TAMBÉM MUDA O CARTÃO. Sem isto o carimbo novo ficava no banco
+         e o canal seguia mostrando o cartão de antes da emissão — e o cartão
+         do canal é o que o time lê, não o banco.
+         Cartão antigo não tem `nfVisto`: ausente vale como vazio, então um
+         lançamento que nunca teve nota não dispara nada. */
+      const mudouNf = (t.nfVisto || '') !== nfAs;
+      if(!mudouStatus && !mudouValor && !mudouNf) continue;
 
       await slack(env, 'chat.update',
         Object.assign({ channel: t.canalId || canal, ts: t.ts }, c));
-      await slack(env, 'chat.postMessage', {
-        channel: t.canalId || canal, thread_ts: t.ts, unfurl_links:false,
-        text: recado(l, t.statusVisto, st, Number(t.recebidoVisto) || 0, rec)
-      });
-      t.statusVisto = st; t.recebidoVisto = rec;
+      if(mudouStatus || mudouValor){
+        await slack(env, 'chat.postMessage', {
+          channel: t.canalId || canal, thread_ts: t.ts, unfurl_links:false,
+          text: recado(l, t.statusVisto, st, Number(t.recebidoVisto) || 0, rec)
+        });
+      }
+      if(mudouNf){
+        await slack(env, 'chat.postMessage', {
+          channel: t.canalId || canal, thread_ts: t.ts, unfurl_links:false,
+          text: recadoNf(nfl)
+        });
+      }
+      t.statusVisto = st; t.recebidoVisto = rec; t.nfVisto = nfAs;
       await gravarTrilha(env, l.id, t);
       mudados++;
     }catch(e){
@@ -424,7 +497,7 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
   return { novos, mudados, total: linhas.length };
 }
 
-export const _testes = { statusDe, alvoCaixa, recebido, cartao, recado, brl, dataBR };
+export const _testes = { statusDe, alvoCaixa, recebido, cartao, recado, recadoNf, nfTexto, brl, dataBR };
 
 /* ══ AVISOS DE LANÇAMENTO ═════════════════════════════════════════════════
    Anúncio configurado pela empresa, postado uma vez só quando a condição

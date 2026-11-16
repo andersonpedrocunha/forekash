@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794853673"/>
+  <meta name="fk-build" content="forekash-v1794855630"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -52133,6 +52133,31 @@ function diagAlertas(snap, ind, ml){
         const semNota = [];
         try{
           const anos = (typeof receita !== 'undefined' && receita && receita.years) ? receita.years : null;
+          /* O VÍNCULO DA NOTA COM A LINHA DA RECEITA NÃO É UM SÓ.
+
+             Nota aberta pelo kanban da Receita carrega `receitaRowId` e
+             `receitaMes`. Nota emitida pela tela de NFS-e — que é o caminho
+             comum — carrega o CLIENTE e a competência, e nada de linha.
+             Olhando só o primeiro vínculo, nota emitida pelo módulo fiscal
+             parecia não existir, e o alerta cobrava documento já emitido.
+
+             Cliente com duas linhas no mesmo mês conta a nota para as duas.
+             Erra por falar menos, que é o lado certo de errar: alerta que
+             cobra o que já foi feito é alerta que se aprende a ignorar. */
+          const mesDaNota = (n) => {
+            const d = String(n.competencia || n.dataAutorizada || n.dataEmissao || '');
+            const mi = parseInt(d.slice(5, 7), 10) - 1;
+            return (mi >= 0 && mi < 12) ? { ano: d.slice(0, 4), mes: MS[mi] } : null;
+          };
+          const temNotaNoMes = (row, mes, y) => notas.some(n => {
+            if(n.status !== 'aut') return false;
+            if(n.receitaRowId === row.id && n.receitaMes === mes &&
+               String(n.receitaYear) === String(y)) return true;
+            if(n.clienteId == null || row.clienteId == null) return false;
+            if(String(n.clienteId) !== String(row.clienteId)) return false;
+            const q = mesDaNota(n);
+            return !!q && q.mes === mes && String(q.ano) === String(y);
+          });
           if(anos){
             for(const ano of Object.keys(anos)){
               const y = parseInt(ano, 10);
@@ -52144,10 +52169,7 @@ function diagAlertas(snap, ind, ml){
                   const cel = row.meses && row.meses[MS[m]];
                   const v = cel ? (Number(cel.valor) || 0) : 0;
                   if(v <= 0) continue;
-                  const temNota = notas.some(n => n.status === 'aut' &&
-                    n.receitaRowId === row.id && n.receitaMes === MS[m] &&
-                    String(n.receitaYear) === String(y));
-                  if(!temNota) semNota.push({ mes: MS[m], valor: v, rowId: row.id });
+                  if(!temNotaNoMes(row, MS[m], y)) semNota.push({ mes: MS[m], valor: v, rowId: row.id });
                 }
               }
             }
@@ -135507,6 +135529,128 @@ function _nfVincularNoExtrato(n){
 }
 try{ window._nfVincularNoExtrato = _nfVincularNoExtrato; }catch(e){}
 
+/* ══ A NOTA FALA COM O ACOMPANHAMENTO NO SLACK ═══════════════════════════
+
+   Quem acompanha um recebimento no canal quer saber duas coisas: se o
+   dinheiro entrou e se a nota saiu. A primeira o Worker descobre sozinho,
+   olhando as baixas do lançamento. A segunda só existe aqui — a emissão
+   acontece no app, e nada do módulo fiscal chega ao Worker.
+
+   Então a nota CARIMBA o lançamento, e o Worker lê o carimbo na mesma
+   consulta que já faz. Sem segunda ida ao banco, sem o Worker precisar
+   entender NFS-e.
+
+   Dois donos, duas chaves, sem disputa: `metadata.nf` é do app, `slackTrack`
+   é do Worker. É a mesma separação que já vale pro resto da trilha.
+
+   Só PRODUÇÃO carimba. Nota de demonstração e de produção restrita não valem
+   como documento fiscal, e anunciar no canal da empresa que "a nota saiu"
+   quando ela não vale é ensinar o time a desconfiar do cartão. */
+function _nfTrilhaAlvo(n){
+  let lancs = [];
+  try{ lancs = (typeof extratoData !== 'undefined' && extratoData && extratoData.lancamentos) || []; }
+  catch(_){ return null; }
+  /* Só lançamento acompanhado. O carimbo existe pro cartão do canal; sair
+     procurando dono entre nove mil lançamentos convidaria o erro sem ter
+     pra quem contar o acerto. */
+  const trilhados = lancs.filter(l => l && l.tipo === 'ganho' && l.slackTrack && l.slackTrack.ativo);
+  if(!trilhados.length) return null;
+
+  const mesNota = String(n.competencia || n.dataEmissao || '').slice(0, 7);
+  if(mesNota.length !== 7) return null;
+
+  /* As linhas da Receita deste cliente, por id. É o que distingue dois
+     projetos do mesmo cliente — e o que não depende de texto nenhum. */
+  const rows = new Set();
+  let nomeCli = '';
+  try{
+    if(n.clienteId != null && typeof receita !== 'undefined' && receita){
+      const c = (receita.clientes || []).find(x => x && String(x.id) === String(n.clienteId));
+      if(c) nomeCli = c.nome || '';
+      for(const ano of Object.keys(receita.years || {})){
+        for(const r of (((receita.years || {})[ano] || {}).clients || [])){
+          if(r && String(r.clienteId) === String(n.clienteId)) rows.add(String(r.id));
+        }
+      }
+    }
+  }catch(_){}
+  if(n.receitaRowId != null && n.receitaRowId !== '') rows.add(String(n.receitaRowId));
+
+  /* O nome que vale é o APELIDO do cliente na Receita, não a razão social da
+     nota: no extrato o cliente é tratado pelo nome curto e na nota pelo nome
+     completo do cadastro. Comparar os dois não casa nunca. */
+  const chaveNota = (typeof recNomeChave === 'function')
+    ? (recNomeChave(nomeCli) || recNomeChave(n.cliente)) : '';
+
+  const candidatos = trilhados.filter(l => {
+    /* Mesma regra de competência que o resto do app usa: emissão, depois
+       vencimento, depois a data do lançamento. */
+    const mes = String(l.dataEmissao || l.dataVencimento || l.data || '').slice(0, 7);
+    if(mes !== mesNota) return false;
+    /* MARCADOR MANDA. O lançamento que diz a qual linha da Receita pertence
+       não precisa de nome. */
+    const ids = [l.receitaRowId].concat(
+      (Array.isArray(l.itens) ? l.itens : []).map(it => it && it.receitaRowId));
+    if(ids.some(id => id != null && id !== '' && rows.has(String(id)))) return true;
+    if(!chaveNota || typeof recNomeChave !== 'function') return false;
+    return recNomeChave(l.contraparte) === chaveNota;
+  });
+  if(!candidatos.length) return null;
+  if(candidatos.length === 1) return candidatos[0];
+
+  /* Dois recebimentos do mesmo cliente no mesmo mês: fica com o que ainda não
+     tem nota e, entre eles, o de valor mais próximo. Chutar o primeiro
+     carimbaria o lançamento errado — e o canal anunciaria a nota errada. */
+  const livres = candidatos.filter(l => !(l.nf && l.nf.id != null && String(l.nf.id) !== String(n.id)));
+  const pool = livres.length ? livres : candidatos;
+  const alvo = Math.abs(Number(n.valor) || 0);
+  const dist = l => Math.abs(Math.abs(Number(l.valor) || 0) - alvo);
+  return pool.slice().sort((a, b) => dist(a) - dist(b))[0];
+}
+
+/* Carimba o estado da nota no lançamento acompanhado. Vale pra emissão e pro
+   cancelamento: é a mesma informação mudando de valor. */
+function _nfTrilhaSync(n){
+  try{
+    if(!n || n.mode !== 'producao') return false;
+    let lancs = [];
+    try{ lancs = (typeof extratoData !== 'undefined' && extratoData && extratoData.lancamentos) || []; }
+    catch(_){ return false; }
+
+    /* Nota já carimbada se acha pelo CARIMBO, não pelo casamento: cancelar
+       muda o estado de uma nota que já tem lugar, e procurar de novo podia
+       entregar outro lançamento. */
+    let lan = lancs.find(l => l && l.nf && String(l.nf.id) === String(n.id));
+    if(!lan) lan = _nfTrilhaAlvo(n);
+    if(!lan) return false;
+
+    const antes = JSON.stringify(lan.nf || null);
+    lan.nf = {
+      id: n.id,
+      numero: String(n.numero || ''),
+      status: n.status || '',
+      chave: n.chaveAcesso || '',
+      em: n.dataAutorizada || n.dataEmissao || '',
+      canceladaEm: (n.status === 'canc') ? (n.dataCancelamento || '') : ''
+    };
+    if(JSON.stringify(lan.nf) === antes) return false;    // nada mudou, nada a gravar
+
+    lan.nfId = n.id;
+    lan.nfNumero = String(n.numero || '');
+    /* Número do documento só se estiver vazio: sobrescrever o que alguém
+       digitou à mão apaga informação sem avisar. */
+    if(!lan.documento && n.numero) lan.documento = 'NFS-e ' + n.numero;
+
+    try{ if(typeof _extSave === 'function') _extSave(); }catch(_){}
+    try{ if(typeof renderExtrato === 'function') renderExtrato(); }catch(_){}
+    return true;
+  }catch(e){
+    console.warn('[FK] carimbo da nota no lançamento:', e && e.message);
+    return false;
+  }
+}
+try{ window._nfTrilhaAlvo = _nfTrilhaAlvo; window._nfTrilhaSync = _nfTrilhaSync; }catch(e){}
+
 /* Com hora, o carimbo tem fuso de verdade e pode ser convertido. Sem hora,
    cai no `_nfData`, que fatia a string — converter data-só desloca um dia. */
 function _nfDataHora(iso){
@@ -136904,6 +137048,9 @@ async function nfEmitirPeloServico(ambiente){
   NF.notas.unshift(nota);
   nfSave();
   try{ _nfVincularNoExtrato(nota); }catch(_){}
+  /* O lançamento acompanhado no Slack passa a carregar a nota. O cartão do
+     canal é atualizado pelo Worker no disparo seguinte. */
+  try{ _nfTrilhaSync(nota); }catch(_){}
   /* EMITIR E ENVIAR SÃO DUAS DECISÕES.
 
      Antes o e-mail saía sozinho junto com a emissão. Mas emitir é um
@@ -139013,6 +139160,7 @@ async function nfCancel(id){
     n.cancMotivo = motivo.texto;
     n.cancEvento = j.idEvento || '';
     delete n.cancErro;
+    try{ _nfTrilhaSync(n); }catch(_){}
     nfSave(); nfRender(); nfCloseModal('view');
     if(typeof showToast === 'function')
       showToast('NFS-e #' + n.numero + ' cancelada na Receita', 'ok');
@@ -152037,11 +152185,16 @@ const SLK_CARTAO_CAMPOS = [
   { k:'descricao',  nome:'Descrição',       nota:'o texto do lançamento' },
   { k:'documento',  nome:'Nº do documento',  nota:'nota, boleto, fatura' },
   { k:'vencimento', nome:'Vencimento',       nota:'a data que o time cobra' },
+  /* A NOTA NO CARTÃO. Nasce ligada: quem acompanha um recebimento no canal
+     pergunta por ela de qualquer forma, e a linha só aparece em lançamento
+     que TEM nota — num Forekash sem emissão o cartão fica igual ao de
+     antes. */
+  { k:'nf',         nome:'NFS-e',            nota:'número e situação da nota, quando houver' },
   { k:'categoria',  nome:'Categoria',        nota:'' },
   { k:'conta',      nome:'Conta',            nota:'de onde sai ou entra' },
   { k:'valor',      nome:'Valor',            nota:'quanto é — desligado por padrão' }
 ];
-const SLK_CARTAO_DEF = { descricao:true, documento:true, vencimento:true,
+const SLK_CARTAO_DEF = { descricao:true, documento:true, vencimento:true, nf:true,
                          categoria:false, conta:false, valor:false };
 function slkCampoLigado(k){
   const c = SLACK_CFG.cartaoCampos;

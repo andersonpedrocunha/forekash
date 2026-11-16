@@ -783,3 +783,86 @@ Notas marcadas como canceladas pela versão antiga voltam a AUTORIZADA ao carreg
 com um aviso dizendo que o pedido nunca chegou à Receita. Cancelar sozinho seria
 tomar uma decisão fiscal no lugar do usuário; deixar como estava seria repetir a
 mentira todo dia.
+
+## 19. A nota no Slack — como a emissão chega ao cartão do MR KASH
+
+Um recebimento acompanhado no Slack vira um cartão fixo no canal, que o Worker
+edita a cada mudança: em aberto, atrasado, recebido em parte, recebido. Quem
+lê esse cartão quer saber duas coisas — se o dinheiro entrou e se a nota saiu.
+A primeira o Worker descobre sozinho, olhando as baixas do lançamento. A
+segunda não existia em lugar nenhum que ele alcançasse: a emissão acontece no
+navegador e nada do módulo fiscal passa pelo Worker.
+
+### Quem carimba é o app, quem conta é o Worker
+
+A nota autorizada grava `metadata.nf` no lançamento acompanhado:
+
+```json
+{ "id": 14, "numero": "88", "status": "aut",
+  "chave": "4205…", "em": "2026-11-16T10:00:00Z", "canceladaEm": "" }
+```
+
+É o mesmo `metadata` de onde o `slackTrack` já vem, então a nota chega **de
+carona na consulta que o cron já fazia** — sem segunda ida ao banco e sem o
+Worker precisar entender NFS-e.
+
+Dois donos, duas chaves, sem disputa: `metadata.nf` é do app, `slackTrack` é
+do Worker. O `nfVisto` (dentro do `slackTrack`) é o "já contei na thread" e
+entrou na lista do gatilho `fk_preserva_slack` pelo mesmo motivo do `ts` — se
+uma aba antiga sobrescrever, o canal recebe de novo o recado de uma nota já
+anunciada.
+
+### Achar o lançamento da nota
+
+A nota não guardava vínculo nenhum com o Extrato: `extratoLancId` só é
+preenchido pelo fluxo do Asaas, e `receitaRowId` só quando a emissão parte do
+kanban da Receita. O que ela sempre tem é **cliente e competência**.
+
+A busca, então: entre os lançamentos **acompanhados** (`slackTrack.ativo`), de
+tipo ganho, no mesmo mês de competência — pela regra do resto do app,
+`dataEmissao || dataVencimento || data` — vale
+
+1. o **marcador**: `receitaRowId` do lançamento (próprio ou de um item) numa
+   linha da Receita daquele cliente. É casamento por id e distingue dois
+   projetos do mesmo cliente;
+2. na falta dele, o **nome**, por `recNomeChave`, comparado com o apelido do
+   cliente na Receita — não com a razão social da nota, que é outro texto.
+
+Dois recebimentos do mesmo cliente no mesmo mês: fica com o que ainda não tem
+nota e, entre eles, o de valor mais próximo. Só lançamento acompanhado entra
+na busca: o carimbo existe para o cartão do canal, e procurar dono entre nove
+mil lançamentos convidaria o erro sem ter a quem contar o acerto.
+
+### O que só produção carimba
+
+Nota de demonstração e de produção restrita não valem como documento fiscal.
+Anunciar no canal da empresa que "a nota saiu" quando ela não vale é ensinar o
+time a desconfiar do cartão.
+
+### No cartão, e na thread
+
+O campo **NFS-e** aparece só em lançamento que tem nota — num Forekash sem
+emissão o cartão fica idêntico ao de antes. A thread recebe uma linha quando a
+situação muda: emitida, cancelada, rejeitada. O recado da nota é separado do
+recado de status porque são dois fatos diferentes; podem sair no mesmo
+disparo, e aí o canal vê os dois.
+
+Sem link para o portal nacional, de propósito: lá a nota aparece inteira, com
+valor, e o cartão esconde valor por padrão justamente porque o canal é lido
+por gente que não precisa saber quanto é.
+
+A atualização sai no próximo disparo do cron — a cada 10 minutos.
+
+### Dois consertos que vieram no caminho
+
+**O documento do cartão vinha vazio.** O cartão lia só a coluna
+`numero_documento`, preenchida por cartão, Receita e importação de OFX. O
+editor do Extrato grava em `metadata.documento` — então o número digitado à
+mão no lançamento nunca chegava ao canal, e o campo sumia como se estivesse
+vazio.
+
+**O alerta de "receita sem nota" cobrava nota já emitida.** Ele cruzava a
+célula da Receita com `receitaRowId` da nota, que é nulo no caminho comum de
+emissão. Agora aceita também cliente + competência. Cliente com duas linhas no
+mesmo mês conta a nota para as duas: erra por falar menos, que é o lado certo
+de errar.
