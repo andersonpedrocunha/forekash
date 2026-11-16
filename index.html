@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794862157"/>
+  <meta name="fk-build" content="forekash-v1794863418"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -11224,6 +11224,9 @@
     .clidet-dash{color:#CBD5E1;font-weight:400}
     .clidet-empty{padding:18px 14px;border:1px dashed #E2E8F0;border-radius:10px;
                   background:#F8FAFC;text-align:center;font-size:.76rem;color:#64748B}
+    .clidet-check{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.8rem;
+      color:#334155;font-weight:500;line-height:1.4}
+    .clidet-check input{width:15px;height:15px;flex:none;accent-color:#7C3AED;cursor:pointer}
     .clidet-sec-title-row{display:flex;align-items:center;justify-content:space-between;
                           gap:10px}
     .clidet-sec-count{font-size:.7rem;font-weight:600;color:var(--txm);
@@ -37873,7 +37876,10 @@ function setClienteEndereco(cid, campo, val){
   if(!c) return;
   const ok = ['logradouro','numero','complemento','bairro','cidade','uf','cep','ibge',
               'pais','estado','codPostal','email','telefone',
-              'emailCc','emailAssunto','emailMsg'];
+              'emailCc','emailAssunto','emailMsg',
+              /* Retenção: é fato do CLIENTE, não do serviço. Quem retém é
+                 quem paga, e varia por natureza jurídica e por município. */
+              'retFed','retPis','retCofins','retCsll','retIrrf','retInss','issRetido'];
   if(ok.indexOf(campo) === -1) return;
   c.endereco = Object.assign({}, c.endereco || {});
   c.endereco[campo] = (val == null ? '' : String(val).trim());
@@ -37996,6 +38002,69 @@ function _clidetEnderecoHtml(c, tipoPessoa, esc){
       </div>
       <div class="clidet-ciclo-hint">Vale só para este cliente. Alguns pedem a nota num endereço específico,
         ou com o número do contrato no assunto — é aqui que isso fica, em vez de ser digitado toda vez.</div>
+    </div>
+
+    ${_clidetRetencaoHtml(c, tipoPessoa, esc)}`;
+}
+
+/* ══ RETENÇÃO — MORA NO CLIENTE, NÃO NO SERVIÇO ═══════════════════════════
+
+   O mesmo serviço retém ou não conforme QUEM COMPRA: pessoa física não é
+   fonte pagadora, PJ comum retém 4,65% + 1,5%, optante do Simples não retém,
+   órgão público segue tabela própria (IN RFB 1234). Cadastrar o serviço duas
+   vezes — um "com retenção", outro "sem" — resolveria hoje e produziria nota
+   errada no dia em que alguém escolhesse o gêmeo errado.
+
+   Por isso aqui, junto do CNPJ e do endereço: é um fato do cliente, da mesma
+   natureza. Pessoa física nem aparece — o Forekash já zera sozinho.
+
+   Percentuais próprios em vez de uma tabela embutida: a da IN 1234 muda por
+   tipo de serviço e por norma, e chutá-la no código seria escolher imposto
+   pelo usuário. Quem informa é o contador, uma vez, por cliente. */
+function _clidetRetencaoHtml(c, tipoPessoa, esc){
+  if(tipoPessoa === 'pf' || tipoPessoa === 'est'){
+    const porque = tipoPessoa === 'pf'
+      ? 'Pessoa física não é fonte pagadora: a nota sai sem retenção federal, sempre.'
+      : 'Cliente no exterior: exportação de serviço não tem retenção nem ISS.';
+    return `<div class="clidet-section">
+      <div class="clidet-sec-title">Retenção na nota</div>
+      <div class="clidet-ciclo-hint">${esc(porque)}</div>
+    </div>`;
+  }
+  const e = c.endereco || {};
+  const modo = String(e.retFed || '');
+  const iss  = String(e.issRetido || '') === 'sim';
+  const opt = (v, lbl) => `<option value="${v}"${modo === v ? ' selected' : ''}>${esc(lbl)}</option>`;
+  const pc = (rot, k) => `<div class="clidet-field">
+      <label>${esc(rot)}</label>
+      <input type="text" class="clidet-input" value="${esc(e[k] || '')}" placeholder="0"
+             onblur="setClienteEndereco(${c.id},'${k}',this.value)"
+             onkeydown="if(event.key==='Enter')this.blur()">
+    </div>`;
+
+  return `<div class="clidet-section">
+      <div class="clidet-sec-title">Retenção na nota</div>
+      <div class="clidet-grid">
+        <div class="clidet-field full">
+          <label>Retenção federal (PIS, COFINS, CSLL, IRRF)</label>
+          <select class="clidet-input" onchange="setClienteEndereco(${c.id},'retFed',this.value);renderClidet()">
+            ${opt('',        'Segue os percentuais do serviço')}
+            ${opt('nao',     'Não retém — optante do Simples ou dispensado')}
+            ${opt('propria', 'Percentuais próprios deste cliente')}
+          </select>
+        </div>
+        ${modo === 'propria' ? `${pc('PIS %','retPis')}${pc('COFINS %','retCofins')}${pc('CSLL %','retCsll')}${pc('IRRF %','retIrrf')}${pc('INSS %','retInss')}` : ''}
+        <div class="clidet-field full">
+          <label class="clidet-check">
+            <input type="checkbox"${iss ? ' checked' : ''}
+                   onchange="setClienteEndereco(${c.id},'issRetido', this.checked ? 'sim' : '')">
+            <span>ISS retido por este tomador (substituição tributária)</span>
+          </label>
+        </div>
+      </div>
+      <div class="clidet-ciclo-hint">${modo === 'propria'
+        ? 'Estes percentuais substituem os do serviço nas notas deste cliente. Peça os números ao contador — órgão público segue a IN RFB 1234, que varia por tipo de serviço.'
+        : 'A alíquota do ISS não entra aqui nem em lugar nenhum: quem calcula é o município, pelo código de tributação do serviço. O que muda por cliente é quem recolhe.'}</div>
     </div>`;
 }
 
@@ -136806,14 +136875,36 @@ function nfMontarDPS(opts){
     pTotTribFed: Number(sv.pTotTribFed) || 0,
     pTotTribEst: Number(sv.pTotTribEst) || 0,
     pTotTribMun: Number(sv.pTotTribMun) || 0,
-    pPis: Number(sv.pPis) || 0, pCofins: Number(sv.pCofins) || 0,
-    pCsll: Number(sv.pCsll) || 0, pIrrf: Number(sv.pIrrf) || 0, pInss: Number(sv.pInss) || 0,
+    pPis: _nfRetPct(end, 'retPis', sv.pPis), pCofins: _nfRetPct(end, 'retCofins', sv.pCofins),
+    pCsll: _nfRetPct(end, 'retCsll', sv.pCsll), pIrrf: _nfRetPct(end, 'retIrrf', sv.pIrrf),
+    pInss: _nfRetPct(end, 'retInss', sv.pInss),
     cstPisCofins: sv.cstPisCofins || (exp ? '08' : '00'),
-    semRetencao: exp || pessoaFisica,
+    /* TRÊS CAMINHOS PARA NÃO RETER, UM CAMPO SÓ NO XML.
+       Exportação e pessoa física o Forekash deduz sozinho; "este cliente não
+       retém" (optante do Simples, dispensado) é fato que só o cadastro sabe. */
+    semRetencao: exp || pessoaFisica || String(end.retFed || '') === 'nao',
+    /* ISS RETIDO É DO TOMADOR, NÃO DO SERVIÇO. 1 = não retido, 2 = retido
+       pelo tomador. Era fixo em 1: cliente substituto tributário no município
+       dele recebia nota dizendo que o ISS não foi retido — e aí ou ninguém
+       recolhe, ou recolhem os dois. */
+    tpRetISSQN: (!exp && String(end.issRetido || '') === 'sim') ? '2' : '1',
   };
   return { dps, falta };
 }
 try{ window.nfMontarDPS = nfMontarDPS; }catch(e){}
+
+/* Percentual de retenção: do cliente quando ele declara os próprios, do
+   serviço no resto. Aceita vírgula — quem digita "1,5" está certo. */
+function _nfRetPct(end, chave, doServico){
+  try{
+    if(String((end || {}).retFed || '') === 'propria'){
+      const v = String(end[chave] == null ? '' : end[chave]).replace(',', '.').trim();
+      return v === '' ? 0 : (Number(v) || 0);
+    }
+  }catch(_){}
+  return Number(doServico) || 0;
+}
+try{ window._nfRetPct = _nfRetPct; }catch(e){}
 
 /* IBS/CBS — NÃO SE INFORMA, SE CONFERE.
 
@@ -136884,13 +136975,23 @@ function _nfLiquidoHtml(){
       + '<span class="nf-liq-nota">sem retenção na fonte · entra ' + _nfFmtBRL(base) + '</span>'
       + _nfIbsCbsHtml(base);
   }
-  const pc = k => Number(d[k]) || 0;
+  /* O QUE A TELA MOSTRA É O QUE A DPS VAI MANDAR.
+     Os percentuais vinham só do serviço. Com o regime no cliente, a tela
+     mostraria retenção onde a nota não terá — e divergência entre o que se
+     confere e o que se assina é o pior defeito que esta tela pode ter. */
+  const end = _nfEndDoDraft(d);
+  if(String(end.retFed || '') === 'nao'){
+    return '<span class="nf-liq-lbl">Cliente não retém</span>'
+      + '<span class="nf-liq-nota">cadastro do cliente · entra ' + _nfFmtBRL(base) + '</span>'
+      + _nfIssRetidoHtml(end) + _nfIbsCbsHtml(base);
+  }
+  const pc = k => _nfRetPct(end, _NF_RET_CHAVE[k], d[k]);
   const v  = k => +(base * pc(k) / 100).toFixed(2);
   const pis = v('pPis'), cof = v('pCofins'), csll = v('pCsll'), irrf = v('pIrrf'), inss = v('pInss');
   const ret = +(pis + cof + csll + irrf + inss).toFixed(2);
   if(!ret) return '<span class="nf-liq-lbl">Sem retenção</span>'
     + '<span class="nf-liq-nota">entra ' + _nfFmtBRL(base) + '</span>'
-    + _nfIbsCbsHtml(base);
+    + _nfIssRetidoHtml(end) + _nfIbsCbsHtml(base);
   const part = [];
   if(pis || cof || csll) part.push('PIS/COFINS/CSLL ' + _nfFmtBRL(pis + cof + csll));
   if(irrf) part.push('IRRF ' + _nfFmtBRL(irrf));
@@ -136900,7 +137001,31 @@ function _nfLiquidoHtml(){
     + '<span class="nf-liq-det">' + part.join(' · ') + '</span>'
     + '<span class="nf-liq-lbl r">Entra no caixa</span>'
     + '<span class="nf-liq-liq">' + _nfFmtBRL(base - ret) + '</span>'
-    + _nfIbsCbsHtml(base);
+    + _nfIssRetidoHtml(end) + _nfIbsCbsHtml(base);
+}
+
+/* Endereço do tomador desta nota: o do cadastro manda, o do rascunho cobre
+   quem ainda não está cadastrado. Mesma composição que a DPS faz — e por
+   isso mesmo precisa existir aqui, para as duas lerem o mesmo. */
+function _nfEndDoDraft(d){
+  d = d || NF_DRAFT || {};
+  let cli = null;
+  try{
+    cli = (d.clienteId != null)
+      ? _nfClientes().find(x => x && String(x.id) === String(d.clienteId)) : null;
+  }catch(_){}
+  return Object.assign({},
+    (d.endereco && typeof d.endereco === 'object') ? d.endereco : {},
+    (cli && typeof cli.endereco === 'object') ? cli.endereco : {});
+}
+const _NF_RET_CHAVE = { pPis:'retPis', pCofins:'retCofins', pCsll:'retCsll',
+                        pIrrf:'retIrrf', pInss:'retInss' };
+/* O ISS retido não muda o que entra no caixa da emissão — muda quem recolhe.
+   Aparece como aviso porque é informação que o tomador vai cobrar da nota. */
+function _nfIssRetidoHtml(end){
+  return (String((end || {}).issRetido || '') === 'sim')
+    ? '<span class="nf-liq-lbl">ISS</span><span class="nf-liq-nota">retido pelo tomador · você não recolhe este</span>'
+    : '';
 }
 function _nfFmtBRL(v){ return 'R$ ' + _nfFmt(v); }
 function nfLiquidoAtualiza(){

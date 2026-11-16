@@ -188,7 +188,7 @@ function montaDPS(d){
      Brasil. O portal pede isso numa pergunta própria, e é prova que o
      Fisco pode cobrar depois. */
   +         (exp ? el('cPaisResult', d.cPaisResult || d.paisToma || '') : '')
-  +         el('tpRetISSQN', '1')
+  +         el('tpRetISSQN', d.tpRetISSQN || '1')
   /* ALÍQUOTA NÃO SE INFORMA. E0617: "não é permitido informar alíquota
      quando o prestador não é optante do Simples". Quem define é o município,
      pela parametrização nacional — mandar a nossa é tentar escolher o
