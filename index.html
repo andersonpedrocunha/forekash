@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794843882"/>
+  <meta name="fk-build" content="forekash-v1794844292"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1228,6 +1228,8 @@
     .nf-envio-cab .lbl{flex:0 0 68px;color:#94A3B8;font-size:.72rem;text-transform:uppercase;
                        letter-spacing:.05em;font-weight:700;padding-top:1px}
     .nf-envio-cab b{color:#0F172A;font-weight:600;word-break:break-word}
+    .nf-row-actions button.nf-enviado{background:#ECFDF5;border-color:#A7F3D0;color:#047857}
+    .nf-row-actions button.nf-enviado:hover{background:#D1FAE5;color:#065F46}
     .nf-row-actions button[disabled]{opacity:.4;cursor:not-allowed}
     .nf-row-actions button[disabled]:hover{background:#fff;color:#475569}
 
@@ -135496,12 +135498,19 @@ function nfRenderList(){
          que não vale mais é pior que não mandar nada. */
       '<td><div class="nf-row-actions">' +
         '<button onclick="event.stopPropagation();nfOpenView(' + n.id + ')" title="Visualizar" class="fkico fkico-search"></button>' +
+        /* Enviado vira estado visível, não só um rótulo de botão: quem
+           confere o mês precisa ver de relance o que já saiu. Clicar
+           ainda reenvia — a data no tooltip evita o reenvio por engano. */
         (n.status !== 'canc' && n.nfseXml
-          ? '<button onclick="event.stopPropagation();nfEnviarComPrevia(' + n.id + ')" title="'
-            + (n.emailEnviadoEm ? 'Reenviar para ' + _nfEsc(n.emailPara || n.email || '') + ' · enviado em ' + _nfData(n.emailEnviadoEm)
-               : n.email ? 'Enviar para ' + _nfEsc(n.email) : 'Sem e-mail do tomador')
+          ? '<button class="' + (n.emailEnviadoEm ? 'nf-enviado' : '') + '"' +
+            ' onclick="event.stopPropagation();nfEnviarComPrevia(' + n.id + ')" title="'
+            + (n.emailEnviadoEm
+                ? 'Enviado para ' + _nfEsc(n.emailPara || n.email || '') + ' em '
+                  + new Date(n.emailEnviadoEm).toLocaleString('pt-BR') + ' · clique para reenviar'
+                : n.emailErro ? 'Falhou: ' + _nfEsc(n.emailErro) + ' · clique para tentar de novo'
+                : n.email ? 'Enviar para ' + _nfEsc(n.email) : 'Sem e-mail do tomador')
             + '"' + (n.email ? '' : ' disabled') + '>'
-            + (n.emailEnviadoEm ? '✉ reenviar' : '✉ enviar') + '</button>'
+            + (n.emailEnviadoEm ? '✓ enviado' : n.emailErro ? '✉ falhou' : '✉ enviar') + '</button>'
           : '') +
         (n.status === 'aut' ? '<button class="danger" onclick="event.stopPropagation();nfCancel(' + n.id + ')" title="Cancelar">✕</button>' : '') +
       '</div></td>';
@@ -136773,13 +136782,19 @@ async function nfEmitirPeloServico(ambiente){
   NF.notas.unshift(nota);
   nfSave();
   try{ _nfVincularNoExtrato(nota); }catch(_){}
-  /* ENTREGA. A nota existe; o tomador precisa recebê-la, e a Receita não
-     avisa ninguém. Vai em paralelo para não segurar a tela — o resultado
-     fica gravado na nota e aparece quando ela for aberta. */
-  if(nota.email) nfEnviarEmail(nota.id, false).then(() => { try{ nfRender(); }catch(_){} });
+  /* EMITIR E ENVIAR SÃO DUAS DECISÕES.
+
+     Antes o e-mail saía sozinho junto com a emissão. Mas emitir é um
+     ato fiscal e mandar é um ato comercial — às vezes a nota sai para
+     acertar competência e o cliente só deve recebê-la depois, ou o
+     endereço ainda vai ser confirmado. Um disparo automático tira essa
+     escolha de quem emite, e e-mail não tem como ser desenviado.
+
+     Agora é ação: o ✉ na lista, com prévia antes. */
   if(typeof showToast === 'function')
     showToast('NFS-e ' + nota.numero + ' autorizada'
-      + (ambiente === 'restrita' ? ' (produção restrita · não vale como documento fiscal)' : ''), 'ok');
+      + (ambiente === 'restrita' ? ' (produção restrita · não vale como documento fiscal)' : '')
+      + (nota.email ? ' · envie pelo ✉ na lista' : ''), 'ok');
   return nota;
 }
 /* O número da NFS-e mora na chave: posições 23 a 35 dos 50 dígitos. */
@@ -138480,6 +138495,17 @@ function nfEmailRender(){
 }
 try{ window.nfEmailRender = nfEmailRender; }catch(e){}
 
+/* O remetente é editado em DUAS telas: o modal de E-mail e, por atalho,
+   a de Configurar. Redesenhar sempre a mesma deixava a outra mostrando
+   estado velho — "nenhum remetente" logo depois de autenticar. */
+function _nfRedesenhaOndeEstiver(){
+  const email = document.getElementById('nf-modal-email');
+  if(email && email.classList.contains('open')) { nfEmailRender(); return; }
+  const cfg = document.getElementById('nf-modal-config');
+  if(cfg && cfg.classList.contains('open')) nfRenderConfigForm();
+}
+try{ window._nfRedesenhaOndeEstiver = _nfRedesenhaOndeEstiver; }catch(e){}
+
 function nfEmailSet(campo, valor){
   NF.cfg.email = Object.assign({}, _nfEmailCfg(), { [campo]: valor });
   nfSave();
@@ -139137,6 +139163,31 @@ async function nfSmtpAutoPreencher(){
 }
 try{ window.nfSmtpAutoPreencher = nfSmtpAutoPreencher; }catch(e){}
 
+/* O QUE O PROVEDOR DIZ, TRADUZIDO PARA O QUE FAZER.
+
+   "535-5.7.8 Username and Password not accepted" é preciso e inútil:
+   não diz QUAL das três causas é. E a mais comum é a que ninguém
+   imagina — endereços como financeiro@ e contato@ costumam ser grupo
+   ou alias, e grupo não faz login SMTP. */
+function _nfErroSmtp(bruto){
+  const limpo = String(bruto || '').replace(/^(n\u00e3o autenticou:\s*)+/i, '');
+  if(/535|BadCredentials|Invalid login|AUTH/i.test(limpo)){
+    return 'o provedor recusou a credencial. Tr\u00eas causas, nesta ordem: ' +
+      '(1) este endere\u00e7o pode ser um GRUPO ou ALIAS, que n\u00e3o faz login \u2014 use a conta real em ' +
+      '"Seu e-mail" e ponha o alias em "Remetente"; ' +
+      '(2) a senha de app pode ser de outra conta; ' +
+      '(3) a senha pode ter sido revogada. \u00b7 ' + limpo.slice(0, 160);
+  }
+  if(/ENOTFOUND|EAI_AGAIN/i.test(limpo))
+    return 'servidor n\u00e3o encontrado \u2014 confira o endere\u00e7o do SMTP. \u00b7 ' + limpo.slice(0, 120);
+  if(/ETIMEDOUT|ECONNREFUSED/i.test(limpo))
+    return 'o servidor n\u00e3o respondeu \u2014 confira a porta (587 ou 465). \u00b7 ' + limpo.slice(0, 120);
+  if(/certificate|self.signed/i.test(limpo))
+    return 'o certificado TLS do servidor n\u00e3o foi aceito. \u00b7 ' + limpo.slice(0, 120);
+  return limpo;
+}
+try{ window._nfErroSmtp = _nfErroSmtp; }catch(e){}
+
 /* Sobe a configuração, o serviço autentica e devolve o pacote cifrado. */
 async function nfSmtpGuardar(){
   const v = (id) => ((document.getElementById(id) || {}).value || '').trim();
@@ -139164,7 +139215,7 @@ async function nfSmtpGuardar(){
       body: JSON.stringify(dados)
     });
     const j = await r.json().catch(() => ({}));
-    if(!r.ok) throw new Error(j.erro || ('HTTP ' + r.status));
+    if(!r.ok) throw new Error(_nfErroSmtp(j.erro || ('HTTP ' + r.status)));
     /* Guarda só o que a tela precisa e o pacote cifrado. A senha some:
        ela nunca volta do serviço, e não fica aqui. */
     NF.cfg.smtpGuardado = { pacote: j.pacote, de: j.de, host: j.host,
@@ -139173,7 +139224,7 @@ async function nfSmtpGuardar(){
     nfSave();
     const campo = document.getElementById('nf-smtp-senha');
     if(campo) campo.value = '';
-    nfRenderConfigForm();
+    _nfRedesenhaOndeEstiver();
     if(typeof showToast === 'function') showToast('Remetente guardado e autenticado · ' + j.de, 'ok');
   }catch(e){
     if(typeof showToast === 'function') showToast('Não autenticou: ' + e.message, 'err');
@@ -139196,7 +139247,7 @@ async function nfSmtpTestar(){
     });
     const j = await r.json().catch(() => ({}));
     if(typeof showToast === 'function')
-      showToast(j.ok ? 'Autenticou como ' + j.de : 'Não autenticou: ' + (j.motivo || j.erro || '?'),
+      showToast(j.ok ? 'Autenticou como ' + j.de : 'Não autenticou: ' + _nfErroSmtp(j.motivo || j.erro || '?'),
                 j.ok ? 'ok' : 'err');
   }catch(e){
     if(typeof showToast === 'function') showToast('Não consegui testar: ' + e.message, 'err');
@@ -139207,7 +139258,7 @@ try{ window.nfSmtpTestar = nfSmtpTestar; }catch(e){}
 function nfSmtpRemover(){
   if(!NF.cfg.smtpGuardado) return;
   delete NF.cfg.smtpGuardado;
-  nfSave(); nfRenderConfigForm();
+  nfSave(); _nfRedesenhaOndeEstiver();
   if(typeof showToast === 'function') showToast('Remetente removido — as notas param de ser enviadas', 'warn');
 }
 try{ window.nfSmtpRemover = nfSmtpRemover; }catch(e){}
