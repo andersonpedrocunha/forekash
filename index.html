@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794858773"/>
+  <meta name="fk-build" content="forekash-v1794859915"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -6686,6 +6686,10 @@
     .ext-modal-bd textarea{min-height:60px;resize:vertical}
     .ext-modal-ft{padding:12px 20px;border-top:1px solid #E5E7EB;display:flex;justify-content:flex-end;gap:8px}
     .ext-modal-ft .btn-del{background:#fff;border:1px solid #FCA5A5;color:#991B1B;padding:7px 13px;border-radius:6px;cursor:pointer;font-size:.78rem;font-weight:600;font-family:inherit;margin-right:auto}
+    /* Travado por nota fiscal: continua à vista, apagado, com o motivo no
+       title. Sumir com o botão faria parecer que a tela está quebrada. */
+    .btn-del[disabled]{opacity:.4;cursor:not-allowed;border-color:#E5E7EB;color:#9CA3AF}
+    .btn-del[disabled]:hover{background:#fff}
     .ext-modal-ft .btn-del:hover{background:#FEE2E2}
     .ext-modal-ft .btn-cancel{background:#fff;border:1px solid #CBD5E1;color:#475569;padding:7px 13px;border-radius:6px;cursor:pointer;font-size:.78rem;font-weight:600;font-family:inherit}
     .ext-modal-ft .btn-cancel:hover{background:#F8FAFC}
@@ -78625,9 +78629,48 @@ function _extLoad(){
         if(typeof extratoData.nextId !== 'number') extratoData.nextId = 1;
         _extMigrarBaixa();
         _extMigrarConta();
+        _extHistDaNota();
       }
     }
   } catch(e){}
+}
+
+/* ── A NOTA NO HISTÓRICO DE QUEM JÁ ESTAVA CARIMBADO ──────────────────────
+
+   O registro da emissão passou a ser gravado no mesmo instante do carimbo.
+   Mas lançamento carimbado ANTES disso ficou com o número no campo do
+   documento e nada no histórico — que é exatamente onde se procura "quando
+   foi". Quem abre o lançamento vê a nota e um histórico que não a menciona,
+   e conclui, com razão, que o histórico não presta.
+
+   Conserta uma vez, com a data DA NOTA, não a de agora: histórico que mente
+   na hora é pior que histórico incompleto. Idempotente — reconhece o texto
+   que já está lá e não duplica. */
+function _extHistDaNota(){
+  try{
+    const lista = (extratoData && extratoData.lancamentos) || [];
+    let mexeu = 0;
+    for(const l of lista){
+      const nf = l && l.nf;
+      if(!nf || !nf.numero || !nf.status) continue;
+      const num = 'NFS-e ' + nf.numero;
+      const txt = nf.status === 'aut'  ? (num + ' emitida')
+                : nf.status === 'canc' ? (num + ' cancelada na Receita')
+                : nf.status === 'rej'  ? (num + ' rejeitada pela Receita')
+                : (num + ' · ' + nf.status);
+      if(!Array.isArray(l.eventos)) l.eventos = [];
+      if(l.eventos.some(e => e && e.d === txt)) continue;
+      const quando = (nf.status === 'canc' && nf.canceladaEm) ? nf.canceladaEm : (nf.em || '');
+      const d = quando ? new Date(quando) : null;
+      l.eventos.push({ t: (d && !isNaN(d)) ? d.toISOString() : new Date().toISOString(),
+                       d: txt, a: 1 });
+      mexeu++;
+    }
+    if(mexeu){
+      console.log('[FK] histórico: ' + mexeu + ' lançamento(s) ganharam o registro da nota');
+      try{ _extSave(); }catch(_){}
+    }
+  }catch(e){ console.warn('[FK] histórico da nota:', e && e.message); }
 }
 
 /* Conta gravada com o rótulo do arquivo OFX em vez do rótulo do cadastro.
@@ -79538,6 +79581,9 @@ async function cloudExtratoFetch(){
       try{ cloudExtratoSync(); }catch(_){}
     }
     await cloudExtratoIgnFetch();
+    /* Também aqui: a nuvem acabou de SUBSTITUIR a lista, então o conserto
+       feito sobre o que veio do navegador não vale mais para estas linhas. */
+    _extHistDaNota();
     _extRecalcNextId();
     try { localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData)); } catch(_){}
     try { if (typeof renderExtrato === 'function') renderExtrato(); } catch(_){}
@@ -84267,6 +84313,72 @@ function _extBtnExcluir(editId){
   if(id.startsWith('cartao:')) return 'extDeleteCartao()';
   return 'extDeleteManual()';
 }
+/* ══ LANÇAMENTO COM NOTA ATIVA NÃO SE APAGA ═══════════════════════════════
+
+   A NFS-e existe na Receita e não some porque alguém apagou uma linha aqui.
+   Apagar o lançamento deixaria o documento fiscal sem a receita que o
+   originou: a nota segue valendo, segue contando na apuração, e desaparece o
+   único vínculo que explicava de onde ela veio — inclusive o cartão que o
+   MR KASH mantém no canal.
+
+   Nota CANCELADA ou REJEITADA não trava: aí não há documento válido a
+   proteger. E a saída existe: cancelar a nota na Receita e então excluir.
+   Trava sem saída é pior que não ter trava. */
+function _extNotaAtiva(l){
+  const nf = l && l.nf;
+  return (nf && nf.numero && nf.status === 'aut') ? nf : null;
+}
+function _extLancsComNota(ids){
+  const dentro = new Set((ids || []).map(String));
+  return (((typeof extratoData !== 'undefined' && extratoData) ? extratoData.lancamentos : []) || [])
+    .filter(l => l && dentro.has(String(l.id)) && _extNotaAtiva(l));
+}
+/* Explica e devolve `true` quando travou — quem chama só precisa sair. */
+function _extBarraPorNota(ids){
+  const presos = _extLancsComNota(ids);
+  if(!presos.length) return false;
+  const item = l => '<li><b>NFS-e ' + _extEsc(String(l.nf.numero)) + '</b> · '
+    + _extEsc(String(l.descricao || l.contraparte || 'lançamento').slice(0, 60)) + '</li>';
+  const html = (presos.length === 1
+      ? 'Este lançamento tem uma NFS-e <b>autorizada</b>.'
+      : '<b>' + presos.length + '</b> dos lançamentos têm NFS-e <b>autorizada</b>.')
+    + '<ul style="margin:10px 0 0 18px;line-height:1.7;text-align:left">'
+    + presos.slice(0, 6).map(item).join('')
+    + (presos.length > 6 ? '<li>… e mais ' + (presos.length - 6) + '</li>' : '')
+    + '</ul>'
+    + '<p style="margin-top:12px;color:#475569">A nota existe na Receita e não some junto com a linha. '
+    + 'Sem o lançamento, o documento fiscal fica sem a receita que o originou.</p>'
+    + '<p style="margin-top:8px;color:#475569">Para excluir mesmo assim, <b>cancele a nota</b> '
+    + 'em Notas Fiscais e volte aqui.</p>';
+  try{
+    if(typeof anaAlert === 'function')
+      anaAlert({ eyebrow:'Extrato', title:'Não dá para excluir', message: html, okText:'Entendi' });
+    else if(typeof toast === 'function')
+      toast('Lançamento com NFS-e autorizada não pode ser excluído — cancele a nota antes');
+  }catch(_){}
+  return true;
+}
+
+/* O botão também some de vista antes do clique: recusar depois de clicar em
+   Excluir é pior momento pra descobrir a regra. */
+function _extBtnExcluirHtml(editId){
+  if(!editId || !_extTemExcluir(editId)) return '';
+  const id = String(editId);
+  let alvo = null;
+  if(id.startsWith('m:') || /^\d+$/.test(id)){
+    const n = parseInt(id.replace(/^m:/, ''), 10);
+    alvo = (((typeof extratoData !== 'undefined' && extratoData) ? extratoData.lancamentos : []) || [])
+      .find(x => x && x.id === n) || null;
+  }
+  const nf = _extNotaAtiva(alvo);
+  if(nf){
+    return '<button type="button" class="btn-del" disabled title="NFS-e ' + _extEsc(String(nf.numero))
+         + ' autorizada — cancele a nota antes de excluir o lançamento">Excluir</button>';
+  }
+  return '<button type="button" class="btn-del" onclick="' + _extBtnExcluir(editId) + '">Excluir</button>';
+}
+try{ window._extNotaAtiva = _extNotaAtiva; window._extBarraPorNota = _extBarraPorNota; }catch(e){}
+
 /* Linha de importação ainda não existe: não há o que excluir. */
 function _extTemExcluir(editId){
   const id = String(editId || '');
@@ -84836,7 +84948,7 @@ function extOpenModal(tipo, editId){
       +   '</div>'
       + '</div>'
       + '<div class="ext-modal-ft">'
-      +   (editId ? ('<button type="button" class="btn-del" onclick="extDeleteManual()">Excluir</button>') : '')
+      +   _extBtnExcluirHtml(editId)
       +   '<button type="button" class="btn-cancel" onclick="extCloseModal()">Cancelar</button>'
       +   '<button type="button" class="btn-save" onclick="extSaveModal(\''+ t + '\')">Salvar</button>'
       + '</div>'
@@ -85117,7 +85229,7 @@ function extOpenModal(tipo, editId){
       + '</div>'
       + _extBotaoSerieHtml(editId, t)
       + '<div class="dkb-modal-ft">'
-      +   ((editId && _extTemExcluir(editId)) ? ('<button type="button" class="btn-del" onclick="' + _extBtnExcluir(editId) + '">Excluir</button>') : '')
+      +   _extBtnExcluirHtml(editId)
       +   '<button type="button" class="btn-cancel" onclick="extCloseModal()">Cancelar</button>'
       +   '<button type="button" class="btn-save" onclick="extSaveModal(\''+ t + '\')">Salvar</button>'
       + '</div>'
@@ -87504,6 +87616,7 @@ async function extDeleteManual(){
   const realId = parseInt(_extEditingId.replace(/^m:/, ''), 10);
   const alvo = (extratoData.lancamentos || []).find(x => x.id === realId);
   if(!alvo) return;
+  if(_extBarraPorNota([realId])) return;
   let ids = [realId];
   const serie = _extSerieDe(alvo);
   if(serie.todos.length){
@@ -87518,6 +87631,9 @@ async function extDeleteManual(){
     });
     if(!r || !r.ids || !r.ids.length) return;
     ids = r.ids;
+    /* "Este e os seguintes" pode arrastar uma parcela que já virou nota,
+       mesmo que a clicada não tenha. */
+    if(_extBarraPorNota(ids)) return;
   } else {
     const ok = await _dkbConfirm({
       icon: '', title: 'Excluir este lançamento?',
@@ -87544,6 +87660,12 @@ function extDeleteGroup(){
   if(!_extEditingId || typeof _extEditingId !== 'string' || !_extEditingId.startsWith('grp:')) return;
   const gp = (typeof _extParseGroupId === 'function') ? _extParseGroupId(_extEditingId) : null;
   if(!gp) return;
+  /* O grupo é um conjunto de lançamentos: basta um deles ter nota. */
+  try{
+    const doGrupo = (extratoData.lancamentos || [])
+      .filter(l => l && l.grupoId === gp.grupoId && l.data === gp.data).map(l => l.id);
+    if(_extBarraPorNota(doGrupo)) return;
+  }catch(_){}
   anaConfirm({eyebrow:'Extrato', title:'Excluir grupo?', message:'Todos os itens deste grupo serão removidos.', okText:'Excluir grupo', cancelText:'Cancelar', danger:true}, () => {
     const removed = (typeof _extDeleteGroup === 'function') ? _extDeleteGroup(gp.grupoId, gp.data) : 0;
     extCloseModal();
@@ -150489,6 +150611,9 @@ function bulkSmartCat(){
   try{ if(typeof renderExtrato === 'function') renderExtrato(); }catch(_){}
 }
 function bulkDelete(){
+  /* A trava vale em todas as portas: selecionar 40 linhas e apagar não pode
+     ser o caminho curto pra sumir com o que o modal recusa. */
+  if(typeof _extBarraPorNota === 'function' && _extBarraPorNota([...BULK_SELECTED])) return;
   const n = BULK_SELECTED.size;
   anaConfirm({eyebrow:'Extrato', title:`Excluir ${n} lançamento(s)?`, message:'A ação não pode ser desfeita.', okText:'Excluir', cancelText:'Cancelar', danger:true}, () => {
     if(typeof extratoData === 'undefined' || !Array.isArray(extratoData.lancamentos)) return;
