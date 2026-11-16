@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794841604"/>
+  <meta name="fk-build" content="forekash-v1794842104"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1183,6 +1183,32 @@
     .nf-row-actions button{padding:4px 8px;background:#fff;border:1px solid #E2E8F0;border-radius:5px;cursor:pointer;font-size:.66rem;font-weight:600;color:#475569;font-family:inherit}
     .nf-row-actions button:hover{background:#F1F5F9;color:#0F172A}
     .nf-row-actions button.danger:hover{background:#FEE2E2;color:#7F1D1D;border-color:#FCA5A5}
+    /* Tela do e-mail: configuração à esquerda, prévia à direita. */
+    .nf-email-grid{display:grid;grid-template-columns:minmax(320px,1fr) minmax(300px,420px);gap:26px;align-items:start}
+    @media (max-width:900px){.nf-email-grid{grid-template-columns:1fr}}
+    .nf-email-sec{font-size:.64rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+                  color:#94A3B8;margin:0 0 10px;padding-top:4px}
+    .nf-email-sec + *{margin-bottom:18px}
+    .nf-email-cfg .nf-email-sec:not(:first-child){margin-top:26px;padding-top:18px;border-top:1px solid #F1F5F9}
+    .nf-email-previa{position:sticky;top:0}
+    .nf-email-previa-hd{display:flex;align-items:baseline;gap:9px;margin-bottom:9px}
+    .nf-email-previa-hd span{font-size:.64rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#94A3B8}
+    .nf-email-previa-hd small{font-size:.68rem;color:#CBD5E1}
+    .nf-email-palco{background:#E2E8F0;border-radius:11px;padding:10px;overflow:hidden}
+    .nf-email-palco iframe{width:100%;height:440px;border:0;border-radius:7px;background:#F1F5F9;display:block}
+    .nf-email-palco.grande iframe{height:520px}
+    .nf-email-cores{display:flex;gap:7px;padding-top:3px}
+    .nf-email-cor{width:28px;height:28px;border-radius:8px;border:2px solid transparent;cursor:pointer;padding:0}
+    .nf-email-cor.on{border-color:#0F172A;box-shadow:0 0 0 2px #fff inset}
+    .nf-email-check{display:flex;align-items:center;gap:7px;font-size:.82rem;color:#475569;padding-top:9px;cursor:pointer}
+    .nf-email-check input{width:auto;margin:0}
+    /* Cabeçalho da prévia de envio: quem recebe, o que vai junto. */
+    .nf-envio-cab{display:grid;gap:7px;margin-bottom:16px;padding:14px 16px;background:#F8FAFC;
+                  border:1px solid #E2E8F0;border-radius:10px;font-size:.82rem}
+    .nf-envio-cab > div{display:flex;gap:12px}
+    .nf-envio-cab .lbl{flex:0 0 68px;color:#94A3B8;font-size:.72rem;text-transform:uppercase;
+                       letter-spacing:.05em;font-weight:700;padding-top:1px}
+    .nf-envio-cab b{color:#0F172A;font-weight:600;word-break:break-word}
     .nf-row-actions button[disabled]{opacity:.4;cursor:not-allowed}
     .nf-row-actions button[disabled]:hover{background:#fff;color:#475569}
 
@@ -26394,10 +26420,16 @@ td.mes.do-extrato{background:#ECFDF5}
         <div class="nf-head">
           <div class="nf-head-l">
             <h1 class="nf-title">Notas Fiscais <span class="nf-badge-status" id="nf-mode-badge">DEMO</span></h1>
-            <p class="nf-sub">Nota de serviço assinada em nome da sua empresa. Nasce do lançamento da Receita e volta pra ele.</p>
+            <!-- O texto anterior ("nasce do lançamento e volta pra ele") era bonito
+                 e não dizia nada: servia para qualquer emissor do mercado. O que
+                 este módulo tem de próprio é não ter ninguém no meio — o
+                 certificado é seu, a assinatura acontece no seu serviço, e a
+                 Receita responde direto. É isso que vale estar escrito. -->
+            <p class="nf-sub">Assinada com o seu certificado e entregue direto à Receita — sem intermediário. O cliente recebe o DANFSe e o XML; a nota fica ligada ao lançamento que a originou.</p>
           </div>
           <div class="nf-head-r">
-            <button class="btn btn-sec" onclick="nfOpenConfig()" title="Configurar NFE.io · certificado · CNAE">Configurar</button>
+            <button class="btn btn-sec" onclick="nfEmailModal()" title="Remetente, aparência e prévia do e-mail enviado ao cliente">E-mail</button>
+            <button class="btn btn-sec" onclick="nfOpenConfig()" title="Certificado, séries, serviço de emissão e dados fiscais">Configurar</button>
             <button class="btn nf-btn-new" onclick="nfOpenCreate()">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
               Emitir NFS-e
@@ -135446,7 +135478,7 @@ function nfRenderList(){
       '<td><div class="nf-row-actions">' +
         '<button onclick="event.stopPropagation();nfOpenView(' + n.id + ')" title="Visualizar" class="fkico fkico-search"></button>' +
         (n.status !== 'canc' && n.nfseXml
-          ? '<button onclick="event.stopPropagation();nfEnviarEmail(' + n.id + ').then(function(){nfRender()})" title="'
+          ? '<button onclick="event.stopPropagation();nfEnviarComPrevia(' + n.id + ')" title="'
             + (n.emailEnviadoEm ? 'Reenviar para ' + _nfEsc(n.emailPara || n.email || '') + ' · enviado em ' + _nfData(n.emailEnviadoEm)
                : n.email ? 'Enviar para ' + _nfEsc(n.email) : 'Sem e-mail do tomador')
             + '"' + (n.email ? '' : ' disabled') + '>'
@@ -136855,7 +136887,7 @@ function nfOpenView(id){
               : '<span style="color:#92400E;font-weight:700">Ainda não enviado</span>') +
             (temXml
               ? ' · <a href="#" style="color:#0369A1;font-weight:700" onclick="event.preventDefault();' +
-                'nfEnviarEmail(' + n.id + ').then(function(){nfOpenView(' + n.id + ')})">' +
+                'nfCloseModal(\'view\');nfEnviarComPrevia(' + n.id + ')">' +
                 (n.emailEnviadoEm ? 'reenviar' : 'enviar agora') + '</a>'
               : '') +
           '</div>'
@@ -138063,6 +138095,371 @@ function _b64DeBytes(bytes){
 }
 const _b64DeTexto = (t) => _b64DeBytes(new TextEncoder().encode(t));
 
+/* A logo viaja como anexo embutido, referenciado por cid: no HTML. É o
+   único jeito que o Gmail aceita — imagem em data: ele descarta. */
+function _nfLogoAnexo(dataUrl){
+  const m = String(dataUrl || '').match(/^data:([^;,]+)[^,]*,(.*)$/);
+  if(!m) return null;
+  return { nome: 'logo', tipo: m[1], b64: m[2], cid: 'logoempresa' };
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   O E-MAIL QUE O CLIENTE RECEBE
+
+   HTML de e-mail não é HTML de página: não há folha de estilo externa,
+   não há flexbox confiável, e metade dos clientes de e-mail ainda
+   renderiza com motor de 2008. Então é tabela com estilo embutido —
+   feio de escrever, mas é o que chega igual no Gmail, no Outlook e no
+   Apple Mail.
+
+   A logo vai como anexo embutido (cid:), não como data: — o Gmail
+   bloqueia imagem em data URI, e a logo simplesmente não apareceria.
+   ══════════════════════════════════════════════════════════════════ */
+
+const NF_EMAIL_PADRAO = {
+  cor: '#0EA5E9',
+  mostrarLogo: true,
+  saudacao: 'Olá,',
+  rodape: '',
+};
+function _nfEmailCfg(){
+  return Object.assign({}, NF_EMAIL_PADRAO, (NF.cfg && NF.cfg.email) || {});
+}
+function _nfLogoDataUrl(){
+  try{
+    if(typeof settings !== 'undefined' && settings && settings.logoDataUrl) return settings.logoDataUrl;
+  }catch(_){}
+  return '';
+}
+
+/* Monta assunto, corpo em texto e corpo em HTML de uma nota.
+   `paraPreview` troca o cid: por data: — só a pré-visualização usa isso,
+   porque no navegador o cid: não existe. */
+function _nfEmailMontar(n, paraPreview){
+  const cfg  = _nfEmailCfg();
+  const doCli = _nfCfgEmailDoCliente(n);
+  const emp  = _nfEmpresaAtiva() || {};
+  /* O cadastro de empresas guarda a razão social em `razao`; `razaoSocial`
+     é o campo do cadastro de CLIENTES. Ler o nome errado fazia o e-mail
+     sair assinado pelo apelido da empresa, ou por nada. */
+  const quem = String(emp.razao || emp.razaoSocial || emp.nome || 'o prestador').trim();
+  const teste = n.mode === 'restrita';
+  const link = NF_DANFSE_CONSULTA + (n.chaveAcesso || '');
+  const valor = 'R$ ' + _nfFmt(n.valor);
+  const esc = (t) => _nfEsc(t == null ? '' : t);
+  const cor = cfg.cor || NF_EMAIL_PADRAO.cor;
+
+  const logo = cfg.mostrarLogo ? _nfLogoDataUrl() : '';
+  const logoSrc = logo ? (paraPreview ? logo : 'cid:logoempresa') : '';
+
+  const corpoTexto = doCli.msg || (cfg.saudacao + '\n\n' +
+    'Segue a Nota Fiscal de Serviços Eletrônica nº ' + (n.numero || '—') +
+    ', emitida por ' + quem + ' em ' + _nfData(n.dataAutorizada || n.dataEmissao) + '.');
+
+  const texto = corpoTexto + '\n\n' +
+    'Nota nº: ' + (n.numero || '—') + '\n' +
+    'Competência: ' + _nfCompetMesAno(n.competencia || n.dataEmissao) + '\n' +
+    'Valor: ' + valor + '\n' +
+    (n.descricao ? 'Serviço: ' + String(n.descricao).split('\n')[0] + '\n' : '') +
+    '\nEm anexo: o DANFSe em PDF e o XML da NFS-e, que é o documento fiscal.\n\n' +
+    'Conferir a autenticidade no portal nacional:\n' + link + '\n' +
+    (cfg.rodape ? '\n' + cfg.rodape + '\n' : '') +
+    (teste ? '\nATENÇÃO: nota emitida em ambiente de teste. Não tem validade jurídica.\n' : '');
+
+  const linha = (rot, val, forte) =>
+    '<tr>' +
+      '<td style="padding:7px 0;border-bottom:1px solid #EEF2F6;color:#64748B;font-size:13px;white-space:nowrap">' + esc(rot) + '</td>' +
+      '<td style="padding:7px 0 7px 18px;border-bottom:1px solid #EEF2F6;color:#0F172A;font-size:' +
+        (forte ? '17px;font-weight:700' : '13px') + '" align="right">' + esc(val) + '</td>' +
+    '</tr>';
+
+  const anexo = (nome, tipo) =>
+    '<td style="padding:0 8px 0 0">' +
+      '<table cellpadding="0" cellspacing="0" border="0"><tr>' +
+        '<td style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:9px 13px;' +
+            'font-size:12px;color:#475569;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">' +
+          '<b style="color:#0F172A">' + esc(tipo) + '</b><br><span style="color:#94A3B8">' + esc(nome) + '</span>' +
+        '</td>' +
+      '</tr></table>' +
+    '</td>';
+
+  const html =
+  '<!doctype html><html><head><meta charset="utf-8">' +
+  '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+  '<title>' + esc(quem) + ' · NFS-e</title></head>' +
+  '<body style="margin:0;padding:0;background:#F1F5F9">' +
+  '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F1F5F9">' +
+  '<tr><td align="center" style="padding:28px 14px">' +
+    '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560" ' +
+      'style="max-width:560px;width:100%;background:#FFFFFF;border-radius:14px;overflow:hidden;' +
+      'font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif">' +
+
+      /* faixa de cor: dá identidade sem depender de imagem carregar */
+      '<tr><td style="height:4px;background:' + cor + ';font-size:0;line-height:0">&nbsp;</td></tr>' +
+
+      '<tr><td style="padding:26px 30px 0">' +
+        (logoSrc
+          ? '<img src="' + logoSrc + '" alt="' + esc(quem) + '" style="max-height:34px;max-width:200px;display:block;border:0">'
+          : '<div style="font-size:17px;font-weight:700;color:#0F172A">' + esc(quem) + '</div>') +
+      '</td></tr>' +
+
+      (teste
+        ? '<tr><td style="padding:18px 30px 0"><table cellpadding="0" cellspacing="0" border="0" width="100%">' +
+          '<tr><td style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:9px;padding:11px 14px;' +
+          'color:#92400E;font-size:13px;font-weight:700">Nota emitida em ambiente de teste — sem validade jurídica.</td>' +
+          '</tr></table></td></tr>'
+        : '') +
+
+      '<tr><td style="padding:22px 30px 0;color:#0F172A;font-size:15px;line-height:1.6">' +
+        esc(corpoTexto).replace(/\n/g, '<br>') +
+      '</td></tr>' +
+
+      '<tr><td style="padding:22px 30px 0">' +
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">' +
+          linha('Nota fiscal', 'nº ' + (n.numero || '—')) +
+          linha('Competência', _nfCompetMesAno(n.competencia || n.dataEmissao)) +
+          (n.descricao ? linha('Serviço', String(n.descricao).split('\n')[0].slice(0, 60)) : '') +
+          linha('Valor', valor, true) +
+        '</table>' +
+      '</td></tr>' +
+
+      '<tr><td style="padding:20px 30px 0">' +
+        '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#94A3B8;padding-bottom:9px">Em anexo</div>' +
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>' +
+          anexo('DANFSe em PDF', 'Documento') +
+          anexo('XML da NFS-e', 'Fiscal') +
+        '</tr></table>' +
+      '</td></tr>' +
+
+      '<tr><td style="padding:24px 30px 0">' +
+        '<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>' +
+          '<td style="background:' + cor + ';border-radius:9px">' +
+            '<a href="' + esc(link) + '" style="display:inline-block;padding:12px 22px;color:#FFFFFF;' +
+            'font-size:14px;font-weight:700;text-decoration:none">Conferir no portal nacional</a>' +
+          '</td>' +
+        '</tr></table>' +
+      '</td></tr>' +
+
+      (cfg.rodape
+        ? '<tr><td style="padding:22px 30px 0;color:#475569;font-size:13px;line-height:1.6">' +
+          esc(cfg.rodape).replace(/\n/g, '<br>') + '</td></tr>'
+        : '') +
+
+      '<tr><td style="padding:24px 30px 26px">' +
+        '<div style="border-top:1px solid #EEF2F6;padding-top:14px;color:#94A3B8;font-size:11px;line-height:1.6">' +
+          'Chave de acesso<br><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;' +
+          'word-break:break-all;color:#64748B">' + esc(n.chaveAcesso || '—') + '</span>' +
+        '</div>' +
+      '</td></tr>' +
+    '</table>' +
+  '</td></tr></table></body></html>';
+
+  return {
+    assunto: doCli.assunto || (quem + ' · NFS-e nº ' + (n.numero || '—') + (teste ? ' (teste)' : '')),
+    texto: texto,
+    html: html,
+    temLogo: !!logo,
+    logoDataUrl: logo,
+  };
+}
+try{ window._nfEmailMontar = _nfEmailMontar; }catch(e){}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   TELA PRÓPRIA DO E-MAIL
+
+   Estava dentro de Configurar, que já carregava certificado, séries,
+   serviço, token, regime, inscrição, CNAE e município. Configuração
+   demais numa tela só vira rolagem, e rolagem esconde.
+
+   Aqui tem espaço para o que faltava: ver o e-mail antes de mandar. A
+   prévia é o mesmo HTML que o cliente recebe, renderizado num iframe —
+   não uma aproximação.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Nota de exemplo para a prévia quando nenhuma foi escolhida. */
+function _nfEmailExemplo(){
+  const emp = _nfEmpresaAtiva() || {};
+  return {
+    id: 0, numero: '128', chaveAcesso: String(emp.ibge || '4205407').padEnd(7,'0') + '1'.repeat(43),
+    cliente: 'Cliente Exemplo Ltda', valor: 4800,
+    descricao: 'Desenvolvimento de software · novembro',
+    competencia: new Date().toISOString().slice(0,10),
+    dataEmissao: new Date().toISOString(), dataAutorizada: new Date().toISOString(),
+    mode: 'producao', email: 'cliente@exemplo.com.br',
+  };
+}
+
+let _NF_EMAIL_PREVIA_NOTA = null;
+
+function nfEmailModal(notaId){
+  _NF_EMAIL_PREVIA_NOTA = notaId || null;
+  nfEmailRender();
+  document.getElementById('nf-modal-email').classList.add('open');
+}
+try{ window.nfEmailModal = nfEmailModal; }catch(e){}
+
+function nfEmailRender(){
+  const cfg = _nfEmailCfg();
+  const g = NF.cfg.smtpGuardado;
+  const sug = _nfSmtpSugere((g && g.user) || (_nfEmpresaAtiva() || {}).email || '');
+  const temServico = _nfUrlValida(_nfUrlServico(NF.cfg.servicoUrl));
+  const campo = (rot, id, val, ph, tipo) =>
+    '<div class="nf-field"><label>' + rot + '</label>' +
+    '<input type="' + (tipo || 'text') + '" id="' + id + '" value="' + _nfEsc(val == null ? '' : val) + '"' +
+    ' placeholder="' + _nfEsc(ph || '') + '"' + (tipo === 'password' ? ' autocomplete="new-password"' : '') + '></div>';
+
+  const remetente = !temServico
+    ? '<div class="nf-cert-bloq">Configure o <b>serviço de emissão</b> em Configurar primeiro. ' +
+      'A senha do e-mail é cifrada lá, pelo mesmo cofre do certificado.</div>'
+    : (g
+        ? '<div class="nf-cert-ok"><b>' + _nfEsc(g.de) + '</b><span class="nf-cert-ok">autenticado</span>' +
+          '<small>' + _nfEsc(g.host) + ':' + _nfEsc(g.porta) + ' · guardado cifrado no serviço</small></div>'
+        : '<div class="nf-cert-sem">Nenhum remetente configurado — as notas são emitidas, mas não chegam ao cliente.</div>') +
+      '<div class="nf-field-row">' +
+        campo('Servidor SMTP', 'nf-smtp-host', (g && g.host) || (sug && sug.host), 'smtp.seuprovedor.com.br') +
+        campo('Porta', 'nf-smtp-porta', (g && g.porta) || (sug && sug.porta) || 587, '587') +
+      '</div>' +
+      '<div class="nf-field-row">' +
+        campo('Usuário', 'nf-smtp-user', g && g.user, 'financeiro@suaempresa.com.br') +
+        campo('Senha', 'nf-smtp-senha', '', g ? 'guardada — preencha só para trocar' : 'senha de app ou do e-mail', 'password') +
+      '</div>' +
+      '<div class="nf-field-row">' +
+        campo('Remetente', 'nf-smtp-de', g && g.de, 'em branco usa o usuário') +
+        campo('Nome exibido', 'nf-smtp-nome', (g && g.nome) || '', 'o nome da sua empresa') +
+      '</div>' +
+      '<div class="nf-cert-up">' +
+        '<button type="button" id="nf-smtp-btn" onclick="nfSmtpGuardar()">' +
+          (g ? 'Substituir e testar' : 'Guardar e testar') + '</button>' +
+        (g ? '<button type="button" onclick="nfSmtpTestar()">Testar agora</button>' +
+             '<button type="button" onclick="nfSmtpRemover()">Remover</button>' : '') +
+      '</div>' +
+      '<small class="nf-cert-ajuda">A senha vai direto para o serviço e volta cifrada, no mesmo cofre do ' +
+        'certificado — não fica no navegador nem em arquivo.' +
+        (sug && sug.nota ? '<br><b>' + _nfEsc(sug.nota) + '</b>' : '') + '</small>';
+
+  const temLogo = !!_nfLogoDataUrl();
+  const aparencia =
+    '<div class="nf-field-row">' +
+      '<div class="nf-field"><label>Cor de destaque</label>' +
+        '<div class="nf-email-cores">' +
+          ['#0EA5E9','#10B981','#6366F1','#F59E0B','#EF4444','#0F172A'].map(c =>
+            '<button type="button" class="nf-email-cor' + (cfg.cor === c ? ' on' : '') + '"' +
+            ' style="background:' + c + '" onclick="nfEmailSet(\'cor\',\'' + c + '\')" title="' + c + '"></button>').join('') +
+        '</div></div>' +
+      '<div class="nf-field"><label>Logo da empresa</label>' +
+        (temLogo
+          ? '<label class="nf-email-check"><input type="checkbox"' + (cfg.mostrarLogo ? ' checked' : '') +
+            ' onchange="nfEmailSet(\'mostrarLogo\', this.checked)"> mostrar no topo</label>'
+          : '<small class="nf-cert-ajuda">Nenhuma logo cadastrada. Sem ela o e-mail usa o nome da empresa.</small>') +
+      '</div>' +
+    '</div>' +
+    '<div class="nf-field"><label>Saudação</label>' +
+      '<input type="text" id="nf-email-saud" value="' + _nfEsc(cfg.saudacao) + '"' +
+      ' placeholder="Olá," oninput="nfEmailSet(\'saudacao\', this.value)"></div>' +
+    '<div class="nf-field"><label>Assinatura <span style="font-weight:500;color:#94A3B8">(opcional)</span></label>' +
+      '<textarea id="nf-email-rod" rows="2" placeholder="Dados bancários, telefone do financeiro, o que for útil ao cliente."' +
+      ' oninput="nfEmailSet(\'rodape\', this.value)">' + _nfEsc(cfg.rodape) + '</textarea></div>' +
+    '<small class="nf-cert-ajuda">Vale para todas as notas. Um cliente específico pode ter mensagem e assunto ' +
+      'próprios na ficha dele, em Cadastro › Clientes.</small>';
+
+  document.getElementById('nf-modal-email-body').innerHTML =
+    '<div class="nf-email-grid">' +
+      '<div class="nf-email-cfg">' +
+        '<div class="nf-email-sec">Remetente</div>' + remetente +
+        '<div class="nf-email-sec">Aparência</div>' + aparencia +
+      '</div>' +
+      '<div class="nf-email-previa">' +
+        '<div class="nf-email-previa-hd">' +
+          '<span>Prévia</span>' +
+          '<small>' + (_NF_EMAIL_PREVIA_NOTA ? 'nota real' : 'exemplo') + '</small>' +
+        '</div>' +
+        '<div class="nf-email-palco"><iframe id="nf-email-frame" title="Prévia do e-mail"></iframe></div>' +
+      '</div>' +
+    '</div>';
+  _nfEmailPintaPrevia();
+}
+try{ window.nfEmailRender = nfEmailRender; }catch(e){}
+
+function nfEmailSet(campo, valor){
+  NF.cfg.email = Object.assign({}, _nfEmailCfg(), { [campo]: valor });
+  nfSave();
+  /* Cor e logo mudam a moldura; texto muda só o conteúdo. Repintar a
+     prévia basta nos dois casos — redesenhar o formulário inteiro faria
+     o cursor saltar do campo enquanto a pessoa digita. */
+  if(campo === 'cor' || campo === 'mostrarLogo') nfEmailRender();
+  else _nfEmailPintaPrevia();
+}
+try{ window.nfEmailSet = nfEmailSet; }catch(e){}
+
+function _nfEmailPintaPrevia(){
+  const f = document.getElementById('nf-email-frame');
+  if(!f) return;
+  const n = _NF_EMAIL_PREVIA_NOTA
+    ? (NF.notas.find(x => x && x.id === _NF_EMAIL_PREVIA_NOTA) || _nfEmailExemplo())
+    : _nfEmailExemplo();
+  try{
+    const m = _nfEmailMontar(n, true);
+    const d = f.contentDocument;
+    d.open(); d.write(m.html); d.close();
+  }catch(e){
+    try{ f.contentDocument.body.innerHTML = '<p style="font:13px sans-serif;color:#B91C1C">Erro na prévia: ' +
+      _nfEsc(e.message) + '</p>'; }catch(_){}
+  }
+}
+
+/* ── prévia antes de enviar, a partir do botão da lista ── */
+let _NF_ENVIO_PENDENTE = null;
+
+async function nfEnviarComPrevia(id){
+  const n = NF.notas.find(x => x && x.id === id);
+  if(!n) return;
+  if(!n.email){
+    if(typeof showToast === 'function') showToast('Esta nota não tem e-mail do tomador', 'warn');
+    return;
+  }
+  _NF_ENVIO_PENDENTE = id;
+  const doCli = _nfCfgEmailDoCliente(n);
+  const m = _nfEmailMontar(n, true);
+  const g = NF.cfg.smtpGuardado;
+
+  document.getElementById('nf-modal-envio-body').innerHTML =
+    '<div class="nf-envio-cab">' +
+      '<div><span class="lbl">Para</span><b>' + _nfEsc(n.email) + '</b></div>' +
+      (doCli.cc ? '<div><span class="lbl">Cópia</span><b>' + _nfEsc(doCli.cc) + '</b></div>' : '') +
+      '<div><span class="lbl">De</span><b>' + _nfEsc(g ? g.de : '— remetente não configurado') + '</b></div>' +
+      '<div><span class="lbl">Assunto</span><b>' + _nfEsc(m.assunto) + '</b></div>' +
+      '<div><span class="lbl">Anexos</span><b>DANFSe-' + _nfEsc(n.numero || id) + '.pdf · NFS-e-' +
+        _nfEsc(n.numero || id) + '.xml</b></div>' +
+    '</div>' +
+    '<div class="nf-email-palco grande"><iframe id="nf-envio-frame" title="Prévia"></iframe></div>' +
+    (g ? '' : '<div class="nf-cert-bloq">Sem remetente configurado o envio não acontece. ' +
+         '<a href="#" onclick="event.preventDefault();nfCloseModal(\'envio\');nfEmailModal()">Configurar agora</a></div>');
+
+  const f = document.getElementById('nf-envio-frame');
+  const d = f.contentDocument; d.open(); d.write(m.html); d.close();
+  const btn = document.getElementById('nf-envio-ok');
+  if(btn) btn.disabled = !g;
+  document.getElementById('nf-modal-envio').classList.add('open');
+}
+try{ window.nfEnviarComPrevia = nfEnviarComPrevia; }catch(e){}
+
+async function nfEnvioConfirmar(){
+  const id = _NF_ENVIO_PENDENTE;
+  if(!id) return;
+  const btn = document.getElementById('nf-envio-ok');
+  if(btn){ btn.disabled = true; btn.textContent = 'Enviando...'; }
+  try{
+    await nfEnviarEmail(id);
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = 'Enviar agora'; }
+    nfCloseModal('envio');
+    try{ nfRender(); }catch(_){}
+  }
+}
+try{ window.nfEnvioConfirmar = nfEnvioConfirmar; }catch(e){}
+
 /* O que o cliente configurou na ficha dele manda neste e-mail. */
 function _nfCfgEmailDoCliente(n){
   try{
@@ -138076,7 +138473,10 @@ function _nfCfgEmailDoCliente(n){
 
 function _nfEmailCorpo(n, modelo){
   const emp = _nfEmpresaAtiva() || {};
-  const quem = String(emp.razaoSocial || emp.nome || 'o prestador').trim();
+  /* O cadastro de empresas guarda a razão social em `razao`; `razaoSocial`
+     é o campo do cadastro de CLIENTES. Ler o nome errado fazia o e-mail
+     sair assinado pelo apelido da empresa, ou por nada. */
+  const quem = String(emp.razao || emp.razaoSocial || emp.nome || 'o prestador').trim();
   const valor = 'R$ ' + _nfFmt(n.valor);
   const link = NF_DANFSE_CONSULTA + (n.chaveAcesso || '');
   const teste = n.mode === 'restrita';
@@ -138161,7 +138561,7 @@ async function nfEnviarEmail(id, silencioso){
 
   try{
     const d = await nfDanfse(id);
-    const msg = _nfEmailCorpo(n, d.modelo);
+    const msg = _nfEmailMontar(n, false);
     const emp = _nfEmpresaAtiva() || {};
     const base = 'NFS-e-' + (n.numero || id);
 
@@ -138180,7 +138580,7 @@ async function nfEnviarEmail(id, silencioso){
           { nome: 'DANFSe-' + (n.numero || id) + '.pdf', tipo:'application/pdf',
             b64: _b64DeBytes(d.pdf()) },
           { nome: base + '.xml', tipo:'application/xml', b64: _b64DeTexto(d.xml) }
-        ]
+        ].concat(msg.temLogo ? [_nfLogoAnexo(msg.logoDataUrl)] : [])
       })
     });
     const j = await r.json().catch(() => ({}));
@@ -138765,8 +139165,19 @@ function nfRenderConfigForm(){
       + '<b>Token:</b> o valor de <code>FK_NFSE_TOKEN</code> que você definiu ao subir o serviço — '
       + 'é ele que impede qualquer um de mandar certificado em seu nome.'
       + '</div>' +
-    /* ENVIO DA NOTA POR E-MAIL — configurado aqui, guardado no cofre. */
-    _nfSmtpHtml(cfg) +
+    /* O E-MAIL SAIU DAQUI.
+
+       Esta tela já carregava certificado, séries, serviço, token, regime,
+       inscrição, CNAE e município. Configuração demais numa tela só vira
+       rolagem, e o que fica embaixo deixa de ser visto. Fica o ponteiro. */
+    '<div class="nf-field"><label>Envio das notas por e-mail</label>' +
+      '<div class="nf-cfg-herda">' +
+        (cfg.smtpGuardado
+          ? 'Enviando de <b>' + _nfEsc(cfg.smtpGuardado.de) + '</b>. '
+          : '<b>Desligado</b> — as notas são emitidas mas não chegam ao cliente. ') +
+        '<a href="#" onclick="event.preventDefault();nfCloseModal(\'config\');nfEmailModal()">' +
+        'Remetente, aparência e prévia →</a></div>' +
+    '</div>' +
     /* REGIME TRIBUTÁRIO AQUI, PORQUE É AQUI QUE SE CONFIGURA PARA EMITIR.
 
        O dado continua morando na empresa — o módulo Impostos usa o mesmo
@@ -165557,6 +165968,35 @@ try {
       <button onclick="nfCloseModal('view')" aria-label="Fechar">×</button>
     </div>
     <div class="nf-modal-body" id="nf-modal-view-body"></div>
+  </div>
+</div>
+
+<!-- Modal E-MAIL DAS NOTAS -->
+<div class="nf-modal-overlay" id="nf-modal-email" onclick="if(event.target===this)nfCloseModal('email')">
+  <div class="nf-modal nf-modal-nota">
+    <div class="nf-modal-hd">
+      <h3>E-mail das notas</h3>
+      <button onclick="nfCloseModal('email')" aria-label="Fechar">×</button>
+    </div>
+    <div class="nf-modal-body" id="nf-modal-email-body"></div>
+    <div class="nf-modal-foot">
+      <button class="btn btn-p" onclick="nfCloseModal('email')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal PRÉVIA DO ENVIO -->
+<div class="nf-modal-overlay" id="nf-modal-envio" onclick="if(event.target===this)nfCloseModal('envio')">
+  <div class="nf-modal">
+    <div class="nf-modal-hd">
+      <h3>Enviar a nota</h3>
+      <button onclick="nfCloseModal('envio')" aria-label="Fechar">×</button>
+    </div>
+    <div class="nf-modal-body" id="nf-modal-envio-body"></div>
+    <div class="nf-modal-foot">
+      <button class="btn btn-g" onclick="nfCloseModal('envio')">Cancelar</button>
+      <button class="btn btn-p" id="nf-envio-ok" onclick="nfEnvioConfirmar()">Enviar agora</button>
+    </div>
   </div>
 </div>
 
