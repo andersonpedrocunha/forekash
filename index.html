@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794863418"/>
+  <meta name="fk-build" content="forekash-v1794865219"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -37679,10 +37679,38 @@ async function lookupCNPJ(cid, opts){
     };
     c.endereco = Object.assign({}, c.endereco || {});
     for(const k in endRF) if(endRF[k] && !c.endereco[k]) c.endereco[k] = endRF[k];
+    /* O SIMPLES VEM NA MESMA RESPOSTA — E DECIDE A RETENÇÃO.
+
+       Tomador optante do Simples não retém PIS/COFINS/CSLL/IRRF. Saber disso
+       é obrigação de quem emite, mas ninguém decora quem é optante: a
+       informação está na Receita, e esta consulta já a trazia junto com o
+       endereço — e jogava fora.
+
+       Só marca o que está em branco. Escolha feita à mão não se sobrescreve
+       por consulta, e a Receita responde `null` quando não sabe — nesse caso
+       nada muda. */
+    let _simplesAchado = false;
+    try{
+      /* A Receita responde de duas formas conforme a origem do dado: um
+         booleano, ou a data de opção. `null` é "não sei" e não vale como
+         "sim" — por isso o teste é `=== true`, e a data só conta quando não
+         há data de exclusão: quem saiu do Simples volta a reter. */
+      const optante = (dados.opcao_pelo_simples === true)
+        || (dados.opcao_pelo_mei === true)
+        || (!!dados.data_opcao_pelo_simples && !dados.data_exclusao_do_simples)
+        || (!!dados.data_opcao_pelo_mei && !dados.data_exclusao_do_mei);
+      if(optante && !String(c.endereco.retFed || '').trim()){
+        c.endereco.retFed = 'nao';
+        c.endereco.retFonte = 'receita';
+        _simplesAchado = true;
+      }
+    }catch(_){}
     _cliGuardaSlot(c);
     _cnpjLookupState[cid] = 'ok';
     receitaSave();
     if(clidetCtx && clidetCtx.cid === cid) renderClidet();
+    if(_simplesAchado && typeof toast === 'function')
+      toast('Optante do Simples na Receita — marcado como "não retém" na nota');
     // Limpa o estado "ok" após 2s (deixa o ícone verde piscar)
     setTimeout(() => {
       if(_cnpjLookupState[cid] === 'ok'){
@@ -37879,7 +37907,7 @@ function setClienteEndereco(cid, campo, val){
               'emailCc','emailAssunto','emailMsg',
               /* Retenção: é fato do CLIENTE, não do serviço. Quem retém é
                  quem paga, e varia por natureza jurídica e por município. */
-              'retFed','retPis','retCofins','retCsll','retIrrf','retInss','issRetido'];
+              'retFed','retPis','retCofins','retCsll','retIrrf','retInss','issRetido','retFonte'];
   if(ok.indexOf(campo) === -1) return;
   c.endereco = Object.assign({}, c.endereco || {});
   c.endereco[campo] = (val == null ? '' : String(val).trim());
@@ -38062,8 +38090,11 @@ function _clidetRetencaoHtml(c, tipoPessoa, esc){
           </label>
         </div>
       </div>
-      <div class="clidet-ciclo-hint">${modo === 'propria'
+      <div class="clidet-ciclo-hint">${
+        modo === 'propria'
         ? 'Estes percentuais substituem os do serviço nas notas deste cliente. Peça os números ao contador — órgão público segue a IN RFB 1234, que varia por tipo de serviço.'
+        : (modo === 'nao' && String(e.retFonte || '') === 'receita')
+        ? 'Marcado sozinho: a consulta do CNPJ voltou com optante do Simples. Se mudar de regime, troque aqui.'
         : 'A alíquota do ISS não entra aqui nem em lugar nenhum: quem calcula é o município, pelo código de tributação do serviço. O que muda por cliente é quem recolhe.'}</div>
     </div>`;
 }
