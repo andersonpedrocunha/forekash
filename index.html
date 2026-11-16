@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794842223"/>
+  <meta name="fk-build" content="forekash-v1794842854"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1202,6 +1202,25 @@
     .nf-email-cor.on{border-color:#0F172A;box-shadow:0 0 0 2px #fff inset}
     .nf-email-check{display:flex;align-items:center;gap:7px;font-size:.82rem;color:#475569;padding-top:9px;cursor:pointer}
     .nf-email-check input{width:auto;margin:0}
+    .nf-smtp-avancado{margin:4px 0 2px;border-top:1px solid #F1F5F9;padding-top:10px}
+    .nf-smtp-avancado summary{cursor:pointer;font-size:.74rem;color:#64748B;font-weight:600;
+                              list-style:none;padding:3px 0;user-select:none}
+    .nf-smtp-avancado summary::-webkit-details-marker{display:none}
+    .nf-smtp-avancado summary::before{content:'▸ ';color:#94A3B8}
+    .nf-smtp-avancado[open] summary::before{content:'▾ '}
+    .nf-smtp-avancado summary:hover{color:#0F172A}
+    .nf-smtp-avancado > .nf-field-row:first-of-type{margin-top:10px}
+    /* Máscara densa: os pontinhos padrão são finos demais para conferir
+       uma senha colada. Monoespaçada e espaçada, cada caractere conta. */
+    .nf-senha-box{position:relative;display:flex;align-items:center}
+    .nf-senha-box input.nf-senha{flex:1;padding-right:40px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+                                 letter-spacing:.22em;font-size:.95rem}
+    .nf-senha-box input.nf-senha[type=password]{-webkit-text-security:square;font-weight:700}
+    .nf-senha-olho{position:absolute;right:7px;width:28px;height:28px;display:flex;align-items:center;
+                   justify-content:center;border:0;background:transparent;color:#94A3B8;cursor:pointer;
+                   border-radius:6px;padding:0}
+    .nf-senha-olho:hover{background:#F1F5F9;color:#0F172A}
+    .nf-senha-olho.on{color:#0EA5E9}
     /* Cabeçalho da prévia de envio: quem recebe, o que vai junto. */
     .nf-envio-cab{display:grid;gap:7px;margin-bottom:16px;padding:14px 16px;background:#F8FAFC;
                   border:1px solid #E2E8F0;border-radius:10px;font-size:.82rem}
@@ -138317,18 +138336,46 @@ function nfEmailRender(){
         ? '<div class="nf-cert-ok"><b>' + _nfEsc(g.de) + '</b><span class="nf-cert-ok">autenticado</span>' +
           '<small>' + _nfEsc(g.host) + ':' + _nfEsc(g.porta) + ' · guardado cifrado no serviço</small></div>'
         : '<div class="nf-cert-sem">Nenhum remetente configurado — as notas são emitidas, mas não chegam ao cliente.</div>') +
-      '<div class="nf-field-row">' +
-        campo('Servidor SMTP', 'nf-smtp-host', (g && g.host) || (sug && sug.host), 'smtp.seuprovedor.com.br') +
-        campo('Porta', 'nf-smtp-porta', (g && g.porta) || (sug && sug.porta) || 587, '587') +
+      /* O E-MAIL VEM PRIMEIRO, e o resto se descobre a partir dele.
+         Pedir "servidor SMTP" antes de perguntar o endereço é pedir que a
+         pessoa saiba a resposta antes de ter dado a pergunta. */
+      '<div class="nf-field"><label>Seu e-mail <span style="font-weight:500;color:#94A3B8">(o que vai enviar as notas)</span></label>' +
+        '<input type="email" id="nf-smtp-user" value="' + _nfEsc((g && g.user) || '') + '"' +
+        ' placeholder="financeiro@suaempresa.com.br" autocomplete="username"' +
+        ' onblur="nfSmtpAutoPreencher()" onchange="nfSmtpAutoPreencher()"></div>' +
+      '<div class="nf-cert-ajuda" id="nf-smtp-dica">' +
+        (g ? _nfEsc(g.host) + ' · porta ' + _nfEsc(g.porta)
+           : 'Digite o e-mail e eu procuro o servidor de saída do seu provedor.') + '</div>' +
+      /* A SENHA DE APP É COLADA, NÃO DIGITADA — e vem com espaços.
+
+         Os pontinhos finos do campo padrão não deixam ver se a colagem
+         entrou inteira, e senha de app do Google tem 16 caracteres em
+         quatro blocos. Daí a máscara mais densa e o olho para conferir
+         antes de mandar: é mais seguro poder olhar uma vez do que
+         errar três e culpar o servidor. */
+      '<div class="nf-field"><label>Senha</label>' +
+        '<div class="nf-senha-box">' +
+          '<input type="password" id="nf-smtp-senha" value="" class="nf-senha"' +
+          ' placeholder="' + (g ? 'guardada — preencha só para trocar' : 'a senha de app do seu provedor') + '"' +
+          ' autocomplete="new-password" oninput="_nfSenhaConta()">' +
+          '<button type="button" class="nf-senha-olho" onclick="_nfSenhaVer(this)" title="Mostrar a senha" aria-label="Mostrar a senha">' +
+            '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>' +
+          '</button>' +
+        '</div>' +
+        '<small class="nf-cert-ajuda" id="nf-senha-conta"></small>' +
       '</div>' +
-      '<div class="nf-field-row">' +
-        campo('Usuário', 'nf-smtp-user', g && g.user, 'financeiro@suaempresa.com.br') +
-        campo('Senha', 'nf-smtp-senha', '', g ? 'guardada — preencha só para trocar' : 'senha de app ou do e-mail', 'password') +
-      '</div>' +
-      '<div class="nf-field-row">' +
-        campo('Remetente', 'nf-smtp-de', g && g.de, 'em branco usa o usuário') +
-        campo('Nome exibido', 'nf-smtp-nome', (g && g.nome) || '', 'o nome da sua empresa') +
-      '</div>' +
+      '<details class="nf-smtp-avancado"' + ((g || !temServico) ? '' : '') + '>' +
+        '<summary>Servidor, porta e remetente</summary>' +
+        '<div class="nf-field-row">' +
+          campo('Servidor SMTP', 'nf-smtp-host', (g && g.host) || (sug && sug.host), 'preenchido pelo e-mail') +
+          campo('Porta', 'nf-smtp-porta', (g && g.porta) || (sug && sug.porta) || 587, '587') +
+        '</div>' +
+        '<div class="nf-field-row">' +
+          campo('Remetente', 'nf-smtp-de', g && g.de, 'em branco usa o seu e-mail') +
+          campo('Nome exibido', 'nf-smtp-nome', (g && g.nome) || '', 'o nome da sua empresa') +
+        '</div>' +
+      '</details>' +
       '<div class="nf-cert-up">' +
         '<button type="button" id="nf-smtp-btn" onclick="nfSmtpGuardar()">' +
           (g ? 'Substituir e testar' : 'Guardar e testar') + '</button>' +
@@ -138336,8 +138383,9 @@ function nfEmailRender(){
              '<button type="button" onclick="nfSmtpRemover()">Remover</button>' : '') +
       '</div>' +
       '<small class="nf-cert-ajuda">A senha vai direto para o serviço e volta cifrada, no mesmo cofre do ' +
-        'certificado — não fica no navegador nem em arquivo.' +
-        (sug && sug.nota ? '<br><b>' + _nfEsc(sug.nota) + '</b>' : '') + '</small>';
+        'certificado — não fica no navegador nem em arquivo. ' +
+        '<b>Quase todo provedor exige uma senha de aplicativo</b>, criada no painel dele, ' +
+        'e não a senha com que você entra no e-mail.</small>';
 
   const temLogo = !!_nfLogoDataUrl();
   const aparencia =
@@ -138923,20 +138971,103 @@ function _nfOrgId(){
 
 /* Sugestões por provedor: errar a porta dá timeout sem mensagem útil,
    e é o engano mais comum de quem configura SMTP pela primeira vez. */
-const NF_SMTP_PROVEDORES = {
-  'gmail.com':      { host:'smtp.gmail.com',        porta:587, nota:'Use uma SENHA DE APP do Google, não a senha da conta.' },
-  'outlook.com':    { host:'smtp-mail.outlook.com', porta:587, nota:'' },
-  'office365.com':  { host:'smtp.office365.com',    porta:587, nota:'' },
-  'zoho.com':       { host:'smtp.zoho.com',         porta:465, nota:'' },
-};
+/* QUEM SABE O SERVIDOR DE SAÍDA É O DNS, NÃO O USUÁRIO.
+
+   "Servidor SMTP" e "porta" são a parte que trava quem nunca configurou
+   e-mail na mão — e errar a porta dá timeout sem mensagem útil. Mas o
+   domínio do e-mail já responde isso: o registro MX diz qual provedor
+   entrega as mensagens daquele domínio, e daí sai o host e a porta.
+
+   Então o usuário digita o e-mail e o resto se preenche. Vale para
+   qualquer empresa, não só para quem usa Google.
+
+   Só o DOMÍNIO vai para a consulta — nunca o endereço completo. */
+const NF_SMTP_PROVEDORES = [
+  { re:/google|googlemail/i,     nome:'Google Workspace',  host:'smtp.gmail.com',           porta:587,
+    nota:'Use uma SENHA DE APP (myaccount.google.com/apppasswords), não a senha da conta. Exige verificação em duas etapas.' },
+  { re:/outlook|office365|microsoft/i, nome:'Microsoft 365', host:'smtp.office365.com',     porta:587,
+    nota:'Se a conta tiver MFA, crie uma senha de aplicativo no portal da Microsoft.' },
+  { re:/zoho/i,                  nome:'Zoho Mail',         host:'smtp.zoho.com',            porta:465,
+    nota:'Gere uma senha de aplicativo no painel do Zoho.' },
+  { re:/titan\.email|hostinger/i, nome:'Titan / Hostinger', host:'smtp.titan.email',        porta:465, nota:'' },
+  { re:/secureserver/i,          nome:'GoDaddy',           host:'smtpout.secureserver.net', porta:465, nota:'' },
+  { re:/locaweb/i,               nome:'Locaweb',           host:'email-ssl.com.br',         porta:465, nota:'' },
+  { re:/kinghost/i,              nome:'KingHost',          host:'smtp.kinghost.net',        porta:587, nota:'' },
+  { re:/uol/i,                   nome:'UOL Host',          host:'smtp.uol.com.br',          porta:587, nota:'' },
+  { re:/zimbra|umbler/i,         nome:'Umbler',            host:'smtp.umbler.com',          porta:587, nota:'' },
+];
+function _nfProvedorPorMx(mx){
+  return NF_SMTP_PROVEDORES.find(p => p.re.test(mx)) || null;
+}
+/* Palpite sem rede, pelo próprio domínio — serve de ponto de partida
+   enquanto a consulta não volta, ou quando ela falha. */
 function _nfSmtpSugere(email){
   const dom = String(email || '').split('@')[1] || '';
-  if(/gmail|googlemail/i.test(dom)) return NF_SMTP_PROVEDORES['gmail.com'];
-  if(/outlook|hotmail|live/i.test(dom)) return NF_SMTP_PROVEDORES['outlook.com'];
-  if(/office365/i.test(dom)) return NF_SMTP_PROVEDORES['office365.com'];
-  if(/zoho/i.test(dom)) return NF_SMTP_PROVEDORES['zoho.com'];
-  return null;
+  if(!dom) return null;
+  return _nfProvedorPorMx(dom);
 }
+
+/* Consulta o MX por DNS-over-HTTPS e devolve o provedor reconhecido. */
+const _NF_MX_CACHE = {};
+async function _nfSmtpDescobrir(email){
+  const dom = String(email || '').split('@')[1] || '';
+  if(!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(dom)) return null;
+  if(_NF_MX_CACHE[dom] !== undefined) return _NF_MX_CACHE[dom];
+  try{
+    const r = await fetch('https://cloudflare-dns.com/dns-query?name=' +
+      encodeURIComponent(dom) + '&type=MX', { headers:{ accept:'application/dns-json' } });
+    const j = await r.json();
+    const mx = (j.Answer || []).map(a => String(a.data || '')).join(' ');
+    const p = _nfProvedorPorMx(mx);
+    /* Sem provedor conhecido, o palpite comum é smtp.<domínio> — acerta
+       em boa parte dos provedores menores e dá um ponto de partida. */
+    _NF_MX_CACHE[dom] = p || (mx ? { nome:'', host:'smtp.' + dom, porta:587,
+      nota:'Não reconheci o provedor. Confirme o servidor de saída com quem hospeda seu e-mail.' } : null);
+  }catch(_){ _NF_MX_CACHE[dom] = null; }
+  return _NF_MX_CACHE[dom];
+}
+
+/* Chamado quando o usuário termina de digitar o e-mail. Preenche só o
+   que está vazio: o que a pessoa escreveu manda. */
+/* Conta os caracteres — é o que diz se a colagem veio inteira. */
+function _nfSenhaConta(){
+  const i = document.getElementById('nf-smtp-senha');
+  const o = document.getElementById('nf-senha-conta');
+  if(!i || !o) return;
+  const n = (i.value || '').replace(/\s/g, '').length;
+  o.textContent = n ? n + ' caracteres' + (n === 16 ? ' · tamanho de senha de app do Google' : '') : '';
+}
+try{ window._nfSenhaConta = _nfSenhaConta; }catch(e){}
+
+function _nfSenhaVer(btn){
+  const i = document.getElementById('nf-smtp-senha');
+  if(!i) return;
+  const mostrando = i.type === 'text';
+  i.type = mostrando ? 'password' : 'text';
+  btn.classList.toggle('on', !mostrando);
+  btn.title = mostrando ? 'Mostrar a senha' : 'Esconder a senha';
+}
+try{ window._nfSenhaVer = _nfSenhaVer; }catch(e){}
+
+async function nfSmtpAutoPreencher(){
+  const user = ((document.getElementById('nf-smtp-user') || {}).value || '').trim();
+  const dica = document.getElementById('nf-smtp-dica');
+  if(!user.includes('@')) return;
+  if(dica) dica.textContent = 'Procurando o servidor de ' + user.split('@')[1] + '…';
+  const p = await _nfSmtpDescobrir(user);
+  const host = document.getElementById('nf-smtp-host');
+  const porta = document.getElementById('nf-smtp-porta');
+  if(p){
+    if(host && !host.value.trim()) host.value = p.host;
+    if(porta && (!porta.value.trim() || porta.value === '587')) porta.value = p.porta;
+    if(dica) dica.innerHTML = (p.nome ? '<b>' + _nfEsc(p.nome) + '</b> · ' : '') +
+      'servidor <b>' + _nfEsc(p.host) + '</b>, porta <b>' + p.porta + '</b>.' +
+      (p.nota ? ' ' + _nfEsc(p.nota) : '');
+  } else if(dica){
+    dica.textContent = 'Não consegui descobrir o servidor — preencha com os dados de quem hospeda seu e-mail.';
+  }
+}
+try{ window.nfSmtpAutoPreencher = nfSmtpAutoPreencher; }catch(e){}
 
 /* Sobe a configuração, o serviço autentica e devolve o pacote cifrado. */
 async function nfSmtpGuardar(){
