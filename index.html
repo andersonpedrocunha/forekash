@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794868462"/>
+  <meta name="fk-build" content="forekash-v1794868990"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -90244,6 +90244,56 @@ function _extEnsureBancoFornecedor(bancoId){
 try { window._extEnsureBancoFornecedor = _extEnsureBancoFornecedor; } catch(e){}
 
 // Resolve o fornecedorId atual de um item do extrato (qualquer fonte)
+/* ══ ACHAR O FORNECEDOR PELO NOME, SEM EXIGIR O NOME EXATO ═══════════════
+
+   O lançamento guarda o texto que veio do banco ou do OFX — razão social
+   completa, com LTDA, com acento, às vezes em caixa alta. O cadastro guarda
+   o apelido. Comparando string com string, 23 dos 39 fornecedores que de
+   fato EXISTEM no cadastro eram anunciados como "não está cadastrado" na
+   hora de baixar o pagamento. Medido na base: 59% de falso negativo.
+
+   A escada vai do mais seguro ao menos: nome exato, depois os outros nomes
+   do mesmo registro (razão social, nome legal), depois a forma normalizada
+   (sem acento, sem pontuação, sem LTDA/S.A./ME/EPP/EIRELI) e, por último, a
+   primeira palavra — esta SÓ quando um único cadastro responde por ela.
+   Duas empresas que começam igual não são a mesma, e vincular pagamento ao
+   fornecedor errado é pior que perguntar. */
+function _extFornNorm(t){
+  return String(t || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/\b(LTDA|LTD|S\/?A|SA|ME|EPP|EIRELI|MEI|INC|LLC|CO)\b\.?/g, ' ')
+    .replace(/[^A-Z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function _extFornPorNome(nome){
+  try{
+    const alvo = String(nome || '').trim();
+    if(!alvo) return null;
+    if(typeof pessoas === 'undefined' || !pessoas || !Array.isArray(pessoas.registry)) return null;
+    const reg = pessoas.registry.filter(Boolean);
+    const nomesDe = r => [r.nome, r.razaoSocial, r.nomeLegal, r.nomeCompleto]
+      .filter(x => String(x || '').trim());
+
+    const baixo = alvo.toLowerCase();
+    let achado = reg.find(r => nomesDe(r).some(n => String(n).trim().toLowerCase() === baixo));
+    if(achado) return achado;
+
+    const norm = _extFornNorm(alvo);
+    if(!norm) return null;
+    achado = reg.find(r => nomesDe(r).some(n => _extFornNorm(n) === norm));
+    if(achado) return achado;
+
+    /* Primeira palavra, e só se for única no cadastro. */
+    const chave = norm.split(' ')[0];
+    if(!chave || chave.length < 3) return null;
+    const candidatos = reg.filter(r => nomesDe(r).some(n => _extFornNorm(n).split(' ')[0] === chave));
+    return candidatos.length === 1 ? candidatos[0] : null;
+  }catch(_){ return null; }
+}
+try{ window._extFornPorNome = _extFornPorNome; }catch(_){}
+
 function _extResolveFornId(it){
   if(!it) return '';
   // Forma direta: o próprio item já tem fornecedorId (preenchido pelo _extCollect)
@@ -90590,9 +90640,8 @@ function extBaixaOpen(id){
     if(fr) chipFornNome = fr.nome || '';
   }
   // Fallback: se não tem fornecedorId, tenta resolver pelo NOME (contraparte) no registry
-  if(!fornIdAtual && it.contraparte && typeof pessoas !== 'undefined' && pessoas && Array.isArray(pessoas.registry)){
-    const nm = it.contraparte.trim().toLowerCase();
-    const fr = pessoas.registry.find(r => (r.nome||'').trim().toLowerCase() === nm);
+  if(!fornIdAtual && it.contraparte){
+    const fr = _extFornPorNome(it.contraparte);
     if(fr){ fornIdAtual = fr.id; chipFornNome = fr.nome || ''; }
   }
   // Fallback final: chipNome usa contraparte se não tiver fornecedor cadastrado
@@ -90652,7 +90701,12 @@ function extBaixaOpen(id){
           : '<div class="ext-baixa-row" style="grid-template-columns:1fr;margin-top:12px">'
             + '<div class="field">'
               + '<label>' + (isEntrada ? 'Cliente' : 'Fornecedor') + ' <span style="color:#94A3B8;font-weight:500;text-transform:none;letter-spacing:0">'
-                + (it.contraparte ? '("' + _extEsc(it.contraparte) + '" não está cadastrado — adicione abaixo)' : '(busque por nome ou CNPJ — opcional)')
+                /* "não está cadastrado" soava como falha de busca. O fato é
+                 outro: o nome no lançamento é texto solto, e nenhum cadastro
+                 responde por ele. Dizer isso evita a procura inútil. */
+              + (it.contraparte
+                  ? '(nenhum cadastro com o nome "' + _extEsc(it.contraparte) + '" — escolha ou cadastre, se quiser)'
+                  : '(busque por nome ou CNPJ — opcional)')
               + '</span></label>'
               + _dkbFornecedorSelectHtml('')
             + '</div>'
