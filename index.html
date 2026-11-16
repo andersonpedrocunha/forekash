@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794843436"/>
+  <meta name="fk-build" content="forekash-v1794843882"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -139091,13 +139091,29 @@ function _nfSenhaConta(){
 }
 try{ window._nfSenhaConta = _nfSenhaConta; }catch(e){}
 
+/* O olho se fecha sozinho depois de alguns segundos.
+
+   Ele existe para conferir uma colagem, não para deixar a senha à
+   mostra — e senha à mostra acaba numa captura de tela, numa chamada
+   compartilhada, ou em quem passa atrás. Conferir leva segundos;
+   esquecer aberto dura o resto da sessão. */
+let _NF_SENHA_TIMER = null;
 function _nfSenhaVer(btn){
   const i = document.getElementById('nf-smtp-senha');
   if(!i) return;
+  clearTimeout(_NF_SENHA_TIMER);
   const mostrando = i.type === 'text';
   i.type = mostrando ? 'password' : 'text';
   btn.classList.toggle('on', !mostrando);
-  btn.title = mostrando ? 'Mostrar a senha' : 'Esconder a senha';
+  btn.title = mostrando ? 'Mostrar a senha' : 'Esconder em 5s';
+  if(!mostrando){
+    _NF_SENHA_TIMER = setTimeout(() => {
+      const c = document.getElementById('nf-smtp-senha');
+      if(c) c.type = 'password';
+      btn.classList.remove('on');
+      btn.title = 'Mostrar a senha';
+    }, 5000);
+  }
 }
 try{ window._nfSenhaVer = _nfSenhaVer; }catch(e){}
 
