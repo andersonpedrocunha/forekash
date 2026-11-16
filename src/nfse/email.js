@@ -42,13 +42,16 @@ function pegaTransporte(){
 }
 
 /* `anexos` chega como [{nome, tipo, b64}]. */
-async function enviar({ para, responderPara, assunto, texto, html, anexos }) {
+async function enviar({ para, cc, responderPara, assunto, texto, html, anexos }) {
   if(!configurado()) throw new Error('remetente não configurado no serviço (FK_SMTP_*)');
   if(!para) throw new Error('destinatário vazio');
 
   const info = await pegaTransporte().sendMail({
     from: CFG.nome ? { name: CFG.nome, address: CFG.de } : CFG.de,
     to: para,
+    /* Cópia configurada por cliente: muitos querem a nota também no
+       contas a pagar, e repetir isso a cada envio é onde se esquece. */
+    cc: cc || undefined,
     /* Quem recebe responde para quem emitiu, não para o serviço. */
     replyTo: responderPara || undefined,
     subject: assunto || 'Nota Fiscal de Serviços Eletrônica',

@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794595772"/>
+  <meta name="fk-build" content="forekash-v1794841012"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1042,6 +1042,7 @@
                     padding:3px 8px;border-radius:999px}
     .clidet-end-sel.ok{background:#D1FAE5;color:#047857}
     .clidet-end-sel.falta{background:#FEF3C7;color:#92400E}
+    .clidet-field textarea.clidet-input{resize:vertical;min-height:62px;font-family:inherit;line-height:1.5}
     .nf-pend-nota{margin-top:8px;font-size:.73rem;color:#92400E;line-height:1.5;opacity:.9}
     .nf-pend button{margin-top:9px;padding:7px 14px;border-radius:7px;border:1px solid #FDE68A;
       background:#fff;color:#92400E;font-family:inherit;font-size:.74rem;font-weight:600;cursor:pointer}
@@ -1182,6 +1183,8 @@
     .nf-row-actions button{padding:4px 8px;background:#fff;border:1px solid #E2E8F0;border-radius:5px;cursor:pointer;font-size:.66rem;font-weight:600;color:#475569;font-family:inherit}
     .nf-row-actions button:hover{background:#F1F5F9;color:#0F172A}
     .nf-row-actions button.danger:hover{background:#FEE2E2;color:#7F1D1D;border-color:#FCA5A5}
+    .nf-row-actions button[disabled]{opacity:.4;cursor:not-allowed}
+    .nf-row-actions button[disabled]:hover{background:#fff;color:#475569}
 
     /* Empty state */
     .nf-empty{padding:50px 20px;text-align:center;color:#94A3B8;display:none}
@@ -37760,7 +37763,8 @@ function setClienteEndereco(cid, campo, val){
   const c = (receita.clientes || []).find(x => x.id === cid);
   if(!c) return;
   const ok = ['logradouro','numero','complemento','bairro','cidade','uf','cep','ibge',
-              'pais','estado','codPostal','email','telefone'];
+              'pais','estado','codPostal','email','telefone',
+              'emailCc','emailAssunto','emailMsg'];
   if(ok.indexOf(campo) === -1) return;
   c.endereco = Object.assign({}, c.endereco || {});
   c.endereco[campo] = (val == null ? '' : String(val).trim());
@@ -37867,6 +37871,22 @@ function _clidetEnderecoHtml(c, tipoPessoa, esc){
       </div>
       <div class="clidet-ciclo-hint">A NFS-e exige endereço do tomador — inclusive quando é pessoa física.
         Sem ele a Receita recusa a emissão.</div>
+    </div>
+
+    <div class="clidet-section">
+      <div class="clidet-sec-title">Envio da nota por e-mail</div>
+      <div class="clidet-grid">
+        ${campo('Com cópia (CC)','emailCc','financeiro@cliente.com.br, outro@cliente.com.br','full')}
+        ${campo('Assunto','emailAssunto','em branco usa o padrao: Empresa - NFS-e no 00','full')}
+        <div class="clidet-field full">
+          <label>Mensagem</label>
+          <textarea class="clidet-input" rows="3"
+                    placeholder="Em branco usa o texto padrão. O que escrever aqui substitui o corpo da mensagem."
+                    onblur="setClienteEndereco(${c.id},'emailMsg',this.value)">${esc(e.emailMsg || '')}</textarea>
+        </div>
+      </div>
+      <div class="clidet-ciclo-hint">Vale só para este cliente. Alguns pedem a nota num endereço específico,
+        ou com o número do contrato no assunto — é aqui que isso fica, em vez de ser digitado toda vez.</div>
     </div>`;
 }
 
@@ -135417,8 +135437,21 @@ function nfRenderList(){
       '<td><small style="color:#64748B">' + _nfCompetMesAno(n.competencia || n.dataEmissao) + '</small></td>' +
       '<td><small style="color:#64748B">' + (n.dataEmissao ? _nfData(n.dataEmissao) : '—') + '</small></td>' +
       '<td>' + vincBadge + '</td>' +
+      /* E-mail na própria linha: mandar a nota é a ação mais comum
+         depois de emitir, e obrigar a abrir o modal para isso é um passo
+         a mais em algo que se repete toda vez.
+
+         Não aparece em nota cancelada — mandar ao cliente um documento
+         que não vale mais é pior que não mandar nada. */
       '<td><div class="nf-row-actions">' +
         '<button onclick="event.stopPropagation();nfOpenView(' + n.id + ')" title="Visualizar" class="fkico fkico-search"></button>' +
+        (n.status !== 'canc' && n.nfseXml
+          ? '<button onclick="event.stopPropagation();nfEnviarEmail(' + n.id + ').then(function(){nfRender()})" title="'
+            + (n.emailEnviadoEm ? 'Reenviar para ' + _nfEsc(n.emailPara || n.email || '') + ' · enviado em ' + _nfData(n.emailEnviadoEm)
+               : n.email ? 'Enviar para ' + _nfEsc(n.email) : 'Sem e-mail do tomador')
+            + '"' + (n.email ? '' : ' disabled') + '>'
+            + (n.emailEnviadoEm ? '✉ reenviar' : '✉ enviar') + '</button>'
+          : '') +
         (n.status === 'aut' ? '<button class="danger" onclick="event.stopPropagation();nfCancel(' + n.id + ')" title="Cancelar">✕</button>' : '') +
       '</div></td>';
     body.appendChild(tr);
@@ -138030,6 +138063,17 @@ function _b64DeBytes(bytes){
 }
 const _b64DeTexto = (t) => _b64DeBytes(new TextEncoder().encode(t));
 
+/* O que o cliente configurou na ficha dele manda neste e-mail. */
+function _nfCfgEmailDoCliente(n){
+  try{
+    const c = n.clienteId ? _nfClientes().find(x => x && x.id === n.clienteId) : null;
+    const e = (c && c.endereco) || {};
+    return { cc: String(e.emailCc || '').trim(),
+             assunto: String(e.emailAssunto || '').trim(),
+             msg: String(e.emailMsg || '').trim() };
+  }catch(_){ return { cc:'', assunto:'', msg:'' }; }
+}
+
 function _nfEmailCorpo(n, modelo){
   const emp = _nfEmpresaAtiva() || {};
   const quem = String(emp.razaoSocial || emp.nome || 'o prestador').trim();
@@ -138074,8 +138118,33 @@ function _nfEmailCorpo(n, modelo){
         'Chave de acesso: ' + esc(n.chaveAcesso || '—') + '</p>' +
     '</div>';
 
+  /* A configuração do cliente substitui o padrão onde existe.
+
+     Assunto e corpo são o que alguns clientes exigem num formato próprio
+     — número de contrato, centro de custo, endereço do contas a pagar.
+     Sem isso, a nota chega e fica parada no inbox errado. */
+  const cfg = _nfCfgEmailDoCliente(n);
+  if(cfg.msg){
+    const esc2 = (t) => _nfEsc(t).replace(/\n/g, '<br>');
+    return {
+      assunto: cfg.assunto || (quem + ' · NFS-e nº ' + (n.numero || '—') + (teste ? ' (teste)' : '')),
+      texto: cfg.msg + '\n\n' +
+             'Em anexo: o DANFSe em PDF e o XML da NFS-e.\n' +
+             'Conferir a autenticidade: ' + link + '\n',
+      html: '<div style="font:14px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;color:#0F172A;max-width:560px">' +
+            (teste ? '<p style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:10px 12px;' +
+                     'color:#92400E;font-weight:700;margin:0 0 16px">Nota emitida em ambiente de teste — sem validade jurídica.</p>' : '') +
+            '<p style="margin:0 0 18px">' + esc2(cfg.msg) + '</p>' +
+            '<p style="margin:0 0 18px">Em anexo o <b>DANFSe em PDF</b> e o <b>XML da NFS-e</b>.</p>' +
+            '<p style="margin:0 0 18px"><a href="' + esc(link) + '" style="color:#0369A1">' +
+              'Conferir a autenticidade no portal nacional</a></p>' +
+            '<p style="margin:24px 0 0;font-size:11px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:12px">' +
+              'Chave de acesso: ' + esc(n.chaveAcesso || '—') + '</p>' +
+            '</div>'
+    };
+  }
   return {
-    assunto: quem + ' · NFS-e nº ' + (n.numero || '—') + (teste ? ' (teste)' : ''),
+    assunto: cfg.assunto || (quem + ' · NFS-e nº ' + (n.numero || '—') + (teste ? ' (teste)' : '')),
     texto: texto, html: html
   };
 }
@@ -138101,6 +138170,7 @@ async function nfEnviarEmail(id, silencioso){
       headers: { 'Content-Type':'application/json', 'x-fk-token': NF.cfg.servicoToken || '' },
       body: JSON.stringify({
         para: para,
+        cc: _nfCfgEmailDoCliente(n).cc || undefined,
         responderPara: String(emp.emailNf || emp.email || '').trim() || undefined,
         assunto: msg.assunto, texto: msg.texto, html: msg.html,
         anexos: [
