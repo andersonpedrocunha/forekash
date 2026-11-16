@@ -81,11 +81,18 @@ async function enviar({ para, cc, responderPara, assunto, texto, html, anexos, s
     subject: assunto || 'Nota Fiscal de Serviços Eletrônica',
     text: texto || '',
     html: html || undefined,
-    attachments: (anexos || []).map(a => ({
-      filename: a.nome,
-      content: Buffer.from(a.b64 || '', 'base64'),
-      contentType: a.tipo || 'application/octet-stream',
-    })),
+    /* Anexo com `cid` é EMBUTIDO: aparece dentro do corpo, referenciado
+       por cid:, e não na lista de anexos. É assim que logo em e-mail
+       funciona — imagem em data: o Gmail descarta. */
+    attachments: (anexos || []).filter(Boolean).map(a => {
+      const at = {
+        filename: a.nome,
+        content: Buffer.from(a.b64 || '', 'base64'),
+        contentType: a.tipo || 'application/octet-stream',
+      };
+      if(a.cid){ at.cid = a.cid; at.contentDisposition = 'inline'; }
+      return at;
+    }),
   });
   return { id: info.messageId, aceitos: info.accepted || [], recusados: info.rejected || [] };
 }
