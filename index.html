@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794858415"/>
+  <meta name="fk-build" content="forekash-v1794858773"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -135715,6 +135715,7 @@ function _nfTrilhaSync(n){
     if(!lan) return false;
 
     const antes = JSON.stringify(lan.nf || null);
+    const stAntes = (lan.nf && lan.nf.status) || '';
     lan.nf = {
       id: n.id,
       numero: String(n.numero || ''),
@@ -135724,6 +135725,23 @@ function _nfTrilhaSync(n){
       canceladaEm: (n.status === 'canc') ? (n.dataCancelamento || '') : ''
     };
     if(JSON.stringify(lan.nf) === antes) return false;    // nada mudou, nada a gravar
+
+    /* O HISTÓRICO DO LANÇAMENTO TAMBÉM RECEBE A NOTA.
+
+       Ele registra o que aconteceu com o dinheiro — criado, pago, editado,
+       conciliado. A emissão da nota é um fato da mesma ordem, e era o único
+       que entrava calado: o número aparecia no campo do documento sem que
+       nada dissesse quando nem o quê.
+
+       Só na MUDANÇA de situação. Recarimbar o mesmo estado não é notícia. */
+    if((n.status || '') !== stAntes){
+      const num = 'NFS-e ' + (n.numero || '—');
+      const txt = n.status === 'aut'  ? (num + ' emitida')
+                : n.status === 'canc' ? (num + ' cancelada na Receita')
+                : n.status === 'rej'  ? (num + ' rejeitada pela Receita')
+                : (num + ' · ' + (n.status || 'situação desconhecida'));
+      try{ if(typeof _extEvento === 'function') _extEvento(lan, txt); }catch(_){}
+    }
 
     lan.nfId = n.id;
     lan.nfNumero = String(n.numero || '');
