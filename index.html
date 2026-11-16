@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794859915"/>
+  <meta name="fk-build" content="forekash-v1794861743"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -86912,8 +86912,18 @@ function extSaveModal(tipo, comSerieForcado){
          e o lançamento voltava vazio. `_dkbAnexoData` é o estado do painel:
          reflete o que ficou depois de adicionar e remover, então serve tanto
          pra gravar quanto pra limpar. */
-      if(anexoDoc) l.anexo = anexoDoc; else delete l.anexo;
-      if(anexoComp) l.comprovante = anexoComp; else delete l.comprovante;
+      /* O PAINEL NÃO MOSTRA TUDO — E O SALVAR GRAVA O PAINEL POR CIMA.
+
+         Anexo sem arquivo junto (sem `dataUrl` e sem `path`) é filtrado na
+         hora de montar o painel: referência antiga, item gravado pela metade.
+         Ele não aparece na tela, então o salvar o apagava sem ninguém pedir.
+         Abrir e salvar não pode subtrair o que a tela nem ofereceu. */
+      const _soNoBanco = v => (Array.isArray(v) ? v : (v ? [v] : []))
+        .filter(x => x && !x.dataUrl && !x.path);
+      const _anexoFinal = (anexoDoc || []).concat(_soNoBanco(l.anexo));
+      const _compFinal  = (anexoComp || []).concat(_soNoBanco(l.comprovante));
+      if(_anexoFinal.length) l.anexo = _anexoFinal; else delete l.anexo;
+      if(_compFinal.length)  l.comprovante = _compFinal; else delete l.comprovante;
       if(status === 'pago' && !l.dataPagamento) l.dataPagamento = data;
       if(status !== 'pago') l.dataPagamento = '';
       if(_parcId && _parcN){
@@ -87311,8 +87321,19 @@ function _extSnap(l){
     descricao:   (l && l.descricao) || '',
     documento:   (l && l.documento) || '',
     notas:       (l && l.notas) || '',
-    nAnexo: (l && Array.isArray(l.anexo)) ? l.anexo.length : ((l && l.anexo) ? 1 : 0)
+    nAnexo: (l && Array.isArray(l.anexo)) ? l.anexo.length : ((l && l.anexo) ? 1 : 0),
+    /* NOMES, e não só a contagem. Contar não enxerga troca: tirar um arquivo
+       e pôr outro no mesmo salvar dá diferença zero, e o histórico ficava
+       calado justamente na hora em que o anexo mudou de verdade. */
+    anexos: _extNomesAnexo(l && l.anexo),
+    comps:  _extNomesAnexo(l && l.comprovante)
   };
+}
+/* Aceita as duas formas que convivem no banco: lista ou objeto único, com a
+   chave em `name` (painel de anexos) ou `nome` (referência sem o arquivo). */
+function _extNomesAnexo(v){
+  const lista = Array.isArray(v) ? v : (v ? [v] : []);
+  return lista.filter(Boolean).map(a => String(a.name || a.nome || 'arquivo'));
 }
 function _extDiffTexto(a, b){
   const m = [];
@@ -87335,9 +87356,23 @@ function _extDiffTexto(a, b){
   /* Nota e anexo entram sem conteúdo: a nota pode ser longa e o anexo é
      arquivo. Registrar que mudou já reconstitui o lançamento depois. */
   if(dif(a.notas, b.notas)) m.push('notas alteradas');
-  const d = (b.nAnexo || 0) - (a.nAnexo || 0);
-  if(d > 0) m.push('anexo adicionado' + (d > 1 ? ' (' + d + ')' : ''));
-  else if(d < 0) m.push('anexo removido' + (d < -1 ? ' (' + (-d) + ')' : ''));
+  /* O nome do arquivo ENTRA no registro: "anexo adicionado" não diz qual, e
+     num lançamento com boleto, nota e comprovante é exatamente o que se quer
+     saber meses depois. */
+  const corte = txt => txt.length > 70 ? (txt.slice(0, 67) + '…') : txt;
+  const comparaArquivos = (rotulo, antes, agora) => {
+    antes = antes || []; agora = agora || [];
+    const sumiu = antes.filter(x => agora.indexOf(x) === -1);
+    const veio  = agora.filter(x => antes.indexOf(x) === -1);
+    if(veio.length)  m.push(rotulo + ' adicionado: ' + corte(veio.join(', ')));
+    if(sumiu.length) m.push(rotulo + ' removido: ' + corte(sumiu.join(', ')));
+    /* Arquivos de nome igual trocados entre si: o nome não denuncia, a
+       contagem sim. Rede de segurança pra não cair no silêncio de novo. */
+    if(!veio.length && !sumiu.length && antes.length !== agora.length)
+      m.push(agora.length > antes.length ? (rotulo + ' adicionado') : (rotulo + ' removido'));
+  };
+  comparaArquivos('anexo', a.anexos, b.anexos);
+  comparaArquivos('comprovante', a.comps, b.comps);
   return m;
 }
 function _extEvMoeda(v){
