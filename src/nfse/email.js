@@ -27,27 +27,51 @@ function configurado(){
   return !!(CFG.host && CFG.user && CFG.senha && CFG.de);
 }
 
-let transporte = null;
-function pegaTransporte(){
-  if(transporte) return transporte;
-  transporte = nodemailer.createTransport({
-    host: CFG.host,
-    port: CFG.porta,
-    /* 465 é TLS desde o primeiro byte; 587 abre em claro e sobe para TLS
-       com STARTTLS. Errar isso dá timeout sem mensagem útil. */
-    secure: CFG.porta === 465,
-    auth: { user: CFG.user, pass: CFG.senha },
-  });
-  return transporte;
+/* A CONFIGURAÇÃO PODE VIR DO COFRE, NÃO SÓ DO AMBIENTE.
+
+   Pedir que o usuário edite um .env para configurar o envio é pedir
+   acesso ao servidor — serve para quem desenvolve, não para quem usa o
+   Forekash. A senha agora pode vir cifrada no mesmo cofre do certificado,
+   configurada pela tela, e é aberta aqui na memória.
+
+   As variáveis de ambiente continuam valendo como alternativa: quem roda
+   o serviço para si pode preferi-las, e elas seguem sendo o padrão
+   quando nenhuma configuração vem na chamada. */
+function normaliza(c){
+  if(!c) return null;
+  const porta = parseInt(c.porta || c.port || 587, 10);
+  const de = String(c.de || c.from || c.user || '').trim();
+  if(!(c.host && c.user && c.senha && de)) return null;
+  return { host: String(c.host).trim(), porta: porta, user: String(c.user).trim(),
+           senha: String(c.senha), de: de, nome: String(c.nome || '').trim() };
+}
+const _cache = new Map();
+function pegaTransporte(cfg){
+  const c = normaliza(cfg) || normaliza(CFG);
+  if(!c) throw new Error('remetente não configurado');
+  /* Uma conexão por remetente: abrir uma a cada e-mail é lento e o
+     provedor reclama. A chave não inclui a senha. */
+  const chave = c.host + '|' + c.porta + '|' + c.user;
+  if(!_cache.has(chave)){
+    _cache.set(chave, nodemailer.createTransport({
+      host: c.host,
+      port: c.porta,
+      /* 465 é TLS desde o primeiro byte; 587 abre em claro e sobe para TLS
+         com STARTTLS. Errar isso dá timeout sem mensagem útil. */
+      secure: c.porta === 465,
+      auth: { user: c.user, pass: c.senha },
+    }));
+  }
+  return { tp: _cache.get(chave), c: c };
 }
 
 /* `anexos` chega como [{nome, tipo, b64}]. */
-async function enviar({ para, cc, responderPara, assunto, texto, html, anexos }) {
-  if(!configurado()) throw new Error('remetente não configurado no serviço (FK_SMTP_*)');
+async function enviar({ para, cc, responderPara, assunto, texto, html, anexos, smtp }) {
   if(!para) throw new Error('destinatário vazio');
+  const { tp, c } = pegaTransporte(smtp);
 
-  const info = await pegaTransporte().sendMail({
-    from: CFG.nome ? { name: CFG.nome, address: CFG.de } : CFG.de,
+  const info = await tp.sendMail({
+    from: c.nome ? { name: c.nome, address: c.de } : c.de,
     to: para,
     /* Cópia configurada por cliente: muitos querem a nota também no
        contas a pagar, e repetir isso a cada envio é onde se esquece. */
@@ -68,10 +92,13 @@ async function enviar({ para, cc, responderPara, assunto, texto, html, anexos })
 
 /* Verifica a conexão e a autenticação sem mandar mensagem nenhuma — serve
    para o app dizer na tela se o envio está de pé antes de alguém emitir. */
-async function testar(){
-  if(!configurado()) return { ok:false, motivo:'FK_SMTP_* não configurado' };
-  try{ await pegaTransporte().verify(); return { ok:true, de: CFG.de }; }
-  catch(e){ return { ok:false, motivo: e.message }; }
+async function testar(smtp){
+  try{
+    const { tp, c } = pegaTransporte(smtp);
+    await tp.verify();
+    return { ok:true, de: c.de };
+  }catch(e){ return { ok:false, motivo: e.message }; }
 }
 
-module.exports = { enviar, testar, configurado, remetente: () => CFG.de };
+module.exports = { enviar, testar, configurado, normaliza,
+                   remetente: () => CFG.de };

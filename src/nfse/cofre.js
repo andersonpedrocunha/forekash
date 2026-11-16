@@ -30,12 +30,19 @@ function chaveDe(orgId){
     Buffer.from('forekash-nfse', 'utf8'), Buffer.from('org:' + String(orgId), 'utf8'), 32);
 }
 
-/** Cifra o .pfx e a senha num pacote único e versionado. */
-function guardar(orgId, pfxBuffer, senha){
+/* O COFRE GUARDA QUALQUER SEGREDO, NÃO SÓ O CERTIFICADO.
+
+   A senha do SMTP tem o mesmo problema do .pfx: não pode ficar em claro
+   no navegador nem num arquivo que alguém precise abrir para editar. O
+   mecanismo já existia e servia — só estava amarrado a um formato só.
+
+   O pacote continua v:1 e com a mesma forma, então os certificados já
+   guardados seguem abrindo. */
+function guardarSegredo(orgId, objeto){
   const chave = chaveDe(orgId);
   const iv = crypto.randomBytes(12);
   const c = crypto.createCipheriv(ALG, chave, iv);
-  const claro = JSON.stringify({ pfx: Buffer.from(pfxBuffer).toString('base64'), senha: String(senha || '') });
+  const claro = JSON.stringify(objeto);
   const dados = Buffer.concat([c.update(claro, 'utf8'), c.final()]);
   return {
     v: 1, alg: ALG, org: String(orgId),
@@ -46,16 +53,25 @@ function guardar(orgId, pfxBuffer, senha){
   };
 }
 
-/** Abre o pacote. Devolve { pfx: Buffer, senha }. Sempre em memória. */
-function abrir(pacote){
-  if(!pacote || pacote.v !== 1) throw new Error('pacote de certificado inválido ou de versão desconhecida');
+function abrirSegredo(pacote){
+  if(!pacote || pacote.v !== 1) throw new Error('pacote inválido ou de versão desconhecida');
   const chave = chaveDe(pacote.org);
   const d = crypto.createDecipheriv(ALG, chave, Buffer.from(pacote.iv, 'base64'));
   d.setAuthTag(Buffer.from(pacote.tag, 'base64'));
   /* GCM: se o pacote foi adulterado, final() lança. É a diferença entre
      "cifrado" e "cifrado e íntegro". */
   const claro = Buffer.concat([d.update(Buffer.from(pacote.dados, 'base64')), d.final()]).toString('utf8');
-  const o = JSON.parse(claro);
+  return JSON.parse(claro);
+}
+
+/** Cifra o .pfx e a senha num pacote único. */
+function guardar(orgId, pfxBuffer, senha){
+  return guardarSegredo(orgId, { pfx: Buffer.from(pfxBuffer).toString('base64'), senha: String(senha || '') });
+}
+/** Abre o pacote do certificado. Devolve { pfx: Buffer, senha }. */
+function abrir(pacote){
+  const o = abrirSegredo(pacote);
+  if(!o || typeof o.pfx !== 'string') throw new Error('pacote de certificado inválido');
   return { pfx: Buffer.from(o.pfx, 'base64'), senha: o.senha };
 }
 
@@ -82,4 +98,4 @@ function paraPem(pfxBuffer, senha){
   };
 }
 
-module.exports = { guardar, abrir, paraPem };
+module.exports = { guardar, abrir, paraPem, guardarSegredo, abrirSegredo };

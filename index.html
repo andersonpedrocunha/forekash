@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794841012"/>
+  <meta name="fk-build" content="forekash-v1794841538"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -138170,6 +138170,9 @@ async function nfEnviarEmail(id, silencioso){
       headers: { 'Content-Type':'application/json', 'x-fk-token': NF.cfg.servicoToken || '' },
       body: JSON.stringify({
         para: para,
+        /* O remetente viaja cifrado a cada envio, como o certificado: o
+           serviço é sem estado e abre na memória. */
+        pacoteSmtp: (NF.cfg.smtpGuardado && NF.cfg.smtpGuardado.pacote) || undefined,
         cc: _nfCfgEmailDoCliente(n).cc || undefined,
         responderPara: String(emp.emailNf || emp.email || '').trim() || undefined,
         assunto: msg.assunto, texto: msg.texto, html: msg.html,
@@ -138207,6 +138210,12 @@ try{ window.nfEnviarEmail = nfEnviarEmail; }catch(_){}
 /* O serviço diz se tem remetente. A tela usa isso para não prometer o que
    não acontece — e para avisar antes da emissão, não depois. */
 let NF_EMAIL_PRONTO = null;
+/* Pronto quando há remetente no cofre OU no ambiente do serviço. */
+function nfEmailPronto(){
+  if(NF.cfg.smtpGuardado && NF.cfg.smtpGuardado.pacote) return true;
+  return !!(NF_EMAIL_PRONTO && NF_EMAIL_PRONTO.pronto);
+}
+try{ window.nfEmailPronto = nfEmailPronto; }catch(e){}
 async function nfChecarEmail(){
   const url = _nfUrlServico(NF.cfg.servicoUrl);
   if(!url){ NF_EMAIL_PRONTO = null; return null; }
@@ -138494,6 +138503,172 @@ function _nfCertBloco(cfg){
         + 'Sem ele o arquivo não tem onde ser cifrado — e guardar a chave privada no navegador não é opção.</div>')
     + '</div>';
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   REMETENTE DO E-MAIL — configurado na tela, guardado no cofre
+
+   Mesmo desenho do certificado A1: a senha sobe uma vez para o serviço,
+   volta cifrada, e o app guarda só o pacote. Nada de senha no navegador,
+   nada de editar arquivo no servidor.
+
+   Isso não é preciosismo: pedir que alguém abra um .env para configurar
+   o envio é pedir acesso ao servidor. Serve para quem desenvolve, não
+   para quem usa — e o Forekash não é só da TALLER.
+   ══════════════════════════════════════════════════════════════════ */
+
+function _nfOrgId(){
+  const e = _nfEmpresaAtiva() || {};
+  return String(e.cnpj || '').replace(/\D/g, '') || 'forekash';
+}
+
+/* Sugestões por provedor: errar a porta dá timeout sem mensagem útil,
+   e é o engano mais comum de quem configura SMTP pela primeira vez. */
+const NF_SMTP_PROVEDORES = {
+  'gmail.com':      { host:'smtp.gmail.com',        porta:587, nota:'Use uma SENHA DE APP do Google, não a senha da conta.' },
+  'outlook.com':    { host:'smtp-mail.outlook.com', porta:587, nota:'' },
+  'office365.com':  { host:'smtp.office365.com',    porta:587, nota:'' },
+  'zoho.com':       { host:'smtp.zoho.com',         porta:465, nota:'' },
+};
+function _nfSmtpSugere(email){
+  const dom = String(email || '').split('@')[1] || '';
+  if(/gmail|googlemail/i.test(dom)) return NF_SMTP_PROVEDORES['gmail.com'];
+  if(/outlook|hotmail|live/i.test(dom)) return NF_SMTP_PROVEDORES['outlook.com'];
+  if(/office365/i.test(dom)) return NF_SMTP_PROVEDORES['office365.com'];
+  if(/zoho/i.test(dom)) return NF_SMTP_PROVEDORES['zoho.com'];
+  return null;
+}
+
+/* Sobe a configuração, o serviço autentica e devolve o pacote cifrado. */
+async function nfSmtpGuardar(){
+  const v = (id) => ((document.getElementById(id) || {}).value || '').trim();
+  const url = _nfUrlServico(NF.cfg.servicoUrl);
+  if(!_nfUrlValida(url)){
+    if(typeof showToast === 'function') showToast('Configure o endereço do serviço antes', 'err');
+    return;
+  }
+  const dados = {
+    orgId: _nfOrgId(),
+    host: v('nf-smtp-host'), porta: parseInt(v('nf-smtp-porta'), 10) || 587,
+    user: v('nf-smtp-user'), senha: (document.getElementById('nf-smtp-senha') || {}).value || '',
+    de:   v('nf-smtp-de') || v('nf-smtp-user'), nome: v('nf-smtp-nome'),
+  };
+  if(!dados.host || !dados.user || !dados.senha){
+    if(typeof showToast === 'function') showToast('Preencha servidor, usuário e senha', 'warn');
+    return;
+  }
+  const btn = document.getElementById('nf-smtp-btn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Testando...'; }
+  try{
+    const r = await fetch(url + '/smtp', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'x-fk-token': NF.cfg.servicoToken || '' },
+      body: JSON.stringify(dados)
+    });
+    const j = await r.json().catch(() => ({}));
+    if(!r.ok) throw new Error(j.erro || ('HTTP ' + r.status));
+    /* Guarda só o que a tela precisa e o pacote cifrado. A senha some:
+       ela nunca volta do serviço, e não fica aqui. */
+    NF.cfg.smtpGuardado = { pacote: j.pacote, de: j.de, host: j.host,
+                            porta: j.porta, user: j.user, nome: j.nome,
+                            guardadoEm: new Date().toISOString() };
+    nfSave();
+    const campo = document.getElementById('nf-smtp-senha');
+    if(campo) campo.value = '';
+    nfRenderConfigForm();
+    if(typeof showToast === 'function') showToast('Remetente guardado e autenticado · ' + j.de, 'ok');
+  }catch(e){
+    if(typeof showToast === 'function') showToast('Não autenticou: ' + e.message, 'err');
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = 'Guardar e testar'; }
+  }
+}
+try{ window.nfSmtpGuardar = nfSmtpGuardar; }catch(e){}
+
+async function nfSmtpTestar(){
+  const url = _nfUrlServico(NF.cfg.servicoUrl);
+  const g = NF.cfg.smtpGuardado;
+  if(!_nfUrlValida(url) || !g || !g.pacote) return;
+  if(typeof showToast === 'function') showToast('Testando o remetente...', 'info');
+  try{
+    const r = await fetch(url + '/smtp/teste', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'x-fk-token': NF.cfg.servicoToken || '' },
+      body: JSON.stringify({ pacote: g.pacote })
+    });
+    const j = await r.json().catch(() => ({}));
+    if(typeof showToast === 'function')
+      showToast(j.ok ? 'Autenticou como ' + j.de : 'Não autenticou: ' + (j.motivo || j.erro || '?'),
+                j.ok ? 'ok' : 'err');
+  }catch(e){
+    if(typeof showToast === 'function') showToast('Não consegui testar: ' + e.message, 'err');
+  }
+}
+try{ window.nfSmtpTestar = nfSmtpTestar; }catch(e){}
+
+function nfSmtpRemover(){
+  if(!NF.cfg.smtpGuardado) return;
+  delete NF.cfg.smtpGuardado;
+  nfSave(); nfRenderConfigForm();
+  if(typeof showToast === 'function') showToast('Remetente removido — as notas param de ser enviadas', 'warn');
+}
+try{ window.nfSmtpRemover = nfSmtpRemover; }catch(e){}
+
+/* O bloco na tela de configuração. Reaproveita as classes do bloco do
+   certificado: é o mesmo tipo de coisa — um segredo guardado no cofre —
+   e inventar estilos novos só criaria duas aparências para um conceito. */
+function _nfSmtpHtml(cfg){
+  const g = cfg.smtpGuardado;
+  const sug = _nfSmtpSugere((g && g.user) || (_nfEmpresaAtiva() || {}).email || '');
+  const temServico = _nfUrlValida(_nfUrlServico(cfg.servicoUrl));
+  const campo = (rot, id, val, ph, tipo) =>
+    '<div class="nf-field"><label>' + rot + '</label>' +
+    '<input type="' + (tipo || 'text') + '" id="' + id + '" value="' + _nfEsc(val == null ? '' : val) + '"' +
+    ' placeholder="' + _nfEsc(ph || '') + '"' + (tipo === 'password' ? ' autocomplete="new-password"' : '') + '></div>';
+
+  if(!temServico){
+    return '<div class="nf-field"><label>Envio das notas por e-mail</label>' +
+      '<div class="nf-cert-bloq">Configure o <b>serviço de emissão</b> abaixo primeiro. ' +
+      'A senha do e-mail é cifrada lá, pelo mesmo cofre do certificado — guardá-la no navegador não é opção.</div>' +
+      '</div>';
+  }
+
+  const estado = g
+    ? '<div class="nf-cert-ok">' +
+        '<b>' + _nfEsc(g.de) + '</b>' +
+        '<span class="nf-cert-ok">autenticado</span>' +
+        '<small>' + _nfEsc(g.host) + ':' + _nfEsc(g.porta) +
+        ' · guardado cifrado no serviço de emissão · a senha não fica no navegador</small>' +
+      '</div>'
+    : '<div class="nf-cert-sem">Nenhum remetente configurado — as notas são emitidas, mas não chegam ao cliente. ' +
+      'O DANFSe e o XML continuam disponíveis para baixar e enviar à mão.</div>';
+
+  return '<div class="nf-field"><label>Envio das notas por e-mail</label>' +
+    estado +
+    '<div class="nf-field-row">' +
+      campo('Servidor SMTP', 'nf-smtp-host', (g && g.host) || (sug && sug.host), 'smtp.seuprovedor.com.br') +
+      campo('Porta', 'nf-smtp-porta', (g && g.porta) || (sug && sug.porta) || 587, '587') +
+    '</div>' +
+    '<div class="nf-field-row">' +
+      campo('Usuário', 'nf-smtp-user', g && g.user, 'financeiro@suaempresa.com.br') +
+      campo('Senha', 'nf-smtp-senha', '', g ? 'guardada — preencha só para trocar' : 'senha de app ou do e-mail', 'password') +
+    '</div>' +
+    '<div class="nf-field-row">' +
+      campo('Remetente', 'nf-smtp-de', g && g.de, 'em branco usa o usuário') +
+      campo('Nome exibido', 'nf-smtp-nome', (g && g.nome) || '', 'o nome da sua empresa') +
+    '</div>' +
+    '<div class="nf-cert-up">' +
+      '<button type="button" id="nf-smtp-btn" onclick="nfSmtpGuardar()">' +
+        (g ? 'Substituir e testar' : 'Guardar e testar') + '</button>' +
+      (g ? '<button type="button" onclick="nfSmtpTestar()">Testar agora</button>' +
+           '<button type="button" onclick="nfSmtpRemover()">Remover</button>' : '') +
+    '</div>' +
+    '<small class="nf-cert-ajuda">A senha vai direto para o serviço de emissão e volta cifrada, no mesmo cofre do ' +
+      'certificado. Ela não fica no navegador nem em arquivo nenhum.' +
+      (sug && sug.nota ? '<br><b>' + _nfEsc(sug.nota) + '</b>' : '') +
+    '</small>' +
+    '</div>';
+}
+
 async function nfCertEnviar(){
   const url = _nfUrlServico(NF.cfg.servicoUrl);
   const f = (document.getElementById('nf-cfg-cert') || {}).files;
@@ -138590,11 +138765,8 @@ function nfRenderConfigForm(){
       + '<b>Token:</b> o valor de <code>FK_NFSE_TOKEN</code> que você definiu ao subir o serviço — '
       + 'é ele que impede qualquer um de mandar certificado em seu nome.'
       + '</div>' +
-    /* ENVIO DA NOTA POR E-MAIL.
-       Quem manda é o serviço, pelo mesmo motivo da assinatura: a senha do
-       SMTP não pode passar pelo navegador. A tela só diz se está de pé —
-       e diz a verdade, consultando o serviço em vez de supor. */
-    '<div class="nf-cfg-herda" id="nf-cfg-email">Verificando o envio de e-mail…</div>' +
+    /* ENVIO DA NOTA POR E-MAIL — configurado aqui, guardado no cofre. */
+    _nfSmtpHtml(cfg) +
     /* REGIME TRIBUTÁRIO AQUI, PORQUE É AQUI QUE SE CONFIGURA PARA EMITIR.
 
        O dado continua morando na empresa — o módulo Impostos usa o mesmo
@@ -138654,22 +138826,6 @@ function nfRenderConfigForm(){
     + 'desfazer significa cancelar junto à Receita. <b>Produção restrita</b> é o ambiente de teste dela, '
     + 'com série própria. <b>Demo</b> não sai daqui.</div>';
   document.getElementById('nf-modal-config-body').innerHTML = html;
-  try{ _nfCfgEmailStatus(); }catch(_){}
-}
-/* Pergunta ao serviço se há remetente e escreve o resultado na tela. */
-async function _nfCfgEmailStatus(){
-  const el = document.getElementById('nf-cfg-email');
-  if(!el) return;
-  const url = _nfUrlServico(NF.cfg.servicoUrl);
-  if(!url){ el.innerHTML = '<b>E-mail:</b> configure o endereço do serviço primeiro.'; return; }
-  const st = await nfChecarEmail();
-  if(!st){ el.innerHTML = '<b>E-mail:</b> não consegui falar com o serviço.'; return; }
-  el.innerHTML = st.pronto
-    ? '<b>E-mail:</b> ligado — as notas saem de <code>' + _nfEsc(st.remetente) + '</code> ' +
-      'com o DANFSe em PDF e o XML anexados, assim que forem autorizadas.'
-    : '<b>E-mail: desligado.</b> O serviço não tem remetente. Defina <code>FK_SMTP_HOST</code>, ' +
-      '<code>FK_SMTP_PORT</code>, <code>FK_SMTP_USER</code>, <code>FK_SMTP_PASS</code> e ' +
-      '<code>FK_SMTP_FROM</code> no <code>.env</code> e reinicie — a senha fica só lá, nunca no app.';
 }
 function nfCfgPickMode(m){ NF.cfg.mode = m; nfRenderConfigForm(); }
 function nfSaveConfig(){

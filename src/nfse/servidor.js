@@ -12,7 +12,7 @@
 */
 const http = require('http');
 const { montaDPS, assina, envia } = require('./dps.js');
-const { guardar, abrir, paraPem } = require('./cofre.js');
+const { guardar, abrir, paraPem, guardarSegredo, abrirSegredo } = require('./cofre.js');
 const correio = require('./email.js');
 const { montaCancelamento, assinaEvento, enviaEvento } = require('./evento.js');
 
@@ -86,6 +86,39 @@ const rotas = {
     }, b.ambiente === 'producao');
   },
 
+  /* GUARDA O REMETENTE NO MESMO COFRE DO CERTIFICADO.
+
+     Mesmo desenho do .pfx: a senha sobe uma vez, volta cifrada, e o app
+     guarda só o pacote. Configurar o envio deixa de exigir acesso ao
+     servidor — que é o que separa uma ferramenta interna de um produto.
+
+     Autentica ANTES de devolver o pacote: senha errada tem que falhar com
+     a pessoa na tela, não no dia em que a primeira nota não chegar. */
+  'POST /smtp': async (req, res) => {
+    const b = await corpo(req);
+    if(!b.orgId) return json(res, 400, { erro: 'orgId obrigatório' });
+    const cfg = correio.normaliza(b);
+    if(!cfg) return json(res, 400, { erro: 'preencha servidor, porta, usuário, senha e remetente' });
+
+    const t = await correio.testar(cfg);
+    if(!t.ok) return json(res, 400, { erro: 'não autenticou: ' + t.motivo });
+
+    return json(res, 200, {
+      ok: true,
+      pacote: guardarSegredo(b.orgId, cfg),
+      /* Só o que a tela precisa mostrar. A senha não volta. */
+      de: cfg.de, host: cfg.host, porta: cfg.porta, user: cfg.user, nome: cfg.nome,
+    });
+  },
+
+  /* Testa um remetente já guardado, sem mandar mensagem. */
+  'POST /smtp/teste': async (req, res) => {
+    const b = await corpo(req);
+    let cfg = null;
+    if(b.pacote){ try{ cfg = abrirSegredo(b.pacote); }catch(e){ return json(res, 400, { erro: 'pacote: ' + e.message }); } }
+    return json(res, 200, await correio.testar(cfg));
+  },
+
   /* CANCELA DE VERDADE, na Receita.
 
      O app marcava a nota como cancelada no próprio banco e pronto — a
@@ -122,10 +155,17 @@ const rotas = {
   'POST /email': async (req, res) => {
     const b = await corpo(req);
     if(!b.para) return json(res, 400, { erro: 'destinatário obrigatório' });
-    if(!correio.configurado())
-      return json(res, 503, { erro: 'o serviço não tem remetente configurado (FK_SMTP_*)' });
+    /* O remetente vem do cofre quando a tela o configurou; senão, do
+       ambiente. Sem nenhum dos dois, não há o que enviar. */
+    let smtp = null;
+    if(b.pacoteSmtp){
+      try{ smtp = abrirSegredo(b.pacoteSmtp); }
+      catch(e){ return json(res, 400, { erro: 'remetente: ' + e.message }); }
+    }
+    if(!smtp && !correio.configurado())
+      return json(res, 503, { erro: 'nenhum remetente configurado — configure o envio na tela' });
     try{
-      const r = await correio.enviar(b);
+      const r = await correio.enviar(Object.assign({}, b, { smtp: smtp }));
       return json(res, 200, Object.assign({ ok: true, enviadoEm: new Date().toISOString() }, r));
     }catch(e){
       return json(res, 502, { erro: 'envio: ' + e.message });
