@@ -377,11 +377,25 @@ export function briefing(d, op){
      2. O estado não vinha. Ele não tinha como saber se algo estava recebido,
         conciliado ou atrasado, então respondia sobre o status de um
         lançamento sem nunca ter visto um status. */
-  const ult = d.ext.filter(l => l && l.data && String(l.data).slice(0,10) <= hoje && !f.lancFora(l))
-    .sort((a,b) => String(b.data).localeCompare(String(a.data))).slice(0, 14);
+  /* 3. A DATA ERA A DO VENCIMENTO, NÃO A DO DINHEIRO.
+
+        Título vencido em 29/10 e recebido hoje aparecia aqui como 29/10 — e,
+        com três semanas de lançamentos na frente, nem entrava nas 14 vagas.
+        Perguntado "a Bloom pagou hoje?", ele não tinha como ver o fato que
+        acabou de acontecer, embora o Extrato mostre a linha em HOJE.
+
+        A data efetiva é a mesma que a tela usa: quem já foi baixado vale
+        pelo dia do pagamento; pendente continua valendo pelo vencimento,
+        que é quando ele deveria ter acontecido. */
+  const dtEf = l => String(
+    ((String((l && l.status) || '').toLowerCase() !== 'pendente') && l && l.dataPagamento)
+      ? l.dataPagamento : ((l && l.data) || '')).slice(0,10);
+  const ult = d.ext.filter(l => l && l.data && dtEf(l) <= hoje && !f.lancFora(l))
+    .sort((a,b) => dtEf(b).localeCompare(dtEf(a))).slice(0, 14);
   if(ult.length)
     L.push('\n## ÚLTIMOS LANÇAMENTOS (até hoje — o que vem depois está em AGENDADO)\n' +
-      ult.map(l => '- ' + String(l.data).slice(0,10) + ' · ' +
+      ult.map(l => '- ' + dtEf(l) +
+      (dtEf(l) !== String(l.data).slice(0,10) ? ' (venc. ' + String(l.data).slice(0,10) + ')' : '') + ' · ' +
       (l.tipo === 'ganho' ? '+' : l.tipo === 'gasto' ? '-' : '~') + brl(l.valor) + ' · ' +
       (l.contraparte || l.descricao || '?') + (l.categoria ? ' [' + l.categoria + ']' : '') +
       ' · ' + selo(l, hoje)).join('\n') +
