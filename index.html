@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794949602"/>
+  <meta name="fk-build" content="forekash-v1794949849"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -37910,7 +37910,8 @@ function setClienteEndereco(cid, campo, val){
               /* Retenção: é fato do CLIENTE, não do serviço. Quem retém é
                  quem paga, e varia por natureza jurídica e por município. */
               'retFed','retPis','retCofins','retCsll','retIrrf','retInss','issRetido','retFonte',
-              'comexModo','comexMoeda'];
+              'comexModo','comexMoeda','comexVinc','comexMecP','comexMecT',
+              'comexBens','comexMdic'];
   if(ok.indexOf(campo) === -1) return;
   c.endereco = Object.assign({}, c.endereco || {});
   c.endereco[campo] = (val == null ? '' : String(val).trim());
@@ -38067,6 +38068,45 @@ const NF_COMEX_MOEDAS_FICHA = [
   ['540', 'GBP · libra'],           ['425', 'CHF · franco suíço'],
   ['165', 'CAD · dólar canadense'], ['075', 'CZK · coroa tcheca']
 ];
+/* OS OUTROS SEIS CAMPOS TAMBÉM SÃO ESCOLHA DE QUEM EMITE.
+
+   Eu os tinha fixado no padrão que as notas da casa usam — sem vínculo, sem
+   mecanismo de fomento, sem movimentação de bens, compartilha com o MDIC.
+   Serve para serviço exportado por empresa sem estrutura lá fora, que é o
+   caso comum, mas é só um caso: quem exporta pela filial, quem usa ACC ou
+   PROEX, quem vincula a operação a uma DU-E — todos existem, e para eles o
+   padrão produz nota errada sem avisar.
+
+   Padrão continua sendo padrão: quem não mexer emite igual a antes. */
+const NF_COMEX_VINCULO = [
+  ['',  'Padrão · sem vínculo'],
+  ['0', '0 · Sem vínculo entre as partes'],
+  ['1', '1 · Controlada'],   ['2', '2 · Controladora'],
+  ['3', '3 · Coligada'],     ['4', '4 · Matriz'],
+  ['5', '5 · Filial ou sucursal'], ['6', '6 · Outro vínculo']
+];
+const NF_COMEX_FOMENTO = [
+  ['',   'Padrão · nenhum'],
+  ['01', '01 · Nenhum'],
+  ['02', '02 · ACC — adiantamento sobre contrato de câmbio'],
+  ['03', '03 · ACE — adiantamento sobre cambiais entregues'],
+  ['04', '04 · BNDES-Exim pós-embarque, serviços'],
+  ['05', '05 · BNDES-Exim pré-embarque, serviços'],
+  ['06', '06 · FGE — Fundo de Garantia à Exportação'],
+  ['07', '07 · PROEX, equalização'],
+  ['08', '08 · PROEX, financiamento']
+];
+const NF_COMEX_BENS = [
+  ['',  'Padrão · não'],
+  ['1', '1 · Não há movimentação temporária de bens'],
+  ['2', '2 · Vinculada à Declaração Única de Importação'],
+  ['3', '3 · Vinculada à Declaração Única de Exportação']
+];
+const NF_COMEX_MDIC = [
+  ['',  'Padrão · compartilha'],
+  ['1', '1 · Sim, compartilhar a NFS-e com o MDIC'],
+  ['0', '0 · Não compartilhar']
+];
 function _clidetComexHtml(c, esc){
   const e = c.endereco || {};
   const sel = (rot, k, lista, ajuda) => {
@@ -38086,10 +38126,19 @@ function _clidetComexHtml(c, esc){
               'Como o serviço chega a este cliente. É campo obrigatório da nota de exportação e não muda de uma nota para outra.')}
         ${sel('Moeda da fatura', 'comexMoeda', NF_COMEX_MOEDAS_FICHA,
               'O valor em moeda estrangeira é digitado a cada nota; a moeda, não.')}
+        ${sel('Vínculo entre as partes', 'comexVinc', NF_COMEX_VINCULO,
+              'Se este cliente é sua matriz, filial, controlada ou coligada — e não apenas um cliente.')}
+        ${sel('Mecanismo de fomento · seu', 'comexMecP', NF_COMEX_FOMENTO,
+              'ACC, ACE, BNDES-Exim, PROEX. Só preencha se a operação usar um deles.')}
+        ${sel('Mecanismo de fomento · do cliente', 'comexMecT', NF_COMEX_FOMENTO, '')}
+        ${sel('Movimentação temporária de bens', 'comexBens', NF_COMEX_BENS,
+              'Quando o serviço acompanha bem que entrou ou saiu do país em regime temporário.')}
+        ${sel('Compartilhar com o MDIC', 'comexMdic', NF_COMEX_MDIC,
+              'A NFS-e de exportação alimenta a estatística de comércio exterior. O padrão é compartilhar.')}
       </div>
-      <div class="clidet-ciclo-hint">Os outros campos de comércio exterior — vínculo entre as partes,
-        mecanismo de fomento, movimentação de bens e compartilhamento com o MDIC — saem com o padrão
-        de serviço sem vínculo, igual ao das notas já autorizadas.</div>
+      <div class="clidet-ciclo-hint">Tudo o que ficar em "padrão" sai com o valor que a maioria das
+        exportações de serviço usa: sem vínculo, sem fomento, sem movimentação de bens, compartilhando
+        com o MDIC. Mexer aqui vale só para este cliente.</div>
     </div>`;
 }
 
@@ -137144,9 +137193,16 @@ function nfMontarDPS(opts){
        verifica. Se um dia o resultado for em outro país, é aqui que muda. */
     cPaisResult: exp ? (toma.cPais || '') : '',
     /* Grupo de comércio exterior — Anexo VI, linha 58: obrigatório. */
-    mdPrestacao: exp ? String(d.mdPrestacao || NF.cfg.comexModo  || '1')   : '',
-    tpMoeda:     exp ? String(d.tpMoeda     || NF.cfg.comexMoeda || '220') : '',
+    mdPrestacao: exp ? String(d.mdPrestacao || end.comexModo || NF.cfg.comexModo  || '1')   : '',
+    tpMoeda:     exp ? String(d.tpMoeda     || end.comexMoeda || NF.cfg.comexMoeda || '220') : '',
     vServMoeda:  exp ? (Number(d.vServMoeda) || 0) : 0,
+    /* Os quatro que não aparecem na tela de emitir: são do relacionamento
+       com o cliente, não desta nota. Vazio na ficha = padrão do leiaute. */
+    vincPrest:   exp ? String(end.comexVinc || '0')  : '',
+    mecAFComexP: exp ? String(end.comexMecP || '01') : '',
+    mecAFComexT: exp ? String(end.comexMecT || '01') : '',
+    movTempBens: exp ? String(end.comexBens || '1')  : '',
+    mdic:        exp ? String(end.comexMdic === '0' ? '0' : (end.comexMdic || '1')) : '',
     pAliq: Number(sv.pAliq) || 0,
     cIndOp: sv.cIndOp, CST: sv.CST, cClassTrib: sv.cClassTrib,
     pTotTribFed: Number(sv.pTotTribFed) || 0,
