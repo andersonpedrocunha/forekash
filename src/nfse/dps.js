@@ -124,7 +124,14 @@ function montaDPS(d){
      formas. O ambiente de teste ser mais permissivo que o de produção é o
      pior tipo de diferença: ela esconde o erro até a hora que importa. */
   +   el('tpEmit', '1') + el('cLocEmi', d.cLocEmi)
+  /* CONTATO DO PRESTADOR — OPCIONAL NO XSD, VISÍVEL NO DANFSe.
+
+     Sem `fone` e `email` aqui, a Receita preenche o cabeçalho do documento
+     com o que tem no cadastro CNPJ dela. Na NFS-e 89 saiu o e-mail do
+     CONTADOR como contato da empresa — o cliente lê isso no PDF. A ordem é a
+     do XSD: identificação, IM, fone, email, regTrib. */
   +   '<prest>' + _docEl(d.prest.CNPJ || d.prest.CPF) + el('IM', d.prest.IM)
+  +     el('fone', d.prest.fone) + el('email', d.prest.email)
   +     '<regTrib>' + el('opSimpNac', d.prest.opSimpNac) + el('regEspTrib','0') + '</regTrib>'
   +   '</prest>'
   +   '<toma>'

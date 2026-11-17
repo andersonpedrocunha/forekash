@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794951329"/>
+  <meta name="fk-build" content="forekash-v1794953010"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -136197,6 +136197,24 @@ function _nfTrilhaAlvo(n){
   let lancs = [];
   try{ lancs = (typeof extratoData !== 'undefined' && extratoData && extratoData.lancamentos) || []; }
   catch(_){ return null; }
+  /* ══ VÍNCULO EXPLÍCITO GANHA DE QUALQUER ADIVINHAÇÃO ══════════════════
+
+     Quando a nota nasce do menu de um lançamento, ela carrega
+     `extratoLancId`: não há o que deduzir, a pessoa já disse qual é.
+
+     Ignorar isso custou caro na NFS-e 89. Ela saiu do lançamento do BMH-017,
+     com competência de novembro, e o casamento por cliente+mês encontrou o
+     BMH-018 — outra fatura, ainda não paga. O número da nota foi parar em
+     dois lançamentos, e o carimbo no errado.
+
+     Dois caminhos escreviam a mesma relação a partir de fontes diferentes.
+     Agora o explícito manda, e o palpite só entra quando não há vínculo. */
+  if(n.extratoLancId){
+    const alvoId = String(n.extratoLancId).split('#')[0];
+    const direto = lancs.find(l => l && ('m:' + l.id === alvoId || String(l.id) === alvoId));
+    if(direto) return direto;
+  }
+
   /* TODO lançamento de entrada entra na busca, não só o acompanhado no
      Slack. O carimbo nasceu pro cartão do canal, mas é ele também que acende
      o ícone da nota na linha do Extrato e preenche o nº do documento — e
@@ -137184,7 +137202,11 @@ function nfMontarDPS(opts){
 
        Então vai o que a pessoa configurou. Se vier E0120, a saída é apagar
        o campo em Configurar — e a mensagem de erro diz isso. */
-    prest: { CNPJ: dig(emp.cnpj), IM: String(NF.cfg.inscricaoMunicipal || '').trim(), opSimpNac },
+    prest: { CNPJ: dig(emp.cnpj), IM: String(NF.cfg.inscricaoMunicipal || '').trim(), opSimpNac,
+             /* Vão para o cabeçalho do DANFSe. Vazios, a Receita usa o
+                cadastro dela — e lá pode estar o contato do contador. */
+             fone:  String(emp.telefone || emp.fone || '').replace(/\D/g, ''),
+             email: String(emp.emailNf || emp.email || '').trim() },
     toma: Object.assign(toma, {
       /* Só entra se tiver: campo vazio na DPS seria elemento vazio, e a
          Receita recusa `<email></email>`. */
@@ -138635,8 +138657,16 @@ const NF_DANFSE_AUTENT = 'A autenticidade desta NFS-e pode ser verificada pela l
 /* Códigos do grupo de comércio exterior, para o DANFSe imprimir a
    descrição em vez do número. */
 Object.assign(NF_DF_COD, {
+  /* MESMO ERRO QUE EU JÁ TINHA CORRIGIDO NA TELA — E ESQUECIDO AQUI.
+     3 é movimento de pessoas e 4 é consumo no exterior; eu havia escrito o
+     inverso, de memória, pela tabela do GATS. A NFS-e 89 saiu com o XML
+     certo (`4`) e o DANFSe impresso dizendo "Movimento Temporário de Pessoas
+     Físicas" — o documento que o cliente lê contradizendo o que foi
+     assinado. Corrigir num lugar só não resolve: este dicionário é outro
+     lugar onde a mesma verdade estava escrita. */
   mdPrestacao: { '0':'Desconhecido', '1':'Transfronteiriço', '2':'Consumo no Brasil',
-                 '3':'Presença Comercial no Exterior', '4':'Movimento Temporário de Pessoas Físicas' },
+                 '3':'Movimento Temporário de Pessoas Físicas', '4':'Consumo no Exterior',
+                 '5':'Consumo no Brasil e no Exterior' },
   vincPrest:   { '0':'Sem vínculo', '1':'Controlada', '2':'Controladora', '3':'Coligada',
                  '4':'Matriz', '5':'Filial ou sucursal', '6':'Outro vínculo', '9':'Desconhecido' },
   mecAFComex:  { '00':'Desconhecido', '01':'Nenhum', '02':'ACC', '03':'ACE',
