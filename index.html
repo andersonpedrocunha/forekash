@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794949394"/>
+  <meta name="fk-build" content="forekash-v1794949511"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -139589,6 +139589,13 @@ async function nfEnviarComPrevia(id){
         '<input type="email" id="nf-envio-para" class="nf-envio-para" value="' +
         _nfEsc(_nfDestinoDaNota(n)) + '" placeholder="e-mail de quem recebe a nota"' +
         ' oninput="_nfEnvioParaMudou()" autocomplete="off"></div>' +
+      /* Quando o destino é a própria casa, dizer por quê — senão parece
+         engano, e no dia em que for engano ninguém percebe. */
+      ((!String(n.email || '').trim() && _nfEhExterior(n))
+        ? '<div><span class="lbl"></span><b style="font-weight:500;color:#B45309">' +
+          'Cliente no exterior: a NFS-e não serve a ele, então a cópia vai para você. ' +
+          'Troque o endereço acima se quiser mandar mesmo assim.</b></div>'
+        : '') +
       (doCli.cc ? '<div><span class="lbl">Cópia</span><b>' + _nfEsc(doCli.cc) + '</b></div>' : '') +
       '<div><span class="lbl">De</span><b>' + _nfEsc(g ? g.de : '— remetente não configurado') + '</b></div>' +
       '<div><span class="lbl">Assunto</span><b>' + _nfEsc(m.assunto) + '</b></div>' +
@@ -139635,8 +139642,13 @@ async function nfEnvioConfirmar(){
     if(typeof showToast === 'function') showToast('Preencha o e-mail de quem recebe', 'warn');
     return;
   }
+  /* GRAVA COMO DESTINO, NÃO COMO E-MAIL DO TOMADOR.
+
+     `n.email` é o que foi assinado dentro do XML — mexer nele depois da
+     emissão faria o registro discordar do documento. `emailPara` é só o
+     endereço deste envio, e é o primeiro que o ✉ consulta da próxima vez. */
   const n = NF.notas.find(x => x && x.id === id);
-  if(n && n.email !== para){ n.email = para; nfSave(); }
+  if(n && n.emailPara !== para){ n.emailPara = para; nfSave(); }
   const btn = document.getElementById('nf-envio-ok');
   if(btn){ btn.disabled = true; btn.textContent = 'Enviando...'; }
   try{
@@ -139679,9 +139691,44 @@ function _nfDestinoDaNota(n){
   try{
     const c = (n.clienteId != null)
       ? _nfClientes().find(x => x && String(x.id) === String(n.clienteId)) : null;
-    return _nfEmailDoCliente(c) || _nfEmailDoCliente(_nfClientePorNome(n.cliente));
+    const doCadastro = _nfEmailDoCliente(c) || _nfEmailDoCliente(_nfClientePorNome(n.cliente));
+    if(doCadastro) return doCadastro;
+    /* ÚLTIMO DEGRAU: VOCÊ MESMO.
+
+       NFS-e não vale nada para um cliente no exterior — ele não recolhe ISS,
+       não credita imposto, não tem onde arquivar. Mandar para ele é cortesia;
+       guardar uma cópia é obrigação de quem emitiu.
+
+       Esse endereço vale SÓ para o envio. O e-mail do tomador é outro campo e
+       entra assinado dentro do XML: pôr o seu ali diria à Receita que o
+       e-mail da empresa estrangeira é o seu, o que é falso. */
+    if(_nfEhExterior(n)) return _nfEmailDaCasa();
+  }catch(_){}
+  return '';
+}
+/* Exterior pelo cadastro do cliente, com a marca da própria nota como
+   reserva — nota antiga pode ter saído antes de o cliente ser classificado. */
+function _nfEhExterior(n){
+  try{
+    if(n && n.exportacao) return true;
+    const c = (n && n.clienteId != null)
+      ? _nfClientes().find(x => x && String(x.id) === String(n.clienteId))
+      : _nfClientePorNome(n && n.cliente);
+    if(!c) return false;
+    return c.tipoPessoa === 'est' || !!(c.pais && c.pais !== 'BR');
+  }catch(_){ return false; }
+}
+/* O endereço da casa: o remetente configurado é o que de fato recebe, porque
+   é dele que o envio sai. O cadastro da empresa cobre quem ainda não
+   configurou o remetente. */
+function _nfEmailDaCasa(){
+  try{
+    const g = NF.cfg && NF.cfg.smtpGuardado;
+    const emp = _nfEmpresaAtiva() || {};
+    return String((g && (g.de || g.user)) || emp.emailNf || emp.email || '').trim();
   }catch(_){ return ''; }
 }
+try{ window._nfEhExterior = _nfEhExterior; window._nfEmailDaCasa = _nfEmailDaCasa; }catch(e){}
 try{ window._nfDestinoDaNota = _nfDestinoDaNota; }catch(e){}
 
 function _nfCfgEmailDoCliente(n){
