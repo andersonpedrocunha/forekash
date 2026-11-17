@@ -260,30 +260,33 @@ function assinaturaCiclo(linha, st, nf){
   return 'nf' + nf.numero + '|' + (linha.data_pagamento || '');
 }
 
-/* O selo. Não é um recado a mais na thread: é a marca de que aquele título
-   acabou. Por isso leva a cor do pago e a marca do Forekash, do mesmo jeito
-   que o cartão — quem rolar a thread de longe reconhece o fim sem ler. */
-function selo(linha, nf){
-  const ehGasto = (linha.tipo === 'gasto');
-  const cli = (linha.contraparte || '').trim()
-           || (ehGasto ? '(fornecedor não informado)' : '(cliente não informado)');
-  const quando = linha.data_pagamento ? ' em ' + dataBR(linha.data_pagamento) : '';
-  return {
-    text: '✅ Ciclo completo · ' + cli,
-    attachments: [{
-      color: STATUS_COR.pago,
-      blocks: [
-        { type:'section', text:{ type:'mrkdwn',
-          text: '*✅  Ciclo completo*\n'
-              + (ehGasto ? 'Lançado, pago' : 'Lançado, recebido') + quando
-              + ' e com a NFS-e nº ' + nf.numero + ' emitida.' } },
-        { type:'context', elements:[
-          { type:'image', image_url: MARCA, alt_text:'Forekash' },
-          { type:'mrkdwn', text:'MR KASH · *fechei este* · nada mais a fazer aqui' }
-        ]}
-      ]
-    }]
-  };
+/* O selo É UMA REAÇÃO, NÃO UM RECADO.
+
+   A thread conta a história: venceu, entrou, a nota saiu. Mais uma mensagem
+   ali só empurraria essa história pra cima — e "acabou" não é um capítulo,
+   é uma marca. O ✅ fica no próprio cartão, do lado de fora, onde se vê sem
+   abrir nada: no meio de vinte cartões no canal, os fechados se reconhecem
+   de longe.
+
+   É também o único jeito de o fim ser REVERSÍVEL. Nota cancelada ou baixa
+   desfeita reabre o título, e aí o check sai — uma mensagem na thread teria
+   que ser desmentida por outra mensagem. */
+const CICLO_EMOJI = 'white_check_mark';
+
+async function marcarCiclo(env, canal, ts, poe){
+  const j = await slack(env, poe ? 'reactions.add' : 'reactions.remove',
+                        { channel: canal, timestamp: ts, name: CICLO_EMOJI });
+  /* Já estar como deveria é sucesso: o que importa é o estado do cartão, não
+     quem pôs a marca — inclusive quando foi alguém do time que clicou. */
+  if(j.ok) return 'ok';
+  if(j.error === 'already_reacted' || j.error === 'no_reaction') return 'ok';
+  /* Sem a permissão, insistir a cada dez minutos não conserta nada: dá por
+     feito, deixa dito no log, e quem reinstalar o app ganha o selo. */
+  if(j.error === 'missing_scope'){
+    console.warn('[trilha] sem reactions:write — o ✅ do ciclo não vai sair');
+    return 'ok';
+  }
+  return j.error || 'recusou';
 }
 
 /* ── Slack ───────────────────────────────────────────────────────────── */
@@ -463,7 +466,6 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
             t.ts = v.ts;
             if(v.canalId) t.canalId = v.canalId;
             t.statusVisto = st; t.recebidoVisto = rec; t.nfVisto = nfAs;
-            t.cicloAs = cicloAgora;
             delete t.postando;
             await gravarTrilha(env, l.id, t);
             continue;
@@ -477,7 +479,6 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
                        ') — adotando em vez de repostar');
           t.ts = tsNoCanal; t.canalId = t.canalId || canal;
           t.statusVisto = st; t.recebidoVisto = rec; t.nfVisto = nfAs;
-          t.cicloAs = cicloAgora;
           delete t.postando;
           await trkAnotado(env, l.local_id, t.ts, t.canalId);
           await gravarTrilha(env, l.id, t);
@@ -501,11 +502,10 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
           } else throw new Error(r.error);
         } else { t.ts = r.ts; t.canalId = r.channel; }
         t.statusVisto = st; t.recebidoVisto = rec; t.nfVisto = nfAs;
-        /* Cartão que JÁ NASCE fechado não ganha selo: a assinatura entra calada.
-           O selo marca um caminho acompanhado chegando ao fim — anunciar o fim
-           de um caminho que ninguém viu andar é só barulho, e o próprio cartão
-           já nasce verde e com a nota. */
-        t.cicloAs = cicloAgora;
+        /* Nem aqui nem nos dois ramos acima a assinatura é pré-gravada: o ✅ é
+           estado, não anúncio. Cartão que já nasce fechado também merece a
+           marca, e cartão adotado pode já tê-la — nesse caso o Slack responde
+           `already_reacted` e a próxima rodada só confirma o que já está lá. */
         t.desde = t.desde || new Date().toISOString();
         delete t.postando;                     // reserva cumprida
         /* O livro ANTES do banco: se a gravação do metadata falhar, o KV já
@@ -529,8 +529,10 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
       /* O ciclo pode fechar sem que nada no cartão mude — é o caso do título
          que já estava pago e recebeu a nota numa rodada anterior. Sem entrar
          na conta aqui, o selo nunca sairia nesses. */
-      const fechouCiclo = !!cicloAgora && (t.cicloAs || '') !== cicloAgora;
-      if(!mudouStatus && !mudouValor && !mudouNf && !fechouCiclo) continue;
+      const selado   = t.cicloSelo || '';
+      const poeSelo  = !!cicloAgora && selado !== cicloAgora;
+      const tiraSelo = !cicloAgora && !!selado;
+      if(!mudouStatus && !mudouValor && !mudouNf && !poeSelo && !tiraSelo) continue;
 
       /* Só reescreve o cartão se o cartão mudou: `chat.update` à toa deixa um
          "(editado)" no canal sem nada ter editado. */
@@ -550,17 +552,21 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
           text: recadoNf(nfl)
         });
       }
-      /* Por último, e depois dos dois: quando recebimento e nota caem na mesma
-         rodada, a thread conta o que aconteceu e só então dá por encerrado. */
-      if(fechouCiclo){
-        await slack(env, 'chat.postMessage',
-          Object.assign({ channel: t.canalId || canal, thread_ts: t.ts, unfurl_links:false },
-                        selo(l, nfl)));
+      /* Por último, e depois dos recados: quando recebimento e nota caem na
+         mesma rodada, a thread conta o que aconteceu e só então o cartão
+         ganha a marca de encerrado.
+         A assinatura só é guardada se o Slack confirmou — guardar antes seria
+         dar por selado um cartão sem selo, e ninguém voltaria pra conferir. */
+      if(poeSelo){
+        const e = await marcarCiclo(env, t.canalId || canal, t.ts, true);
+        if(e === 'ok') t.cicloSelo = cicloAgora;
+        else console.warn('[trilha] ' + l.local_id + ' sem o ✅: ' + e);
+      }else if(tiraSelo){
+        const e = await marcarCiclo(env, t.canalId || canal, t.ts, false);
+        if(e === 'ok') t.cicloSelo = '';
+        else console.warn('[trilha] ' + l.local_id + ' com ✅ a mais: ' + e);
       }
       t.statusVisto = st; t.recebidoVisto = rec; t.nfVisto = nfAs;
-      /* Grava também quando vazia: ciclo reaberto (baixa desfeita, nota
-         cancelada) volta a poder fechar — e a fechar de novo. */
-      t.cicloAs = cicloAgora;
       await gravarTrilha(env, l.id, t);
       mudados++;
     }catch(e){
@@ -573,7 +579,7 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
 }
 
 export const _testes = { statusDe, alvoCaixa, recebido, cartao, recado, recadoNf, nfTexto,
-                         assinaturaCiclo, selo, brl, dataBR };
+                         assinaturaCiclo, brl, dataBR };
 
 /* ══ AVISOS DE LANÇAMENTO ═════════════════════════════════════════════════
    Anúncio configurado pela empresa, postado uma vez só quando a condição
