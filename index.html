@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794949959"/>
+  <meta name="fk-build" content="forekash-v1794950902"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1133,6 +1133,11 @@
     .nf-selo.novo{color:#B45309}
     .nf-selo.exp{color:#1D4ED8}
     .nf-cli-exp{margin-top:4px;font-size:.7rem;color:#1D4ED8;font-weight:600;line-height:1.35}
+    .nf-exp-conf{display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;padding:11px 13px;
+      background:#fff;border:1px solid #BAE6FD;border-radius:9px;cursor:pointer}
+    .nf-exp-conf input{width:16px;height:16px;flex:none;margin-top:1px;accent-color:#0284C7;cursor:pointer}
+    .nf-exp-conf span{font-size:.8rem;color:#0F172A;line-height:1.5}
+    .nf-exp-conf small{display:block;margin-top:4px;font-size:.72rem;color:#475569;line-height:1.5}
     .nf-cambio{display:block;margin-top:5px;font-size:.7rem;color:#64748B}
     .nf-cambio.fora{color:#B45309;font-weight:700}
     .nf-comex{border:1.5px solid #BFDBFE;background:#EFF6FF;border-radius:10px;padding:12px 14px;margin-bottom:14px}
@@ -137215,7 +137220,11 @@ function nfMontarDPS(opts){
     /* TRÊS CAMINHOS PARA NÃO RETER, UM CAMPO SÓ NO XML.
        Exportação e pessoa física o Forekash deduz sozinho; "este cliente não
        retém" (optante do Simples, dispensado) é fato que só o cadastro sabe. */
-    semRetencao: exp || pessoaFisica || String(end.retFed || '') === 'nao',
+    /* TOMADOR NO EXTERIOR NÃO RETÉM — NEM QUANDO NÃO É EXPORTAÇÃO.
+       Retenção federal é obrigação de fonte pagadora brasileira. Empresa de
+       fora não é, e isso não muda porque o resultado se verificou aqui. */
+    semRetencao: exp || pessoaFisica || !!(cli && (cli.tipoPessoa === 'est' ||
+                 (cli.pais && cli.pais !== 'BR'))) || String(end.retFed || '') === 'nao',
     /* ISS RETIDO É DO TOMADOR, NÃO DO SERVIÇO. 1 = não retido, 2 = retido
        pelo tomador. Era fixo em 1: cliente substituto tributário no município
        dele recebia nota dizendo que o ISS não foi retido — e aí ou ninguém
@@ -137361,6 +137370,23 @@ function _nfIssRetidoHtml(end){
     : '';
 }
 function _nfFmtBRL(v){ return 'R$ ' + _nfFmt(v); }
+/* Marcar e desmarcar muda a NATUREZA da nota: com exportação o ISS não
+   incide e o grupo de comércio exterior é obrigatório; sem ela, o ISS incide
+   como em qualquer nota e o grupo não vai. Redesenha o formulário porque
+   metade dos campos deixa de fazer sentido. */
+function nfExpConfirma(marcado){
+  try{
+    NF_DRAFT.exportacao = !!marcado;
+    /* Sem exportação não há país de resultado a declarar. O país do tomador
+       continua no cadastro — ele é do endereço, não da tributação. */
+    if(!marcado) NF_DRAFT.cPaisResult = '';
+    _nfDraftDaTela();
+    NF_DRAFT.exportacao = !!marcado;
+    nfRenderCreateForm();
+  }catch(e){ console.warn('[FK] exportação:', e && e.message); }
+}
+try{ window.nfExpConfirma = nfExpConfirma; }catch(e){}
+
 function nfLiquidoAtualiza(){
   const el = document.getElementById('nf-liquido');
   if(el) el.innerHTML = _nfLiquidoHtml();
@@ -137520,6 +137546,20 @@ const NF_COMEX_MODOS = [
   ['3','Movimento temporário de pessoas físicas — alguém viajou para prestar'],
   ['4','Consumo no exterior — o serviço é consumido fora do Brasil']
 ];
+/* Cliente do exterior pelo cadastro — e pelo rascunho, que é o que existe
+   antes de alguém cadastrar. */
+function _nfClienteDeFora(d){
+  try{
+    d = d || NF_DRAFT || {};
+    if(d.exportacao) return true;
+    const c = (d.clienteId != null)
+      ? _nfClientes().find(x => x && String(x.id) === String(d.clienteId)) : null;
+    if(c) return c.tipoPessoa === 'est' || !!(c.pais && c.pais !== 'BR');
+    return !!(d.pais && d.pais !== 'BR');
+  }catch(_){ return false; }
+}
+try{ window._nfClienteDeFora = _nfClienteDeFora; }catch(e){}
+
 function _nfComexHtml(d){
   /* A FICHA DO CLIENTE MANDA, E ANTES DO PADRÃO GERAL.
 
@@ -137532,9 +137572,34 @@ function _nfComexHtml(d){
   const modo  = String(d.mdPrestacao || _end.comexModo || (NF.cfg && NF.cfg.comexModo) || '1');
   const opc = (lista, atual) => lista.map(([v, t]) =>
     '<option value="' + v + '"' + (v === atual ? ' selected' : '') + '>' + _nfEsc(t) + '</option>').join('');
+  /* A PERGUNTA DO EMISSOR NACIONAL, QUE AQUI ESTAVA IMPLÍCITA.
+
+     O portal pergunta, em texto: "é um caso de imunidade, exportação ou não
+     incidência?" e depois "em que país se verificou o resultado?". O Forekash
+     deduzia tudo isso de um fato só — o cliente é estrangeiro.
+
+     Não é a mesma coisa. A LC 116/2003, art. 2º, parágrafo único, diz que NÃO
+     é exportação o serviço desenvolvido no Brasil cujo RESULTADO aqui se
+     verifique, ainda que o pagamento venha de fora. Cliente no exterior é
+     indício; o resultado é o fato. Quem sabe disso é quem prestou o serviço,
+     e a resposta tinha que estar na tela — não escondida numa dedução. */
+  const paisNome = (() => {
+    try{ const p = recPaisByCode(String(d.pais || '')); return (p && p.nome) || String(d.pais || 'o exterior'); }
+    catch(_){ return String(d.pais || 'o exterior'); }
+  })();
   return '<div class="nf-comex">' +
     '<div class="nf-comex-tt">Comércio exterior <small>obrigatório na exportação</small></div>' +
-    '<div class="nf-field-row three">' +
+    '<label class="nf-exp-conf"><input type="checkbox" id="nf-f-exp"' + (d.exportacao ? ' checked' : '') +
+      ' onchange="nfExpConfirma(this.checked)">' +
+      '<span><b>Exportação de serviço</b> — ' +
+      (d.exportacao
+        ? ('o resultado se verifica em ' + _nfEsc(paisNome) + ', fora do Brasil, então o ISS não incide.')
+        : ('<b style="color:#B45309">desmarcado</b>: o ISS incide normalmente, como em nota nacional.')) +
+      '<small>Desmarque se o resultado deste serviço se verifica no Brasil: aí o ISS incide normalmente, ' +
+      'mesmo com o cliente no exterior e o pagamento vindo de fora (LC 116/2003, art. 2º, parágrafo único).</small>' +
+      '</span></label>' +
+    (!d.exportacao ? '' :
+    '<div class="nf-field-row">' +
       '<div class="nf-field"><label>Moeda da fatura</label>' +
         '<select id="nf-f-moeda" onchange="NF_DRAFT.tpMoeda=this.value">' + opc(NF_COMEX_MOEDAS, moeda) + '</select></div>' +
       '<div class="nf-field"><label>Valor na moeda</label>' +
@@ -137545,9 +137610,13 @@ function _nfComexHtml(d){
            o câmbio errado declarado ao MDIC. Vendo "R$ 5,7541/USD" ao lado,
            o erro salta. */
         '<small class="nf-cambio" id="nf-cambio"></small></div>' +
-      '<div class="nf-field"><label>Modo de prestação</label>' +
-        '<select id="nf-f-modoprest" onchange="NF_DRAFT.mdPrestacao=this.value">' + opc(NF_COMEX_MODOS, modo) + '</select></div>' +
-    '</div></div>';
+    '</div>' +
+    /* Linha própria: o rótulo do modo é uma frase, e espremido em um terço
+       da largura ele virava "Consumo no exterior — o serviç…". Campo que o
+       usuário não consegue ler inteiro é campo que ele escolhe no escuro. */
+    '<div class="nf-field"><label>Modo de prestação</label>' +
+      '<select id="nf-f-modoprest" onchange="NF_DRAFT.mdPrestacao=this.value">' + opc(NF_COMEX_MODOS, modo) + '</select></div>') +
+    '</div>';
 }
 
 /* Câmbio implícito entre o valor da nota e o valor na moeda da fatura.
@@ -137599,7 +137668,17 @@ function _nfDraftDoCadastro(d){
        no mesmo resultado. */
     d.clienteId  = c.id;
     d.pais       = c.pais || 'BR';
-    d.exportacao = !!(c.pais && c.pais !== 'BR') || c.tipoPessoa === 'est';
+    /* EXPORTAÇÃO NÃO SE REDEDUZ A CADA REDESENHO.
+
+       Isto roda em todo `nfRenderCreateForm`, e o formulário é redesenhado
+       quando a pessoa marca ou desmarca "exportação de serviço". Deduzir de
+       novo a partir do país do cliente desfazia a escolha no mesmo instante:
+       desmarcar não desmarcava nada.
+
+       Rascunho novo não tem o campo, e aí a dedução vale — é ela que faz a
+       nota de cliente estrangeiro já nascer como exportação. */
+    if(d.exportacao == null)
+      d.exportacao = !!(c.pais && c.pais !== 'BR') || c.tipoPessoa === 'est';
   }catch(e){ console.warn('[FK] cliente do cadastro:', e && e.message); }
 }
 try{ window._nfDraftDoCadastro = _nfDraftDoCadastro; }catch(e){}
@@ -137676,7 +137755,10 @@ function nfRenderCreateForm(){
           '<div class="cart-cbx-pop" id="cart-cbx-pop-nfsv"></div>' +
         '</div></div>' +
     '</div>' +
-    (d.exportacao ? _nfComexHtml(d) : '') +
+    /* O bloco aparece para todo cliente do exterior, não só quando a nota
+       está marcada como exportação — senão desmarcar esconderia a própria
+       caixa que permite marcar de volta. */
+    (_nfClienteDeFora(d) ? _nfComexHtml(d) : '') +
     '<div class="nf-field"><label>Descrição dos serviços prestados</label>' +
       '<textarea id="nf-f-desc" rows="3" oninput="nfLiquidoAtualiza()" placeholder="Ex.: Desenvolvimento de software customizado · Maio/2026 · Contrato #1284">' + _nfEsc(d.descricao) + '</textarea></div>' +
     /* OS CÓDIGOS FISCAIS APARECEM, MAS NÃO SE DIGITAM AQUI.
