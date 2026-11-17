@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794950902"/>
+  <meta name="fk-build" content="forekash-v1794951329"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1133,6 +1133,8 @@
     .nf-selo.novo{color:#B45309}
     .nf-selo.exp{color:#1D4ED8}
     .nf-cli-exp{margin-top:4px;font-size:.7rem;color:#1D4ED8;font-weight:600;line-height:1.35}
+    .nf-tribiss{display:grid;gap:12px;margin:12px 0}
+    .nf-tribiss-nota{display:block;margin-top:5px;font-size:.72rem;color:#64748B;line-height:1.5}
     .nf-exp-conf{display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;padding:11px 13px;
       background:#fff;border:1px solid #BAE6FD;border-radius:9px;cursor:pointer}
     .nf-exp-conf input{width:16px;height:16px;flex:none;margin-top:1px;accent-color:#0284C7;cursor:pointer}
@@ -137095,7 +137097,10 @@ function nfMontarDPS(opts){
   /* TOMADOR. No Brasil a DPS exige endereço; no exterior exige país e
      cidade. O cadastro de clientes guarda pouco disso hoje — então é aqui
      que a falta aparece, com o nome do campo que a pessoa reconhece. */
-  const exp = !!d.exportacao;
+  /* O motivo escolhido manda; `exportacao` vira só a leitura dele. Antes
+     havia duas fontes para a mesma verdade, e elas podiam discordar. */
+  const tribIss = _nfTribIss(d);
+  const exp = tribIss === '3';
   /* PESSOA FÍSICA NÃO RETÉM.
 
      A retenção de IRRF, PIS, COFINS e CSLL na fonte é obrigação de quem
@@ -137188,7 +137193,7 @@ function nfMontarDPS(opts){
     }),
     cTribNac: sv.cTribNac, cNBS: sv.cNBS, xDescServ: String(d.descricao || '').trim(),
     vServ: Number(d.valor) || 0,
-    tribISSQN: exp ? '3' : '1',
+    tribISSQN: tribIss,
     /* PAÍS DO RESULTADO — é o fato que sustenta a não incidência.
        LC 116/2003, art. 2º, parágrafo único: NÃO é exportação o serviço
        desenvolvido aqui cujo resultado aqui se verifique. Sem este campo a
@@ -137196,7 +137201,10 @@ function nfMontarDPS(opts){
        Fisco pode cobrar depois.
        O padrão é o país do tomador: é lá que o resultado de software se
        verifica. Se um dia o resultado for em outro país, é aqui que muda. */
-    cPaisResult: exp ? (toma.cPais || '') : '',
+    /* Só na exportação, e com o país que a pessoa escolheu — o do cliente é
+       apenas o padrão. Fora da exportação, informar o campo é rejeição
+       (E0591). */
+    cPaisResult: exp ? (d.cPaisResult || toma.cPais || '') : '',
     /* Grupo de comércio exterior — Anexo VI, linha 58: obrigatório. */
     mdPrestacao: exp ? String(d.mdPrestacao || end.comexModo || NF.cfg.comexModo  || '1')   : '',
     tpMoeda:     exp ? String(d.tpMoeda     || end.comexMoeda || NF.cfg.comexMoeda || '220') : '',
@@ -137301,6 +137309,12 @@ function _nfLiquidoHtml(){
   const d = NF_DRAFT || {};
   const base = Number((document.getElementById('nf-f-valor') || {}).value) || Number(d.valor) || 0;
   if(!(base > 0)) return '';
+  const _trib = _nfTribIss(d);
+  if(_trib === '2' || _trib === '4'){
+    return '<span class="nf-liq-lbl">' + (_trib === '2' ? 'Imunidade' : 'Não incidência') + '</span>'
+      + '<span class="nf-liq-nota">ISS não calculado · entra ' + _nfFmtBRL(base) + '</span>'
+      + _nfIbsCbsHtml(base);
+  }
   if(d.exportacao){
     /* Exportação não tem retenção — mas TEM IBS/CBS. A nota da Bloom pagou
        R$ 1.754,08 com ISS zerado. Não é isenta. */
@@ -137410,6 +137424,8 @@ function _nfDraftDaTela(){
   if(document.getElementById('nf-f-desc'))  NF_DRAFT.descricao = v('nf-f-desc').trim();
   if(document.getElementById('nf-f-comp'))  NF_DRAFT.competencia = v('nf-f-comp').trim();
   if(NF_DRAFT.exportacao){
+    if(document.getElementById('nf-f-tribiss'))   NF_DRAFT.tribISSQN   = v('nf-f-tribiss') || '1';
+    if(document.getElementById('nf-f-paisres'))   NF_DRAFT.cPaisResult = v('nf-f-paisres') || '';
     if(document.getElementById('nf-f-moeda'))     NF_DRAFT.tpMoeda     = v('nf-f-moeda') || '220';
     if(document.getElementById('nf-f-vmoeda'))    NF_DRAFT.vServMoeda  = Number(v('nf-f-vmoeda')) || 0;
     if(document.getElementById('nf-f-modoprest')) NF_DRAFT.mdPrestacao = v('nf-f-modoprest') || '1';
@@ -137546,6 +137562,71 @@ const NF_COMEX_MODOS = [
   ['3','Movimento temporário de pessoas físicas — alguém viajou para prestar'],
   ['4','Consumo no exterior — o serviço é consumido fora do Brasil']
 ];
+/* ══ TRIBUTAÇÃO DO ISSQN — A PERGUNTA DO PORTAL, COM AS QUATRO RESPOSTAS ══
+
+   O emissor nacional pergunta "é um caso de imunidade, exportação ou não
+   incidência?" e, se for, pede o motivo numa lista. O Forekash conhecia dois
+   motivos — tributável e exportação — porque eram os dois que a casa usa.
+   Para quem é imune, ou presta serviço fora do campo de incidência, a nota
+   saía tributada: imposto cobrado onde não há imposto.
+
+   O país do resultado também era deduzido do endereço do cliente. Na maioria
+   das vezes acerta, mas não é a mesma coisa: o que a lei pergunta é onde o
+   RESULTADO se verificou, e ele pode se verificar num terceiro país. O portal
+   pergunta separado; aqui também.
+
+   Fora da exportação o país não vai — a regra E0591 recusa a DPS que informe
+   `cPaisResult` nos outros casos. */
+const NF_TRIB_ISS = [
+  ['1', 'Operação tributável — o ISS incide normalmente'],
+  ['3', 'Exportação de serviço — o resultado se verifica no exterior'],
+  ['2', 'Imunidade — a Constituição afasta o imposto'],
+  ['4', 'Não incidência — a operação está fora do campo do ISS']
+];
+function _nfTribIss(d){
+  d = d || NF_DRAFT || {};
+  if(d.tribISSQN) return String(d.tribISSQN);
+  return d.exportacao ? '3' : '1';
+}
+function _nfTribIssHtml(d){
+  const atual = _nfTribIss(d);
+  const opc = NF_TRIB_ISS.map(([v, t]) =>
+    '<option value="' + v + '"' + (v === atual ? ' selected' : '') + '>' + _nfEsc(t) + '</option>').join('');
+  let paises = '';
+  if(atual === '3'){
+    let lista = [];
+    try{ lista = (typeof recAllPaises === 'function') ? recAllPaises() : REC_PAISES; }catch(_){ lista = []; }
+    const atualPais = String(d.cPaisResult || d.pais || '');
+    paises = '<div class="nf-field"><label>País em que o resultado se verificou</label>' +
+      '<select id="nf-f-paisres" onchange="NF_DRAFT.cPaisResult=this.value">' +
+      lista.filter(p => p && p.code && p.code !== 'BR').map(p =>
+        '<option value="' + p.code + '"' + (p.code === atualPais ? ' selected' : '') + '>' +
+        _nfEsc((p.flag ? p.flag + ' ' : '') + p.nome) + '</option>').join('') +
+      '</select>' +
+      '<small class="nf-tribiss-nota">Quase sempre é o país do cliente, mas o que a lei pergunta é onde o ' +
+      'RESULTADO se verificou — pode ser outro. Guarde a prova: o Fisco pode pedir que você demonstre ' +
+      'que o serviço atendeu demanda satisfeita no mercado exterior (LC 116/2003, art. 2º, parágrafo único).</small></div>';
+  }
+  const aviso = atual === '1' ? ''
+    : atual === '3' ? ''
+    : '<small class="nf-tribiss-nota">O ISS não será calculado nesta nota. Guarde o enquadramento ' +
+      'que sustenta isso — é ele que o município vai pedir.</small>';
+  return '<div class="nf-tribiss">' +
+    '<div class="nf-field"><label>Tributação do ISSQN</label>' +
+      '<select id="nf-f-tribiss" onchange="nfTribIssMuda(this.value)">' + opc + '</select>' + aviso +
+    '</div>' + paises + '</div>';
+}
+function nfTribIssMuda(v){
+  try{
+    _nfDraftDaTela();
+    NF_DRAFT.tribISSQN = String(v || '1');
+    NF_DRAFT.exportacao = (String(v) === '3');
+    if(String(v) !== '3') NF_DRAFT.cPaisResult = '';
+    nfRenderCreateForm();
+  }catch(e){ console.warn('[FK] tributação do ISS:', e && e.message); }
+}
+try{ window.nfTribIssMuda = nfTribIssMuda; window._nfTribIss = _nfTribIss; }catch(e){}
+
 /* Cliente do exterior pelo cadastro — e pelo rascunho, que é o que existe
    antes de alguém cadastrar. */
 function _nfClienteDeFora(d){
@@ -137589,15 +137670,10 @@ function _nfComexHtml(d){
   })();
   return '<div class="nf-comex">' +
     '<div class="nf-comex-tt">Comércio exterior <small>obrigatório na exportação</small></div>' +
-    '<label class="nf-exp-conf"><input type="checkbox" id="nf-f-exp"' + (d.exportacao ? ' checked' : '') +
-      ' onchange="nfExpConfirma(this.checked)">' +
-      '<span><b>Exportação de serviço</b> — ' +
-      (d.exportacao
-        ? ('o resultado se verifica em ' + _nfEsc(paisNome) + ', fora do Brasil, então o ISS não incide.')
-        : ('<b style="color:#B45309">desmarcado</b>: o ISS incide normalmente, como em nota nacional.')) +
-      '<small>Desmarque se o resultado deste serviço se verifica no Brasil: aí o ISS incide normalmente, ' +
-      'mesmo com o cliente no exterior e o pagamento vindo de fora (LC 116/2003, art. 2º, parágrafo único).</small>' +
-      '</span></label>' +
+    /* A pergunta da tributação saiu daqui: ela vale para toda nota, não só
+       para as de cliente estrangeiro, e viver em dois lugares criaria duas
+       fontes para a mesma verdade. Agora mora logo acima, com os quatro
+       motivos do leiaute. */
     (!d.exportacao ? '' :
     '<div class="nf-field-row">' +
       '<div class="nf-field"><label>Moeda da fatura</label>' +
@@ -137758,6 +137834,7 @@ function nfRenderCreateForm(){
     /* O bloco aparece para todo cliente do exterior, não só quando a nota
        está marcada como exportação — senão desmarcar esconderia a própria
        caixa que permite marcar de volta. */
+    _nfTribIssHtml(d) +
     (_nfClienteDeFora(d) ? _nfComexHtml(d) : '') +
     '<div class="nf-field"><label>Descrição dos serviços prestados</label>' +
       '<textarea id="nf-f-desc" rows="3" oninput="nfLiquidoAtualiza()" placeholder="Ex.: Desenvolvimento de software customizado · Maio/2026 · Contrato #1284">' + _nfEsc(d.descricao) + '</textarea></div>' +
