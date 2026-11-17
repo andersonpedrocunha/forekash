@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794953010"/>
+  <meta name="fk-build" content="forekash-v1794953604"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1363,11 +1363,32 @@
                            font-weight:700;cursor:pointer;border:1.5px solid #E2E8F0;background:#fff;color:#475569}
     .nf-view-doc-hd button:hover{background:#F1F5F9;color:#0F172A}
     .nf-view-doc-hd button.primary{background:#0EA5E9;color:#fff;border-color:#0EA5E9}
-    .nf-danfse-quadro{background:#475569;border-radius:10px;padding:12px;display:flex;justify-content:center}
-    .nf-danfse-palco{width:492px;max-width:100%;height:697px;overflow:hidden;background:#fff;
+    /* O DANFSe e uma folha A4 inteira espremida num quadro. O zoom e so
+       dele: quem cresce e o papel, o quadro rola, e nada no resto da tela
+       muda de tamanho. Uma variavel so, lida pelo palco e pelo iframe. */
+    .nf-view-doc{min-width:0}
+    /* Centraliza por margin:auto, nao por justify-content: com a folha
+       maior que o quadro, o centro do flex come a borda esquerda e ela
+       fica inalcancavel por rolagem. */
+    .nf-danfse-quadro{--nf-zoom:.62;background:#475569;border-radius:10px;padding:12px;
+                      display:flex;overflow:auto;max-height:min(78vh,780px)}
+    .nf-danfse-quadro > .nf-danfse-aviso{margin:auto}
+    .nf-danfse-palco{width:calc(794px * var(--nf-zoom));height:calc(1123px * var(--nf-zoom));
+                     flex:0 0 auto;margin:auto;overflow:hidden;background:#fff;
                      box-shadow:0 8px 24px rgba(0,0,0,.28)}
-    #nf-danfse-frame{width:794px;height:1123px;border:0;display:block;transform:scale(.62);transform-origin:top left}
+    #nf-danfse-frame{width:794px;height:1123px;border:0;display:block;
+                     transform:scale(var(--nf-zoom));transform-origin:top left}
     .nf-danfse-aviso{color:#E2E8F0;font-size:.78rem;padding:28px 16px;text-align:center;line-height:1.5}
+    /* Dentro do palco o fundo e branco: aviso claro ali some. */
+    .nf-danfse-palco .nf-danfse-aviso{color:#64748B}
+    .nf-view-doc-hd .nf-zoom{display:flex;align-items:center;border:1.5px solid #E2E8F0;
+                             border-radius:7px;overflow:hidden;background:#fff}
+    .nf-view-doc-hd .nf-zoom button{border:0;border-radius:0;padding:6px 10px;font-size:.86rem;
+                                    line-height:1;font-weight:700;color:#475569;background:#fff}
+    .nf-view-doc-hd .nf-zoom button+button{border-left:1.5px solid #E2E8F0}
+    .nf-view-doc-hd .nf-zoom button.nivel{font-size:.7rem;min-width:48px;color:#0F172A;
+                                          font-variant-numeric:tabular-nums}
+    .nf-view-doc-hd .nf-zoom button:disabled{opacity:.35;cursor:default;background:#fff;color:#475569}
     .nf-view-email{margin-top:16px;padding:12px 14px;background:#F8FAFC;border:1px solid #E2E8F0;
                    border-radius:9px;font-size:.78rem;color:#475569;line-height:1.5}
     .nf-view-email b{color:#0F172A}
@@ -138176,6 +138197,16 @@ function nfOpenView(id){
       '<div class="nf-view-doc-hd">' +
         '<span class="t">Documento</span>' +
         (temXml
+          ? '<div class="nf-zoom">' +
+              '<button type="button" id="nf-zoom-menos" title="Diminuir" ' +
+                'aria-label="Diminuir" onclick="nfDanfseZoom(-1)">&minus;</button>' +
+              '<button type="button" class="nivel" id="nf-zoom-nivel" ' +
+                'title="Voltar ao tamanho padr\u00e3o" onclick="nfDanfseZoom(0)">62%</button>' +
+              '<button type="button" id="nf-zoom-mais" title="Aumentar" ' +
+                'aria-label="Aumentar" onclick="nfDanfseZoom(1)">+</button>' +
+            '</div>'
+          : '') +
+        (temXml
           ? '<button class="primary" onclick="nfDanfseBaixar(' + n.id + ')">DANFSe · PDF</button>' +
             '<button onclick="nfBaixarXmlNota(' + n.id + ')">XML</button>'
           : '') +
@@ -138222,7 +138253,7 @@ function nfOpenView(id){
       '<button onclick="nfCloseModal(\'view\')">Fechar</button>' +
     '</div>';
   document.getElementById('nf-modal-view').classList.add('open');
-  if(temXml) _nfDanfsePreencher(n.id);
+  if(temXml){ _nfZoomAplicar(); _nfDanfsePreencher(n.id); }
 }
 
 /* Gerador de QR Code — modo byte, correção M, versões 1 a 10.
@@ -139382,6 +139413,40 @@ async function nfDanfseBaixar(id){
 }
 try{ window.nfDanfse = nfDanfse; window.nfDanfseHtml = nfDanfseHtml;
      window.nfDanfseBaixar = nfDanfseBaixar; }catch(_){}
+
+/* ── ZOOM DO DANFSe ───────────────────────────────────────
+   A nota cabe inteira no quadro, e por caber ninguém lê. O − e o + mexem
+   só no papel: a tela em volta fica do mesmo tamanho. O nível escolhido
+   fica guardado, porque quem precisou aumentar uma vez vai precisar de
+   novo — e ninguém quer reajustar a cada nota que abre. */
+const _NF_ZOOM_NIVEIS = [.4, .5, .62, .8, 1, 1.25, 1.5, 2];
+const _NF_ZOOM_PADRAO = 2;                       /* .62 — a folha inteira */
+let _nfZoomIdx = _NF_ZOOM_PADRAO;
+try{
+  const g = localStorage.getItem('fk_nf_zoom');
+  if(g != null && _NF_ZOOM_NIVEIS[+g] != null) _nfZoomIdx = +g;
+}catch(_){}
+
+function nfDanfseZoom(passo){
+  _nfZoomIdx = passo === 0
+    ? _NF_ZOOM_PADRAO
+    : Math.max(0, Math.min(_NF_ZOOM_NIVEIS.length - 1, _nfZoomIdx + passo));
+  try{ localStorage.setItem('fk_nf_zoom', String(_nfZoomIdx)); }catch(_){}
+  _nfZoomAplicar();
+}
+
+function _nfZoomAplicar(){
+  const nivel = _NF_ZOOM_NIVEIS[_nfZoomIdx];
+  const quadro = document.querySelector('.nf-danfse-quadro');
+  if(quadro) quadro.style.setProperty('--nf-zoom', String(nivel));
+  const r = document.getElementById('nf-zoom-nivel');
+  if(r) r.textContent = Math.round(nivel * 100) + '%';
+  const menos = document.getElementById('nf-zoom-menos');
+  const mais  = document.getElementById('nf-zoom-mais');
+  if(menos) menos.disabled = _nfZoomIdx === 0;
+  if(mais)  mais.disabled  = _nfZoomIdx === _NF_ZOOM_NIVEIS.length - 1;
+}
+try{ window.nfDanfseZoom = nfDanfseZoom; }catch(_){}
 
 /* Preenche o quadro de pré-visualização dentro do modal da nota. */
 async function _nfDanfsePreencher(id){
