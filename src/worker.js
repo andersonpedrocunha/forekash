@@ -9,7 +9,7 @@
    Tudo que não for /api/ cai em env.ASSETS.fetch — o site não muda de
    comportamento por existir um Worker na frente.                          */
 
-import { carregar, briefing, vocabulario, criarLancamento,
+import { carregar, briefing, consultar, vocabulario, criarLancamento,
          salvarMemoria, grafico, GRAFICOS } from './forekash.js';
 import { perguntar, postar, assinaturaValida, APRENDER,
          LANCAR, GRAFICAR, separarLancamento, separarMemoria,
@@ -1100,7 +1100,8 @@ async function comandoSlack(request, env, ctx){
       /* APRENDER vai junto aqui também: corrigir ele por comando tem que
          valer tanto quanto corrigir por menção. */
       txt = await colher(env, cfg,
-        await perguntar(env, texto, briefing(d, escopoSlack(cfg)), null, APRENDER),
+        await perguntar(env, texto, briefing(d, escopoSlack(cfg)), null, APRENDER,
+                        { consultar: (args) => consultar(d, escopoSlack(cfg), args) }),
         user);
     }catch(e){ txt = 'Deu ruim aqui: ' + (e && e.message || 'erro'); deuCerto = false; }
     /* Resposta vai pro canal: a regra de não atender no privado vale aqui
@@ -1568,7 +1569,8 @@ async function responder(env, m){
   const cfg = cfgC;
   const hist = await historicoThread(env, m);
   const bruto = await perguntar(env, texto, briefing(d, escopoSlack(cfg)), hist,
-                                APRENDER + LANCAR + GRAFICAR + '\n\n' + vocabulario(d));
+                                APRENDER + LANCAR + GRAFICAR + '\n\n' + vocabulario(d),
+                                { consultar: (args) => consultar(d, escopoSlack(cfg), args) });
   const resp = await colher(env, cfg, bruto, m.user);
   const thread = { thread_ts: m.thread_ts || m.ts };
 

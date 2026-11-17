@@ -286,7 +286,61 @@ export function separarMemoria(txt){
   return { prosa, fatos };
 }
 
-export async function perguntar(env, pergunta, quadro, historico, extra){
+/* ══ A FERRAMENTA ═════════════════════════════════════════════════════════
+
+   O quadro é um resumo escrito à mão: responde bem o que foi previsto e diz
+   "não tenho esse dado" sobre o que está no banco mas não virou bloco. Cada
+   pergunta nova custava uma mudança de código — e, até ela sair, uma resposta
+   errada.
+
+   Com a consulta, ele vai buscar. O quadro continua existindo como orientação
+   — é o que dá contexto e evita uma consulta para cada bobagem —, mas deixa de
+   ser o teto do que ele consegue responder.
+
+   As travas de privacidade moram DENTRO da consulta, não no texto do prompt:
+   pedir para um modelo não olhar é torcer, não é controle. */
+const FERRAMENTAS = [{
+  name: 'consultar_lancamentos',
+  description:
+    'Busca lançamentos do Extrato Financeiro: entradas, saídas e transferências, '
+  + 'realizadas ou pendentes. Use SEMPRE que a pergunta for sobre um cliente, um '
+  + 'fornecedor, um documento, uma categoria ou um período que o quadro acima não '
+  + 'responda com precisão — inclusive para conferir uma data de pagamento, um '
+  + 'atraso ou um valor específico. Prefira consultar a dizer que não tem o dado. '
+  + 'As datas são a do dinheiro: dia do pagamento quando já baixado, vencimento '
+  + 'quando ainda pendente.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      de:  { type:'string', description:'início do período pela DATA DO DINHEIRO, AAAA-MM-DD' },
+      ate: { type:'string', description:'fim do período pela DATA DO DINHEIRO, AAAA-MM-DD' },
+      venc_de:  { type:'string', description:'início do período pelo VENCIMENTO, AAAA-MM-DD. Use quando a pergunta for sobre um vencimento ("pagou o vencimento de outubro?"), porque o pagamento pode ter caído em outro mês' },
+      venc_ate: { type:'string', description:'fim do período pelo VENCIMENTO, AAAA-MM-DD' },
+      quem: { type:'string', description:'nome ou parte do nome do cliente/fornecedor' },
+      texto: { type:'string', description:'parte da descrição, do número do documento ou das notas' },
+      categoria: { type:'string' },
+      tipo: { type:'string', enum:['ganho','gasto','transferencia'] },
+      situacao: { type:'string', enum:['pago','pendente','atrasado'],
+                  description:'atrasado = pendente com vencimento já passado' },
+      agrupar_por: { type:'string', enum:['mes','categoria','contraparte'],
+                     description:'devolve somas por grupo em vez da lista' },
+      limite: { type:'integer', description:'quantas linhas trazer (até 60, padrão 20)' }
+    }
+  }
+}];
+
+const COMO_CONSULTAR =
+  '\n\n# QUANDO CONSULTAR\n'
++ 'Você tem uma ferramenta de consulta ao Extrato. O quadro acima é resumo: use a '
++ 'consulta sempre que a resposta exigir um lançamento específico, uma data de '
++ 'pagamento, um documento, um cliente fora do top da lista ou um período que o '
++ 'quadro não cobre. Consultar é barato; errar número não é. Depois de consultar, '
++ 'responda com o número que voltou — não repita o do quadro se os dois '
++ 'discordarem, e diga qual é qual se a diferença importar.\n'
++ 'O que a consulta não devolve, não existe para você: o que está escondido por '
++ 'privacidade sai de lá já filtrado, igual ao quadro.';
+
+export async function perguntar(env, pergunta, quadro, historico, extra, ferramentas){
   /* A API não aceita a conversa abrindo pelo assistente nem dois turnos
      seguidos do mesmo lado. Thread de Slack não respeita nenhuma das duas:
      começa com um cartão do bot e tem três perguntas seguidas sem resposta no
@@ -303,31 +357,66 @@ export async function perguntar(env, pergunta, quadro, historico, extra){
   const anterior = msgs[msgs.length - 1];
   if(anterior && anterior.role === 'user') anterior.content += '\n' + pergunta;
   else msgs.push({ role: 'user', content: pergunta });
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: Object.assign(
-      { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2026-10-21',
-        'content-type': 'application/json' },
-      env.ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': env.ANTHROPIC_WORKSPACE_ID } : {}),
-    body: JSON.stringify({
-      model: env.MRK_MODEL || 'claude-opus-5-5',
-      max_tokens: 4000,
-      output_config: { effort: 'medium' },
-      /* O quadro é igual entre perguntas do mesmo dia: marcado como cacheável,
-         a segunda em diante lê o prefixo por uma fração do preço. */
-      system: [{ type: 'text', text: VOZ_BASE + OPINIAO + IDENTIDADE + CONVERSA + SO_NUMEROS + (extra || '') +
-                 '\n\n# OS NÚMEROS DESTA EMPRESA\n\n' + quadro,
-                 cache_control: { type: 'ephemeral' } }],
-      messages: msgs
-    })
-  });
-  if(!r.ok){
-    let det = ''; try{ det = ((await r.json()).error || {}).message || ''; }catch(_){}
-    throw new Error('Anthropic ' + r.status + (det ? ' · ' + det.slice(0,300) : ''));
+  const temFerr = !!(ferramentas && typeof ferramentas.consultar === 'function');
+  const sistema = VOZ_BASE + OPINIAO + IDENTIDADE + CONVERSA + SO_NUMEROS + (extra || '') +
+                  (temFerr ? COMO_CONSULTAR : '') +
+                  '\n\n# OS NÚMEROS DESTA EMPRESA\n\n' + quadro;
+
+  const chamar = async () => {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: Object.assign(
+        { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2026-10-21',
+          'content-type': 'application/json' },
+        env.ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': env.ANTHROPIC_WORKSPACE_ID } : {}),
+      body: JSON.stringify(Object.assign({
+        model: env.MRK_MODEL || 'claude-opus-5-5',
+        max_tokens: 4000,
+        output_config: { effort: 'medium' },
+        /* O quadro é igual entre perguntas do mesmo dia: marcado como cacheável,
+           a segunda em diante lê o prefixo por uma fração do preço. */
+        system: [{ type: 'text', text: sistema, cache_control: { type: 'ephemeral' } }],
+        messages: msgs
+      }, temFerr ? { tools: FERRAMENTAS } : {}))
+    });
+    if(!r.ok){
+      let det = ''; try{ det = ((await r.json()).error || {}).message || ''; }catch(_){}
+      throw new Error('Anthropic ' + r.status + (det ? ' · ' + det.slice(0,300) : ''));
+    }
+    return r.json();
+  };
+
+  /* O LAÇO DA FERRAMENTA.
+
+     Três idas e voltas bastam para o que ele pergunta aqui, e o teto existe
+     para que um pedido mal formado não vire conversa infinita cobrada por
+     token. Na última rodada a resposta sai com o que ele já tem — melhor uma
+     resposta com ressalva que um silêncio. */
+  for(let volta = 0; volta < 4; volta++){
+    const j = await chamar();
+    if(j.stop_reason === 'refusal') return 'Recusei essa. Pergunta de outro jeito.';
+    const blocos = j.content || [];
+    const pedidos = blocos.filter(b => b && b.type === 'tool_use');
+    if(!pedidos.length || !temFerr || volta === 3)
+      return blocos.filter(b => b && b.type === 'text').map(b => b.text).join('\n').trim();
+
+    msgs.push({ role:'assistant', content: blocos });
+    const respostas = [];
+    for(const p of pedidos){
+      let dado;
+      try{
+        dado = (p.name === 'consultar_lancamentos')
+          ? ferramentas.consultar(p.input || {})
+          : { erro: 'ferramenta desconhecida' };
+      }catch(e){ dado = { erro: String((e && e.message) || e) }; }
+      try{ console.log('[mrkash] consulta', JSON.stringify(p.input || {}),
+                       '→', (dado && dado.encontrados != null) ? dado.encontrados : '?'); }catch(_){}
+      respostas.push({ type:'tool_result', tool_use_id: p.id,
+                       content: JSON.stringify(dado).slice(0, 60000) });
+    }
+    msgs.push({ role:'user', content: respostas });
   }
-  const j = await r.json();
-  if(j.stop_reason === 'refusal') return 'Recusei essa. Pergunta de outro jeito.';
-  return (j.content || []).filter(b => b && b.type === 'text').map(b => b.text).join('\n').trim();
+  return '';
 }
 
 /* `extrairJson` varre a partir da ÚLTIMA `{` — ela foi escrita pra JSON plano

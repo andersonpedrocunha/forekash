@@ -214,6 +214,106 @@ function filtro(d, op){
   };
 }
 
+/* ══ CONSULTA — O QUE ELE PERGUNTA POR CONTA PRÓPRIA ══════════════════════
+
+   O briefing é um resumo que EU escrevo. Por melhor que fique, ele responde
+   só o que foi previsto: toda pergunta nova exigia um bloco novo, escrito à
+   mão, e até lá o MR KASH respondia "não tenho esse dado" sobre um número que
+   está no banco.
+
+   Isto aqui é a outra ponta: uma consulta que o modelo chama sozinho, com os
+   filtros que ele escolher. Pergunta sobre um cliente, um documento, um
+   período, uma categoria — qualquer recorte — deixa de depender de mim.
+
+   As MESMAS travas de privacidade do briefing valem aqui, e por isto a função
+   recebe `op` e usa o mesmo `filtro()`: ferramenta que enxerga o que o resumo
+   esconde não é ferramenta, é porta dos fundos.
+
+   Só leitura. Não existe caminho daqui para dentro do banco. */
+export function consultar(d, op, args){
+  const f = filtro(d, op || {});
+  const a = args || {};
+  const hoje = d.hoje.toISOString().slice(0,10);
+  const sem = s => String(s == null ? '' : s)
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  /* Data do dinheiro: pago vale pelo dia do pagamento; pendente, pelo
+     vencimento. Mesma régua da tela do Extrato e do resto do quadro. */
+  const pend = l => String((l && l.status) || '').toLowerCase() === 'pendente';
+  const dtEf = l => String((!pend(l) && l && l.dataPagamento) ? l.dataPagamento : ((l && l.data) || '')).slice(0,10);
+
+  const quem = sem(a.quem), txt = sem(a.texto), cat = sem(a.categoria);
+  const linhas = ((d && d.ext) || []).filter(l => {
+    if(!l || !l.data) return false;
+    /* Privacidade primeiro: antes de qualquer filtro do modelo. */
+    if(f.lancFora(l)) return false;
+    if(f.catFora(l.categoria)) return false;
+    if(f.pagadorFora(l.contraparte)) return false;
+    if(a.tipo && l.tipo !== a.tipo) return false;
+    if(a.situacao === 'pago' && pend(l)) return false;
+    if(a.situacao === 'pendente' && !pend(l)) return false;
+    if(a.situacao === 'atrasado' && (!pend(l) || String(l.data).slice(0,10) >= hoje)) return false;
+    const dt = dtEf(l);
+    if(a.de  && dt < String(a.de).slice(0,10))  return false;
+    if(a.ate && dt > String(a.ate).slice(0,10)) return false;
+    /* VENCIMENTO É OUTRA PERGUNTA. "A Bloom pagou o vencimento de outubro?"
+       não se responde recortando por data do dinheiro: o título venceu em
+       outubro e o dinheiro caiu em novembro — pelo recorte do dinheiro, ele
+       some de outubro e a resposta vira "não". */
+    const venc = String(l.data || '').slice(0,10);
+    if(a.venc_de  && venc < String(a.venc_de).slice(0,10))  return false;
+    if(a.venc_ate && venc > String(a.venc_ate).slice(0,10)) return false;
+    if(quem && sem(l.contraparte).indexOf(quem) < 0) return false;
+    if(cat  && sem(l.categoria).indexOf(cat) < 0) return false;
+    if(txt){
+      const campos = sem([l.descricao, l.documento, l.numeroDocumento, l.notas,
+                          l.refInterna].filter(Boolean).join(' · '));
+      if(campos.indexOf(txt) < 0) return false;
+    }
+    return true;
+  });
+
+  const valor = l => Math.abs(parseFloat(l.valor) || 0);
+  const soma = x => +x.reduce((s, l) => s + valor(l), 0).toFixed(2);
+  const resumo = { encontrados: linhas.length, soma: soma(linhas),
+    entradas: soma(linhas.filter(l => l.tipo === 'ganho')),
+    saidas:   soma(linhas.filter(l => l.tipo === 'gasto')) };
+
+  if(a.agrupar_por){
+    const chave = l => a.agrupar_por === 'mes' ? dtEf(l).slice(0,7)
+                     : a.agrupar_por === 'categoria' ? (l.categoria || 'sem categoria')
+                     : (l.contraparte || 'sem nome');
+    const g = {};
+    for(const l of linhas){
+      const k = chave(l);
+      const b = g[k] || (g[k] = { n:0, entradas:0, saidas:0 });
+      b.n++;
+      if(l.tipo === 'ganho') b.entradas += valor(l); else if(l.tipo === 'gasto') b.saidas += valor(l);
+    }
+    const grupos = Object.entries(g)
+      .map(([k, v]) => ({ grupo:k, lancamentos:v.n,
+                          entradas:+v.entradas.toFixed(2), saidas:+v.saidas.toFixed(2) }))
+      .sort((x, y) => (y.entradas + y.saidas) - (x.entradas + x.saidas));
+    return Object.assign(resumo, { agrupado_por: a.agrupar_por, grupos: grupos.slice(0, 40) });
+  }
+
+  const lim = Math.min(Math.max(parseInt(a.limite, 10) || 20, 1), 60);
+  linhas.sort((x, y) => dtEf(y).localeCompare(dtEf(x)));
+  return Object.assign(resumo, {
+    mostrando: Math.min(lim, linhas.length),
+    lancamentos: linhas.slice(0, lim).map(l => {
+      const o = { data: dtEf(l), valor: valor(l), tipo: l.tipo,
+                  quem: l.contraparte || '', descricao: l.descricao || '',
+                  categoria: l.categoria || '', conta: l.conta || '',
+                  situacao: selo(l, hoje) };
+      const venc = String(l.data || '').slice(0,10);
+      if(venc && venc !== o.data) o.vencimento = venc;
+      const doc = l.documento || l.numeroDocumento;
+      if(doc) o.documento = doc;
+      return o;
+    })
+  });
+}
+
 // ── Briefing ────────────────────────────────────────────────────────────
 /* `op` liga as travas: no Slack `{semPessoa:true, semDivida:true}`;
    no uso privado, nada. */
