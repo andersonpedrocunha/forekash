@@ -237,6 +237,55 @@ function recadoNf(nf){
   return '🧾  NFS-e ' + num + ' · ' + (NF_SIT[nf.status] || nf.status || 'situação desconhecida');
 }
 
+/* ══ O CICLO COMPLETO ═════════════════════════════════════════════
+   Três coisas fecham um recebimento: o lançamento existe e está acompanhado,
+   o dinheiro entrou, e a nota saiu. As duas últimas vêm em qualquer ordem —
+   tem cliente que paga contra a nota e tem cliente que paga antes dela.
+
+   Por isso a decisão é de ESTADO, nunca de sequência: não importa o que
+   veio primeiro, importa que as três valem agora.
+
+   E é estado do LANÇAMENTO, nunca do que está escrito na thread. A thread é
+   de todo mundo — é nela que se pergunta, se cobra, se combina. Nada disso
+   fecha nem reabre o ciclo: ninguém quita um título respondendo "ok" no
+   Slack, e o MR KASH não lê a conversa pra decidir.
+
+   Nota cancelada ou rejeitada não fecha nada: o serviço ficou sem documento.
+   */
+function assinaturaCiclo(linha, st, nf){
+  if(st !== 'pago') return '';
+  if(!(nf && nf.numero && nf.status === 'aut')) return '';
+  /* A assinatura é o par nota+pagamento. Fechar de novo o MESMO ciclo não é
+     notícia; fechar depois de cancelar a nota e emitir outra é. */
+  return 'nf' + nf.numero + '|' + (linha.data_pagamento || '');
+}
+
+/* O selo. Não é um recado a mais na thread: é a marca de que aquele título
+   acabou. Por isso leva a cor do pago e a marca do Forekash, do mesmo jeito
+   que o cartão — quem rolar a thread de longe reconhece o fim sem ler. */
+function selo(linha, nf){
+  const ehGasto = (linha.tipo === 'gasto');
+  const cli = (linha.contraparte || '').trim()
+           || (ehGasto ? '(fornecedor não informado)' : '(cliente não informado)');
+  const quando = linha.data_pagamento ? ' em ' + dataBR(linha.data_pagamento) : '';
+  return {
+    text: '✅ Ciclo completo · ' + cli,
+    attachments: [{
+      color: STATUS_COR.pago,
+      blocks: [
+        { type:'section', text:{ type:'mrkdwn',
+          text: '*✅  Ciclo completo*\n'
+              + (ehGasto ? 'Lançado, pago' : 'Lançado, recebido') + quando
+              + ' e com a NFS-e nº ' + nf.numero + ' emitida.' } },
+        { type:'context', elements:[
+          { type:'image', image_url: MARCA, alt_text:'Forekash' },
+          { type:'mrkdwn', text:'MR KASH · *fechei este* · nada mais a fazer aqui' }
+        ]}
+      ]
+    }]
+  };
+}
+
 /* ── Slack ───────────────────────────────────────────────────────────── */
 async function slack(env, metodo, corpo){
   const r = await fetch('https://slack.com/api/' + metodo, {
@@ -395,6 +444,7 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
        número calaria o cancelamento. */
     const nfl = (l.metadata && l.metadata.nf) || null;
     const nfAs = (nfl && nfl.numero) ? ((nfl.status || '') + ':' + nfl.numero) : '';
+    const cicloAgora = assinaturaCiclo(l, st, nfl);
     const c   = cartao(l, cfgCampos);
 
     try{
@@ -413,6 +463,7 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
             t.ts = v.ts;
             if(v.canalId) t.canalId = v.canalId;
             t.statusVisto = st; t.recebidoVisto = rec; t.nfVisto = nfAs;
+            t.cicloAs = cicloAgora;
             delete t.postando;
             await gravarTrilha(env, l.id, t);
             continue;
@@ -426,6 +477,7 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
                        ') — adotando em vez de repostar');
           t.ts = tsNoCanal; t.canalId = t.canalId || canal;
           t.statusVisto = st; t.recebidoVisto = rec; t.nfVisto = nfAs;
+          t.cicloAs = cicloAgora;
           delete t.postando;
           await trkAnotado(env, l.local_id, t.ts, t.canalId);
           await gravarTrilha(env, l.id, t);
@@ -449,6 +501,11 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
           } else throw new Error(r.error);
         } else { t.ts = r.ts; t.canalId = r.channel; }
         t.statusVisto = st; t.recebidoVisto = rec; t.nfVisto = nfAs;
+        /* Cartão que JÁ NASCE fechado não ganha selo: a assinatura entra calada.
+           O selo marca um caminho acompanhado chegando ao fim — anunciar o fim
+           de um caminho que ninguém viu andar é só barulho, e o próprio cartão
+           já nasce verde e com a nota. */
+        t.cicloAs = cicloAgora;
         t.desde = t.desde || new Date().toISOString();
         delete t.postando;                     // reserva cumprida
         /* O livro ANTES do banco: se a gravação do metadata falhar, o KV já
@@ -469,10 +526,18 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
          Cartão antigo não tem `nfVisto`: ausente vale como vazio, então um
          lançamento que nunca teve nota não dispara nada. */
       const mudouNf = (t.nfVisto || '') !== nfAs;
-      if(!mudouStatus && !mudouValor && !mudouNf) continue;
+      /* O ciclo pode fechar sem que nada no cartão mude — é o caso do título
+         que já estava pago e recebeu a nota numa rodada anterior. Sem entrar
+         na conta aqui, o selo nunca sairia nesses. */
+      const fechouCiclo = !!cicloAgora && (t.cicloAs || '') !== cicloAgora;
+      if(!mudouStatus && !mudouValor && !mudouNf && !fechouCiclo) continue;
 
-      await slack(env, 'chat.update',
-        Object.assign({ channel: t.canalId || canal, ts: t.ts }, c));
+      /* Só reescreve o cartão se o cartão mudou: `chat.update` à toa deixa um
+         "(editado)" no canal sem nada ter editado. */
+      if(mudouStatus || mudouValor || mudouNf){
+        await slack(env, 'chat.update',
+          Object.assign({ channel: t.canalId || canal, ts: t.ts }, c));
+      }
       if(mudouStatus || mudouValor){
         await slack(env, 'chat.postMessage', {
           channel: t.canalId || canal, thread_ts: t.ts, unfurl_links:false,
@@ -485,7 +550,17 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
           text: recadoNf(nfl)
         });
       }
+      /* Por último, e depois dos dois: quando recebimento e nota caem na mesma
+         rodada, a thread conta o que aconteceu e só então dá por encerrado. */
+      if(fechouCiclo){
+        await slack(env, 'chat.postMessage',
+          Object.assign({ channel: t.canalId || canal, thread_ts: t.ts, unfurl_links:false },
+                        selo(l, nfl)));
+      }
       t.statusVisto = st; t.recebidoVisto = rec; t.nfVisto = nfAs;
+      /* Grava também quando vazia: ciclo reaberto (baixa desfeita, nota
+         cancelada) volta a poder fechar — e a fechar de novo. */
+      t.cicloAs = cicloAgora;
       await gravarTrilha(env, l.id, t);
       mudados++;
     }catch(e){
@@ -497,7 +572,8 @@ export async function acompanharReceitas(env, canalPadrao, cfgCampos){
   return { novos, mudados, total: linhas.length };
 }
 
-export const _testes = { statusDe, alvoCaixa, recebido, cartao, recado, recadoNf, nfTexto, brl, dataBR };
+export const _testes = { statusDe, alvoCaixa, recebido, cartao, recado, recadoNf, nfTexto,
+                         assinaturaCiclo, selo, brl, dataBR };
 
 /* ══ AVISOS DE LANÇAMENTO ═════════════════════════════════════════════════
    Anúncio configurado pela empresa, postado uma vez só quando a condição

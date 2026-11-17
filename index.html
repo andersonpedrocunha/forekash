@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794953604"/>
+  <meta name="fk-build" content="forekash-v1794954260"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -136214,6 +136214,16 @@ try{ window._nfVincularNoExtrato = _nfVincularNoExtrato; }catch(e){}
    Só PRODUÇÃO carimba. Nota de demonstração e de produção restrita não valem
    como documento fiscal, e anunciar no canal da empresa que "a nota saiu"
    quando ela não vale é ensinar o time a desconfiar do cartão. */
+/* O lançamento que a própria nota aponta. Separado porque vale em dois
+   lugares: na escolha do alvo e, principalmente, na hora de decidir que um
+   carimbo antigo está no lugar errado. */
+function _nfLancDoVinculo(n, lancs){
+  if(!n || !n.extratoLancId) return null;
+  const alvo = String(n.extratoLancId).split('#')[0];
+  return (lancs || []).find(l =>
+    l && ('m:' + l.id === alvo || String(l.id) === alvo)) || null;
+}
+
 function _nfTrilhaAlvo(n){
   let lancs = [];
   try{ lancs = (typeof extratoData !== 'undefined' && extratoData && extratoData.lancamentos) || []; }
@@ -136230,11 +136240,8 @@ function _nfTrilhaAlvo(n){
 
      Dois caminhos escreviam a mesma relação a partir de fontes diferentes.
      Agora o explícito manda, e o palpite só entra quando não há vínculo. */
-  if(n.extratoLancId){
-    const alvoId = String(n.extratoLancId).split('#')[0];
-    const direto = lancs.find(l => l && ('m:' + l.id === alvoId || String(l.id) === alvoId));
-    if(direto) return direto;
-  }
+  const direto = _nfLancDoVinculo(n, lancs);
+  if(direto) return direto;
 
   /* TODO lançamento de entrada entra na busca, não só o acompanhado no
      Slack. O carimbo nasceu pro cartão do canal, mas é ele também que acende
@@ -136312,12 +136319,43 @@ function _nfTrilhaSync(n){
     try{ lancs = (typeof extratoData !== 'undefined' && extratoData && extratoData.lancamentos) || []; }
     catch(_){ return false; }
 
-    /* Nota já carimbada se acha pelo CARIMBO, não pelo casamento: cancelar
+    /* A ORDEM DO ALVO, E POR QUE O CARIMBO NÃO VEM PRIMEIRO.
+
+       Nota já carimbada se acha pelo CARIMBO, não pelo casamento: cancelar
        muda o estado de uma nota que já tem lugar, e procurar de novo podia
-       entregar outro lançamento. */
-    let lan = lancs.find(l => l && l.nf && String(l.nf.id) === String(n.id));
+       entregar outro lançamento. Isso continua valendo — contra o palpite.
+
+       Contra o vínculo explícito, não. Foi o que prendeu a NFS-e 89 no
+       BMH-018: o palpite carimbou o lançamento errado, e depois o carimbo
+       errado virou a verdade que o próprio sync consultava primeiro. Com a
+       nota dizendo `m:895`, ele seguia lendo o 8936 e o conserto no banco
+       durava até a próxima sincronização.
+
+       Quem a nota aponta manda. O carimbo só guia quando não há vínculo. */
+    let lan = _nfLancDoVinculo(n, lancs);
+    if(!lan) lan = lancs.find(l => l && l.nf && String(l.nf.id) === String(n.id));
     if(!lan) lan = _nfTrilhaAlvo(n);
     if(!lan) return false;
+
+    /* UMA NOTA, UM LANÇAMENTO.
+
+       Carimbo em lugar errado não sai sozinho: o código escrevia no alvo
+       certo e deixava o antigo intacto, com o mesmo número de nota em duas
+       linhas do Extrato — e dois cartões no Slack anunciando a mesma NFS-e.
+       Entregar o carimbo ao novo dono inclui tirá-lo do antigo. */
+    let limpou = false;
+    for(const l of lancs){
+      if(!l || l === lan) continue;
+      if(!(l.nf && String(l.nf.id) === String(n.id))) continue;
+      delete l.nf;
+      if(String(l.nfId) === String(n.id)){ delete l.nfId; delete l.nfNumero; }
+      if(n.numero && l.documento === 'NFS-e ' + n.numero) delete l.documento;
+      try{
+        if(typeof _extEvento === 'function')
+          _extEvento(l, 'NFS-e ' + (n.numero || '—') + ' desvinculada deste lançamento');
+      }catch(_){}
+      limpou = true;
+    }
 
     const antes = JSON.stringify(lan.nf || null);
     const stAntes = (lan.nf && lan.nf.status) || '';
@@ -136329,7 +136367,7 @@ function _nfTrilhaSync(n){
       em: n.dataAutorizada || n.dataEmissao || '',
       canceladaEm: (n.status === 'canc') ? (n.dataCancelamento || '') : ''
     };
-    if(JSON.stringify(lan.nf) === antes) return false;    // nada mudou, nada a gravar
+    if(!limpou && JSON.stringify(lan.nf) === antes) return false;   // nada mudou, nada a gravar
 
     /* O HISTÓRICO DO LANÇAMENTO TAMBÉM RECEBE A NOTA.
 
@@ -136362,7 +136400,8 @@ function _nfTrilhaSync(n){
     return false;
   }
 }
-try{ window._nfTrilhaAlvo = _nfTrilhaAlvo; window._nfTrilhaSync = _nfTrilhaSync; }catch(e){}
+try{ window._nfTrilhaAlvo = _nfTrilhaAlvo; window._nfTrilhaSync = _nfTrilhaSync;
+     window._nfLancDoVinculo = _nfLancDoVinculo; }catch(e){}
 
 /* Com hora, o carimbo tem fuso de verdade e pode ser convertido. Sem hora,
    cai no `_nfData`, que fatia a string — converter data-só desloca um dia. */
