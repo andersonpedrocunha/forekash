@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794948787"/>
+  <meta name="fk-build" content="forekash-v1794949394"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1133,6 +1133,8 @@
     .nf-selo.novo{color:#B45309}
     .nf-selo.exp{color:#1D4ED8}
     .nf-cli-exp{margin-top:4px;font-size:.7rem;color:#1D4ED8;font-weight:600;line-height:1.35}
+    .nf-cambio{display:block;margin-top:5px;font-size:.7rem;color:#64748B}
+    .nf-cambio.fora{color:#B45309;font-weight:700}
     .nf-comex{border:1.5px solid #BFDBFE;background:#EFF6FF;border-radius:10px;padding:12px 14px;margin-bottom:14px}
     .nf-comex-tt{font-size:.7rem;font-weight:800;color:#1D4ED8;text-transform:uppercase;
                  letter-spacing:.06em;margin-bottom:10px}
@@ -37907,7 +37909,8 @@ function setClienteEndereco(cid, campo, val){
               'emailCc','emailAssunto','emailMsg',
               /* Retenção: é fato do CLIENTE, não do serviço. Quem retém é
                  quem paga, e varia por natureza jurídica e por município. */
-              'retFed','retPis','retCofins','retCsll','retIrrf','retInss','issRetido','retFonte'];
+              'retFed','retPis','retCofins','retCsll','retIrrf','retInss','issRetido','retFonte',
+              'comexModo','comexMoeda'];
   if(ok.indexOf(campo) === -1) return;
   c.endereco = Object.assign({}, c.endereco || {});
   c.endereco[campo] = (val == null ? '' : String(val).trim());
@@ -38035,6 +38038,61 @@ function _clidetEnderecoHtml(c, tipoPessoa, esc){
     ${_clidetRetencaoHtml(c, tipoPessoa, esc)}`;
 }
 
+/* ══ COMÉRCIO EXTERIOR — O QUE SE REPETE A CADA NOTA DO MESMO CLIENTE ═════
+
+   A DPS de exportação tem oito campos de comércio exterior obrigatórios. Sete
+   têm um padrão que vale para quase toda empresa de serviço — sem vínculo
+   entre as partes, sem mecanismo de fomento, sem movimentação de bens,
+   compartilha com o MDIC — e esses o Forekash preenche sozinho, com os mesmos
+   valores que as notas já autorizadas usaram.
+
+   Dois NÃO têm padrão universal e mudam por cliente: o MODO DE PRESTAÇÃO e a
+   MOEDA da fatura. Eles não pertencem ao serviço (é o mesmo desenvolvimento
+   para todo mundo) nem ao Forekash — pertencem à relação com aquele cliente.
+   Então é aqui que ficam, escolhidos uma vez.
+
+   O modo não tem resposta certa universal: descreve COMO o serviço chega ao
+   tomador, e isso é fato do contrato. Por isso a lista explica cada opção em
+   vez de só numerá-la. */
+const NF_COMEX_MODOS_FICHA = [
+  ['',  'Usar o padrão do Forekash'],
+  ['1', '1 · Transfronteiriço — o serviço cruza a fronteira, as pessoas não'],
+  ['2', '2 · Consumo no exterior — o tomador consome fora do Brasil'],
+  ['3', '3 · Presença comercial no exterior'],
+  ['4', '4 · Movimento temporário de pessoas — alguém viajou para prestar']
+];
+const NF_COMEX_MOEDAS_FICHA = [
+  ['',    'Usar o padrão do Forekash'],
+  ['220', 'USD · dólar americano'], ['978', 'EUR · euro'],
+  ['540', 'GBP · libra'],           ['425', 'CHF · franco suíço'],
+  ['165', 'CAD · dólar canadense'], ['075', 'CZK · coroa tcheca']
+];
+function _clidetComexHtml(c, esc){
+  const e = c.endereco || {};
+  const sel = (rot, k, lista, ajuda) => {
+    const atual = String(e[k] || '');
+    return `<div class="clidet-field full">
+      <label>${esc(rot)}</label>
+      <select class="clidet-input" onchange="setClienteEndereco(${c.id},'${k}',this.value)">
+        ${lista.map(([v, t]) => `<option value="${v}"${v === atual ? ' selected' : ''}>${esc(t)}</option>`).join('')}
+      </select>
+      ${ajuda ? `<div class="clidet-field-hint">${esc(ajuda)}</div>` : ''}
+    </div>`;
+  };
+  return `<div class="clidet-section">
+      <div class="clidet-sec-title">Exportação · comércio exterior</div>
+      <div class="clidet-grid">
+        ${sel('Modo de prestação', 'comexModo', NF_COMEX_MODOS_FICHA,
+              'Como o serviço chega a este cliente. É campo obrigatório da nota de exportação e não muda de uma nota para outra.')}
+        ${sel('Moeda da fatura', 'comexMoeda', NF_COMEX_MOEDAS_FICHA,
+              'O valor em moeda estrangeira é digitado a cada nota; a moeda, não.')}
+      </div>
+      <div class="clidet-ciclo-hint">Os outros campos de comércio exterior — vínculo entre as partes,
+        mecanismo de fomento, movimentação de bens e compartilhamento com o MDIC — saem com o padrão
+        de serviço sem vínculo, igual ao das notas já autorizadas.</div>
+    </div>`;
+}
+
 /* ══ RETENÇÃO — MORA NO CLIENTE, NÃO NO SERVIÇO ═══════════════════════════
 
    O mesmo serviço retém ou não conforme QUEM COMPRA: pessoa física não é
@@ -38057,7 +38115,7 @@ function _clidetRetencaoHtml(c, tipoPessoa, esc){
     return `<div class="clidet-section">
       <div class="clidet-sec-title">Retenção na nota</div>
       <div class="clidet-ciclo-hint">${esc(porque)}</div>
-    </div>`;
+    </div>` + (tipoPessoa === 'est' ? _clidetComexHtml(c, esc) : '');
   }
   const e = c.endereco || {};
   const modo = String(e.retFed || '');
@@ -137002,10 +137060,22 @@ function nfMontarDPS(opts){
     (cli && typeof cli.endereco === 'object') ? cli.endereco : {});
   const toma = exp
     ? { NIF: dig(d.cnpj) || d.cnpj, xNome: d.cliente,
-        cPais: (cli && cli.pais) || d.pais || '', CEP: end.cep || '',
+        cPais: (cli && cli.pais) || d.pais || '',
+        /* O ENDEREÇO DO EXTERIOR TEM OUTROS NOMES NA FICHA.
+
+           A ficha do cliente estrangeiro grava `codPostal` e `estado` — ela
+           nem mostra CEP e UF, que são campos brasileiros. Aqui se lia `cep`
+           e não se lia estado nenhum: o `cEndPost` ia vazio e o
+           `xEstProvReg` nem era montado. A Receita recusa com "endExt has
+           incomplete content", que não diz qual campo faltou.
+
+           Os dois nomes continuam aceitos: cliente antigo pode ter sido
+           preenchido pelo formulário nacional antes de virar estrangeiro. */
+        CEP: end.codPostal || end.cep || '',
         xCidade: end.cidade || end.municipio || '',
+        xEstProvReg: end.estado || end.uf || end.provincia || '',
         xLgr: end.logradouro || end.rua || '', nro: end.numero || '',
-        xBairro: end.bairro || '' }
+        xBairro: end.bairro || '-' }
     : { CNPJ: docToma.length === 14 ? docToma : '',
         CPF:  docToma.length === 11 ? docToma : '',
         xNome: d.cliente,
@@ -137017,6 +137087,11 @@ function nfMontarDPS(opts){
     if(!toma.NIF)     falta.push('NIF do tomador no exterior');
     if(!toma.cPais)   falta.push('país do tomador (cadastro de clientes)');
     if(!toma.xCidade) falta.push('cidade do tomador (cadastro de clientes)');
+    /* Obrigatórios pelo XSD do endereço no exterior — e invisíveis até a
+       recusa, porque a mensagem fala do grupo, não do campo. */
+    if(!toma.xEstProvReg) falta.push('estado/província do tomador (cadastro de clientes)');
+    if(!toma.CEP)         falta.push('código postal do tomador (cadastro de clientes)');
+    if(!toma.xLgr)        falta.push('logradouro do tomador (cadastro de clientes)');
     if(!(Number(d.vServMoeda) > 0)) falta.push('valor na moeda da fatura (comércio exterior)');
   } else {
     if(!toma.CNPJ && !toma.CPF) falta.push('CNPJ ou CPF do tomador');
@@ -137376,8 +137451,15 @@ const NF_COMEX_MODOS = [
   ['4','Movimento temporário de pessoas físicas — alguém viajou']
 ];
 function _nfComexHtml(d){
-  const moeda = String(d.tpMoeda || (NF.cfg && NF.cfg.comexMoeda) || '220');
-  const modo  = String(d.mdPrestacao || (NF.cfg && NF.cfg.comexModo) || '1');
+  /* A FICHA DO CLIENTE MANDA, E ANTES DO PADRÃO GERAL.
+
+     Modo de prestação e moeda não mudam de nota para nota do mesmo cliente —
+     mudam de cliente para cliente. Escolhido uma vez lá, não se escolhe mais
+     aqui; e o que estiver no rascunho (porque alguém trocou nesta nota)
+     continua ganhando dos dois. */
+  const _end = _nfEndDoDraft(d);
+  const moeda = String(d.tpMoeda || _end.comexMoeda || (NF.cfg && NF.cfg.comexMoeda) || '220');
+  const modo  = String(d.mdPrestacao || _end.comexModo || (NF.cfg && NF.cfg.comexModo) || '1');
   const opc = (lista, atual) => lista.map(([v, t]) =>
     '<option value="' + v + '"' + (v === atual ? ' selected' : '') + '>' + _nfEsc(t) + '</option>').join('');
   return '<div class="nf-comex">' +
@@ -137387,11 +137469,36 @@ function _nfComexHtml(d){
         '<select id="nf-f-moeda" onchange="NF_DRAFT.tpMoeda=this.value">' + opc(NF_COMEX_MOEDAS, moeda) + '</select></div>' +
       '<div class="nf-field"><label>Valor na moeda</label>' +
         '<input type="number" id="nf-f-vmoeda" value="' + (d.vServMoeda || '') + '"' +
-        ' step="0.01" min="0" placeholder="Valor na moeda da fatura"></div>' +
+        ' step="0.01" min="0" placeholder="Valor na moeda da fatura" oninput="_nfCambioMostra()">' +
+        /* CÂMBIO IMPLÍCITO: a conferência que nenhum campo fazia. Um zero a
+           mais no valor em dólar não é recusado por ninguém — a nota sai com
+           o câmbio errado declarado ao MDIC. Vendo "R$ 5,7541/USD" ao lado,
+           o erro salta. */
+        '<small class="nf-cambio" id="nf-cambio"></small></div>' +
       '<div class="nf-field"><label>Modo de prestação</label>' +
         '<select id="nf-f-modoprest" onchange="NF_DRAFT.mdPrestacao=this.value">' + opc(NF_COMEX_MODOS, modo) + '</select></div>' +
     '</div></div>';
 }
+
+/* Câmbio implícito entre o valor da nota e o valor na moeda da fatura.
+   Não vai para o XML — serve para a pessoa reconhecer um dedo escorregado
+   antes de assinar. */
+const NF_MOEDA_SIGLA = { '220':'USD','978':'EUR','540':'GBP','425':'CHF','165':'CAD','075':'CZK' };
+function _nfCambioMostra(){
+  const el = document.getElementById('nf-cambio');
+  if(!el) return;
+  const brl = Number((document.getElementById('nf-f-valor') || {}).value) || Number((NF_DRAFT||{}).valor) || 0;
+  const est = Number((document.getElementById('nf-f-vmoeda') || {}).value) || 0;
+  const cod = String((document.getElementById('nf-f-moeda') || {}).value || '220');
+  if(!(brl > 0) || !(est > 0)){ el.textContent = ''; return; }
+  const taxa = brl / est;
+  el.textContent = 'câmbio implícito R$ ' + taxa.toLocaleString('pt-BR',
+    { minimumFractionDigits:4, maximumFractionDigits:4 }) + ' / ' + (NF_MOEDA_SIGLA[cod] || cod);
+  /* Fora de qualquer realidade cambial do real: quase sempre é vírgula no
+     lugar errado, e vale apontar sem impedir. */
+  el.className = 'nf-cambio' + ((taxa < 0.5 || taxa > 40) ? ' fora' : '');
+}
+try{ window._nfCambioMostra = _nfCambioMostra; }catch(e){}
 
 /* ══ O CADASTRO PREENCHE O QUE O RASCUNHO NÃO TROUXE ══════════════════════
 
