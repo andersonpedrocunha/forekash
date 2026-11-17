@@ -416,13 +416,17 @@ export function briefing(d, op){
       '- ' + c + ': ' + brl(v) + (ent ? ' (' + Math.round(v/ent*100) + '%)' : '')).join('\n'));
 
   // cobrança: faturado na Receita × crédito no Extrato
-  const cob = cobranca(d, ano);
+  const cob = cobranca(d, ano).slice().sort((x, y) => y.recebido - x.recebido);
   if(cob.length)
-    L.push('\n## COBRANÇA ' + ano + ' por cliente (faturado na Receita × crédito no Extrato)\n' +
-      cob.map(c => '- ' + c.nome + ': faturado ' + brl(c.faturado) + ' · recebido ' + brl(c.recebido) +
+    L.push('\n## CLIENTES ' + ano + ' — recebido (receita) × faturado (cobrança emitida)\n' +
+      cob.map(c => '- ' + c.nome + ': recebido ' + brl(c.recebido) + ' · faturado ' + brl(c.faturado) +
         (c.aberto > 0.5 ? ' · EM ABERTO ' + brl(c.aberto) : '')).join('\n') +
-      '\nOBS: a diferença inclui retenção de imposto e taxa de antecipação de boleto, ' +
-      'não é só atraso do cliente.');
+      '\nRECEITA DE UM CLIENTE É O RECEBIDO — dinheiro que entrou na conta. É esse o número ' +
+      'de "quanto o cliente representa", de ranking e de concentração. FATURADO é cobrança ' +
+      'emitida: só use com esse nome, e nunca como receita. Cliente que faturou e não pagou ' +
+      'não é cliente grande, é risco.' +
+      '\nOBS: a diferença entre os dois inclui retenção de imposto, variação cambial e taxa ' +
+      'de antecipação de boleto — não é só atraso do cliente.');
 
   /* MÊS A MÊS, POR CLIENTE — porque é esta a pergunta que ele faz.
 
@@ -966,7 +970,7 @@ function _mil(v){
 }
 
 export const GRAFICOS = [
-  { id:'clientes',  titulo:'Top 10 clientes por receita',  dica:'quem mais faturou no ano' },
+  { id:'clientes',  titulo:'Top 10 clientes por receita',  dica:'quem mais PAGOU no ano' },
   { id:'mes',       titulo:'Entrou × saiu, mês a mês',     dica:'o ano inteiro em duas colunas' },
   { id:'categoria', titulo:'Para onde o dinheiro foi',     dica:'saída por categoria' },
   { id:'aberto',    titulo:'Quem está devendo',            dica:'faturado que ainda não caiu' },
@@ -980,11 +984,21 @@ export function grafico(d, id, op){
 
   if(id === 'clientes' || id === 'aberto'){
     const cob = cobranca(d, ano);
+    /* RECEITA DE CLIENTE É O QUE ELE PAGOU.
+
+       Este gráfico se chama "por receita" e mostrava o FATURADO. A diferença
+       não é detalhe: um cliente que faturou R$ 14 mil e não pagou nada
+       aparecia no ranking de receita, e outro que pagou mais do que faturou
+       (variação cambial a favor) aparecia menor do que é. Ranking de cliente
+       é dinheiro que entrou.
+
+       "Quem está devendo" continua pelo que ficou EM ABERTO — ali a pergunta
+       é outra, e o faturado é que manda. */
     const linhas = (id === 'aberto'
         ? cob.filter(c => c.aberto > 0.5).sort((a,b) => b.aberto - a.aberto)
-        : cob)
+        : cob.filter(c => c.recebido > 0.5).sort((a,b) => b.recebido - a.recebido))
       .slice(0, 10)
-      .map(c => ({ rotulo: c.nome.slice(0,16), valor: id === 'aberto' ? c.aberto : c.faturado }));
+      .map(c => ({ rotulo: c.nome.slice(0,16), valor: id === 'aberto' ? c.aberto : c.recebido }));
     if(!linhas.length) return null;
     /* O rodapé não é legenda, é leitura. A conta é determinística — sai
        daqui, não do modelo — mas a frase é dele. Gráfico sem leitura é
@@ -997,10 +1011,10 @@ export function grafico(d, id, op){
                Math.round(topo.valor / soma * 100) + '%.\n' +
                'Parte disso é retenção e taxa de antecipação — não é calote. O resto é.';
     } else {
-      const soma = cob.reduce((s,c) => s + c.faturado, 0);
+      const soma = cob.reduce((s,c) => s + c.recebido, 0);
       const tres = linhas.slice(0,3);
-      const pct = Math.round(tres.reduce((s,l) => s + l.valor, 0) / soma * 100);
-      rodape = tres.map(t => t.rotulo).join(', ') + ' são ' + pct + '% do que tu fatura. ' +
+      const pct = soma > 0 ? Math.round(tres.reduce((s,l) => s + l.valor, 0) / soma * 100) : 0;
+      rodape = tres.map(t => t.rotulo).join(', ') + ' são ' + pct + '% do que entrou. ' +
                (pct >= 60 ? 'Isso não é carteira de clientes, é dependência.'
                           : 'Concentrado, mas respira.');
     }
@@ -1011,9 +1025,13 @@ export function grafico(d, id, op){
   if(id === 'mes'){
     const m = {};
     for(const l of d.ext){
-      if(String(l.data).slice(0,4) !== ano || _pend(l)) continue;
+      if(_pend(l)) continue;
       if(l.tipo !== 'ganho' && l.tipo !== 'gasto') continue;
-      const k = String(l.data).slice(5,7);
+      /* Mesma régua do quadro e da tela: realizado conta no dia em que o
+         dinheiro se moveu, não no vencimento. */
+      const dtm = String(l.dataPagamento || l.data || '').slice(0,10);
+      if(dtm.slice(0,4) !== ano) continue;
+      const k = dtm.slice(5,7);
       const b = m[k] || (m[k] = { e:0, s:0 });
       const v = Math.abs(Number(l.valor) || 0);
       if(l.tipo === 'ganho') b.e += v; else b.s += v;

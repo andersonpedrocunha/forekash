@@ -182,7 +182,16 @@ const SO_NUMEROS =
   'Contabilidade da casa: transferência entre contas próprias não é receita nem despesa; ' +
   'cartão, aplicação e consórcio são CONTAS, e pagar fatura é transferência; a receita entra ' +
   'líquida de retenção, então o crédito nunca bate com a nota; a folha é indexada pelo mês do ' +
-  'PAGAMENTO, não o da competência; realizado vem do Extrato, o resto é projeção.';
+  'PAGAMENTO, não o da competência; realizado vem do Extrato, o resto é projeção.\n' +
+  /* O gráfico "Top 10 clientes por receita" saiu com os valores FATURADOS e
+     um cliente que não pagou nada no ano aparecia no ranking. Os dois números
+     existem no quadro e os dois são legítimos — o que faltava era a casa
+     dizer qual deles responde por "receita". */
+  'RECEITA DE CLIENTE É O QUE ELE PAGOU. Ranking de cliente, concentração, "quanto fulano ' +
+  'representa", gráfico de receita por cliente: tudo pelo RECEBIDO, dinheiro que entrou na ' +
+  'conta. Faturado é cobrança emitida — diga "faturado" quando for faturado, e nunca o chame ' +
+  'de receita. Cliente que faturou muito e pagou pouco não é cliente grande: é risco, e é ' +
+  'assim que você deve apresentá-lo.';
 
 /* Quando ele pede pra REGISTRAR algo, a resposta deixa de ser prosa e passa a
    ter um bloco de dados. Mesmo padrão usado no app para boleto: uma frase do

@@ -1029,13 +1029,21 @@ async function comandoSlack(request, env, ctx){
       ]});
     }
     ctx.waitUntil((async () => {
-      let txt;
+      let txt, deu = true;
       try{ txt = montarGrafico(await carregar(env), achado.id, escopoSlack(cfg)); }
-      catch(e){ txt = 'Não desenhei: ' + (e && e.message || 'erro'); }
-      await fetch(p.get('response_url'), { method:'POST', headers:{'content-type':'application/json'},
-        /* Sem `replace_original:false` o Slack troca a efêmera do "Desenhando..."
-           e o gráfico nasce privado, em vez de aparecer pro canal. */
-        body: JSON.stringify({ response_type:'in_channel', replace_original:false, text: txt }) });
+      catch(e){ txt = 'Não desenhei: ' + (e && e.message || 'erro'); deu = false; }
+      /* O GRÁFICO NASCE SEU, NÃO DO CANAL.
+
+         Antes ia direto pra todo mundo. Gráfico é recorte de dinheiro da
+         empresa e quem pediu nem sempre quer publicar — e, quando quer, o
+         botão está ali. Decidir por ele era tirar uma escolha que custa um
+         clique e não tem volta depois de postada. */
+      const corpo = deu
+        ? { response_type:'ephemeral', replace_original:true, text: txt,
+            blocks: blocosComPublicar(txt, await guardarParaPublicar(env, txt)) }
+        : { response_type:'ephemeral', replace_original:true, text: txt };
+      await fetch(p.get('response_url'), { method:'POST',
+        headers:{'content-type':'application/json'}, body: JSON.stringify(corpo) });
     })());
     return Response.json({ response_type:'ephemeral', text:'Desenhando...' });
   }
@@ -1110,10 +1118,17 @@ async function comandoSlack(request, env, ctx){
        que a pessoa digitou, então fica o par pergunta-resposta.
        Erro continua privado: não é resposta, é defeito, e encher o canal
        com pilha de erro não registra nada que sirva. */
+    const corpo = (deuCerto && !calado)
+      ? { response_type: 'in_channel', replace_original: false, text: txt }
+      /* Resposta que ficou privada ganha o botão: em canal só de aviso ela
+         nasce assim de propósito, e às vezes o dono dela quer publicar
+         mesmo assim. Erro não ganha botão — defeito não se publica. */
+      : (deuCerto
+          ? { response_type: 'ephemeral', text: txt,
+              blocks: blocosComPublicar(txt, await guardarParaPublicar(env, txt)) }
+          : { response_type: 'ephemeral', text: txt });
     await fetch(responseUrl, { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(deuCerto && !calado
-        ? { response_type: 'in_channel', replace_original: false, text: txt }
-        : { response_type: 'ephemeral', text: txt }) });
+      body: JSON.stringify(corpo) });
   })());
   // ack imediato: o Slack mostra isso enquanto ele pensa
   return Response.json({ response_type: 'ephemeral', text: 'Lendo teus números...' });
@@ -1462,6 +1477,37 @@ function montarGrafico(d, id, op){
    botão, assinada pelo Slack; a permissão é conferida de novo, porque quem
    clica não é necessariamente quem pediu — num canal, qualquer um vê o
    cartão. */
+/* ══ "MOSTRAR NO CANAL" ═══════════════════════════════════════════════════
+
+   Resposta efêmera é a DM com outra roupa: só quem perguntou lê, e não sobra
+   histórico. Isso é certo por padrão — o canal é do time, e nem todo número
+   que ele pergunta é assunto de todos. Mas a decisão de compartilhar é dele,
+   e até agora não existia o gesto: ou nascia pública, ou morria privada.
+
+   O texto viaja no próprio botão quando é curto. Passando disso, vai pro KV
+   com chave sorteada e uma hora de validade — o `value` do Slack tem teto de
+   2000 caracteres, e resposta com gráfico estoura fácil. */
+function blocosComPublicar(txt, chave){
+  return [
+    { type:'section', text:{ type:'mrkdwn', text: String(txt).slice(0, 2900) } },
+    { type:'actions', block_id:'publicar', elements:[{
+        type:'button', action_id:'publicar', value: chave,
+        text:{ type:'plain_text', text:'Mostrar no canal' } }] },
+    { type:'context', elements:[{ type:'mrkdwn',
+        text:'Só você está vendo isto. O botão posta no canal, assinado pelo MR KASH.' }] }
+  ];
+}
+async function guardarParaPublicar(env, txt){
+  const t = String(txt || '');
+  if(t.length <= 1800) return 't:' + t;
+  const chave = 'pub:' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  try{
+    if(env.SLACK_INSTALLS){ await env.SLACK_INSTALLS.put(chave, t, { expirationTtl: 3600 }); return 'k:' + chave; }
+  }catch(e){ console.warn('[publicar] KV:', e && e.message); }
+  /* Sem KV, publica o que couber em vez de perder o botão. */
+  return 't:' + t.slice(0, 1800);
+}
+
 async function interativoSlack(request, env, ctx){
   const corpo = await request.text();
   const assinado = await assinaturaValida(env, request.headers.get('x-slack-signature'),
@@ -1476,6 +1522,25 @@ async function interativoSlack(request, env, ctx){
   const url = p.response_url;
   const responder = (txt) => fetch(url, { method:'POST', headers:{'content-type':'application/json'},
     body: JSON.stringify({ replace_original: true, text: txt }) });
+
+  /* Publicar é do dono da mensagem: o botão só existe na efêmera dele, então
+     quem clicou é quem perguntou. Some a efêmera e nasce a pública. */
+  if(acao.action_id === 'publicar'){
+    ctx.waitUntil((async () => {
+      const v = String(acao.value || '');
+      let txt = '';
+      if(v.startsWith('k:')){
+        try{ txt = (env.SLACK_INSTALLS ? await env.SLACK_INSTALLS.get(v.slice(2)) : '') || ''; }
+        catch(e){ console.warn('[publicar] KV:', e && e.message); }
+        if(!txt) txt = 'A resposta expirou — pergunte de novo e publique na hora.';
+      } else txt = v.slice(2);
+      await fetch(url, { method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ delete_original: true }) });
+      await fetch(url, { method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ response_type:'in_channel', replace_original:false, text: txt }) });
+    })());
+    return ok();
+  }
 
   // gráfico não grava nada, então não passa pela lista
   if(String(acao.action_id || '').startsWith('graf:')){
