@@ -242,21 +242,36 @@ export function briefing(d, op){
   const futMes = {};            // compromisso agendado, ainda não pago
   let ent = 0, sai = 0;
   for(const l of d.ext){
-    if(!doAno(l.data) || (l.tipo !== 'ganho' && l.tipo !== 'gasto')) continue;
+    if(l.tipo !== 'ganho' && l.tipo !== 'gasto') continue;
     const v = Math.abs(l.valor); if(!v) continue;
+    const pendente = String(l.status || '').toLowerCase() === 'pendente';
+    /* CADA UM NO SEU DIA.
+
+       Realizado conta no dia em que o dinheiro SE MOVEU; agendado, no dia em
+       que ele deveria se mover. Antes os dois usavam o vencimento, e o bloco
+       chamado "o que passou pela conta" punha em outubro um título vencido em
+       outubro e recebido em novembro — justamente o caso que se pergunta:
+       "pagou atrasado?". A tela do Extrato sempre mostrou pela data do
+       pagamento; agora o quadro do MR KASH conta a mesma história.
+
+       O ano também passa a ser o do dinheiro: título de dezembro recebido em
+       janeiro pertence ao ano seguinte, senão apareceria um mês de 2027
+       dentro do quadro de 2026. */
+    const dtEfet = String((!pendente && l.dataPagamento) ? l.dataPagamento : (l.data || '')).slice(0,10);
+    if(!doAno(dtEfet)) continue;
     /* PENDENTE NÃO É REALIZADO. O bloco abaixo se chama "o que passou pela
        conta" e varria tudo, inclusive o que ainda vai vencer. Depois que o
        Extrato ganhou 636 lançamentos futuros (os fixos até dez/2027), o MR
        KASH passou a dizer que "novembro e dezembro entraram R$ 1.205,20 e
        saíram R$ 234 mil" — meses que nem chegaram. Agendado vai pro bloco
        próprio, no futuro do verbo. */
-    if(String(l.status || '').toLowerCase() === 'pendente'){
-      const mf = String(l.data).slice(0,7);
+    if(pendente){
+      const mf = dtEfet.slice(0,7);
       const bf = futMes[mf] || (futMes[mf] = { e:0, s:0 });
       if(l.tipo === 'ganho') bf.e += v; else bf.s += v;
       continue;
     }
-    const m = String(l.data).slice(0,7);
+    const m = dtEfet.slice(0,7);
     const b = porMes[m] || (porMes[m] = { e:0, s:0 });
     if(l.tipo === 'ganho'){
       b.e += v; ent += v;
