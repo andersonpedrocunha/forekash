@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795013827"/>
+  <meta name="fk-build" content="forekash-v1795027225"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -19810,6 +19810,8 @@
     .orc-cell .c-prev input{width:100%;border:0;background:none;text-align:right;
                              font-family:inherit;font-size:inherit;font-weight:inherit;
                              color:inherit;outline:none;padding:0;font-variant-numeric:tabular-nums}
+    /* versão congelada: o número continua legível, só não é campo */
+    .orc-cell .c-prev:has(> input[readonly]){cursor:default;color:#64748B}
     .orc-cell .c-real{color:#475569;background:#F8FAFC}
     .orc-cell .c-real.empty{color:#94A3B8}
     .orc-cell .c-des{justify-content:center;font-size:.66rem;font-weight:800;letter-spacing:-0.01em;
@@ -19917,6 +19919,8 @@
                         font-weight:600;color:var(--tx);cursor:pointer;border-radius:7px;
                         text-align:left}
     .orc-ver-pop button:hover{background:#F1F5F9}
+    .orc-ver-pop button.off{opacity:.45;cursor:not-allowed}
+    .orc-ver-pop button.off:hover{background:none}
     .orc-ver-pop button.danger{color:#DC2626}
     .orc-ver-pop button.danger:hover{background:#FEF2F2}
     .orc-ver-pop button svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;
@@ -50184,9 +50188,20 @@ function orcPrevMesRaw(catId, year, mIdx, vid){
 function orcPrevAno(catId, year, vid){
   let s = 0; for(let m=0;m<12;m++) s += orcPrevMes(catId, year, m, vid); return s;
 }
+/* "Congelar (snapshot)" tem que valer. Sem isto o 🔒 era só um rótulo: a
+   célula, o run-rate e o limpar-ano escreviam em cima da versão que você
+   guardou justamente para comparar. */
+function orcVersaoTravada(year){
+  const v = orcGetVersion(year);
+  if(!v || !v.congelado) return false;
+  toast('Versão congelada — descongele para editar');
+  return true;
+}
+
 function orcSetPrev(catId, year, mIdx, val){
   const v = orcGetVersion(year);
   if(!v) return;
+  if(v.congelado){ orcVersaoTravada(year); renderOrcamento(); return; }
   v.linhas = v.linhas || {};
   v.linhas[catId] = v.linhas[catId] || { previsto:{} };
   v.linhas[catId].previsto = v.linhas[catId].previsto || {};
@@ -50206,6 +50221,23 @@ function orcMesFechado(year, mIdx){
   if(y < ty) return true;
   if(y > ty) return false;
   return mIdx <= today.getMonth(); // inclui o corrente (em andamento)
+}
+
+/* Mês COMPLETO: o corrente não conta.
+
+   `orcMesFechado` responde "esse mês já começou?" — é o que a célula precisa
+   para ir mostrando o realizado se acumulando. Mas comparar o previsto com um
+   mês pela metade produz desvio falso: dia 18 de novembro o realizado está em
+   60% do mês e o orçamento do mês inteiro já foi lançado. Toda conta que
+   COMPARA ou PROJETA — run-rate, desvio acumulado, alerta, maiores desvios —
+   usa esta aqui. */
+function orcMesCompleto(year, mIdx){
+  const today = new Date();
+  const y = parseInt(year);
+  const ty = today.getFullYear();
+  if(y < ty) return true;
+  if(y > ty) return false;
+  return mIdx < today.getMonth();
 }
 
 // ───── Agregados DRE (prev/real) ─────
@@ -50457,6 +50489,7 @@ async function orcLimparAnoAtual(){
       })
     : false;
   if(!ok) return;
+  if(orcVersaoTravada(orcActiveYear)) return;
   const blk = orcamento.years[orcActiveYear];
   if(!blk) return;
   const v = blk.versions.find(x => x.id === blk.ativa) || blk.versions[0];
@@ -50700,17 +50733,20 @@ function orcSheetResultRow(){
 }
 
 function orcCellHTML(catId, mIdx, prev, real, fechado){
+  const verAtual = orcGetVersion();
+  const travado = !!(verAtual && verAtual.congelado);
   const prevRaw = orcPrevMesRaw(catId, orcActiveYear, mIdx);
   const prevDisp = (prevRaw === '' || prevRaw === null || prevRaw === undefined) ? '' : fmtBR(parseFloat(prevRaw)||0);
   const realDisp = fechado ? fmtBR(real||0) : '—';
   const realCls = fechado ? 'c-real' : 'c-real empty';
-  const desvio = orcDesvioChip(catId, prev, real, fechado);
+  const desvio = orcDesvioChip(catId, prev, real, fechado, mIdx);
   return (
     '<div class="orc-cell">'+
       '<div class="c-prev">'+
         '<input class="orc-prev-input" type="text" data-orc-cat="'+catId+'" data-orc-m="'+mIdx+'" '+
                'data-cellref="orc:'+catId+':'+orcActiveYear+':'+mIdx+'" '+
-               'placeholder="—" value="'+prevDisp+'">'+
+               'placeholder="—" value="'+prevDisp+'"'+
+               (travado ? ' readonly title="Versão congelada — descongele para editar"' : '')+'>'+
       '</div>'+
       '<div class="'+realCls+'">'+realDisp+'</div>'+
       '<div class="c-des '+desvio.cls+'" title="'+esc(desvio.tip)+'">'+desvio.lbl+'</div>'+
@@ -50736,7 +50772,9 @@ function orcCellHTMLResult(mIdx, prev, real, fechado){
   const realDisp = fechado ? fmtBR(real||0) : '—';
   // Para resultado, receita + custo já combinados; desvio calculado em cima do resultado
   // Invertendo sinal: real > prev = bom (verde)
-  const des = orcDesvioChipRaw(prev, real, fechado, false);
+  const des = (fechado && !orcMesCompleto(orcActiveYear, mIdx))
+    ? {cls:'neutral', lbl:'·', tip:'Mês em andamento — o desvio aparece quando o mês fechar'}
+    : orcDesvioChipRaw(prev, real, fechado, false);
   return (
     '<div class="orc-cell">'+
       '<div class="c-prev">'+prevDisp+'</div>'+
@@ -50754,9 +50792,14 @@ function orcCellHTMLTotalResult(prev, real){
 //  Para Receita: real > prev = verde (bom); real < prev = vermelho (ruim).
 //  Para Custos:   real > prev = vermelho (ruim); real < prev = verde (bom).
 //  Para Resultado: real > prev = verde.
-function orcDesvioChip(catId, prev, real, fechado){
+function orcDesvioChip(catId, prev, real, fechado, mIdx){
   if(!fechado) return {cls:'neutral', lbl:'—', tip:''};
-  const invert = (catId !== 'receita'); // custos: menos é melhor
+  if(mIdx !== undefined && !orcMesCompleto(orcActiveYear, mIdx))
+    return {cls:'neutral', lbl:'·', tip:'Mês em andamento — o desvio aparece quando o mês fechar'};
+  /* Por GRUPO, não por id: 'Outras Receitas' é receita. Comparando o id com
+     'receita' ela entrava como custo e crescer virava desvio vermelho. */
+  const cat = ORC_CAT_BY_ID[catId];
+  const invert = !(cat && cat.grupo === 'receita'); // custos: menos é melhor
   return orcDesvioClassify(prev, real, invert);
 }
 function orcDesvioChipRaw(prev, real, fechado, invertCusto){
@@ -50786,13 +50829,15 @@ function orcDesvioClassify(prev, real, invert){
 // ───── KPIs anuais + Run-rate + Alertas + Top 5 ─────
 function updateOrcKpis(){
   const y = orcActiveYear;
-  const recPrev = orcPrevAno('receita', y);
+  /* ORC_RECEITA_IDS, não a linha 'receita' sozinha: com 'Outras Receitas' no
+     quadro, somar só uma delas contra TODOS os custos subestimava o resultado. */
+  const recPrev = ORC_RECEITA_IDS.reduce((s,c) => s + orcPrevAno(c, y), 0);
   const cusPrev = ORC_CUSTO_IDS.reduce((s,c) => s + orcPrevAno(c, y), 0);
   const resPrev = recPrev - cusPrev;
   let recReal = 0, cusReal = 0;
   for(let m=0;m<12;m++){
-    if(!orcMesFechado(y, m)) continue;
-    recReal += orcRealMes('receita', y, m);
+    if(!orcMesCompleto(y, m)) continue;
+    for(const c of ORC_RECEITA_IDS) recReal += orcRealMes(c, y, m);
     for(const c of ORC_CUSTO_IDS) cusReal += orcRealMes(c, y, m);
   }
   const resReal = recReal - cusReal;
@@ -50802,7 +50847,8 @@ function updateOrcKpis(){
   const tm = today.getMonth();
   const mesLbl = (parseInt(y) < ty) ? '(ano completo)'
                : (parseInt(y) > ty) ? '(ainda não iniciado)'
-               : '(até '+ORC_MESES[tm]+'/'+y.slice(-2)+')';
+               : (tm === 0) ? '(nenhum mês fechado)'
+               : '(até '+ORC_MESES[tm-1]+'/'+y.slice(-2)+')';
 
   const setTxt = (id, txt) => { const el = document.getElementById(id); if(el) el.textContent = txt; };
   const setHtml= (id, html) => { const el = document.getElementById(id); if(el) el.innerHTML = html; };
@@ -50814,7 +50860,7 @@ function updateOrcKpis(){
   setTxt('orc-kpi-res-sub', 'realizado '+mesLbl+': '+fmtBRL(resReal));
 
   // Run-rate (projeção fim de ano baseada na média realizada)
-  const rrRec = orcRunRateCat('receita', y);
+  const rrRec = orcRunRateFor((m) => ORC_RECEITA_IDS.reduce((s,c)=>s+orcRealMes(c,y,m),0), y);
   const rrCus = orcRunRateFor((m) => ORC_CUSTO_IDS.reduce((s,c)=>s+orcRealMes(c,y,m),0), y);
   const rrRes = orcRunRateFor((m) => orcResultRealMes(y, m), y);
   const rrFmt = (rr, label) => {
@@ -50833,7 +50879,7 @@ function updateOrcKpis(){
 
   // Desvio YTD
   let resPrevAcum = 0;
-  for(let m=0;m<12;m++){ if(orcMesFechado(y,m)) resPrevAcum += orcResultPrevMes(y, m); }
+  for(let m=0;m<12;m++){ if(orcMesCompleto(y,m)) resPrevAcum += orcResultPrevMes(y, m); }
   const desvio = resReal - resPrevAcum;
   const pctStr = resPrevAcum ? (' · '+((desvio>=0?'+':'')+fmtBR(desvio/Math.abs(resPrevAcum)*100, 1))+'%') : '';
   setTxt('orc-kpi-desvio', (desvio>=0?'+':'')+fmtBRL(desvio)+pctStr);
@@ -50957,7 +51003,7 @@ function orcOpenVersionMenu(ev){
   const blk = orcGetYearBlock(orcActiveYear);
   const ver = orcGetVersion();
   const canDelete = blk.versions.length > 1;
-  const lockLbl = ver.congelado ? 'Descongelar' : 'Congelar (snapshot)';
+  const lockLbl = ver.congelado ? 'Descongelar' : 'Congelar';
   const lockIco = ver.congelado
     ? '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M7 11V7a5 5 0 0110 0"/></svg>'
     : '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>';
@@ -50966,17 +51012,24 @@ function orcOpenVersionMenu(ev){
   pop.className = 'orc-ver-pop';
   pop.id = 'orc-ver-pop';
   pop.innerHTML =
-    '<button onclick="orcNewVersion()"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Nova versão em branco</button>'+
-    '<button onclick="orcDuplicateVersion()"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>Duplicar versão atual</button>'+
-    '<button onclick="orcCopyPrevYear()"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>Copiar ano anterior…</button>'+
-    '<button onclick="orcOpenGenerateModal()"><svg viewBox="0 0 24 24"><path d="M12 3v4"/><path d="M12 17v4"/><path d="M5 12H1"/><path d="M23 12h-4"/><path d="M7 7l-3-3"/><path d="M17 7l3-3"/><path d="M7 17l-3 3"/><path d="M17 17l3 3"/><circle cx="12" cy="12" r="3"/></svg>Gerar com índice / base zero…</button>'+
-    '<button onclick="orcReProjetarFuturo()"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 0115-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 01-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>Re-projetar futuro (run-rate)</button>'+
-    '<button onclick="orcOpenCompareModal()"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="8" height="16" rx="1"/><rect x="13" y="4" width="8" height="16" rx="1"/></svg>Comparar cenários…</button>'+
+    '<button onclick="orcNewVersion()" title="Começa um cenário do zero, sem nenhum valor">'+
+      '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Nova versão</button>'+
+    '<button onclick="orcDuplicateVersion()" title="Cópia desta versão com os mesmos valores, pra mexer sem perder o original">'+
+      '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>Duplicar esta versão</button>'+
+    '<button onclick="orcOpenGenerateModal()" title="Copia outro ano aplicando um índice (IPCA, por exemplo) — ou começa do zero absoluto">'+
+      '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg>Gerar a partir de outro ano…</button>'+
+    '<button'+(ver.congelado?' class="off" disabled title="Versão congelada — descongele para re-projetar"':' title="Preenche os meses que faltam com a média dos meses já fechados"')+' onclick="orcReProjetarFuturo()">'+
+      '<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 0115-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 01-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>Re-projetar meses futuros</button>'+
     '<div class="orc-ver-divider"></div>'+
-    '<button onclick="orcOpenAlertasConfig()"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 00-7 7c0 5-3 6-3 6h20s-3-1-3-6a7 7 0 00-7-7z"/><path d="M10.3 21a1.94 1.94 0 003.4 0"/></svg>Configurar alertas…</button>'+
-    '<button onclick="orcRenameVersion()"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>Renomear versão</button>'+
-    '<button onclick="orcToggleFreeze()">'+lockIco+esc(lockLbl)+'</button>'+
-    (canDelete ? '<button class="danger" onclick="orcDeleteVersion()"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>Excluir versão</button>' : '')
+    '<button onclick="orcOpenCompareModal()" title="Duas versões lado a lado, mês a mês">'+
+      '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="8" height="16" rx="1"/><rect x="13" y="4" width="8" height="16" rx="1"/></svg>Comparar versões…</button>'+
+    '<button onclick="orcRenameVersion()">'+
+      '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>Renomear</button>'+
+    '<button onclick="orcToggleFreeze()" title="'+(ver.congelado?'Volta a aceitar edição':'Guarda esta versão como ela está: ninguém edita até descongelar')+'">'+lockIco+esc(lockLbl)+'</button>'+
+    '<button onclick="orcOpenAlertasConfig()" title="Avisa quando o realizado passar do previsto além do limite">'+
+      '<svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 00-7 7c0 5-3 6-3 6h20s-3-1-3-6a7 7 0 00-7-7z"/><path d="M10.3 21a1.94 1.94 0 003.4 0"/></svg>Alertas de desvio…</button>'+
+    (canDelete ? '<div class="orc-ver-divider"></div>'+
+      '<button class="danger" onclick="orcDeleteVersion()"><svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>Excluir versão</button>' : '')
   ;
   document.body.appendChild(pop);
   const btn = ev.currentTarget;
@@ -51070,7 +51123,8 @@ function orcDeleteVersion(){
   if(typeof anaConfirm === 'function'){
     anaConfirm({
       eyebrow:'Excluir versão', title:'Apagar "' + cur.nome + '"?',
-      message:'Esta versão será removida permanentemente. <strong>Não pode ser desfeito.</strong>',
+      message:(cur.congelado ? 'Esta é uma versão <strong>congelada</strong> (snapshot). ' : '')+
+              'Ela será removida permanentemente. <strong>Não pode ser desfeito.</strong>',
       okText:'Excluir', cancelText:'Cancelar', danger:true
     }, doDel);
   } else doDel();
@@ -51332,7 +51386,7 @@ function orcChildren(catId, year){
 function orcRunRateFor(fn, year){
   let meses = 0, acum = 0;
   for(let m=0;m<12;m++){
-    if(!orcMesFechado(year, m)) break;
+    if(!orcMesCompleto(year, m)) break;
     acum += fn(m);
     meses++;
   }
@@ -51349,7 +51403,7 @@ function orcTopDeviations(year, N){
   const items = [];
   for(const c of ORC_CATS){
     for(let m=0;m<12;m++){
-      if(!orcMesFechado(year, m)) continue;
+      if(!orcMesCompleto(year, m)) continue;
       const prev = orcPrevMes(c.id, year, m);
       const real = orcRealMes(c.id, year, m);
       if(!prev) continue;
@@ -51357,7 +51411,7 @@ function orcTopDeviations(year, N){
       const diff = real - prev;
       const pct  = (diff / Math.abs(prev)) * 100;
       if(Math.abs(pct) < 1) continue;
-      const invert = (c.id !== 'receita');
+      const invert = (c.grupo !== 'receita');
       const bom = invert ? (diff < 0) : (diff > 0);
       items.push({
         catId: c.id, catNome: c.nome, catColor: c.color, catSvg: c.svg,
@@ -51390,7 +51444,7 @@ function orcAlertasCheck(year){
     if(!r) continue;
     let prev = 0, real = 0, mesesFech = 0;
     for(let m=0;m<12;m++){
-      if(!orcMesFechado(year, m)) continue;
+      if(!orcMesCompleto(year, m)) continue;
       prev += orcPrevMes(c.id, year, m);
       real += orcRealMes(c.id, year, m);
       mesesFech++;
@@ -51413,6 +51467,7 @@ async function orcReProjetarFuturo(){
   const y = orcActiveYear;
   const ver = orcGetVersion();
   if(!ver) return;
+  if(orcVersaoTravada(y)){ orcCloseVersionMenu(); return; }
   const ok = await (typeof showConfirm === 'function' ? showConfirm({
     title:'Re-projetar com run-rate?',
     message:'Os meses futuros do '+y+' serão preenchidos na versão atual ('+ver.nome+') com a média realizada até agora (run-rate). Meses já fechados não são alterados.',
@@ -106426,6 +106481,8 @@ function impLoad(){
 }
 
 function impSave(){
+  /* Renomear ou criar rubrica muda o índice de apelidos — ver _impAliasIndice. */
+  try{ impAliasCacheLimpar(); }catch(_){}
   impostos.activeYearCor = impActiveYearCor;
   impostos.activeYearPar = impActiveYearPar;
   impostos.activeTab     = impActiveTab;
@@ -106704,34 +106761,78 @@ function _impMesCorrente(){
 }
 /* Descobre a rubrica a partir da categoria do lançamento. Além dos apelidos,
    casa pelo nome da própria rubrica — inclusive as que o usuário criar. */
+/* ═══ Índice de apelidos, montado uma vez ═══════════════════════════════
+   Esta função é chamada UMA VEZ POR LANÇAMENTO do extrato, e a versão antiga
+   normalizava os 33 apelidos de novo e compilava 33 expressões regulares em
+   cada chamada. Medido com 8.899 lançamentos: 93 ms por varredura, 50
+   varreduras para desenhar o Fluxo de Caixa — 4,6 dos 5,0 segundos da tela.
+   O índice depende só de IMP_CAT_ALIAS (constante) e das rubricas; `impSave`
+   derruba os dois caches quando o usuário mexe nas rubricas. */
+let _impAliasIdx  = null;
+let _impRubPorNome = null;
+const _impRubDeCat = new Map();
+
+function impAliasCacheLimpar(){
+  _impAliasIdx = null;
+  _impRubPorNome = null;
+  _impRubDeCat.clear();
+}
+
+function _impAliasIndice(){
+  if(_impAliasIdx) return _impAliasIdx;
+  const exato = new Map(), soltos = [];
+  for(const id of Object.keys(IMP_CAT_ALIAS)){
+    for(const a of IMP_CAT_ALIAS[id]){
+      const n = _impNorm(a);
+      if(!n) continue;
+      if(!exato.has(n)) exato.set(n, id);
+      const esc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      soltos.push({ id, re: new RegExp('(^|[^a-z0-9])' + esc + '([^a-z0-9]|$)') });
+    }
+  }
+  _impAliasIdx = { exato, soltos };
+  return _impAliasIdx;
+}
+
+function _impRubricasPorNome(){
+  if(_impRubPorNome) return _impRubPorNome;
+  const m = new Map();
+  for(const r of ((impostos && impostos.rubricas) || [])){
+    const n = _impNorm(r && r.nome);
+    if(n && !m.has(n)) m.set(n, r.id);
+  }
+  _impRubPorNome = m;
+  return m;
+}
+
 function impRubricaDaCategoria(cat){
+  const bruto = String(cat == null ? '' : cat);
+  if(_impRubDeCat.has(bruto)) return _impRubDeCat.get(bruto);
+  const r = _impRubricaDaCategoriaCalc(bruto);
+  if(_impRubDeCat.size < 2000) _impRubDeCat.set(bruto, r);
+  return r;
+}
+
+function _impRubricaDaCategoriaCalc(cat){
   const c = _impNorm(cat);
   if(!c) return null;
-  for(const id of Object.keys(IMP_CAT_ALIAS)){
-    if(IMP_CAT_ALIAS[id].some(a => _impNorm(a) === c)) return id;
-  }
-  const r = ((impostos && impostos.rubricas) || []).find(x => _impNorm(x.nome) === c);
-  if(r) return r.id;
+  const idx = _impAliasIndice();
+  const porApelido = idx.exato.get(c);
+  if(porApelido) return porApelido;
+  const porRubrica = _impRubricasPorNome().get(c);
+  if(porRubrica) return porRubrica;
   /* O fallback casa apelido SOLTO dentro da categoria, mas só em limite de
      palavra. Com `indexOf` cru, "Comissões" normalizava pra "comissoes", que
      contém "iss" — e toda comissão virava ISS: R$ 40.267 em 2026, com março
      mostrando 4.462,50 de "ISS" sendo 100% comissão. Mesmo risco em "vendas"
      contendo "das". Palavra inteira resolve sem perder "ISS municipal". */
-  for(const id of Object.keys(IMP_CAT_ALIAS)){
-    if(IMP_CAT_ALIAS[id].some(a => _impPalavraSolta(c, _impNorm(a)))) return id;
+  for(const {id, re} of idx.soltos){
+    if(re.test(c)) return id;
   }
   return null;
 }
 /* Acento já saiu no _impNorm, então \b resolve; o escape protege alias com
    ponto ou barra ("irpj/csll", "pis/pasep"). */
-function _impPalavraSolta(texto, alvo){
-  if(!texto || !alvo) return false;
-  try{
-    const esc = alvo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp('(^|[^a-z0-9])' + esc + '([^a-z0-9]|$)').test(texto);
-  }catch(_){ return texto.indexOf(alvo) >= 0; }
-}
-
 /* { rubricaId: { 'YYYY-MM': valorPago } } — mês do PAGAMENTO, que é o que
    importa em imposto: DARF pago em abril é caixa de abril. */
 function impRealizadoExtrato(ano){
@@ -169797,6 +169898,105 @@ try {
     reset: reset
   };
 })();
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MEMO DE UMA TAREFA — leitura do realizado
+   ═══════════════════════════════════════════════════════════════════════
+   Medido com os 8.899 lançamentos reais: desenhar o Fluxo de Caixa levava
+   5,0 s. A causa não era o tamanho do extrato, era a repetição — cada célula
+   pedia o realizado do seu mês e cada pedido varria o extrato inteiro de
+   novo: 398 chamadas a `flxRealizadoExtrato` e 91 mil a `extBaixas` para
+   desenhar uma tela.
+
+   Estas funções são puras: com o mesmo extrato (e o mesmo catmap, a mesma
+   estrutura, os mesmos cartões) devolvem sempre o mesmo mapa. Então guardamos
+   o resultado — mas só pelo tempo de UMA tarefa do event loop. O cache nasce
+   na primeira chamada e morre quando a pilha desenrola (setTimeout 0). Isso
+   cobre o render inteiro, que é síncrono, e não há como servir dado velho
+   depois de uma edição: a edição acontece em outra tarefa. Os saves chamam
+   `fkMemoLimpa()` de todo jeito, para o caso de mutar e redesenhar no mesmo
+   tique.
+
+   Para medir: `fkMemoStats()` no console.
+   ═══════════════════════════════════════════════════════════════════════ */
+(function _fkMemoInstalar(){
+  const MEMO = { mapa: new Map(), agendado: false, hits: 0, calculos: 0, puladas: 0 };
+
+  window.fkMemoLimpa  = function(){ MEMO.mapa.clear(); };
+  window.fkMemoStats  = function(){
+    return { emCache: MEMO.mapa.size, reaproveitadas: MEMO.hits,
+             calculadas: MEMO.calculos, naoCacheaveis: MEMO.puladas };
+  };
+
+  function agendarDescarte(){
+    if(MEMO.agendado) return;
+    MEMO.agendado = true;
+    setTimeout(() => { MEMO.mapa.clear(); MEMO.agendado = false; }, 0);
+  }
+
+  function memoizar(nome){
+    const orig = window[nome];
+    if(typeof orig !== 'function') return false;
+    window[nome] = function(){
+      /* Argumento que não é escalar (uma função de filtro, um mapa já pronto)
+         não cabe numa chave de texto — essas chamadas passam direto. */
+      for(let i = 0; i < arguments.length; i++){
+        const a = arguments[i], t = typeof a;
+        if(a != null && t !== 'string' && t !== 'number' && t !== 'boolean'){
+          MEMO.puladas++;
+          return orig.apply(this, arguments);
+        }
+      }
+      const k = nome + '\u0001' + Array.prototype.join.call(arguments, '\u0002');
+      if(MEMO.mapa.has(k)){ MEMO.hits++; return MEMO.mapa.get(k); }
+      const v = orig.apply(this, arguments);
+      MEMO.mapa.set(k, v);
+      MEMO.calculos++;
+      agendarDescarte();
+      return v;
+    };
+    try{ window[nome].__fkOrig = orig; }catch(_){}
+    return true;
+  }
+
+  /* Só funções de LEITURA, e só as que varrem coleção grande. Nenhuma delas
+     devolve objeto que alguém altere depois — foi conferido chamada por
+     chamada antes de entrar aqui. */
+  const ALVOS = [
+    // mapas do realizado, um por ano
+    'estRealizadoExtrato', 'recRealizadoExtrato', 'impRealizadoExtrato',
+    'pesPagoExtrato', 'estProjetadoPorCategoria',
+    // leitura por linha do Demonstrativo
+    'flxRealizadoExtrato', '_flxRealPorModulo', '_flxRealPorCategoria',
+    // conjuntos derivados do catmap (remontados a cada varredura)
+    '_estCatsDoModulo', '_recCatsOperacionais', '_pesCatsDeFolha',
+    '_pesCatsDeOutroModulo', '_pesNomesColaboradores',
+    // valor do mês, que é o que a célula pede
+    'flxReceitaMes', 'flxFolhaMes', 'flxDespesasMes', 'flxEmprestimosMes',
+    'flxImpostoMes', 'flxOutrasMes', 'flxOutrasDespMes',
+    'comissaoTotalMes', 'orcRealMes',
+    /* A projeção da lista do Extrato: 8.899 objetos de ~25 campos, montados do
+       zero a cada chamada — e ela é chamada de 15 lugares, 4 vezes só para
+       abrir a aba (18 ms cada). Os 15 consumidores só LEEM (for/find/filter);
+       nenhum ordena nem altera no lugar — conferido um por um. */
+    '_extCollect', '_extCollectReal'
+  ];
+  const instalados = ALVOS.filter(memoizar);
+  try{ window.__FK_MEMO_ALVOS = instalados; }catch(_){}
+
+  /* Quem escreve, derruba o cache na hora. */
+  const SAVES = ['_extSave','fluxoSave','estSave','impSave','pessoasSave','receitaSave',
+                 'cartSave','vendedoresSave','outrasOpSave','_catmapSave','orcamentoSave'];
+  for(const nome of SAVES){
+    const orig = window[nome];
+    if(typeof orig !== 'function') continue;
+    window[nome] = function(){
+      try{ MEMO.mapa.clear(); }catch(_){}
+      return orig.apply(this, arguments);
+    };
+  }
+})();
+
 </script>
 
 
