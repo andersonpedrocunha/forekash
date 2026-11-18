@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794972954"/>
+  <meta name="fk-build" content="forekash-v1794973124"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8823,6 +8823,12 @@
       background:#94A3B8;border-color:#94A3B8}
     .viag-reemb-espera{display:block;margin-top:6px;font-size:.72rem;color:#64748B;
       line-height:1.4;text-align:center}
+
+    /* Como o card vai fechar: discreto, do tamanho de uma legenda. */
+    .viag-kb-fecha{display:inline-block;margin-top:5px;font-size:.6rem;font-weight:700;
+      letter-spacing:.04em;color:#94A3B8;background:#F8FAFC;border:1px solid #EEF0F4;
+      border-radius:999px;padding:1px 7px;cursor:help}
+    .viag-kb-fecha.manual{color:#B45309;background:#FFFBEB;border-color:#FDE68A}
 
     /* ── JÁ LANÇADO NO EXTRATO ────────────────────────────────── */
     .viag-lancado{display:flex;align-items:center;gap:11px;margin:0 0 14px;padding:11px 14px;
@@ -65090,7 +65096,11 @@ const VIAGENS_KEY = 'forekash_viagens_v1';
 const VIAG_SETTINGS_KEY = 'forekash_viag_settings_v1';
 let viagens = { itens: [], nextId: 1, nextDespId: 1 };
 let _viagSettings = { requireSignature: false, view: 'kanban', sortBy: 'dataInicio', sortDir: 'desc',
-  showAging: true, showSaldo: true, showColab: true, colNames: {} };
+  showAging: true, showSaldo: true, showColab: true, colNames: {},
+  /* Fechar o relatório sozinho quando o Extrato quitar o reembolso. Automático
+     por padrão: a alternativa é o relatório ficar eternamente em "Aprovado"
+     com o dinheiro já pago, que é o estado que mais engana num quadro. */
+  autoReembolso: true };
 function _viagLoadSettings(){
   try {
     const raw = localStorage.getItem(VIAG_SETTINGS_KEY);
@@ -65211,6 +65221,14 @@ function viagToggleSaldo(){
   _viagSettings.showSaldo = !(_viagSettings.showSaldo !== false);
   _viagSaveSettings(); renderViagens();
 }
+function viagToggleAutoReembolso(){
+  _viagSettings.autoReembolso = !(_viagSettings.autoReembolso !== false);
+  _viagSaveSettings();
+  /* Ligar agora vale pra quem já está pago: senão a pessoa marca a opção e
+     nada acontece até o próximo pagamento. */
+  try{ _viagAutoFinalizar(); }catch(_){}
+  renderViagens();
+}
 function viagToggleColab(){
   _viagSettings.showColab = !(_viagSettings.showColab !== false);
   _viagSaveSettings(); renderViagens();
@@ -65242,6 +65260,11 @@ function _viagRenderGearMenu(){
     + '<label class="viag-gear-item" onclick="event.stopPropagation()">'
     +   '<input type="checkbox"' + ck(s.showColab !== false) + ' onchange="viagToggleColab()">'
     +   '<span>Mostrar colaborador no card</span>'
+    + '</label>'
+    + '<label class="viag-gear-item" onclick="event.stopPropagation()" '
+    +   'title="Quando o lançamento do reembolso for quitado no Extrato, o relatório passa sozinho para Reembolsado">'
+    +   '<input type="checkbox"' + ck(s.autoReembolso !== false) + ' onchange="viagToggleAutoReembolso()">'
+    +   '<span>⟳ Finalizar sozinho quando o Extrato pagar</span>'
     + '</label>'
     + '<div class="viag-gear-item is-action" onclick="event.stopPropagation();viagOpenColNamesModal()">'
     +   '<span>✏️ Editar nome das colunas…</span>'
@@ -65611,6 +65634,7 @@ function renderViagens(){
   viagLoad();
   _viagLoadSettings();
   _viagEnsureTimestamps();
+  try{ _viagAutoFinalizar(); }catch(_){}
   setTimeout(() => { const cb = document.getElementById('viag-sig-toggle'); if(cb) cb.checked = !!_viagSettings.requireSignature; }, 0);
   // KPIs — esconde em Categoria e Overview (essas views já têm KPIs próprios)
   const kpiEl = document.getElementById('viag-kpis');
@@ -65751,16 +65775,31 @@ function renderViagens(){
                   const lbl = closed ? ('Fechada em ' + fmt) : ('Aberta há ' + fmt);
                   return '<div class="viag-kb-age ' + cls + '">⏱ ' + lbl + '</div>';
                 })()
+             /* ══ COMO ESTE CARD VAI FECHAR ══════════════════════════════
+
+                Um glifo e um title, só enquanto o fim ainda não chegou: em
+                Rascunho não há o que automatizar, e em Reembolsado ou
+                Rejeitado a marca viraria enfeite num card que já acabou. */
+             +     (function(){
+                  const st = v.status || 'rascunho';
+                  if(st !== 'enviado' && st !== 'aprovado') return '';
+                  const auto = !_viagSettings || _viagSettings.autoReembolso !== false;
+                  return '<div class="viag-kb-fecha' + (auto ? '' : ' manual') + '" title="'
+                       + (auto
+                           ? 'Finaliza sozinho quando o Extrato quitar o reembolso'
+                           : 'Voc\u00ea move pra Reembolsado na m\u00e3o \u2014 ligue o autom\u00e1tico na engrenagem')
+                       + '">' + (auto ? '⟳ auto' : '✎ manual') + '</div>';
+                })()
              +   '</div>'
              +   '<div class="viag-kb-card-foot">'
              +     '<div class="viag-kb-card-tot">'
              +       '<span class="lbl">Total</span>'
              +       '<span class="val">' + _viagFmt(tot) + '</span>'
              +     '</div>'
-             /* SALDO SÓ QUANDO DIZ ALGO NOVO. Sem adiantamento, saldo é o
-                total com sinal trocado — e o card mostrava R$ 577,90 em
-                três lugares, dois deles sem acrescentar nada. */
-             +     ((_showSaldo && saldo !== 0 && _viagAdiTotal(v) > 0)
+             /* Quem decide é o interruptor da engrenagem, e só ele. Eu tinha
+                posto uma condição a mais — "só se houver adiantamento" — e
+                isso fazia a opção ficar marcada sem efeito nenhum. */
+             +     ((_showSaldo && saldo !== 0)
                     ? '<div class="viag-kb-card-tot"><span class="lbl">Saldo</span><span class="val '
                       + (saldo >= 0 ? 'bal-pos' : 'bal-neg') + '">' + _viagFmt(saldo) + '</span></div>'
                     : '')
@@ -66674,9 +66713,8 @@ function _viagLancStatus(v){
   try{
     _viagEnsureColabs(v);
     for(const c of (v.colaboradores || [])){
-      const achado = (c.reembolso && c.reembolso.extratoId)
-        ? { id: c.reembolso.extratoId }
-        : _viagLancamentoExistente(v, c.cid);
+      const achado = _viagLancDoColab(v, c.cid)
+        || ((c.reembolso && c.reembolso.extratoId) ? { id: c.reembolso.extratoId } : null);
       const saldo = (parseFloat(c.adiantamento) || 0) - _viagGastoPorColab(v, c.cid);
       const precisa = saldo < -0.005;
       if(precisa || achado) r.precisam++;
@@ -66686,6 +66724,66 @@ function _viagLancStatus(v){
   }catch(_){}
   return r;
 }
+/* O lançamento de verdade, pra poder olhar o status dele — não só o id. */
+function _viagLancDoColab(v, cid){
+  const achado = _viagLancamentoExistente(v, cid);
+  if(achado) return achado;
+  try{
+    const c = (v.colaboradores || []).find(x => x && x.cid === cid);
+    const id = c && c.reembolso && c.reembolso.extratoId;
+    if(id == null) return null;
+    return (extratoData.lancamentos || []).find(l => l && String(l.id) === String(id)) || null;
+  }catch(_){ return null; }
+}
+
+/* ══ O EXTRATO FECHA O RELATÓRIO ══════════════════════════════════
+
+   Aprovado quer dizer "pode pagar"; Reembolsado quer dizer "pagou". Quem
+   sabe que pagou é o Extrato, não esta tela — e esperar alguém voltar aqui
+   pra arrastar o card deixa o quadro mentindo: relatório parado em Aprovado
+   com o dinheiro na conta do colaborador há duas semanas.
+
+   Só fecha quando TODOS os reembolsos do relatório estiverem quitados. Com
+   dois colaboradores e um pago, ainda falta dinheiro saindo. */
+function _viagReembolsoQuitado(v){
+  const st = _viagLancStatus(v);
+  if(!st.precisam || st.lancados < st.precisam) return false;
+  for(const c of (v.colaboradores || [])){
+    const l = _viagLancDoColab(v, c.cid);
+    if(!l) continue;
+    const pago = (typeof extStatusDe === 'function')
+      ? extStatusDe(l) === 'pago'
+      : (l.status === 'pago' || l.status === 'recebido');
+    if(!pago) return false;
+  }
+  return true;
+}
+/* Roda ao abrir o módulo. Não há gatilho no Extrato de propósito: o estado
+   é derivado, então basta recalcular quando alguém vai olhar. */
+function _viagAutoFinalizar(){
+  if(!_viagSettings || _viagSettings.autoReembolso === false) return 0;
+  let n = 0;
+  try{
+    for(const v of ((viagens && viagens.itens) || [])){
+      if(!v || v.status !== 'aprovado') continue;
+      if(!_viagReembolsoQuitado(v)) continue;
+      v.status = 'reembolsado';
+      v.reembolsadoEm = new Date().toISOString();
+      v.reembolsadoAuto = true;
+      n++;
+    }
+    if(n){
+      viagSave();
+      if(typeof toast === 'function')
+        toast('⟳ ' + n + ' relatório(s) finalizado(s) — o Extrato quitou o reembolso');
+    }
+  }catch(e){ console.warn('[FK] auto-finalizar viagem:', e && e.message); }
+  return n;
+}
+try{ window._viagLancDoColab = _viagLancDoColab;
+     window._viagReembolsoQuitado = _viagReembolsoQuitado;
+     window._viagAutoFinalizar = _viagAutoFinalizar; }catch(e){}
+
 function _viagJaLancado(v){ return _viagLancStatus(v).lancados > 0; }
 try{ window._viagLancStatus = _viagLancStatus; }catch(e){}
 try{ window._viagLancamentoExistente = _viagLancamentoExistente;
