@@ -669,6 +669,66 @@ function paginaSimples(titulo, texto){
     + '</style></head><body><div><h1>' + e(titulo) + '</h1><p>' + e(texto) + '</p></div></body></html>';
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   O app é um arquivo de 9 MB. Revalidar não pode custar 9 MB.
+   ═══════════════════════════════════════════════════════════════════════
+   `_headers` manda o navegador perguntar em toda abertura — é o que garante
+   que uma correção no ar apareça na hora. Perguntar deveria ser barato: com
+   um validador, o servidor responde 304 sem corpo e o navegador reaproveita
+   o que já tem. Só que o Workers Assets manda etag para /sw.js e
+   /version.txt e NÃO manda para o index.html; sem validador não existe 304,
+   e toda abertura rebaixava 2,3 MB comprimidos (medido: 520 ms de TTFB +
+   1,27 s de download, primeira pintura em 3,2 s).
+
+   Então o etag sai daqui. O validador é a própria versão do build: o
+   bump.sh reescreve version.txt e o index.html juntos, em todo deploy — se
+   a versão é a mesma, o arquivo é o mesmo. Se version.txt não responder,
+   não inventamos etag e tudo volta ao comportamento anterior.
+   ═══════════════════════════════════════════════════════════════════════ */
+const CC_APP = 'public, max-age=0, must-revalidate';
+
+async function versaoDoBuild(env, url){
+  try{
+    const r = await env.ASSETS.fetch(new Request(new URL('/version.txt', url).toString()));
+    if(!r || !r.ok) return null;
+    const v = (await r.text()).trim();
+    return /^[A-Za-z0-9._-]{3,80}$/.test(v) ? v : null;
+  }catch(_){ return null; }
+}
+
+function etagCasa(cabecalho, etag){
+  if(!cabecalho) return false;
+  if(cabecalho.trim() === '*') return true;
+  const nu = etag.replace(/^W\//, '');
+  return cabecalho.split(',').some(t => {
+    const x = t.trim();
+    return x === etag || x.replace(/^W\//, '') === nu;
+  });
+}
+
+async function servirApp(request, env, url){
+  const ehApp = (url.pathname === '/' || url.pathname === '/index.html');
+  if(!ehApp) return env.ASSETS.fetch(request);
+
+  const ver = await versaoDoBuild(env, url);
+  const etag = ver ? ('W/"' + ver + '"') : null;
+
+  if(etag && etagCasa(request.headers.get('if-none-match'), etag)){
+    return new Response(null, { status: 304, headers: {
+      'etag': etag,
+      'cache-control': CC_APP,
+      'vary': 'Accept-Encoding'
+    } });
+  }
+
+  const resp = await env.ASSETS.fetch(request);
+  if(!etag || !resp.ok) return resp;
+  const h = new Headers(resp.headers);
+  h.set('etag', etag);
+  h.set('cache-control', CC_APP);
+  return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: h });
+}
+
 export default {
   async fetch(request, env, ctx){
     const url = new URL(request.url);
@@ -704,7 +764,7 @@ export default {
       }
     }
 
-    if(!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
+    if(!url.pathname.startsWith('/api/')) return servirApp(request, env, url);
 
     /* Manchetes de mercado · o navegador não busca RSS sozinho (CORS), e a
        ponte que usávamos (api.rss2json.com) passou a responder com a tela de
