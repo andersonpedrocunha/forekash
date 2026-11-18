@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795034837"/>
+  <meta name="fk-build" content="forekash-v1795035325"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -59392,7 +59392,11 @@ const OUTRAS_SUGESTOES = {
   despesas: [
     ['Multas e penalidades',      '#DC2626'],
     ['Juros de empréstimo',       '#EF4444'],
-    ['Doações e patrocínios',     '#8B5CF6'],
+    /* Só "Doações". Patrocínio saiu daqui porque não é despesa não
+       operacional: é marketing, e entra em Despesas Operacionais junto
+       com o resto do que se gasta para aparecer. Juntas numa categoria
+       só, as duas escondiam uma à outra no DRE. */
+    ['Doações',                   '#8B5CF6'],
     ['Baixa de imobilizado',      '#94A3B8'],
     ['Perdas com inadimplência',  '#F43F5E'],
     ['Variação cambial passiva',  '#7C3AED']
@@ -80759,6 +80763,7 @@ function _extLoad(){
         _extMigrarConta();
         _extHistDaNota();
         _extHistDaViagem();
+        _extPatrocinioSeparado();
       }
     }
   } catch(e){}
@@ -80858,6 +80863,61 @@ try{ window._extHistDaViagem = _extHistDaViagem; }catch(_){}
    casamento é inequívoco — fkResolverConta devolve o texto original quando
    fica em dúvida. Guarda o texto de origem em contaOrigem, pra dar pra
    auditar de onde veio.                                                    */
+/* ══ PATROCÍNIO NÃO É DOAÇÃO ═══════════════════════════════════════════
+
+   "Doações e patrocínios" era uma categoria só para duas coisas que vão
+   para linhas diferentes do DRE: patrocínio é marketing, operacional;
+   doação é não operacional. Juntas, uma escondia a outra — e dez anos de
+   patrocínio de evento (Agile Brazil, Kanban Brazil, Codecon, Startup
+   Summit) apareciam fora das Despesas Operacionais.
+
+   As categorias separadas já existem: "Patrocínios" (Despesas Operacionais)
+   e "Doações" (Outras Despesas). Aqui os lançamentos antigos passam para a
+   nova, uma vez, e a categoria velha sai do catmap.
+
+   Idempotente por construção: quando não sobra nenhum lançamento na
+   categoria velha, não há o que fazer. Roda tanto sobre o que veio do
+   navegador quanto sobre o que desceu da nuvem, porque a nuvem SUBSTITUI
+   a lista — reparo feito antes do fetch não vale para as linhas novas. */
+const _EXT_CAT_VELHA_DOA = 'Doações e patrocínios';
+const _EXT_CAT_PATROCINIO = 'Patrocínios';
+
+function _extPatrocinioSeparado(){
+  try{
+    const lista = (extratoData && extratoData.lancamentos) || [];
+    let n = 0;
+    for(const l of lista){
+      if(!l || String(l.categoria || '').trim() !== _EXT_CAT_VELHA_DOA) continue;
+      l.categoria = _EXT_CAT_PATROCINIO;
+      n++;
+    }
+    /* A categoria velha só sai depois que ninguém mais aponta para ela.
+       Apagar antes deixaria lançamento órfão, fora de qualquer linha. */
+    let tirou = false;
+    try{
+      if(catmapData && Array.isArray(catmapData.categorias)){
+        const aindaUsada = lista.some(l => l &&
+          String(l.categoria || '').trim() === _EXT_CAT_VELHA_DOA);
+        if(!aindaUsada){
+          const antes = catmapData.categorias.length;
+          catmapData.categorias = catmapData.categorias.filter(c =>
+            !c || String(c.nome || '').trim() !== _EXT_CAT_VELHA_DOA);
+          tirou = catmapData.categorias.length !== antes;
+          if(tirou && typeof _catmapSave === 'function') _catmapSave();
+        }
+      }
+    }catch(_){}
+    if(n){
+      console.log('[FK] ' + n + ' patrocínio(s) movidos de "' + _EXT_CAT_VELHA_DOA
+                + '" para "' + _EXT_CAT_PATROCINIO + '"');
+      try{ localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData)); }catch(_){}
+      if(window.FK_MODE === 'cloud'){ try{ cloudExtratoSync(); }catch(_){} }
+    }
+    return n;
+  }catch(e){ console.warn('[FK] separar patrocínio:', e && e.message); return 0; }
+}
+try{ window._extPatrocinioSeparado = _extPatrocinioSeparado; }catch(_){}
+
 function _extMigrarConta(){
   if(typeof fkResolverConta !== 'function') return;
   const cache = {};
@@ -81777,6 +81837,7 @@ async function cloudExtratoFetch(){
        feito sobre o que veio do navegador não vale mais para estas linhas. */
     _extHistDaNota();
     _extHistDaViagem();
+    _extPatrocinioSeparado();
     _extRecalcNextId();
     try { localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData)); } catch(_){}
     try { if (typeof renderExtrato === 'function') renderExtrato(); } catch(_){}
@@ -91407,6 +91468,7 @@ function _catmapLoad(){
       if(obj && typeof obj === 'object'){
         if(Array.isArray(obj.categorias)) catmapData.categorias = obj.categorias;
         if(typeof obj.nextId === 'number') catmapData.nextId = obj.nextId;
+        if(obj.exemplosOutrasSemeados) catmapData.exemplosOutrasSemeados = true;
       }
     }
   } catch(e){ console.warn('catmap/load:', e); }
@@ -91441,7 +91503,7 @@ function _catmapGarantirFixas(){
     }
   }
   if(mudou){
-    try{ localStorage.setItem(CATMAP_KEY, JSON.stringify({ categorias: catmapData.categorias, nextId: catmapData.nextId })); }catch(_){}
+    try{ localStorage.setItem(CATMAP_KEY, JSON.stringify(_catmapPayload())); }catch(_){}
     /* Sem isso a categoria some no próximo boot em conta cloud: o fetch do
        Supabase substitui a lista inteira pelo que está lá. */
     try{
@@ -91578,9 +91640,28 @@ try{
   window.catmapCatPorNome = catmapCatPorNome;
 }catch(_){}
 
+/* ══ A MARCA DOS EXEMPLOS VIAJA JUNTO ═══════════════════════════════
+
+   `_outrasOpSemearExemplos` só semeia uma vez: ele checa
+   `catmapData.exemplosOutrasSemeados` e o liga ao terminar. Só que os três
+   lugares que gravam o catmap escreviam apenas `{categorias, nextId}` — a
+   marca morria no reload e a semeadura rodava DE NOVO em toda abertura,
+   recriando toda categoria de exemplo que o usuário tinha apagado.
+
+   Era por isso que "Doações e patrocínios" voltava sozinha depois de ser
+   separada em Doações e Patrocínios. Apagar não adiantava: a próxima
+   abertura trazia de volta. */
+function _catmapPayload(){
+  return {
+    categorias: catmapData.categorias,
+    nextId: catmapData.nextId,
+    exemplosOutrasSemeados: !!catmapData.exemplosOutrasSemeados
+  };
+}
+
 function _catmapSave(){
   try {
-    localStorage.setItem(CATMAP_KEY, JSON.stringify({ categorias: catmapData.categorias, nextId: catmapData.nextId }));
+    localStorage.setItem(CATMAP_KEY, JSON.stringify(_catmapPayload()));
   } catch(e){ console.warn('catmap/save:', e); }
   if (window.FK_MODE === 'cloud') {
     cloudCatmapSync();  // fire-and-forget
@@ -91673,9 +91754,7 @@ async function cloudCatmapFetch(){
     /* A lista veio inteira do servidor — as fixas precisam sobreviver a isso. */
     try{ _catmapGarantirFixas(); }catch(_){}
     try {
-      localStorage.setItem(CATMAP_KEY, JSON.stringify({
-        categorias: catmapData.categorias, nextId: catmapData.nextId
-      }));
+      localStorage.setItem(CATMAP_KEY, JSON.stringify(_catmapPayload()));
     } catch(_){}
     try { if (typeof catmapRender === 'function') catmapRender(); } catch(_){}
     console.log('[FK] catmap fetch OK:', catmapData.categorias.length, 'rows');
