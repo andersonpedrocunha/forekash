@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794970378"/>
+  <meta name="fk-build" content="forekash-v1794970513"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8802,6 +8802,15 @@
       transition:all .12s;white-space:nowrap}
     .viag-desp-ia:hover{background:#EDE9FE;border-color:#A78BFA}
     .viag-desp-ia:disabled{opacity:.45;cursor:not-allowed}
+
+    /* Espera de aprovação: o botão continua visível, apagado, com o motivo
+       do lado. Sumir faria parecer defeito; ficar ativo faria o dinheiro sair
+       antes de alguém aprovar. */
+    .viag-colab-reembolso--espera{background:#F8FAFC;border-color:#E2E8F0}
+    .viag-colab-reembolso--espera .viag-reemb-create{opacity:.45;cursor:not-allowed;
+      background:#94A3B8;border-color:#94A3B8}
+    .viag-reemb-espera{display:block;margin-top:6px;font-size:.72rem;color:#64748B;
+      line-height:1.4;text-align:center}
 
     /* ── ORIGEM DAS DESPESAS ────────────────────────────────────
        Discreto de propósito: é rodapé de comprovante, não conteúdo. */
@@ -66166,6 +66175,28 @@ try { window._viagIsLocked = _viagIsLocked; } catch(e){}
 function _viagToastLocked(){
   if(typeof toast === 'function') toast('Card travado — mude o Status pra Enviado pra editar');
 }
+
+/* ══ CRIAR A CONTA A PAGAR É OUTRA PERMISSÃO ════════════════════════
+
+   Editar e pagar são duas decisões diferentes, e estavam presas na mesma
+   variável. O botão seguia `_viagIsLocked`, que liga em aprovado, reembolsado
+   e rejeitado — ou seja, o exato oposto: dava pra mandar o dinheiro enquanto
+   o relatório ainda era rascunho, e travava justamente depois de aprovado,
+   que é quando o pagamento deve sair.
+
+   A regra é a ordem do processo: sai dinheiro depois que alguém aprovou.
+   Antes disso é proposta; rejeitado não tem o que reembolsar. */
+const VIAG_STATUS_PAGAVEL = ['aprovado', 'reembolsado'];
+function _viagPodeReembolsar(v){
+  return !!v && VIAG_STATUS_PAGAVEL.indexOf(v.status || 'rascunho') >= 0;
+}
+function _viagMotivoNaoPaga(v){
+  const st = (v && v.status) || 'rascunho';
+  if(st === 'rejeitado') return 'Relatório rejeitado — não há o que reembolsar';
+  if(st === 'enviado')   return 'Aguardando aprovação — só depois dela sai pagamento';
+  return 'Ainda em rascunho — envie e aprove pra poder pagar';
+}
+try{ window._viagPodeReembolsar = _viagPodeReembolsar; }catch(e){}
 function _viagRenderEditor(){
   const v = _viagCurrent();
   if(!v) return;
@@ -66379,7 +66410,12 @@ function _viagTotalEmpresaNew(v){
 // Cria conta a pagar (lançamento no Extrato) pro reembolso do colaborador
 function _viagCriarReembolso(cid){
   const v = _viagCurrent(); if(!v) return;
-  if(_viagIsLocked(v)){ _viagToastLocked(); return; }
+  /* A tela esconde o botão, mas quem recusa é aqui: o botão some, a função
+     continua alcançável, e dinheiro não se protege com `disabled`. */
+  if(!_viagPodeReembolsar(v)){
+    if(typeof toast === 'function') toast('⚠ ' + _viagMotivoNaoPaga(v));
+    return;
+  }
   _viagEnsureColabs(v);
   const c = v.colaboradores.find(x => x.cid === cid);
   if(!c){ if(typeof toast === 'function') toast('⚠ Colaborador não encontrado'); return; }
@@ -66445,7 +66481,12 @@ function _viagCriarReembolso(cid){
 // Desvincula (remove a flag · mantém lançamento no extrato)
 function _viagDesvincularReembolso(cid){
   const v = _viagCurrent(); if(!v) return;
-  if(_viagIsLocked(v)){ _viagToastLocked(); return; }
+  /* Mesma permissão de criar: quem pôde criar por engano tem que poder
+     desfazer sem ter que voltar o relatório pra rascunho. */
+  if(!_viagPodeReembolsar(v)){
+    if(typeof toast === 'function') toast('⚠ ' + _viagMotivoNaoPaga(v));
+    return;
+  }
   _viagEnsureColabs(v);
   const c = v.colaboradores.find(x => x.cid === cid);
   if(!c || !c.reembolso) return;
@@ -66529,8 +66570,16 @@ function _viagRenderColabsBlock(v){
           +   (_vLocked ? '' : '<button class="viag-reemb-btn viag-reemb-btn--unlink" onclick="_viagDesvincularReembolso(\'' + c.cid + '\')" title="Desvincular do lançamento (mantém no Extrato)">desvincular</button>')
           + '</div>';
       } else {
-        reembolsoBlock = '<div class="viag-colab-reembolso">'
-          +   '<button class="viag-reemb-create" onclick="_viagCriarReembolso(\'' + c.cid + '\')" title="Cria lançamento de despesa no Extrato pra reembolsar este colaborador"' + _vDis + '>Criar conta a pagar (' + _viagFmt(Math.abs(saldo)) + ')</button>'
+        const _podePagar = _viagPodeReembolsar(v);
+        const _motivo = _podePagar ? '' : _viagMotivoNaoPaga(v);
+        reembolsoBlock = '<div class="viag-colab-reembolso' + (_podePagar ? '' : ' viag-colab-reembolso--espera') + '">'
+          +   '<button class="viag-reemb-create" onclick="_viagCriarReembolso(\'' + c.cid + '\')"'
+          +     ' title="' + (_podePagar
+                  ? 'Cria lançamento de despesa no Extrato pra reembolsar este colaborador'
+                  : esc(_motivo)) + '"'
+          +     (_podePagar ? '' : ' disabled') + '>'
+          +     'Criar conta a pagar (' + _viagFmt(Math.abs(saldo)) + ')</button>'
+          +   (_podePagar ? '' : '<small class="viag-reemb-espera">' + esc(_motivo) + '</small>')
           + '</div>';
       }
     }
