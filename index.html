@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794971438"/>
+  <meta name="fk-build" content="forekash-v1794971674"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -66523,6 +66523,10 @@ function _viagTotalEmpresaNew(v){
   return tot;
 }
 // Cria conta a pagar (lançamento no Extrato) pro reembolso do colaborador
+/* Quem leva as imagens é o rascunho, lá no Extrato — esta bandeira é o
+   recado entre a pergunta e ele. */
+let _VIAG_LEVAR_ORIGENS = false;
+
 /* O lançamento que este relatório já gerou para este colaborador, se houver.
    Procura pelo carimbo e também pela `origem`, porque lançamento antigo pode
    ter só um dos dois. Cancelado ou apagado não conta — se não está mais no
@@ -66596,6 +66600,40 @@ function _viagCriarReembolso(cid){
     return;
   }
 
+  /* ══ AS IMAGENS DE ORIGEM VÃO JUNTO? ═══════════════════════════
+
+     O print ou o recibo que gerou as despesas é o comprovante natural deste
+     pagamento — e quem for conferir o gasto no Extrato daqui a seis meses
+     procura o papel ali, não dentro do relatório de viagem.
+
+     Pergunta em vez de levar sozinho: anexo pesa, vai pra nuvem, e nem todo
+     mundo quer o print da conversa colado na conta a pagar. */
+  const origens = (Array.isArray(v.origens) ? v.origens : []).filter(o => o && o.data);
+  if(origens.length){
+    const abrir = () => _viagAbrirRascunho(v, c.cid);
+    const texto = origens.length === 1
+      ? 'A imagem <strong>' + esc(origens[0].name || 'guardada') + '</strong> vai junto como anexo do lançamento?'
+      : 'As <strong>' + origens.length + ' imagens</strong> guardadas em "Origem das despesas" vão junto como anexo do lançamento?';
+    if(typeof anaConfirm === 'function'){
+      anaConfirm({
+        eyebrow: 'Conta a pagar',
+        title: 'Levar o comprovante junto?',
+        message: texto + '<br><br>Você ainda pode tirar ou trocar no próprio lançamento antes de salvar.',
+        okText: 'Anexar e continuar', cancelText: 'Sem anexo'
+      }, () => { _VIAG_LEVAR_ORIGENS = true;  abrir(); },
+         () => { _VIAG_LEVAR_ORIGENS = false; abrir(); });
+      return;
+    }
+    _VIAG_LEVAR_ORIGENS = window.confirm('Anexar as imagens de origem ao lançamento?');
+    abrir();
+    return;
+  }
+  _VIAG_LEVAR_ORIGENS = false;
+  _viagAbrirRascunho(v, c.cid);
+}
+
+
+function _viagAbrirRascunho(v, cid){
   /* ══ ABRE O MODAL DE SEMPRE, NÃO CRIA ÀS ESCONDIDAS ══════════════════
 
      Antes o botão inseria o lançamento direto, com conta adivinhada e sem
@@ -66612,13 +66650,14 @@ function _viagCriarReembolso(cid){
       switchModule('extrato', document.querySelector('[data-module="extrato"]'));
   }catch(_){}
   setTimeout(() => {
-    try{ extOpenModal('gasto', 'viag:' + v.id + ':' + c.cid); }
+    try{ extOpenModal('gasto', 'viag:' + v.id + ':' + cid); }
     catch(e){
       console.warn('[FK] abrir rascunho de viagem:', e && e.message);
       if(typeof toast === 'function') toast('Não consegui abrir o lançamento');
     }
   }, 220);
 }
+try{ window._viagAbrirRascunho = _viagAbrirRascunho; }catch(e){}
 
 // Desvincula (remove a flag · mantém lançamento no extrato)
 function _viagDesvincularReembolso(cid){
@@ -85691,6 +85730,12 @@ function _extLancDeViagem(editId){
       documento: '',
       refInterna: 'VIAG-' + v.id + '-' + c.cid,
       tags: (typeof fkTagsLimpar === 'function') ? fkTagsLimpar(v.tags) : [],
+      /* O painel de anexos do modal lê daqui. `dataUrl` é o nome que ele
+         espera; nas origens o campo se chama `data`. */
+      anexo: (typeof _VIAG_LEVAR_ORIGENS !== 'undefined' && _VIAG_LEVAR_ORIGENS)
+        ? (v.origens || []).filter(o => o && o.data).map(o => ({
+            name: o.name || 'origem', type: o.type || 'image/png', dataUrl: o.data }))
+        : [],
       centroCustoId: null,
       origem: { tipo: 'viagem-reembolso', viagemId: v.id, colaboradorCid: c.cid }
     };
