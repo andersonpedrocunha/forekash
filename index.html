@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794969853"/>
+  <meta name="fk-build" content="forekash-v1794970378"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8802,6 +8802,28 @@
       transition:all .12s;white-space:nowrap}
     .viag-desp-ia:hover{background:#EDE9FE;border-color:#A78BFA}
     .viag-desp-ia:disabled{opacity:.45;cursor:not-allowed}
+
+    /* ── ORIGEM DAS DESPESAS ────────────────────────────────────
+       Discreto de propósito: é rodapé de comprovante, não conteúdo. */
+    .viag-org{margin-top:16px;padding:12px 14px;background:#FAFAFB;border:1px solid #EEF0F4;
+      border-radius:10px}
+    .viag-org-hd{font-size:.64rem;font-weight:800;color:#94A3B8;text-transform:uppercase;
+      letter-spacing:.07em;margin-bottom:9px}
+    .viag-org-lista{display:flex;flex-direction:column;gap:7px}
+    .viag-org-item{display:flex;align-items:center;gap:10px;padding:7px 9px;background:#fff;
+      border:1px solid #E8EBF0;border-radius:8px}
+    .viag-org-thumb{width:40px;height:40px;flex:none;padding:0;border:1px solid #E2E8F0;
+      border-radius:6px;overflow:hidden;background:#F8FAFC;cursor:pointer;display:flex;
+      align-items:center;justify-content:center;color:#94A3B8;font-size:1.1rem}
+    .viag-org-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+    .viag-org-thumb:hover{border-color:#7C3AED}
+    .viag-org-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+    .viag-org-txt b{font-size:.78rem;color:#0F172A;font-weight:700;overflow:hidden;
+      text-overflow:ellipsis;white-space:nowrap}
+    .viag-org-txt small{font-size:.7rem;color:#94A3B8}
+    .viag-org-x{flex:none;background:none;border:none;color:#CBD5E1;font-size:1.15rem;
+      line-height:1;cursor:pointer;padding:3px 6px;font-family:inherit;border-radius:5px}
+    .viag-org-x:hover{color:#B91C1C;background:#FEF2F2}
 
     /* ── LEITURA DE UM PRINT ─────────────────────────────────── */
     .viag-print-card{max-width:680px}
@@ -66217,17 +66239,19 @@ function _viagRenderEditor(){
     +       '<button class="viag-desp-sec" onclick="viagImportarPlanilha()"' + _vDis + ' '
     +         'title="Ler a planilha preenchida e lançar as despesas">↑ Importar preenchida</button>'
     +       '<button class="viag-desp-ia" onclick="viagLerPrint()"' + _vDis + ' '
-    +         'title="Cole um print da lista de gastos — ele lê todas as linhas de uma vez">🪄 Ler de um print</button>'
+    +         'title="Cole o print da lista ou a foto do recibo — ele lê e lança">🪄 Ler print ou foto</button>'
     +       '<button class="viag-desp-add" onclick="viagAddDesp()"' + _vDis + '>+ Adicionar despesa</button>'
     +     '</div>'
     +   '</div>'
     +   '<div style="padding:10px 14px;background:#F5F3FF;border-left:3px solid #7C3AED;border-radius:6px;font-size:.78rem;color:#5B21B6;line-height:1.45;margin-bottom:10px">'
-    +     '<strong>Dicas:</strong> (1) Tem a lista pronta num print? <strong>🪄 Ler de um print</strong> traz todas as linhas de uma vez — e confere a soma com o total da imagem. Para um recibo só, anexe a foto e clique 🪄 na linha. (2) Marque cada despesa como <span style="color:#0F766E;font-weight:700">Empresa</span> (cartão/PIX direto) ou <span style="color:#7C3AED;font-weight:700">Funcionário</span> (a reembolsar) — o saldo a acertar considera só as despesas do funcionário.'
+    +     '<strong>🪄 Ler print ou foto</strong> lê a lista inteira — ou um recibo — e lança de uma vez. <strong>Empresa</strong> é o que saiu do cartão ou do PIX da empresa; <strong>Funcionário</strong> é o que ele adiantou e vai receber de volta.'
     +   '</div>'
     +   _viagRenderDespTable(v)
     + '</div>'
     // Resumo
-    + _viagRenderResumo(v);
+    + _viagRenderResumo(v)
+    // De onde vieram as despesas lidas por imagem
+    + _viagRenderOrigens(v);
   // Foot
   const foot = document.getElementById('viag-editor-foot');
   foot.innerHTML =
@@ -66603,6 +66627,79 @@ function _viagRenderDespTable(v){
   html += '</tbody></table></div>';
   return html;
 }
+/* ══ DE ONDE VIERAM ═══════════════════════════════════════════
+   Fica no FIM do card, depois do resumo, e só aparece quando existe: caixa
+   vazia em todo relatório ensina a ignorar a caixa. */
+function _viagRenderOrigens(v){
+  const lista = Array.isArray(v.origens) ? v.origens : [];
+  if(!lista.length) return '';
+  const locked = _viagIsLocked(v);
+  let linhas = '';
+  lista.forEach((o, i) => {
+    const quando = o.em ? new Date(o.em).toLocaleDateString('pt-BR') : '';
+    const ehImg = String(o.type || '').startsWith('image/');
+    linhas += '<div class="viag-org-item">'
+      + '<button type="button" class="viag-org-thumb" onclick="viagVerOrigem(' + i + ')" '
+      +   'title="Abrir ' + esc(o.name || 'imagem') + '">'
+      +   (ehImg && o.data ? '<img src="' + o.data + '" alt="">' : '<span class="fkico fkico-doc"></span>')
+      + '</button>'
+      + '<div class="viag-org-txt">'
+      +   '<b>' + esc(o.name || 'imagem') + '</b>'
+      +   '<small>' + (o.linhas || 0) + (o.linhas === 1 ? ' despesa' : ' despesas')
+      +     (o.total ? ' · ' + _viagFmt(o.total) : '')
+      +     (quando ? ' · lido em ' + quando : '') + '</small>'
+      + '</div>'
+      + (locked ? '' : '<button type="button" class="viag-org-x" onclick="viagRmOrigem(' + i + ')" '
+          + 'title="Tirar esta imagem do relatório">×</button>')
+      + '</div>';
+  });
+  return '<div class="viag-org">'
+    + '<div class="viag-org-hd">Origem das despesas lidas</div>'
+    + '<div class="viag-org-lista">' + linhas + '</div>'
+    + '</div>';
+}
+function viagVerOrigem(i){
+  const v = _viagCurrent();
+  const o = v && Array.isArray(v.origens) ? v.origens[i] : null;
+  if(!o || !o.data) return;
+  const w = window.open('', '_blank');
+  if(!w){ if(typeof toast === 'function') toast('O navegador bloqueou a janela'); return; }
+  w.document.write('<!doctype html><meta charset="utf-8"><title>' + esc(o.name || 'imagem')
+    + '</title><body style="margin:0;background:#0F172A;display:flex;align-items:center;'
+    + 'justify-content:center;min-height:100vh">'
+    + (String(o.type || '').startsWith('image/')
+        ? '<img src="' + o.data + '" style="max-width:100%;max-height:100vh">'
+        : '<embed src="' + o.data + '" style="width:100vw;height:100vh">')
+    + '</body>');
+  w.document.close();
+}
+function viagRmOrigem(i){
+  const v = _viagCurrent();
+  if(!v || !Array.isArray(v.origens)) return;
+  if(_viagIsLocked(v)){ _viagToastLocked(); return; }
+  const o = v.origens[i];
+  if(!o) return;
+  const tirar = () => {
+    /* As despesas FICAM. A imagem é o comprovante de onde elas vieram, não
+       o dono delas — apagar o print junto com oito lançamentos conferidos
+       seria uma surpresa cara. */
+    v.origens.splice(i, 1);
+    viagSave();
+    _viagRenderEditor();
+    if(typeof toast === 'function') toast('Imagem removida · as despesas continuam');
+  };
+  if(typeof anaConfirm === 'function'){
+    anaConfirm({
+      eyebrow: 'Origem das despesas',
+      title: 'Tirar esta imagem?',
+      message: 'As <strong>' + (o.linhas || 0) + ' despesa(s)</strong> que saíram dela '
+             + '<strong>continuam</strong> no relatório — some só o comprovante de origem.',
+      okText: 'Tirar imagem', cancelText: 'Manter', danger: true
+    }, tirar);
+  } else if(window.confirm('Tirar esta imagem? As despesas continuam.')) tirar();
+}
+try{ window.viagVerOrigem = viagVerOrigem; window.viagRmOrigem = viagRmOrigem; }catch(_){}
+
 function _viagRenderResumo(v){
   _viagEnsureColabs(v);
   const tot = _viagTotalDesp(v);
@@ -67872,9 +67969,15 @@ try{
 let _VIAG_PRINT = null;
 
 const _VIAG_PRINT_INSTRUCAO =
-  'Esta imagem mostra uma lista de despesas de viagem. Pode ser uma planilha, '
-+ 'uma nota do celular, um print de conversa, um extrato ou uma sequência de recibos.\n\n'
-+ 'Extraia TODAS as linhas de despesa que aparecerem, na ordem em que aparecem.\n\n'
+  'Esta imagem tem despesa de viagem. Pode ser uma lista — planilha, nota do '
++ 'celular, print de conversa, extrato — ou pode ser UM comprovante: cupom '
++ 'fiscal, recibo, nota de hotel, bilhete, print do app de transporte.\n\n'
++ 'Se for uma LISTA, extraia todas as linhas, na ordem em que aparecem.\n'
++ 'Se for UM COMPROVANTE, devolva UMA linha só: o estabelecimento (ou o '
++ 'serviço) na descrição, o VALOR TOTAL PAGO e a data do documento. '
++ 'Não liste os itens do cupom um a um — o que entra no relatório é o que '
++ 'foi gasto ali, não o que foi comido. Ignore subtotal, troco, forma de '
++ 'pagamento, CNPJ e número do cupom.\n\n'
 + 'Responda apenas com este JSON:\n'
 + '{"despesas":[{"descricao":"texto como está escrito","valor":0.00,'
 + '"data":"AAAA-MM-DD ou null","categoria":"um dos ids abaixo"}],'
@@ -67884,7 +67987,7 @@ const _VIAG_PRINT_INSTRUCAO =
 + '- a linha de TOTAL, SOMA ou SUBTOTAL não é despesa: devolva em "total"\n'
 + '- data só quando estiver escrita na própria linha; senão null\n'
 + '- não invente linha, não complete o que não está visível, não arredonde valor\n'
-+ '- se a imagem não tiver lista de despesa nenhuma, devolva "despesas": []\n'
++ '- se a imagem não tiver despesa nenhuma, devolva "despesas": []\n'
 + '- categoria tem que ser um destes ids: transporte, voo, hospedagem, alimentacao, '
 + 'combustivel, pedagio, ingressos, material, outros\n'
 + '  · uber, 99, táxi, metrô, ônibus, trem, bilhete → transporte\n'
@@ -68061,6 +68164,19 @@ async function _viagPrintLer(file){
   if(_VIAG_PRINT_COLA){ document.removeEventListener('paste', _VIAG_PRINT_COLA); _VIAG_PRINT_COLA = null; }
   _viagPrintModal('lendo');
   let txt = '';
+  /* A imagem fica guardada enquanto a revisão está aberta: se o lote for
+     aplicado, ela vira o comprovante da origem; se for cancelado, se perde
+     com o resto — anexo de importação que não aconteceu é lixo. */
+  let origemB64 = '';
+  try{
+    if(file.size <= FK_ANEXO_MAX_B64)
+      origemB64 = await new Promise((ok, err) => {
+        const r = new FileReader();
+        r.onload = () => ok(String(r.result || ''));
+        r.onerror = () => err(new Error('não consegui guardar a imagem'));
+        r.readAsDataURL(file);
+      });
+  }catch(_){}
   try{
     txt = await mrkDocPerguntar(file, _VIAG_PRINT_INSTRUCAO, false);
     const j = _mrkDocJson(txt, ['despesas']);
@@ -68098,7 +68214,10 @@ async function _viagPrintLer(file){
       obs: String(j.obs || '').trim().slice(0, 300),
       quemCid: quemCid,
       pagamento: 'funcionario',
-      dataPadrao: (v.dataInicio || new Date().toISOString().slice(0, 10))
+      dataPadrao: (v.dataInicio || new Date().toISOString().slice(0, 10)),
+      origem: origemB64
+        ? { name: file.name || 'print.png', type: file.type || 'image/png', data: origemB64 }
+        : null
     };
     _viagPrintModal('revisar');
   }catch(e){
@@ -68162,6 +68281,18 @@ function viagPrintAplicar(){
     });
   }
   const soma = marcadas.reduce((s, d) => s + d.valor, 0);
+  /* O PRINT FICA. Daqui a seis meses, quem conferir o relatório vai ver oito
+     linhas de Uber digitadas por uma máquina e vai querer saber de onde
+     saíram. A imagem lida é essa resposta — e é ela que sustenta o reembolso
+     numa auditoria, porque ninguém guarda o print da conversa. */
+  if(_VIAG_PRINT.origem && _VIAG_PRINT.origem.data){
+    if(!Array.isArray(v.origens)) v.origens = [];
+    v.origens.push(Object.assign({}, _VIAG_PRINT.origem, {
+      em: new Date().toISOString(),
+      linhas: marcadas.length,
+      total: soma
+    }));
+  }
   viagSave();
   _viagPrintFechar();
   _VIAG_PRINT = null;
@@ -132743,7 +132874,7 @@ async function pwaRegisterSW(){
    acabou de subir?".
 
    Agora sai do `fk-build`, que é o carimbo que o deploy escreve na página.
-   Em data e hora porque o número cru (`forekash-v1794969853`) não diz nada
+   Em data e hora porque o carimbo cru, que é um epoch, não diz nada
    a ninguém; a string inteira fica no title, pra conferir contra o log. */
 function _fkVersaoRotulo(){
   const v = String(window.FK_VERSION || '').trim();
