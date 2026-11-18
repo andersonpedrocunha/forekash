@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794970810"/>
+  <meta name="fk-build" content="forekash-v1794970997"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8824,12 +8824,33 @@
     .viag-reemb-espera{display:block;margin-top:6px;font-size:.72rem;color:#64748B;
       line-height:1.4;text-align:center}
 
+    /* ── JÁ LANÇADO NO EXTRATO ────────────────────────────────── */
+    .viag-lancado{display:flex;align-items:center;gap:11px;margin:0 0 14px;padding:11px 14px;
+      background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px}
+    .viag-lancado-ico{width:24px;height:24px;flex:none;border-radius:50%;background:#16A34A;
+      color:#fff;font-size:.8rem;font-weight:800;display:flex;align-items:center;justify-content:center}
+    .viag-lancado div{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+    .viag-lancado b{font-size:.82rem;color:#14532D;font-weight:800}
+    .viag-lancado small{font-size:.72rem;color:#15803D}
+    .viag-lancado button{flex:none;background:#fff;border:1px solid #BBF7D0;border-radius:7px;
+      padding:5px 11px;font-family:inherit;font-size:.72rem;font-weight:700;color:#15803D;cursor:pointer}
+    .viag-lancado button:hover{background:#DCFCE7;border-color:#86EFAC}
+    /* No card do quadro, a mesma informação em uma linha. */
+    .viag-kb-card-lanc{margin-top:7px;padding-top:7px;border-top:1px dashed #E2E8F0;
+      font-size:.68rem;font-weight:700;color:#15803D}
+
     /* ── ORIGEM DAS DESPESAS ────────────────────────────────────
        Discreto de propósito: é rodapé de comprovante, não conteúdo. */
     .viag-org{margin-top:16px;padding:12px 14px;background:#FAFAFB;border:1px solid #EEF0F4;
       border-radius:10px}
     .viag-org-hd{font-size:.64rem;font-weight:800;color:#94A3B8;text-transform:uppercase;
       letter-spacing:.07em;margin-bottom:9px}
+    .viag-org-hd{display:flex;align-items:center;gap:10px}
+    .viag-org-add{margin-left:auto;background:none;border:1px dashed #CBD5E1;border-radius:999px;
+      padding:2px 10px;font-family:inherit;font-size:.66rem;font-weight:700;color:#7C3AED;
+      cursor:pointer;text-transform:none;letter-spacing:0}
+    .viag-org-add:hover{border-color:#7C3AED;background:#F5F3FF}
+    .viag-org-vazio{font-size:.74rem;color:#94A3B8;line-height:1.5;padding:2px}
     .viag-org-lista{display:flex;flex-direction:column;gap:7px}
     .viag-org-item{display:flex;align-items:center;gap:10px;padding:7px 9px;background:#fff;
       border:1px solid #E8EBF0;border-radius:8px}
@@ -8950,10 +8971,12 @@
       background:#FEF3C7;border:1px solid #FCD34D;border-top:none;
       border-radius:0 0 8px 8px;margin-top:-1px}
     .viag-colab-reembolso--done{background:#D1FAE5;border-color:#6EE7B7}
-    .viag-reemb-create{padding:7px 14px;background:#DC2626;color:#fff;border:none;border-radius:5px;
-      font-size:.78rem;font-weight:800;cursor:pointer;font-family:inherit;letter-spacing:-.01em;
-      display:inline-flex;align-items:center;gap:6px;width:100%;justify-content:center;
-      transition:background .12s}
+    /* Botão do tamanho do que ele faz. Em faixa inteira e vermelho cheio ele
+       gritava mais que o próprio saldo, que é o número que importa ali. */
+    .viag-reemb-create{padding:6px 13px;background:#DC2626;color:#fff;border:none;border-radius:6px;
+      font-size:.74rem;font-weight:700;cursor:pointer;font-family:inherit;letter-spacing:-.01em;
+      display:inline-flex;align-items:center;gap:6px;margin-left:auto;
+      transition:background .12s;white-space:nowrap}
     .viag-reemb-create:hover{background:#B91C1C}
     .viag-reemb-create:disabled{opacity:.45;cursor:not-allowed}
     .viag-reemb-ico{font-size:1.1rem;font-weight:800;color:#059669;flex-shrink:0}
@@ -65612,15 +65635,42 @@ function renderViagens(){
              +       '<span class="lbl">Total</span>'
              +       '<span class="val">' + _viagFmt(tot) + '</span>'
              +     '</div>'
-             +     (_showSaldo && saldo !== 0 ? '<div class="viag-kb-card-tot"><span class="lbl">Saldo</span><span class="val ' + (saldo >= 0 ? 'bal-pos' : 'bal-neg') + '">' + _viagFmt(saldo) + '</span></div>' : '')
+             /* SALDO SÓ QUANDO DIZ ALGO NOVO. Sem adiantamento, saldo é o
+                total com sinal trocado — e o card mostrava R$ 577,90 em
+                três lugares, dois deles sem acrescentar nada. */
+             +     ((_showSaldo && saldo !== 0 && _viagAdiTotal(v) > 0)
+                    ? '<div class="viag-kb-card-tot"><span class="lbl">Saldo</span><span class="val '
+                      + (saldo >= 0 ? 'bal-pos' : 'bal-neg') + '">' + _viagFmt(saldo) + '</span></div>'
+                    : '')
              +   '</div>'
+             /* Lançado no Extrato: o card diz, e diz onde. Sem isto, descobrir
+                se o dinheiro já saiu exigia abrir o relatório e procurar
+                colaborador por colaborador — e quem não procura, lança de novo. */
+             +   (function(){
+                  if(!_viagJaLancado(v)) return '';
+                  const ids = (v.colaboradores || [])
+                    .map(c => (c.reembolso && c.reembolso.extratoId)
+                           || ((_viagLancamentoExistente(v, c.cid) || {}).id))
+                    .filter(Boolean);
+                  return '<div class="viag-kb-card-lanc" title="Já virou conta a pagar no Extrato'
+                       + (ids.length ? ' · lançamento ' + ids.map(i => '#' + i).join(', ') : '')
+                       + '">✓ lançado no Extrato'
+                       + (ids.length === 1 ? ' · #' + ids[0] : '') + '</div>';
+                })()
              +   (v.aprovacao ? '<div class="viag-kb-card-sig">🔏 ' + esc(v.aprovacao.aprovador||'') + (v.aprovacao.codigo ? ' · ' + v.aprovacao.codigo : '') + '</div>' : '')
              +   (v.rejeicao ? '<div class="viag-kb-card-rej" title="' + esc(v.rejeicao.motivo||'') + '">❌ ' + esc(v.rejeicao.por||'') + (v.rejeicao.codigo ? ' · ' + v.rejeicao.codigo : '') + '<div style="font-style:italic;font-weight:500;margin-top:2px;font-family:inherit">' + esc((v.rejeicao.motivo||'').slice(0,50)) + ((v.rejeicao.motivo||'').length > 50 ? '…' : '') + '</div></div>' : '')
-             +   ((tFunc > 0 || tEmp > 0) ? '<div class="viag-kb-card-split">'
-                  + (tFunc > 0 ? '<span style="color:#7C3AED">💵 ' + _viagFmt(tFunc) + '</span>' : '')
-                  + (tEmp > 0 ? '<span style="color:#0F766E">💳 ' + _viagFmt(tEmp) + '</span>' : '')
-                  + '<span style="color:#94A3B8;margin-left:auto">' + (v.despesas||[]).length + ' item(s)</span>'
-                  + '</div>' : '')
+             /* A divisão funcionário/empresa só interessa quando há os DOIS.
+                Com um lado só, ele repete o total que já está logo acima. */
+             +   ((tFunc > 0 && tEmp > 0)
+                  ? '<div class="viag-kb-card-split">'
+                    + '<span style="color:#7C3AED">💵 ' + _viagFmt(tFunc) + '</span>'
+                    + '<span style="color:#0F766E">💳 ' + _viagFmt(tEmp) + '</span>'
+                    + '<span style="color:#94A3B8;margin-left:auto">' + (v.despesas||[]).length + ' item(s)</span>'
+                    + '</div>'
+                  : ((v.despesas||[]).length
+                      ? '<div class="viag-kb-card-split"><span style="color:#94A3B8;margin-left:auto">'
+                        + (v.despesas||[]).length + ' item(s)</span></div>'
+                      : ''))
              + '</div>';
       }
     }
@@ -66295,6 +66345,24 @@ function _viagRenderEditor(){
     +   '<div class="viag-field viag-field-full"><label>Tags <span style="font-weight:500;color:#94A3B8">(as mesmas do Extrato — tudo que sair daqui leva junto)</span></label>'
     +     fkTagsCampoHtml('viag-fld-tags', v.tags, '+ tag', 'viagTagsMudou') + '</div>'
     + '</div>'
+    // Já virou dinheiro? Antes dos colaboradores, que é onde se cria.
+    + (function(){
+        if(!_viagJaLancado(v)) return '';
+        const ids = (v.colaboradores || [])
+          .map(c => (c.reembolso && c.reembolso.extratoId)
+                 || ((_viagLancamentoExistente(v, c.cid) || {}).id))
+          .filter(Boolean);
+        return '<div class="viag-lancado">'
+          + '<span class="viag-lancado-ico">✓</span>'
+          + '<div><b>Este relatório já foi lançado no Extrato</b>'
+          + '<small>' + (ids.length
+              ? 'Conta a pagar ' + ids.map(i => '#' + i).join(', ') + ' · não crie outra pelo mesmo gasto'
+              : 'Não crie outra pelo mesmo gasto') + '</small></div>'
+          + (ids.length === 1
+              ? '<button type="button" onclick="_viagAbrirLancamentoExtrato(' + ids[0] + ')">ver no Extrato</button>'
+              : '')
+          + '</div>';
+      })()
     // Bloco de colaboradores (multi)
     + _viagRenderColabsBlock(v)
     // Lista de despesas
@@ -66446,6 +66514,33 @@ function _viagTotalEmpresaNew(v){
   return tot;
 }
 // Cria conta a pagar (lançamento no Extrato) pro reembolso do colaborador
+/* O lançamento que este relatório já gerou para este colaborador, se houver.
+   Procura pelo carimbo e também pela `origem`, porque lançamento antigo pode
+   ter só um dos dois. Cancelado ou apagado não conta — se não está mais no
+   Extrato, não há duplicata a evitar. */
+function _viagLancamentoExistente(v, cid){
+  try{
+    if(typeof extratoData === 'undefined' || !extratoData) return null;
+    const marca = 'VIAG-' + v.id + '-' + cid;
+    return (extratoData.lancamentos || []).find(l => l && (
+      l.refInterna === marca ||
+      (l.origem && l.origem.tipo === 'viagem-reembolso' &&
+       String(l.origem.viagemId) === String(v.id) &&
+       String(l.origem.colaboradorCid) === String(cid))
+    )) || null;
+  }catch(_){ return null; }
+}
+/* O relatório inteiro já virou dinheiro no Extrato? */
+function _viagJaLancado(v){
+  try{
+    _viagEnsureColabs(v);
+    return (v.colaboradores || []).some(c =>
+      (c.reembolso && c.reembolso.extratoId) || _viagLancamentoExistente(v, c.cid));
+  }catch(_){ return false; }
+}
+try{ window._viagLancamentoExistente = _viagLancamentoExistente;
+     window._viagJaLancado = _viagJaLancado; }catch(e){}
+
 function _viagCriarReembolso(cid){
   const v = _viagCurrent(); if(!v) return;
   /* A tela esconde o botão, mas quem recusa é aqui: o botão some, a função
@@ -66457,6 +66552,30 @@ function _viagCriarReembolso(cid){
   _viagEnsureColabs(v);
   const c = v.colaboradores.find(x => x.cid === cid);
   if(!c){ if(typeof toast === 'function') toast('⚠ Colaborador não encontrado'); return; }
+
+  /* ══ JÁ FOI LANÇADO? ═════════════════════════════════════════
+
+     A marca `c.reembolso` some de vista fácil: basta desvincular, ou abrir o
+     relatório num aparelho cuja cópia local é anterior à criação. Nos dois
+     casos o botão reaparece, e clicar nele criaria uma SEGUNDA conta a pagar
+     do mesmo dinheiro — que ninguém percebe até pagar duas vezes.
+
+     Então a pergunta não é feita à nossa marca, e sim ao Extrato, que é o
+     fato. `refInterna` carimba viagem e colaborador desde a primeira versão
+     disto, e nenhum outro lançamento usa esse formato. */
+  const jaLancado = _viagLancamentoExistente(v, c.cid);
+  if(jaLancado){
+    if(!c.reembolso){
+      c.reembolso = { extratoId: jaLancado.id, valor: Math.abs(parseFloat(jaLancado.valor) || 0),
+                      criadoEm: jaLancado.criadoEm || new Date().toISOString() };
+      viagSave();
+      _viagRenderEditor();
+    }
+    if(typeof toast === 'function')
+      toast('⚠ Já existe conta a pagar no Extrato (#' + jaLancado.id + ') — não criei outra');
+    return;
+  }
+
   const gasto = _viagGastoPorColab(v, c.cid);
   const adi = parseFloat(c.adiantamento)||0;
   const saldo = adi - gasto;
@@ -66719,8 +66838,12 @@ function _viagRenderDespTable(v){
    vazia em todo relatório ensina a ignorar a caixa. */
 function _viagRenderOrigens(v){
   const lista = Array.isArray(v.origens) ? v.origens : [];
-  if(!lista.length) return '';
   const locked = _viagIsLocked(v);
+  /* Vazia e sem despesa nenhuma, a seção não tem o que documentar. Com
+     despesas lançadas, ela aparece mesmo vazia — é ali que se anexa o print
+     de quem importou antes desta tela existir, ou de quem digitou à mão e
+     quer guardar o papel de onde copiou. */
+  if(!lista.length && !(v.despesas || []).length) return '';
   let linhas = '';
   lista.forEach((o, i) => {
     const quando = o.em ? new Date(o.em).toLocaleDateString('pt-BR') : '';
@@ -66732,19 +66855,68 @@ function _viagRenderOrigens(v){
       + '</button>'
       + '<div class="viag-org-txt">'
       +   '<b>' + esc(o.name || 'imagem') + '</b>'
-      +   '<small>' + (o.linhas || 0) + (o.linhas === 1 ? ' despesa' : ' despesas')
-      +     (o.total ? ' · ' + _viagFmt(o.total) : '')
-      +     (quando ? ' · lido em ' + quando : '') + '</small>'
+      +   '<small>' + (o.linhas
+            ? o.linhas + (o.linhas === 1 ? ' despesa' : ' despesas')
+              + (o.total ? ' · ' + _viagFmt(o.total) : '') + (quando ? ' · lido em ' + quando : '')
+            : 'anexada' + (quando ? ' em ' + quando : '')) + '</small>'
       + '</div>'
       + (locked ? '' : '<button type="button" class="viag-org-x" onclick="viagRmOrigem(' + i + ')" '
           + 'title="Tirar esta imagem do relatório">×</button>')
       + '</div>';
   });
   return '<div class="viag-org">'
-    + '<div class="viag-org-hd">Origem das despesas lidas</div>'
-    + '<div class="viag-org-lista">' + linhas + '</div>'
+    + '<div class="viag-org-hd">Origem das despesas'
+    +   (locked ? '' : '<button type="button" class="viag-org-add" onclick="viagAnexarOrigem()">'
+         + '+ anexar imagem</button>')
+    + '</div>'
+    + (linhas
+        ? '<div class="viag-org-lista">' + linhas + '</div>'
+        : '<div class="viag-org-vazio">Nenhuma imagem guardada — anexe o print ou o recibo '
+          + 'de onde estas despesas saíram.</div>')
     + '</div>';
 }
+/* Anexar a imagem sem reimportar. Quem leu um print antes desta tela existir
+   ficou com as despesas lançadas e sem o papel — e reimportar duplicaria
+   tudo. Aqui a imagem entra sozinha, sem tocar em despesa nenhuma. */
+function viagAnexarOrigem(){
+  const v = _viagCurrent();
+  if(!v) return;
+  if(_viagIsLocked(v)){ _viagToastLocked(); return; }
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*,application/pdf';
+  inp.onchange = () => {
+    const f = inp.files && inp.files[0];
+    if(!f) return;
+    if(f.size > FK_ANEXO_MAX_B64){
+      if(typeof toast === 'function') toast('⚠ Arquivo grande demais (máximo '
+        + Math.round(FK_ANEXO_MAX_B64 / 1048576) + ' MB)');
+      return;
+    }
+    const r = new FileReader();
+    r.onload = e => {
+      const vv = _viagCurrent();
+      if(!vv) return;
+      if(!Array.isArray(vv.origens)) vv.origens = [];
+      vv.origens.push({
+        name: f.name || 'imagem', type: f.type || 'image/png',
+        data: String(e.target.result || ''), em: new Date().toISOString(),
+        /* Sem contagem: estas despesas não saíram DESTA leitura, foram
+           ligadas à imagem depois. Inventar "8 despesas" aqui seria afirmar
+           uma origem que ninguém conferiu. */
+        linhas: 0, total: 0
+      });
+      viagSave();
+      _viagRenderEditor();
+      if(typeof toast === 'function') toast('Imagem guardada no relatório');
+    };
+    r.onerror = () => { if(typeof toast === 'function') toast('Não consegui ler o arquivo'); };
+    r.readAsDataURL(f);
+  };
+  inp.click();
+}
+try{ window.viagAnexarOrigem = viagAnexarOrigem; }catch(_){}
+
 function viagVerOrigem(i){
   const v = _viagCurrent();
   const o = v && Array.isArray(v.origens) ? v.origens[i] : null;
