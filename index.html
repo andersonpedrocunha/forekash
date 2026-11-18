@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794969361"/>
+  <meta name="fk-build" content="forekash-v1794969490"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8791,10 +8791,12 @@
     .fk-tags-in{flex:1;min-width:88px;border:none;outline:none;background:transparent;
       font-family:inherit;font-size:.82rem;color:#0F172A;padding:2px 0}
     .fk-tags-in::placeholder{color:#94A3B8}
-    /* Na linha do Extrato o chip encolhe: ali ele é pista, não conteúdo. */
+    /* Na linha do Extrato o chip encolhe — ali ele é pista, não conteúdo —
+       e é botão: clicar procura todo mundo que tem a mesma tag. */
     .fk-tag-mini{display:inline-block;padding:1px 7px;margin-left:6px;background:#F5F3FF;
       border:1px solid #EDE9FE;border-radius:999px;font-size:.62rem;font-weight:700;
-      color:#6D28D9;vertical-align:1px;white-space:nowrap}
+      color:#6D28D9;vertical-align:1px;white-space:nowrap;cursor:pointer;font-family:inherit}
+    .fk-tag-mini:hover{background:#EDE9FE;border-color:#C4B5FD;color:#5B21B6}
     .viag-desp-ia{padding:6px 12px;background:#F5F3FF;color:#5B21B6;border:1px solid #DDD6FE;
       border-radius:6px;font-size:.75rem;font-weight:700;cursor:pointer;font-family:inherit;
       transition:all .12s;white-space:nowrap}
@@ -66196,6 +66198,11 @@ function _viagRenderEditor(){
     +     VIAG_STATUS.map(s => '<option value="' + s.id + '"' + (v.status === s.id ? ' selected' : '') + '>' + s.nome + '</option>').join('')
     +   '</select></div>'
     +   '<div class="viag-field viag-field-full"><label>Propósito da viagem</label><textarea placeholder="Descrição da motivação / objetivo" oninput="viagUpdate(\'proposito\', this.value)"' + _vDis + '>' + esc(v.proposito||'') + '</textarea></div>'
+    /* A tag da viagem é a mesma do Extrato. Posta aqui, ela viaja com tudo
+       que sair deste relatório — inclusive com o reembolso, que vira
+       lançamento lá e precisa ser achado junto do resto do evento. */
+    +   '<div class="viag-field viag-field-full"><label>Tags <span style="font-weight:500;color:#94A3B8">(as mesmas do Extrato — tudo que sair daqui leva junto)</span></label>'
+    +     fkTagsCampoHtml('viag-fld-tags', v.tags, '+ tag', 'viagTagsMudou') + '</div>'
     + '</div>'
     // Bloco de colaboradores (multi)
     + _viagRenderColabsBlock(v)
@@ -66388,6 +66395,9 @@ function _viagCriarReembolso(cid){
     notas: 'Gerado automaticamente do relatório de viagem #' + v.id,
     documento: '',
     refInterna: 'VIAG-' + v.id + '-' + c.cid,
+    /* A tag do relatório vai junto: é o que liga este pagamento ao evento
+       quando alguém procurar no Extrato meses depois. */
+    tags: (typeof fkTagsLimpar === 'function') ? fkTagsLimpar(v.tags) : [],
     tipo: 'gasto',
     centroCustoId: null,
     grupoId: null,
@@ -67761,9 +67771,10 @@ function fkTagsRegistrar(lista){
    existe. O estado mora no próprio elemento (`data-tags`), não numa
    variável global: assim o mesmo campo funciona em dois formulários
    abertos ao mesmo tempo sem um atropelar o outro. */
-function fkTagsCampoHtml(id, valor, placeholder){
+function fkTagsCampoHtml(id, valor, placeholder, aoMudar){
   const tags = fkTagsLimpar(valor);
-  return '<div class="fk-tags" id="' + id + '" data-tags="' + _fkTagsAttr(tags) + '">'
+  return '<div class="fk-tags" id="' + id + '" data-tags="' + _fkTagsAttr(tags) + '"'
+       +   (aoMudar ? ' data-ao-mudar="' + aoMudar + '"' : '') + '>'
        +   '<span class="fk-tags-chips" id="' + id + '-chips">' + _fkTagsChips(id, tags) + '</span>'
        +   '<input type="text" class="fk-tags-in" id="' + id + '-in" list="fk-tags-lista" '
        +     'autocomplete="off" placeholder="' + (placeholder || '+ tag') + '" '
@@ -67801,9 +67812,13 @@ function _fkTagsSet(id, tags){
   el.setAttribute('data-tags', _fkTagsAttr(limpas));
   const chips = document.getElementById(id + '-chips');
   if(chips) chips.innerHTML = _fkTagsChips(id, limpas);
-  /* Avisa quem estiver ouvindo — é assim que a viagem grava sem o campo
-     precisar saber de qual tela ele faz parte. */
-  try{ el.dispatchEvent(new CustomEvent('fk-tags', { bubbles:true, detail:{ tags: limpas } })); }catch(_){}
+  /* Avisa quem criou o campo. É assim que a viagem grava a tag sem o campo
+     precisar saber de qual tela ele faz parte — e sem um listener global
+     que teria que adivinhar pelo id. */
+  try{
+    const dono = el.getAttribute('data-ao-mudar');
+    if(dono && typeof window[dono] === 'function') window[dono](limpas, id);
+  }catch(e){ console.warn('[FK] tags:', e && e.message); }
 }
 function fkTagsAdd(id, texto){
   const campo = document.getElementById(id + '-in');
@@ -68147,6 +68162,17 @@ try{ window.viagLerPrint = viagLerPrint; window.viagPrintAplicar = viagPrintApli
      window._viagPrintModal = _viagPrintModal; window._viagPrintFechar = _viagPrintFechar;
      window._viagPrintEscolher = _viagPrintEscolher; window._viagPrintMarcar = _viagPrintMarcar;
      window._viagPrintCat = _viagPrintCat; }catch(_){}
+
+/* O campo de tags do relatório chama isto a cada mudança. */
+function viagTagsMudou(tags){
+  const v = _viagCurrent();
+  if(!v) return;
+  if(_viagIsLocked(v)){ _viagToastLocked(); return; }
+  v.tags = fkTagsLimpar(tags);
+  fkTagsRegistrar(v.tags);
+  viagSave();
+}
+try{ window.viagTagsMudou = viagTagsMudou; }catch(_){}
 
 function viagAddDesp(){
   const v = _viagCurrent();
@@ -80993,6 +81019,10 @@ function _extCollect(){
       documento: l.documento || '',
       refInterna: l.refInterna || '',
       notas: l.notas || '',
+      /* Quinta vez que esta lista engole um campo novo. Sem ele aqui a tag
+         existe no lançamento, aparece no modal e some da busca — que filtra
+         sobre a projeção, não sobre o dado. */
+      tags: Array.isArray(l.tags) ? l.tags.slice() : [],
       fornecedorId: (l.fornecedorId != null ? l.fornecedorId : null),
       /* O selo da tabela lê daqui. A cópia só carrega campo listado, então
          sem esta linha o marcador existia no lançamento e nunca na tela. */
@@ -81793,7 +81823,7 @@ function extFiltrosRender(){
       '<span>' + _extEsc(rot) + '</span>' + (n != null ? '<i>' + n + '</i>' : '') + '</label>';
   const cats = _extFCats();
   p.innerHTML =
-    '<div class="ext-fp-busca"><input type="search" id="ext-f-busca" placeholder="Procurar na descrição, contraparte ou documento" value="' +
+    '<div class="ext-fp-busca"><input type="search" id="ext-f-busca" placeholder="Procurar na descrição, contraparte, documento ou tag" value="' +
       _extEsc(_extState.busca || '') + '" oninput="extFiltroBusca(this.value)"' +
       ' onkeydown="extFiltroBuscaTecla(event, this)"></div>' +
     '<div class="ext-fp-cols">' +
@@ -81866,7 +81896,8 @@ function _extFilter(items){
     }
     if(catSel.size && !catSel.has(String(it.categoria || '').trim())) return false;
     if(busca){
-      const alvo = [it.descricao, it.contraparte, it.categoria, it.documento, it.numeroDocumento, it.notas]
+      const alvo = [it.descricao, it.contraparte, it.categoria, it.documento, it.numeroDocumento,
+                    it.notas, (Array.isArray(it.tags) ? it.tags.join(' ') : '')]
         .join(' ').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
       if(!alvo.includes(busca)) return false;
     }
@@ -82876,6 +82907,15 @@ function renderExtrato(){
         + _extSeloTrack(it) + '</td>'
       + '<td class="col-cat">' + catCellHtml + '</td>'
       + '<td>' + descPrefix + _extEsc(it.descricao || '—')
+        /* A tag aparece na linha e é clicável: quem vê "agile-brazil-2026"
+           num gasto quer ver os outros, e digitar de novo na busca é o
+           atrito que faz a tag virar enfeite. */
+        + (Array.isArray(it.tags) && it.tags.length
+            ? it.tags.slice(0, 3).map(t =>
+                '<button type="button" class="fk-tag-mini" title="Ver tudo com a tag ' + _extEsc(t) + '"'
+              + ' onclick="event.stopPropagation();extFiltroBusca(\'' + _extEsc(t) + '\')">'
+              + _extEsc(t) + '</button>').join('')
+            : '')
         + ((it.anexo && it.anexo.dataUrl && it.raw && it.raw.lancamentoId)
             ? ' <button type="button" onclick="event.stopPropagation();_cartOpenAnexoFromLanc(' + it.raw.lancamentoId + ')" title="Abrir anexo: ' + _extEsc(it.anexo.name || 'arquivo') + '" style="background:#FAF5FF;color:#7C3AED;border:1px solid #DDD6FE;padding:1px 6px;border-radius:9px;cursor:pointer;font-size:.62rem;font-weight:800;font-family:inherit;margin-left:4px" class="fkico fkico-clip"></button>'
             : _extClipeHTML(it.id))
@@ -88132,6 +88172,7 @@ function _extSnap(l){
     descricao:   (l && l.descricao) || '',
     documento:   (l && l.documento) || '',
     notas:       (l && l.notas) || '',
+    tags:        (l && Array.isArray(l.tags)) ? l.tags.join(' ') : '',
     nAnexo: (l && Array.isArray(l.anexo)) ? l.anexo.length : ((l && l.anexo) ? 1 : 0),
     /* NOMES, e não só a contagem. Contar não enxerga troca: tirar um arquivo
        e pôr outro no mesmo salvar dá diferença zero, e o histórico ficava
@@ -88167,6 +88208,10 @@ function _extDiffTexto(a, b){
   /* Nota e anexo entram sem conteúdo: a nota pode ser longa e o anexo é
      arquivo. Registrar que mudou já reconstitui o lançamento depois. */
   if(dif(a.notas, b.notas)) m.push('notas alteradas');
+  /* Tag ENTRA com o conteúdo: é curta, e é por ela que o lançamento vai ser
+     achado depois — saber quando entrou e quando saiu importa. */
+  if(dif(a.tags, b.tags))
+    m.push('tags ' + (a.tags || '—') + ' → ' + (b.tags || '—'));
   /* O nome do arquivo ENTRA no registro: "anexo adicionado" não diz qual, e
      num lançamento com boleto, nota e comprovante é exatamente o que se quer
      saber meses depois. */
