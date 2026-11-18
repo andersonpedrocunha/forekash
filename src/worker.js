@@ -673,20 +673,29 @@ function paginaSimples(titulo, texto){
    O app é um arquivo de 9 MB. Revalidar não pode custar 9 MB.
    ═══════════════════════════════════════════════════════════════════════
    `_headers` manda o navegador perguntar em toda abertura — é o que garante
-   que uma correção no ar apareça na hora. Perguntar deveria ser barato: com
-   um validador, o servidor responde 304 sem corpo e o navegador reaproveita
-   o que já tem. Só que o Workers Assets manda etag para /sw.js e
-   /version.txt e NÃO manda para o index.html; sem validador não existe 304,
-   e toda abertura rebaixava 2,3 MB comprimidos (medido: 520 ms de TTFB +
-   1,27 s de download, primeira pintura em 3,2 s).
+   que uma correção no ar apareça na hora, e a razão de existir o deploy.sh.
+   Perguntar deveria ser barato: com um validador, o servidor responde 304
+   sem corpo e o navegador reaproveita o que já tem. Só que o Workers Assets
+   manda validador para /sw.js e /version.txt e NÃO manda para o index.html,
+   e toda abertura rebaixava 2,3 MB comprimidos — 520 ms de TTFB + 1,27 s de
+   download, com a primeira pintura em 3,2 s.
 
-   Então o etag sai daqui. O validador é a própria versão do build: o
-   bump.sh reescreve version.txt e o index.html juntos, em todo deploy — se
-   a versão é a mesma, o arquivo é o mesmo. Se version.txt não responder,
-   não inventamos etag e tudo volta ao comportamento anterior.
+   Então o validador sai daqui. Duas descobertas que explicam o formato:
+
+   1. A Cloudflare REMOVE o `etag` que o Worker põe nesta resposta (fraco ou
+      forte, testado nos dois) e mantém o `last-modified`. Por isso o
+      validador é data, e a conversa é por If-Modified-Since.
+   2. O Worker só entra na frente do app com `run_worker_first: true` no
+      wrangler.jsonc. Com lista de caminhos, a Cloudflare entregava o "/"
+      direto do asset e nada disto rodava.
+
+   A data vem do próprio carimbo do build: o bump.sh escreve
+   `forekash-v<segundos>` em version.txt e no index.html, juntos, em todo
+   deploy. Mesma versão, mesmo arquivo. Se version.txt não responder ou o
+   formato mudar, não inventamos validador e tudo volta ao comportamento
+   anterior — baixar de novo, que é correto, só lento.
    ═══════════════════════════════════════════════════════════════════════ */
 const CC_APP = 'public, max-age=0, must-revalidate';
-const LM_TESTE = 'Wed, 18 Nov 2026 00:00:00 GMT';
 
 async function versaoDoBuild(env, url){
   try{
@@ -697,39 +706,40 @@ async function versaoDoBuild(env, url){
   }catch(_){ return null; }
 }
 
-function etagCasa(cabecalho, etag){
-  if(!cabecalho) return false;
-  if(cabecalho.trim() === '*') return true;
-  const nu = etag.replace(/^W\//, '');
-  return cabecalho.split(',').some(t => {
-    const x = t.trim();
-    return x === etag || x.replace(/^W\//, '') === nu;
-  });
+/* `forekash-v1795027995` → a data daquele deploy. HTTP só carrega segundos
+   inteiros, então truncamos aqui e comparamos truncado lá embaixo. */
+function dataDoBuild(ver){
+  const m = /-v(\d{9,13})$/.exec(ver || '');
+  if(!m) return null;
+  let n = parseInt(m[1], 10);
+  if(!isFinite(n) || n <= 0) return null;
+  if(n < 1e12) n *= 1000;                       // segundos → milissegundos
+  const t = Math.floor(n / 1000) * 1000;
+  const d = new Date(t);
+  return isNaN(d.getTime()) ? null : d;
 }
 
 async function servirApp(request, env, url){
-  const ehApp = (url.pathname === '/' || url.pathname === '/index.html');
-  if(!ehApp) return env.ASSETS.fetch(request);
+  if(url.pathname !== '/' && url.pathname !== '/index.html')
+    return env.ASSETS.fetch(request);
 
-  const ver = await versaoDoBuild(env, url);
-  const etag = ver ? ('W/"' + ver + '"') : null;
+  const d = dataDoBuild(await versaoDoBuild(env, url));
+  if(!d) return env.ASSETS.fetch(request);
 
-  if(etag && etagCasa(request.headers.get('if-none-match'), etag)){
+  const pedido = Date.parse(request.headers.get('if-modified-since') || '');
+  if(!isNaN(pedido) && pedido >= d.getTime()){
     return new Response(null, { status: 304, headers: {
-      'etag': etag,
+      'last-modified': d.toUTCString(),
       'cache-control': CC_APP,
       'vary': 'Accept-Encoding'
     } });
   }
 
   const resp = await env.ASSETS.fetch(request);
+  if(!resp.ok) return resp;                      // 307 de /index.html → /, por exemplo
   const h = new Headers(resp.headers);
-  h.set('x-fk-app', resp.status + '/' + (ver || 'sem-versao'));
-  if(etag && resp.ok){
-    h.set('etag', etag.replace(/^W\//, ''));   // teste: etag forte
-    h.set('last-modified', LM_TESTE);           // teste: validador alternativo
-    h.set('cache-control', CC_APP);
-  }
+  h.set('last-modified', d.toUTCString());
+  h.set('cache-control', CC_APP);
   return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: h });
 }
 
