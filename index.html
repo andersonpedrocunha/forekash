@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794973670"/>
+  <meta name="fk-build" content="forekash-v1794973724"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -65484,6 +65484,7 @@ function _viagAgeClass(dias, isClosed){
 function _viagEnsureTimestamps(){
   let changed = false;
   for(const v of viagens.itens){
+    if(_viagLogSemente(v)) changed = true;
     if(!v.criadoEm){
       v.criadoEm = v.dataInicio ? new Date(v.dataInicio + 'T00:00:00').toISOString() : new Date().toISOString();
       changed = true;
@@ -66575,7 +66576,9 @@ function _viagRenderEditor(){
     // Resumo
     + _viagRenderResumo(v)
     // De onde vieram as despesas lidas por imagem
-    + _viagRenderOrigens(v);
+    + _viagRenderOrigens(v)
+    // E, por último, o que aconteceu com ele
+    + _viagRenderLog(v);
   // Foot
   const foot = document.getElementById('viag-editor-foot');
   foot.innerHTML =
@@ -66704,6 +66707,61 @@ function _viagTotalEmpresaNew(v){
 /* Quem leva as imagens é o rascunho, lá no Extrato — esta bandeira é o
    recado entre a pergunta e ele. */
 let _VIAG_LEVAR_ORIGENS = false;
+
+/* ══ O QUE ACONTECEU COM ESTE RELATÓRIO ══════════════════════════
+
+   Prestação de contas é documento de confiança: alguém gastou, alguém
+   aprovou, alguém pagou. Quando aparece uma dúvida — "quem aprovou isso?",
+   "quando essas oito linhas entraram?" — sem registro a resposta é memória.
+
+   Só entram fatos do PROCESSO: mudança de status, importação, anexo,
+   conta a pagar, fechamento. Digitação de campo não entra — um log que
+   registra cada tecla é um log que ninguém lê. */
+function _viagEvento(v, txt){
+  try{
+    if(!v || !txt) return;
+    if(!Array.isArray(v.eventos)) v.eventos = [];
+    const d = String(txt).slice(0, 220);
+    const ultimo = v.eventos[v.eventos.length - 1];
+    /* Mesmo texto em segundos é duplo clique, não dois fatos. */
+    if(ultimo && ultimo.d === d && (Date.now() - new Date(ultimo.t).getTime()) < 4000) return;
+    v.eventos.push({ t: new Date().toISOString(), d: d });
+    if(v.eventos.length > 200) v.eventos = v.eventos.slice(-200);
+  }catch(e){ console.warn('[FK] log da viagem:', e && e.message); }
+}
+
+/* Relatório que nasceu antes do log ganha a primeira linha a partir do que
+   já se sabe. Sem isso o histórico abriria vazio em tudo que é antigo. */
+function _viagLogSemente(v){
+  if(!v || (Array.isArray(v.eventos) && v.eventos.length)) return false;
+  v.eventos = [{ t: v.criadoEm || new Date().toISOString(), d: 'Relatório criado' }];
+  return true;
+}
+
+function _viagLogData(iso){
+  try{
+    const d = new Date(iso);
+    if(isNaN(d)) return '';
+    const p = n => String(n).padStart(2, '0');
+    return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + String(d.getFullYear()).slice(2)
+         + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }catch(_){ return ''; }
+}
+
+/* Recolhido por padrão: quem abre o relatório quer ver despesas, não
+   auditoria. O `<details>` guarda isso de graça, sem estado nosso. */
+function _viagRenderLog(v){
+  const evs = Array.isArray(v.eventos) ? v.eventos : [];
+  if(!evs.length) return '';
+  const linhas = evs.slice().reverse().map(e =>
+      '<div class="viag-log-item"><span class="q">' + _viagLogData(e.t) + '</span>'
+    + '<span class="d">' + esc(e.d || '') + '</span></div>').join('');
+  return '<details class="viag-log">'
+    + '<summary>Histórico <span class="n">' + evs.length + '</span></summary>'
+    + '<div class="viag-log-lista">' + linhas + '</div>'
+    + '</details>';
+}
+try{ window._viagEvento = _viagEvento; window._viagRenderLog = _viagRenderLog; }catch(e){}
 
 /* O lançamento que este relatório já gerou para este colaborador, se houver.
    Procura pelo carimbo e também pela `origem`, porque lançamento antigo pode
