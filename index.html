@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794970997"/>
+  <meta name="fk-build" content="forekash-v1794971219"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -65476,6 +65476,15 @@ function _viagTotalFuncionario(v){
 }
 // Saldo = adiantamento - despesas DO FUNCIONÁRIO (só essas entram no reembolso/devolução)
 function _viagSaldo(v){ return (parseFloat(v.adiantamento)||0) - _viagTotalFuncionario(v); }
+/* Adiantamento total do relatório: o campo antigo do próprio relatório mais
+   o de cada colaborador, que é onde ele passou a viver. Serve pra saber se o
+   saldo diz algo que o total já não diga. */
+function _viagAdiTotal(v){
+  let t = parseFloat(v && v.adiantamento) || 0;
+  for(const c of ((v && v.colaboradores) || [])) t += parseFloat(c && c.adiantamento) || 0;
+  return t;
+}
+try{ window._viagAdiTotal = _viagAdiTotal; }catch(e){}
 function _viagCat(id){ return VIAG_CATEGORIAS.find(c => c.id === id) || VIAG_CATEGORIAS[VIAG_CATEGORIAS.length-1]; }
 function _viagStatus(id){ return VIAG_STATUS.find(s => s.id === id) || VIAG_STATUS[0]; }
 function _viagFmt(n){ return (typeof fmtBRL === 'function') ? fmtBRL(n||0) : 'R$ ' + (n||0).toFixed(2); }
@@ -66561,8 +66570,8 @@ function _viagCriarReembolso(cid){
      do mesmo dinheiro — que ninguém percebe até pagar duas vezes.
 
      Então a pergunta não é feita à nossa marca, e sim ao Extrato, que é o
-     fato. `refInterna` carimba viagem e colaborador desde a primeira versão
-     disto, e nenhum outro lançamento usa esse formato. */
+     fato. `refInterna` carimba viagem e colaborador, e nenhum outro
+     lançamento usa esse formato. */
   const jaLancado = _viagLancamentoExistente(v, c.cid);
   if(jaLancado){
     if(!c.reembolso){
@@ -66577,64 +66586,40 @@ function _viagCriarReembolso(cid){
   }
 
   const gasto = _viagGastoPorColab(v, c.cid);
-  const adi = parseFloat(c.adiantamento)||0;
-  const saldo = adi - gasto;
-  if(saldo >= 0){ if(typeof toast === 'function') toast('Não há saldo a reembolsar para esse colaborador'); return; }
-  const valor = Math.abs(saldo);
-  // Conta default · 1ª conta ativa não-reserva
-  let contaDefault = '';
-  try {
-    if(typeof dispo !== 'undefined' && dispo && Array.isArray(dispo.contas)){
-      const ativa = dispo.contas.find(cc => cc.ativo !== false);
-      if(ativa) contaDefault = 'conta:' + ativa.id;
-    }
-  } catch(_){}
-  // Garante module extrato disponível
+  const adi = parseFloat(c.adiantamento) || 0;
+  if(adi - gasto >= 0){
+    if(typeof toast === 'function') toast('Não há saldo a reembolsar para esse colaborador');
+    return;
+  }
   if(typeof extratoData === 'undefined'){
     if(typeof toast === 'function') toast('⚠ Módulo Extrato indisponível');
     return;
   }
-  if(typeof extratoData.nextId !== 'number') extratoData.nextId = 1;
-  const id = extratoData.nextId++;
-  const hoje = new Date().toISOString().slice(0,10);
-  const colNome = c.nome || '(sem nome)';
-  const tituloViag = v.titulo || ('Viagem #' + v.id);
-  const desc = 'Reembolso viagem · ' + tituloViag + ' · ' + colNome;
-  const lanc = {
-    id,
-    data: hoje,
-    valor,
-    descricao: desc,
-    categoria: 'Viagens',
-    contraparte: colNome,
-    conta: contaDefault,
-    status: 'pendente',
-    notas: 'Gerado automaticamente do relatório de viagem #' + v.id,
-    documento: '',
-    refInterna: 'VIAG-' + v.id + '-' + c.cid,
-    /* A tag do relatório vai junto: é o que liga este pagamento ao evento
-       quando alguém procurar no Extrato meses depois. */
-    tags: (typeof fkTagsLimpar === 'function') ? fkTagsLimpar(v.tags) : [],
-    tipo: 'gasto',
-    centroCustoId: null,
-    grupoId: null,
-    dataPagamento: '',
-    criadoEm: new Date().toISOString(),
-    origem: { tipo: 'viagem-reembolso', viagemId: v.id, colaboradorCid: c.cid }
-  };
-  extratoData.lancamentos.push(lanc);
-  if(typeof _extSave === 'function'){
-    try { _extSave(); } catch(e){ console.warn('extSave failed', e); }
-  }
-  c.reembolso = {
-    extratoId: id,
-    valor,
-    criadoEm: new Date().toISOString()
-  };
-  viagSave();
-  if(typeof toast === 'function') toast('✓ Conta a pagar criada no Extrato · R$ ' + valor.toFixed(2).replace('.', ','));
-  _viagRenderEditor();
+
+  /* ══ ABRE O MODAL DE SEMPRE, NÃO CRIA ÀS ESCONDIDAS ══════════════════
+
+     Antes o botão inseria o lançamento direto, com conta adivinhada e sem
+     ninguém ver — e foi assim que nasceu um reembolso sem conta nenhuma, que
+     não entra em saldo e só aparece quando a soma não fecha.
+
+     Agora ele abre o MESMO modal de gasto do Extrato, com tudo preenchido:
+     conta, categoria, tag do relatório, vencimento, descrição. Quem paga
+     confere e salva — e tem ali, de graça, parcelamento, retenção, anexo e
+     aviso no Slack, que esta tela nunca vai ter. */
+  _viagCloseEditor();
+  try{
+    if(typeof switchModule === 'function')
+      switchModule('extrato', document.querySelector('[data-module="extrato"]'));
+  }catch(_){}
+  setTimeout(() => {
+    try{ extOpenModal('gasto', 'viag:' + v.id + ':' + c.cid); }
+    catch(e){
+      console.warn('[FK] abrir rascunho de viagem:', e && e.message);
+      if(typeof toast === 'function') toast('Não consegui abrir o lançamento');
+    }
+  }, 220);
 }
+
 // Desvincula (remove a flag · mantém lançamento no extrato)
 function _viagDesvincularReembolso(cid){
   const v = _viagCurrent(); if(!v) return;
@@ -84334,6 +84319,46 @@ function _extNomeContraparte(it){
 }
 try{ window._extNomeContraparte = _extNomeContraparte; }catch(_){}
 
+/* ══ A CONTA QUE O LANÇAMENTO NOVO JÁ NASCE COM ════════════════════
+
+   Campo de conta vazio vira lançamento sem conta — e lançamento sem conta
+   não entra em saldo nenhum, some das conciliações e só aparece quando alguém
+   percebe que a soma não fecha.
+
+   O palpite é o hábito: a conta que mais recebe lançamento é a conta de onde
+   as coisas saem. Só as recentes entram na conta — conta encerrada ano
+   passado não pode ganhar de uma aberta este mês só por ter mais histórico.
+   E só vale a que ainda existe no cadastro: rótulo órfão preenchido
+   automaticamente seria o mesmo problema com outra cara. */
+function fkContaPadrao(){
+  try{
+    if(typeof dispo === 'undefined' || !dispo || !Array.isArray(dispo.contas)) return '';
+    try{ fkContasAgrupadas(); }catch(_){}
+    const vivas = new Set((dispo.contas || [])
+      .filter(c => c && c.ativo !== false && c._fkRotulo)
+      .map(c => c._fkRotulo));
+    if(!vivas.size) return '';
+
+    const corte = new Date(Date.now() - 180 * 864e5).toISOString().slice(0, 10);
+    const uso = {};
+    for(const l of ((typeof extratoData !== 'undefined' && extratoData && extratoData.lancamentos) || [])){
+      if(!l || l.tipo === 'transferencia') continue;
+      const quando = l.dataPagamento || l.data || '';
+      if(quando && quando < corte) continue;
+      const c = String(l.conta || '').trim();
+      if(c && vivas.has(c)) uso[c] = (uso[c] || 0) + 1;
+    }
+    let melhor = '', n = 0;
+    for(const k of Object.keys(uso)) if(uso[k] > n){ n = uso[k]; melhor = k; }
+    if(melhor) return melhor;
+
+    /* Sem histórico recente: a primeira conta ativa, que é melhor que nada. */
+    const prim = (dispo.contas || []).find(c => c && c.ativo !== false && c._fkRotulo);
+    return prim ? prim._fkRotulo : '';
+  }catch(_){ return ''; }
+}
+try{ window.fkContaPadrao = fkContaPadrao; }catch(_){}
+
 function _extContaRotulo(txt){
   const t = String(txt || '').trim();
   if(!t) return '—';
@@ -85629,6 +85654,50 @@ function _extTemExcluir(editId){
   return !(id.startsWith('ccc:') || id.startsWith('ofx:'));
 }
 /* Linha do OFX: vira o mesmo objeto que o modal de Gasto/Ganho entende. */
+/* O rascunho do reembolso. Tudo o que o relatório já sabe entra preenchido;
+   o que é decisão de quem paga — conta, vencimento, parcelamento — fica à
+   vista pra ser conferido antes de virar dinheiro a pagar.
+
+   O `refInterna` é a costura: é por ele que o relatório reconhece, depois,
+   que este gasto já existe, mesmo sem ninguém ter guardado o número. */
+function _extLancDeViagem(editId){
+  try{
+    const partes = String(editId).split(':');
+    const vid = partes[1], cid = partes.slice(2).join(':');
+    const v = ((typeof viagens !== 'undefined' && viagens && viagens.itens) || [])
+      .find(x => x && String(x.id) === String(vid));
+    if(!v) return null;
+    const c = (v.colaboradores || []).find(x => x && x.cid === cid);
+    if(!c) return null;
+    const gasto = _viagGastoPorColab(v, c.cid);
+    const adi = parseFloat(c.adiantamento) || 0;
+    const valor = Math.abs(adi - gasto);
+    const nome = c.nome || '(sem nome)';
+    const titulo = v.titulo || ('Viagem #' + v.id);
+    const hoje = new Date().toISOString().slice(0, 10);
+    return {
+      tipo: 'gasto',
+      data: hoje,
+      dataVencimento: hoje,
+      dataEmissao: v.dataFim || v.dataInicio || hoje,
+      valor: valor,
+      descricao: 'Reembolso viagem · ' + titulo + ' · ' + nome,
+      categoria: 'Viagens',
+      contraparte: nome,
+      conta: (typeof fkContaPadrao === 'function' ? fkContaPadrao() : ''),
+      status: 'pendente',
+      notas: 'Gerado do relatório de viagem #' + v.id
+           + ((v.despesas || []).length ? ' · ' + v.despesas.length + ' despesa(s)' : ''),
+      documento: '',
+      refInterna: 'VIAG-' + v.id + '-' + c.cid,
+      tags: (typeof fkTagsLimpar === 'function') ? fkTagsLimpar(v.tags) : [],
+      centroCustoId: null,
+      origem: { tipo: 'viagem-reembolso', viagemId: v.id, colaboradorCid: c.cid }
+    };
+  }catch(e){ console.warn('[FK] rascunho de viagem:', e && e.message); return null; }
+}
+try{ window._extLancDeViagem = _extLancDeViagem; }catch(_){}
+
 function _extLancDeOfx(editId){
   const i = parseInt(String(editId).split(':')[1], 10);
   const l = (window._ofxPendingLancs || [])[i];
@@ -85952,7 +86021,11 @@ function extOpenModal(tipo, editId){
      o modal se comporta como criação, então salvar gera um registro NOVO em vez
      de sobrescrever o de origem. */
   const _ehCopia = (typeof editId === 'string' && editId.startsWith('dup:'));
-  _extEditingId = _ehCopia ? null : (editId || null);
+  /* Reembolso de viagem abre AQUI, com tudo preenchido, e ainda não existe —
+     igual à cópia: o save deste modal é que cria. Sem zerar o id de edição,
+     o save procuraria um lançamento `viag:…` que nunca existiu. */
+  const _ehViagem = (typeof editId === 'string' && editId.startsWith('viag:'));
+  _extEditingId = (_ehCopia || _ehViagem) ? null : (editId || null);
   const old = document.getElementById('ext-modal-ov');
   if(old) old.remove();
   let l = null;
@@ -86054,6 +86127,10 @@ function extOpenModal(tipo, editId){
        mesmo de existir. É onde ele decide descrição, categoria, fornecedor e
        parcelamento — tudo no lugar de sempre. */
     l = _extLancDeConciliacao(editId);
+  } else if(_ehViagem){
+    /* Relatório de viagem virando conta a pagar: mesmo modal de sempre, com
+       conta, categoria, tag e vencimento à vista antes de existir. */
+    l = _extLancDeViagem(editId);
   } else if(editId && typeof editId === 'string' && editId.startsWith('cartao:')){
     /* Compra de cartão abre no MESMO modal de Lançar Gasto. Antes o clique
        jogava a pessoa no módulo Cartões: outra tela, outros campos, outro
@@ -86062,7 +86139,10 @@ function extOpenModal(tipo, editId){
   } else if(editId){
     l = (extratoData.lancamentos || []).find(x => 'm:' + x.id === editId);
   }
-  if(!l){ l = { tipo: tipo || 'gasto', data: new Date().toISOString().slice(0,10), valor: 0, descricao: '', categoria: '', contraparte: '', conta: '', status: 'pendente', notas: '' }; }
+  if(!l){ l = { tipo: tipo || 'gasto', data: new Date().toISOString().slice(0,10), valor: 0,
+                descricao: '', categoria: '', contraparte: '',
+                conta: (typeof fkContaPadrao === 'function' ? fkContaPadrao() : ''),
+                status: 'pendente', notas: '' }; }
   /* Parcelamento de cartão: guarda o plano pra seção Repetição desenhar. */
   /* Depois do innerHTML do modal — por isso no fim do tick. */
   if((l.tipo || tipo) === 'ganho'){
