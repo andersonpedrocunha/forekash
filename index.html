@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794975421"/>
+  <meta name="fk-build" content="forekash-v1795009013"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -6703,19 +6703,6 @@
        com a mesma discrição do marcador de projeto — borda tracejada enquanto
        vazia, porque campo vazio com cara de campo cheio pede preenchimento
        que ninguém deve. */
-    /* Subcategoria: pastilha discreta, do tamanho do próprio texto, como o
-       marcador de projeto. Não é campo obrigatório — é detalhe de quem quer. */
-    .ext-item-sub{grid-column:1 / 3;display:flex}
-    .ext-item-sub .ext-sub-sel{appearance:none;-webkit-appearance:none;width:auto;max-width:100%;
-      padding:3px 21px 3px 9px;border:1px dashed #CBD5E1;border-radius:999px;
-      background-color:transparent;color:#64748B;font-family:inherit;font-size:.72rem;
-      font-weight:600;line-height:1.55;cursor:pointer;
-      background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%2394A3B8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
-      background-repeat:no-repeat;background-position:right 7px center;background-size:8px}
-    .ext-item-sub .ext-sub-sel:hover{border-color:#C4B5FD;color:#5B21B6}
-    .ext-item-sub .ext-sub-sel.is-set{border-style:solid;border-color:#DDD6FE;
-      background-color:#F5F3FF;color:#5B21B6}
-    .ext-item-sub .ext-sub-sel:focus{outline:none;border-color:#7C3AED;box-shadow:0 0 0 2px rgba(124,58,237,.12)}
     .ext-item-tags{grid-column:1 / 3;display:flex}
     .ext-item-tags .fk-tags{flex:1;min-height:30px;padding:3px 6px;border-style:dashed;
       border-color:#CBD5E1;background:transparent}
@@ -7441,12 +7428,14 @@
                   overflow-y:auto;display:none}
     .cart-cbx-pop.open{display:block}
     .cart-cbx-item{padding:8px 12px;font-size:.84rem;color:#0F172A;cursor:pointer;
-    /* Subcategoria na lista: recuada, menor, com o traço de filiação. Ela
-       pertence à linha de cima — e tem que parecer. */
-    .cart-cbx-item.is-sub{padding-left:30px;font-size:.8rem;color:#64748B;position:relative}
-    .cart-cbx-item.is-sub::before{content:'\21B3';position:absolute;left:14px;
-      color:#CBD5E1;font-size:.78rem}
+    /* Subcategoria na lista: recuo e um fio vertical, que é como toda lista
+       hierárquica resolve isso. A seta que estava aqui pesava mais que o
+       próprio nome — oito delas seguidas viravam um desenho. */
+    .cart-cbx-item.is-sub{padding-left:28px;font-size:.81rem;color:#64748B;position:relative}
+    .cart-cbx-item.is-sub::before{content:'';position:absolute;left:16px;top:0;bottom:0;
+      border-left:1px solid #E8EBF0}
     .cart-cbx-item.is-sub:hover{color:#5B21B6}
+    .cart-cbx-item.is-sub:hover::before{border-left-color:#C4B5FD}
                    border-bottom:1px solid #F1F5F9;display:flex;align-items:center;gap:8px}
     .cart-cbx-item:last-child{border-bottom:none}
     .cart-cbx-item:hover, .cart-cbx-item.active{background:#EDE9FE;color:#5B21B6}
@@ -36390,29 +36379,6 @@ function _extLinhasDoCliente(nomeCli, ano){
 
    Sem rótulo em cima, igual ao marcador de projeto logo acima: é anotação,
    não campo obrigatório, e não pode competir com Categoria e Fornecedor. */
-/* A subcategoria do item. Só existe quando a categoria escolhida tem alguma
-   cadastrada — campo que aparece vazio em 90% dos lançamentos é campo que
-   ensina a ignorar campo. */
-function _extItemSubHtml(i, it){
-  let subs = [];
-  try{ subs = (typeof catmapSubs === 'function') ? catmapSubs(it.categoria) : []; }catch(_){}
-  const atual = String(it.subcategoria || '');
-  if(!subs.length && !atual) return '';
-  const conhecida = subs.some(x => x === atual);
-  const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x));
-  let html = '<div class="ext-item-sub"><select class="ext-sub-sel' + (atual ? ' is-set' : '') + '"'
-           + ' onchange="this.classList.toggle(\'is-set\',!!this.value);'
-           + '_extItemUpdate(' + i + ',\'subcategoria\', this.value)">'
-           + '<option value="">Subcategoria · nenhuma</option>';
-  /* Valor fora da lista continua selecionável: a subcategoria pode ter sido
-     removida do cadastro depois, e o lançamento antigo não perde o que diz. */
-  if(atual && !conhecida)
-    html += '<option value="' + esc(atual) + '" selected>' + esc(atual) + ' · como está guardado</option>';
-  for(const x of subs)
-    html += '<option value="' + esc(x) + '"' + (x === atual ? ' selected' : '') + '>' + esc(x) + '</option>';
-  return html + '</select></div>';
-}
-try{ window._extItemSubHtml = _extItemSubHtml; }catch(_){}
 
 function _extItemTagsHtml(i, it){
   return '<div class="ext-item-tags">'
@@ -65698,13 +65664,29 @@ try{ window._viagSubSelectHtml = _viagSubSelectHtml; }catch(e){}
 
 function _viagCatSelectHtml(d, dis, aoMudar){
   const atual = String(d.categoria || '');
+  const atualSub = String(d.subcategoria || '');
   const { topo, resto } = _viagCatsOficiais();
   const conhecida = topo.concat(resto).some(c => c === atual);
-  const opt = (v, sel) => '<option value="' + esc(v) + '"' + (sel ? ' selected' : '') + '>'
-                        + esc(v) + '</option>';
+  const SEP = (typeof FK_SUB_SEP === 'string') ? FK_SUB_SEP : '›';
+  /* A MESMA lista do Extrato, com as subcategorias dentro. Num `select`
+     nativo não há nível aninhado, então o recuo é feito com espaço fixo —
+     é o que todo seletor hierárquico faz, e o olho lê na hora. */
+  const opt = (v, sel) => {
+    let out = '<option value="' + esc(v) + '"' + (sel ? ' selected' : '') + '>'
+            + esc(v) + '</option>';
+    let subs = [];
+    try{ subs = (typeof catmapSubs === 'function') ? catmapSubs(v) : []; }catch(_){}
+    for(const sb of subs){
+      const val = v + SEP + sb;
+      const marcada = (v === atual && sb === atualSub);
+      out += '<option value="' + esc(val) + '"' + (marcada ? ' selected' : '') + '>'
+           + '\u00a0\u00a0\u00a0 ' + esc(sb) + '</option>';
+    }
+    return out;
+  };
   /* O mesmo seletor serve à linha da despesa e à revisão da leitura — o que
      muda é quem recebe a escolha. */
-  const handler = aoMudar || ('viagUpdateDesp(' + d.id + ', \'categoria\', this.value)');
+  const handler = aoMudar || ('viagCatEscolhida(' + d.id + ', this.value)');
   let html = '<select onchange="' + handler + '"' + dis + '>';
   /* Valor que não está mais na lista (categoria antiga deste módulo, ou
      apagada do cadastro) continua selecionável — trocar sozinho mudaria o
@@ -65718,12 +65700,12 @@ function _viagCatSelectHtml(d, dis, aoMudar){
   if(!atual) html += '<option value="" selected>— escolha —</option>';
   if(topo.length){
     html += '<optgroup label="Mais usadas em viagem">';
-    for(const c of topo) html += opt(c, c === atual);
+    for(const c of topo) html += opt(c, c === atual && !atualSub);
     html += '</optgroup>';
   }
   if(resto.length){
     html += '<optgroup label="Todas as categorias">';
-    for(const c of resto) html += opt(c, c === atual);
+    for(const c of resto) html += opt(c, c === atual && !atualSub);
     html += '</optgroup>';
   }
   if(!topo.length && !resto.length)
@@ -67419,8 +67401,9 @@ function _viagRenderDespTable(v){
     const porQuem = d.porQuem || (d.pagamento === 'empresa' ? 'empresa' : defaultColabCid);
     html += '<tr>'
       + '<td class="col-data"><input type="date" value="' + (d.data||'') + '" onchange="viagUpdateDesp(' + d.id + ', \'data\', this.value)"' + _vDis + '></td>'
-      + '<td class="col-cat">' + _viagCatSelectHtml(d, _vDis)
-      +   _viagSubSelectHtml(d, _vDis) + '</td>'
+      /* Um seletor só: a subcategoria vive dentro da mesma lista. Dois campos
+         pra uma escolha era o que deixava a linha pesada. */
+      + '<td class="col-cat">' + _viagCatSelectHtml(d, _vDis) + '</td>'
       + '<td><input type="text" value="' + esc(d.descricao||'') + '" placeholder="Ex: Uber aeroporto → hotel" oninput="viagUpdateDesp(' + d.id + ', \'descricao\', this.value)"' + _vDis + '></td>'
       + '<td class="col-porq"><select onchange="_viagSetDespPorQuem(' + d.id + ', this.value)"' + _vDis + '>' + porQuemOpts(porQuem) + '</select></td>'
       + (function(){
@@ -69105,7 +69088,7 @@ function _viagPrintModal(modo, dados){
       +   ' onchange="_viagPrintMarcar(' + i + ', this.checked)"></td>'
       + '<td>' + esc(it.descricao || '(sem descrição)') + '</td>'
       + '<td class="c">'
-      +   _viagCatSelectHtml({ id: i, categoria: it.categoria }, '',
+      +   _viagCatSelectHtml({ id: i, categoria: it.categoria, subcategoria: it.subcategoria }, '',
             '_viagPrintCat(' + i + ', this.value)')
       + '</td>'
       + '<td class="r val">' + _viagFmt(it.valor) + '</td>'
@@ -69222,8 +69205,13 @@ function _viagPrintMarcar(i, usar){
   if(tr) tr.classList.toggle('fora', !usar);
   _viagPrintSoma();
 }
-function _viagPrintCat(i, cat){
-  if(_VIAG_PRINT && _VIAG_PRINT.itens[i]) _VIAG_PRINT.itens[i].categoria = cat;
+function _viagPrintCat(i, valor){
+  if(!_VIAG_PRINT || !_VIAG_PRINT.itens[i]) return;
+  const SEP = (typeof FK_SUB_SEP === 'string') ? FK_SUB_SEP : '›';
+  const t = String(valor || '');
+  const k = t.indexOf(SEP);
+  _VIAG_PRINT.itens[i].categoria = k < 0 ? t : t.slice(0, k);
+  _VIAG_PRINT.itens[i].subcategoria = k < 0 ? '' : t.slice(k + 1);
 }
 
 /* A conferência que justifica a tela: a soma do que está marcado contra o
@@ -69264,6 +69252,7 @@ function viagPrintAplicar(){
       id: viagens.nextDespId++,
       data: d.data || dataPadrao,
       categoria: d.categoria || 'outros',
+      subcategoria: d.subcategoria || '',
       descricao: d.descricao,
       valor: d.valor,
       pagamento: pag,
@@ -69299,6 +69288,19 @@ try{ window.viagLerPrint = viagLerPrint; window.viagPrintAplicar = viagPrintApli
      window._viagPrintCat = _viagPrintCat; }catch(_){}
 
 /* O campo de tags do relatório chama isto a cada mudança. */
+/* Uma escolha, dois campos. Pegou a categoria: a subcategoria sai de cena.
+   Pegou a subcategoria: as duas entram juntas. */
+function viagCatEscolhida(despId, valor){
+  const SEP = (typeof FK_SUB_SEP === 'string') ? FK_SUB_SEP : '›';
+  const t = String(valor || '');
+  const i = t.indexOf(SEP);
+  const pai = i < 0 ? t : t.slice(0, i);
+  const filha = i < 0 ? '' : t.slice(i + 1);
+  viagUpdateDesp(despId, 'categoria', pai);
+  viagUpdateDesp(despId, 'subcategoria', filha);
+}
+try{ window.viagCatEscolhida = viagCatEscolhida; }catch(_){}
+
 function viagTagsMudou(tags){
   const v = _viagCurrent();
   if(!v) return;
@@ -84392,7 +84394,7 @@ function _extItemRender(){
       + '<div class="ext-item-row2">'
         + '<div><span class="ext-item-lbl">Categoria</span>'
           + '<div class="cart-cbx" data-cbx="ext-it-cat-' + i + '" data-tipo="' + tipo + '" data-i="' + i + '">'
-            + '<input type="text" id="ext-it-cat-' + i + '" value="' + _extEsc(it.categoria || '') + '" placeholder="Escolha ou digite" autocomplete="off" onfocus="_extItCbxOpen(' + i + ',\'cat\')" oninput="_extItCbxFilter(' + i + ',\'cat\');_extItemUpdate(' + i + ',\'categoria\',this.value)">'
+            + '<input type="text" id="ext-it-cat-' + i + '" value="' + _extEsc(_extCatRotulo(it)) + '" placeholder="Escolha ou digite" autocomplete="off" onfocus="_extItCbxOpen(' + i + ',\'cat\')" oninput="_extItCbxFilter(' + i + ',\'cat\');_extItemCatDigitada(' + i + ', this.value)">'
             + '<div class="cart-cbx-arr" onclick="_extItCbxToggle(' + i + ',\'cat\')">▾</div>'
             + '<div class="cart-cbx-pop" id="ext-it-cbx-pop-cat-' + i + '"></div>'
           + '</div>'
@@ -84405,7 +84407,6 @@ function _extItemRender(){
           + '</div>'
         + '</div>'
       + '</div>'
-      + _extItemSubHtml(i, it)
       + _extItemProjetoHtml(i, it, tipo)
       + _extItemEmprestimoHtml(i, it, tipo)
       + _extItemTagsHtml(i, it)
@@ -84606,7 +84607,10 @@ function _extItCbxRender(i, name){
   const inp = document.getElementById('ext-it-' + name + '-' + i);
   const pop = document.getElementById('ext-it-cbx-pop-' + name + '-' + i);
   if(!inp || !pop) return;
-  const q = (inp.value || '').trim();
+  /* O campo guarda "Categoria › Subcategoria" depois de escolhido. Buscar
+     por isso devolveria lista vazia — e o seletor abriria sem opção nenhuma
+     justamente pra quem já tinha escolhido antes. */
+  const q = String(inp.value || '').indexOf(FK_SUB_VIS) >= 0 ? '' : (inp.value || '').trim();
   /* Mesmo filtro da escolha: se o desenho filtrar com acento e a
      escolha sem, o índice deixa de corresponder e clicar pega o item
      errado — em silêncio. */
@@ -84677,13 +84681,14 @@ function _extItCbxPick(i, name, idx){
   const all = _extItCbxSource(i, name);
   const semAc = t => String(t || '').toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const q = semAc((inp.value || '').trim());
+  const q = String(inp.value || '').indexOf(FK_SUB_VIS) >= 0
+    ? '' : semAc((inp.value || '').trim());
   const filtered = q ? all.filter(x => semAc(x).includes(q)) : all.slice();
   const v = filtered[idx];
   if(v){
     if(name === 'cat'){
       const pai = _extCatPai(v), filha = _extCatFilha(v);
-      inp.value = pai;
+      inp.value = filha ? (pai + FK_SUB_VIS + filha) : pai;
       _extItemUpdate(i, 'categoria', pai);
       /* Escolheu a sub: grava as duas. Escolheu só a categoria: limpa a sub,
          porque a anterior era de outra gaveta. */
@@ -85270,6 +85275,25 @@ function _extCatFilha(v){
   return i < 0 ? '' : t.slice(i + 1);
 }
 /* A lista oficial com as subcategorias intercaladas. */
+/* O que o campo mostra. Com subcategoria, o caminho inteiro — é assim que
+   todo seletor hierárquico devolve a escolha, e dispensa o segundo campo só
+   pra repetir o que já foi escolhido. */
+const FK_SUB_VIS = ' › ';
+function _extCatRotulo(it){
+  const c = String((it && it.categoria) || '');
+  const sb = String((it && it.subcategoria) || '');
+  return (c && sb) ? (c + FK_SUB_VIS + sb) : c;
+}
+function _extItemCatDigitada(i, texto){
+  const t = String(texto || '');
+  const k = t.indexOf(FK_SUB_VIS);
+  if(k < 0){ _extItemUpdate(i, 'categoria', t); return; }
+  _extItemUpdate(i, 'categoria', t.slice(0, k).trim());
+  _extItemUpdate(i, 'subcategoria', t.slice(k + FK_SUB_VIS.length).trim());
+}
+try{ window._extCatRotulo = _extCatRotulo;
+     window._extItemCatDigitada = _extItemCatDigitada; }catch(_){}
+
 function _extCatsComSubs(tipo){
   const base = _extOfficialCats(tipo) || [];
   const out = [];
