@@ -764,7 +764,12 @@ export default {
       }
     }
 
-    if(!url.pathname.startsWith('/api/')) return servirApp(request, env, url);
+    if(!url.pathname.startsWith('/api/')){
+      /* O app é a página principal: se o atalho do etag falhar por qualquer
+         motivo, serve o arquivo do jeito de sempre em vez de derrubar o site. */
+      try{ return await servirApp(request, env, url); }
+      catch(_){ return env.ASSETS.fetch(request); }
+    }
 
     /* Manchetes de mercado · o navegador não busca RSS sozinho (CORS), e a
        ponte que usávamos (api.rss2json.com) passou a responder com a tela de
