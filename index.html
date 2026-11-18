@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795035325"/>
+  <meta name="fk-build" content="forekash-v1795036854"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -84598,6 +84598,15 @@ try {
 
 // ─── Modal de cadastro/edição manual ───
 let _extEditingId = null;
+/* ══ DE ONDE VEIO O RASCUNHO ════════════════════════════════════════════
+   `origem` não é campo de formulário: ela identifica quem gerou o
+   lançamento (um relatório de viagem, uma conciliação) e o save monta o
+   lançamento novo só com o que está na tela. Resultado: o reembolso nascia
+   sem `origem`, e o vínculo com o relatório passava a depender só da
+   referência interna — um campo visível, que qualquer edição apaga sem
+   avisar. Guardado aqui na abertura, carimbado na gravação, limpo no
+   fechamento. */
+let _extOrigemPendente = null;
 // ─── Multi-itens — engine genérica (ext / dkb / rec) ───
 // Cada modal tem seu próprio array. _extItems mantido para compat.
 let _extItems = [];
@@ -87194,6 +87203,7 @@ function extOpenModal(tipo, editId){
      o save procuraria um lançamento `viag:…` que nunca existiu. */
   const _ehViagem = (typeof editId === 'string' && editId.startsWith('viag:'));
   _extEditingId = (_ehCopia || _ehViagem) ? null : (editId || null);
+  _extOrigemPendente = null;
   const old = document.getElementById('ext-modal-ov');
   if(old) old.remove();
   let l = null;
@@ -87299,6 +87309,7 @@ function extOpenModal(tipo, editId){
     /* Relatório de viagem virando conta a pagar: mesmo modal de sempre, com
        conta, categoria, tag e vencimento à vista antes de existir. */
     l = _extLancDeViagem(editId);
+    if(l && l.origem) _extOrigemPendente = l.origem;
   } else if(editId && typeof editId === 'string' && editId.startsWith('cartao:')){
     /* Compra de cartão abre no MESMO modal de Lançar Gasto. Antes o clique
        jogava a pessoa no módulo Cartões: outra tela, outros campos, outro
@@ -89077,7 +89088,20 @@ function extSaveModal(tipo, comSerieForcado){
       receitaRowId: (it.receitaRowId != null && it.receitaRowId !== '') ? +it.receitaRowId : null,
       /* o vínculo com o contrato viaja junto com o item, senão o marcador
          seria só enfeite de tela e sumiria no primeiro save */
-      emprestimoId: (it.emprestimoId != null && it.emprestimoId !== '') ? it.emprestimoId : null
+      emprestimoId: (it.emprestimoId != null && it.emprestimoId !== '') ? it.emprestimoId : null,
+      /* ══ A TAG TAMBÉM ═══════════════════════════════════════════════
+
+         Esta lista é o que chega na gravação, e o lançamento é montado lá
+         embaixo com `tags: fkTagsLimpar(it.tags)`. Sem a tag AQUI, `it.tags`
+         chegava `undefined` e todo lançamento NOVO nascia sem marcador —
+         mesmo com o chip visível na tela na hora de salvar. Editar depois
+         funcionava (esse ramo usa a const `tags`, calculada do item), e era
+         essa a diferença que fazia parecer coisa de viagem: criar a conta a
+         pagar pelo card da Prestação de Contas trazia a tag do relatório,
+         mostrava no modal, e gravava sem ela. Valia para toda tag digitada
+         no modal, em qualquer lançamento. */
+      tags: fkTagsLimpar(it.tags),
+      subcategoria: String(it.subcategoria || '')
     }));
     if(itensList.length === 0){
       return _extRecusaSalvar('nenhum item com valor maior que zero',
@@ -89200,6 +89224,9 @@ function extSaveModal(tipo, comSerieForcado){
             contaPagamento: (di === data ? contaPag : ''),
             criadoEm: new Date().toISOString()
           };
+          /* Só na primeira parcela: a origem é do lançamento que o relatório
+             pediu, não das repetições que vierem depois dele. */
+          if(di === data && _extOrigemPendente) lanc.origem = _extOrigemPendente;
           /* PREVISÃO DE PAGAMENTO. Faltava aqui — e este é o caminho por onde
              TODO lançamento do modal nasce (um por item). O campo era lido do
              formulário, gravado só no ramo de edição de lançamento solto, e
