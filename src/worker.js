@@ -722,10 +722,12 @@ async function servirApp(request, env, url){
   }
 
   const resp = await env.ASSETS.fetch(request);
-  if(!etag || !resp.ok) return resp;
   const h = new Headers(resp.headers);
-  h.set('etag', etag);
-  h.set('cache-control', CC_APP);
+  h.set('x-fk-app', resp.status + '/' + (ver || 'sem-versao'));
+  if(etag && resp.ok){
+    h.set('etag', etag);
+    h.set('cache-control', CC_APP);
+  }
   return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: h });
 }
 
