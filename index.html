@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794972519"/>
+  <meta name="fk-build" content="forekash-v1794972954"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -67751,6 +67751,13 @@ function _xmlEsc(s){
     .split('&').join('&amp;').split('<').join('&lt;').split('>').join('&gt;')
     .split('"').join('&quot;');
 }
+/* ATRIBUTO NÃO GUARDA QUEBRA DE LINHA. O parser normaliza qualquer `\n`
+   dentro de aspas pra um espaço simples — e a mensagem de ajuda da célula,
+   que é atributo, chegaria no Excel como um parágrafo único e ilegível.
+   `&#10;` sobrevive à normalização. */
+function _xmlEscAttr(s){
+  return _xmlEsc(s).split('\r\n').join('&#10;').split('\n').join('&#10;');
+}
 function _xlsxCol(i){                      // 0 \u2192 A, 26 \u2192 AA
   let n = i, s = '';
   do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while(n >= 0);
@@ -67776,9 +67783,17 @@ function _xlsxAba(linhas, validacoes, larguras){
   }).join('');
   let dv = '';
   if(validacoes && validacoes.length){
+    /* `prompt` é a explicação que o Excel mostra num balão quando a célula é
+       selecionada. É o único lugar onde a ajuda chega a quem está preenchendo
+       sem poluir a grade: cabeçalho longo quebra a coluna, linha de exemplo
+       vira despesa fantasma na importação, e aba de instruções só ajuda quem
+       lembra de abrir. */
     dv = '<dataValidations count="' + validacoes.length + '">' + validacoes.map(x =>
-      '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="0" sqref="'
-      + x.faixa + '"><formula1>' + _xmlEsc(x.origem) + '</formula1></dataValidation>').join('')
+      '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="0"'
+      + (x.titulo ? ' promptTitle="' + _xmlEscAttr(x.titulo) + '"' : '')
+      + (x.ajuda  ? ' prompt="' + _xmlEscAttr(x.ajuda) + '"' : '')
+      + ' sqref="' + x.faixa + '">'
+      + '<formula1>' + _xmlEsc(x.origem) + '</formula1></dataValidation>').join('')
       + '</dataValidations>';
   }
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -67849,7 +67864,8 @@ function fkXlsx(abas){
 try{ window.fkXlsx = fkXlsx; }catch(_){}
 
 const VIAG_ABA_DESP = 'Despesas';
-const VIAG_ABA_REF  = 'Referencia';
+const VIAG_ABA_INST = 'Como preencher';
+const VIAG_ABA_REF  = 'Listas';
 const VIAG_MODELO_LINHAS = 60;      // ate onde vale a lista suspensa
 
 function viagBaixarModelo(){
@@ -67858,50 +67874,105 @@ function viagBaixarModelo(){
   try{ _viagEnsureColabs(v); }catch(_){}
   const colabs = (v.colaboradores || []).filter(c => (c.nome || '').trim());
 
+  /* ══ TRÊS ABAS, TRÊS PAPÉIS ══════════════════════════════════════
+
+     Antes eram duas, e a segunda acumulava coisas demais: as listas que
+     alimentam os menus suspensos, as explicações de preenchimento e os dados
+     da viagem, tudo empilhado na mesma grade. Quem abria via colunas de
+     referência misturadas com texto corrido e não sabia onde olhar.
+
+     Agora cada aba tem um dono: a primeira é de quem preenche, a segunda
+     explica, a terceira só serve ao Excel.                                 */
+
   /* Aba 1 — só o que o colaborador preenche. Nada de instrução no meio: é a
      planilha que ele vai abrir todo dia da viagem. */
   const despesas = [VIAG_MODELO_COLS.slice()];
   for(let i = 0; i < VIAG_MODELO_LINHAS - 1; i++) despesas.push(['', '', '', '', '', '']);
 
-  /* Aba 2 — as listas que alimentam os menus suspensos, cada uma na sua
-     coluna, e as explicações mais abaixo, fora das faixas de validação. */
+  /* As categorias são as do cadastro da empresa, com as de viagem na frente —
+     a MESMA lista do seletor na tela. Duas listas pro mesmo campo fariam a
+     planilha devolver categoria que o app não conhece. */
+  let cats = [];
+  try{
+    const of = _viagCatsOficiais();
+    cats = of.topo.concat(of.resto);
+  }catch(_){}
+  if(!cats.length) cats = VIAG_CATEGORIAS.map(c => c.nome);
+
   const quem = colabs.map(c => c.nome).concat(['Empresa']);
   if(colabs.length > 1) quem.push('Rateio');
   const pagos = ['Empresa', 'Funcionario'];
-  const ref = [['CATEGORIA', 'DE QUEM', 'PAGO POR']];
-  const nRef = Math.max(VIAG_CATEGORIAS.length, quem.length, pagos.length);
-  for(let i = 0; i < nRef; i++){
-    ref.push([ (VIAG_CATEGORIAS[i] || {}).nome || '', quem[i] || '', pagos[i] || '' ]);
-  }
-  ref.push([]);
-  ref.push(['COMO PREENCHER']);
-  ref.push(['DATA', 'o dia da despesa — 31/12/2026']);
-  ref.push(['CATEGORIA', 'escolha na lista da coluna A']);
-  ref.push(['DESCRICAO', 'texto livre — ex.: Uber aeroporto para o hotel']);
-  ref.push(['DE QUEM', colabs.length
-    ? 'quem fez a despesa; Empresa quando não é de ninguém em particular'
-    : 'nenhum colaborador cadastrado ainda — deixe Empresa']);
-  if(colabs.length > 1) ref.push(['', 'Rateio divide o valor igual entre todos']);
-  ref.push(['PAGO POR', 'Empresa = saiu do cartão ou PIX da empresa']);
-  ref.push(['', 'Funcionario = você pagou e vai ser reembolsado']);
-  ref.push(['VALOR', 'só o número — 1.234,56']);
-  ref.push([]);
-  ref.push(['Viagem', v.titulo || '(sem título)']);
-  ref.push(['Destino', v.destino || '—']);
-  ref.push(['Período', (_viagFmtData ? _viagFmtData(v.dataInicio) : v.dataInicio) + ' a ' +
-                       (_viagFmtData ? _viagFmtData(v.dataFim) : v.dataFim)]);
 
-  const faixa = (col, n) => VIAG_ABA_REF + '!$' + col + '$2:$' + col + '$' + (n + 1);
+  /* Aba 2 — como preencher. Só texto: nenhuma lista, nenhum dado solto que
+     o Excel possa confundir com faixa de validação. */
+  const inst = [];
+  inst.push(['COMO PREENCHER A ABA "' + VIAG_ABA_DESP + '"']);
+  inst.push([]);
+  inst.push(['Coluna', 'O que escrever']);
+  inst.push(['DATA', 'o dia da despesa — 31/12/2026']);
+  inst.push(['CATEGORIA', 'escolha no menu da célula (a seta aparece ao clicar)']);
+  inst.push(['DESCRICAO', 'texto livre — ex.: Uber aeroporto para o hotel']);
+  inst.push(['DE QUEM', 'quem FEZ a despesa' + (colabs.length
+    ? '' : ' — nenhum colaborador cadastrado ainda, deixe Empresa')]);
+  if(colabs.length) inst.push(['', 'Empresa quando não é de ninguém em particular']);
+  if(colabs.length > 1) inst.push(['', 'Rateio divide o valor igual entre todos']);
+  inst.push(['PAGO POR', 'quem TIROU O DINHEIRO do bolso']);
+  inst.push(['', 'Empresa = cartão ou PIX da empresa, ninguém precisa ser reembolsado']);
+  inst.push(['', 'Funcionario = a pessoa pagou e vai receber de volta']);
+  inst.push([]);
+  inst.push(['As duas últimas perguntam "quem", e a resposta pode ser diferente:']);
+  inst.push(['', 'o almoço que ' + (colabs[0] ? colabs[0].nome : 'o colaborador')
+                 + ' pagou no cartão da empresa é DE QUEM = '
+                 + (colabs[0] ? colabs[0].nome : 'ele') + ', PAGO POR = Empresa.']);
+  inst.push(['VALOR', 'só o número — 1.234,56']);
+  inst.push([]);
+  inst.push(['Linha em branco é ignorada — pode deixar as que sobrarem vazias.']);
+  inst.push(['Linha sem valor também é ignorada, e você é avisado na importação.']);
+  inst.push([]);
+  inst.push(['ESTA VIAGEM']);
+  inst.push(['Viagem', v.titulo || '(sem título)']);
+  inst.push(['Destino', v.destino || '—']);
+  inst.push(['Período', (_viagFmtData ? _viagFmtData(v.dataInicio) : v.dataInicio) + ' a ' +
+                        (_viagFmtData ? _viagFmtData(v.dataFim) : v.dataFim)]);
+  if(colabs.length) inst.push(['Quem viajou', colabs.map(c => c.nome).join(', ')]);
+
+  /* Aba 3 — só as listas. Existe pro Excel, não pra pessoa: é daqui que os
+     menus suspensos da aba 1 leem as opções. */
+  const ref = [['CATEGORIA', 'DE QUEM', 'PAGO POR']];
+  const nRef = Math.max(cats.length, quem.length, pagos.length);
+  for(let i = 0; i < nRef; i++){
+    ref.push([ cats[i] || '', quem[i] || '', pagos[i] || '' ]);
+  }
+
+  const faixa = (col, n) => '\'' + VIAG_ABA_REF + '\'!$' + col + '$2:$' + col + '$' + (n + 1);
+  /* As duas últimas colunas são as que confundem — as duas perguntam "quem",
+     e a resposta é diferente. Quem fez o gasto e quem tirou o dinheiro do
+     bolso podem ser pessoas diferentes, e é dessa diferença que sai o valor
+     a reembolsar. A explicação aparece ao clicar na célula. */
+  const ajudaQuem = colabs.length
+    ? 'Quem FEZ a despesa.\n\n' + colabs.map(c => c.nome).join(', ')
+      + ' = foi essa pessoa.\nEmpresa = n\u00e3o \u00e9 de ningu\u00e9m em particular.'
+      + (colabs.length > 1 ? '\nRateio = divide igual entre todos.' : '')
+    : 'Quem FEZ a despesa. Como ningu\u00e9m foi cadastrado ainda, deixe Empresa.';
+  const ajudaPago = 'Quem TIROU O DINHEIRO do bolso.\n\n'
+    + 'Empresa = saiu do cart\u00e3o ou do PIX da empresa, ningu\u00e9m precisa ser '
+    + 'reembolsado.\nFuncionario = a pessoa pagou do pr\u00f3prio bolso e vai '
+    + 'receber de volta.';
   const validacoes = [
-    { faixa: 'B2:B' + VIAG_MODELO_LINHAS, origem: faixa('A', VIAG_CATEGORIAS.length) },
-    { faixa: 'D2:D' + VIAG_MODELO_LINHAS, origem: faixa('B', quem.length) },
-    { faixa: 'E2:E' + VIAG_MODELO_LINHAS, origem: faixa('C', pagos.length) }
+    { faixa: 'B2:B' + VIAG_MODELO_LINHAS, origem: faixa('A', cats.length),
+      titulo: 'Categoria',
+      ajuda: 'A mesma lista do Forekash. As de viagem vêm primeiro.' },
+    { faixa: 'D2:D' + VIAG_MODELO_LINHAS, origem: faixa('B', quem.length),
+      titulo: 'De quem', ajuda: ajudaQuem },
+    { faixa: 'E2:E' + VIAG_MODELO_LINHAS, origem: faixa('C', pagos.length),
+      titulo: 'Pago por', ajuda: ajudaPago }
   ];
 
   const blob = fkXlsx([
     { nome: VIAG_ABA_DESP, linhas: despesas, validacoes: validacoes,
-      larguras: [12, 22, 42, 20, 16, 12] },
-    { nome: VIAG_ABA_REF,  linhas: ref, larguras: [22, 48, 16] }
+      larguras: [12, 26, 42, 20, 16, 12] },
+    { nome: VIAG_ABA_INST, linhas: inst, larguras: [22, 62] },
+    { nome: VIAG_ABA_REF,  linhas: ref,  larguras: [26, 20, 16] }
   ]);
   const nome = 'despesas-' + _viagNorm(v.titulo || 'viagem').replace(/[^a-z0-9]+/g, '-')
                               .replace(/^-|-$/g, '').slice(0, 40) + '.xlsx';
@@ -67910,7 +67981,7 @@ function viagBaixarModelo(){
   a.href = url; a.download = nome;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => { try{ URL.revokeObjectURL(url); }catch(_){} }, 200);
-  if(typeof toast === 'function') toast('Planilha modelo baixada — duas abas, com as listas prontas');
+  if(typeof toast === 'function') toast('Planilha modelo baixada · preencha a aba ' + VIAG_ABA_DESP);
 }
 try{ window.viagBaixarModelo = viagBaixarModelo; }catch(_){}
 
@@ -68073,12 +68144,27 @@ function _viagParsePlanilha(matriz, v){
     const parcial = colabs.find(c => _viagNorm(c.nome).indexOf(n) === 0 || n.indexOf(_viagNorm(c.nome)) === 0);
     return parcial ? parcial.cid : null;
   };
+  /* A categoria escrita na planilha tem que virar a categoria do CADASTRO —
+     é a mesma lista que a planilha oferece no menu suspenso. O vocabulário
+     antigo deste módulo continua aceito porque planilha baixada mês passado
+     ainda está por aí, e devolver "não entendi" numa linha válida seria pior
+     que convertê-la. */
   const achaCat = txt => {
     const n = _viagNorm(txt);
-    if(!n) return 'outros';
-    const c = VIAG_CATEGORIAS.find(x => _viagNorm(x.nome) === n || x.id === n)
-           || VIAG_CATEGORIAS.find(x => _viagNorm(x.nome).indexOf(n) === 0);
-    return c ? c.id : null;
+    if(!n) return '';
+    let oficiais = [];
+    try{ oficiais = _viagCatsOficiais().todas || []; }catch(_){}
+    const exata = oficiais.find(c => _viagNorm(c) === n);
+    if(exata) return exata;
+    const comeca = oficiais.find(c => _viagNorm(c).indexOf(n) === 0);
+    if(comeca) return comeca;
+    const antiga = VIAG_CATEGORIAS.find(x => _viagNorm(x.nome) === n || x.id === n);
+    if(antiga){
+      const convertida = (typeof _viagCatOficialPara === 'function')
+        ? _viagCatOficialPara(antiga.id) : antiga.id;
+      return convertida;
+    }
+    return null;
   };
   const leData = txt => {
     /* No xlsx a data vira número: dias desde 30/12/1899. É assim que o Excel
