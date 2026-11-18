@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794967869"/>
+  <meta name="fk-build" content="forekash-v1794968655"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1392,6 +1392,10 @@
     .nf-view-email{margin-top:16px;padding:12px 14px;background:#F8FAFC;border:1px solid #E2E8F0;
                    border-radius:9px;font-size:.78rem;color:#475569;line-height:1.5}
     .nf-view-email b{color:#0F172A}
+    /* SÓ LEITURA. Esconder botão não é segurança — quem recusa é a política
+       do Postgres. Isto é cortesia: não oferecer a quem só lê uma ação que
+       o banco vai negar depois de preencher o formulário inteiro. */
+    body.fk-so-leitura .fk-escrita{display:none !important}
 
     /* Plano + uso */
     .nf-plan-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:18px}
@@ -26537,7 +26541,7 @@ td.mes.do-extrato{background:#ECFDF5}
                  Receita responde direto. É isso que vale estar escrito. -->
             <p class="nf-sub">Assinada com o seu certificado e entregue direto à Receita — sem intermediário. O cliente recebe o DANFSe e o XML; a nota fica ligada ao lançamento que a originou.</p>
           </div>
-          <div class="nf-head-r">
+          <div class="nf-head-r fk-escrita">
             <button class="btn btn-sec" onclick="nfEmailModal()" title="Remetente, aparência e prévia do e-mail enviado ao cliente">E-mail</button>
             <button class="btn btn-sec" onclick="nfOpenConfig()" title="Certificado, séries, serviço de emissão e dados fiscais">Configurar</button>
             <button class="btn nf-btn-new" onclick="nfOpenCreate()">
@@ -26615,7 +26619,7 @@ td.mes.do-extrato{background:#ECFDF5}
             <div class="nf-empty-sel">Sem registro</div>
             <h3>Nenhuma nota saiu daqui ainda</h3>
             <p>Nota fiscal não começa em branco. Ela nasce de um lançamento que já existe — vá em <b>Receita</b>, abra o lançamento e mande emitir: cliente, valor e competência vão junto, e a nota volta vinculada a ele.<br><br>Se precisar de uma fora desse caminho, dá pra começar do zero.</p>
-            <button class="btn btn-sec" onclick="nfOpenCreate()" style="margin-top:14px">Emitir do zero</button>
+            <button class="btn btn-sec fk-escrita" onclick="nfOpenCreate()" style="margin-top:14px">Emitir do zero</button>
           </div>
         </div>
       </div>
@@ -136576,8 +136580,15 @@ function nfBaixarMenu(ev){
   m.style.minWidth = LARG + 'px';
   m.style.top = (r.bottom + 5) + 'px';
   m.style.left = Math.max(8, Math.min(r.left, innerWidth - LARG - 8)) + 'px';
+  const validas = (NF.notas || []).filter(n => n && n.status === 'aut' && n.nfseXml).length;
   m.innerHTML =
-      '<button class="ext-pop-item" onclick="_extCloseAllMenus();nfBaixarPlanilha()">'
+      '<button class="ext-pop-item"' + (validas ? '' : ' disabled')
+    +   ' onclick="_extCloseAllMenus();nfBackupXmls()">'
+    +   '<span>Todas as notas v\u00e1lidas'
+    +   '<small>' + (validas
+          ? validas + (validas === 1 ? ' XML autorizado' : ' XMLs autorizados') + ' \u00b7 ZIP'
+          : 'nenhuma nota autorizada ainda') + '</small></span></button>'
+    + '<button class="ext-pop-item" onclick="_extCloseAllMenus();nfBaixarPlanilha()">'
     +   '<span>Planilha do período'
     +   '<small>' + lista.length + (lista.length === 1 ? ' nota · CSV' : ' notas · CSV') + '</small></span></button>'
     + '<button class="ext-pop-item"' + (comPdf ? '' : ' disabled')
@@ -136629,15 +136640,108 @@ function _nfDataUrlParaBlob(dataUrl){
     return new Blob([arr], { type: mime });
   }catch(_){ return new Blob([''], { type:'application/pdf' }); }
 }
+/* ══ O PACOTE QUE A CONTABILIDADE PEDE ════════════════════════════
+
+   O documento fiscal é o XML, não o PDF: é ele que o sistema contábil
+   importa e é ele que vale numa fiscalização. Baixar uma por uma funciona
+   pra conferir uma nota; no fechamento do ano ninguém faz isso oitenta vezes.
+
+   Só as AUTORIZADAS são válidas. As canceladas vêm junto, numa pasta à
+   parte, porque sem elas o contador fica com um buraco na numeração e sem
+   saber se é nota perdida ou nota cancelada — as duas coisas se explicam de
+   formas muito diferentes.
+
+   Tudo sai do que já está guardado em cada nota. Não fala com o serviço de
+   emissão, não precisa de certificado e não precisa de token: quem só lê —
+   o contador, por exemplo — consegue montar o pacote sozinho. */
+async function nfBackupXmls(){
+  const todas = (NF.notas || []).filter(n => n && n.nfseXml &&
+                                        (n.status === 'aut' || n.status === 'canc'));
+  const validas = todas.filter(n => n.status === 'aut');
+  if(!validas.length){
+    if(typeof showToast === 'function') showToast('Nenhuma nota autorizada pra guardar', 'warn');
+    return;
+  }
+  if(typeof showToast === 'function')
+    showToast('Montando o pacote de ' + validas.length + ' nota(s)\u2026', 'info');
+
+  const enc = new TextEncoder();
+  const arquivos = [], faltando = [];
+  const esc = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const num = v => String((Number(v) || 0).toFixed(2)).replace('.', ',');
+  const ST  = { aut:'Autorizada', canc:'Cancelada' };
+  const L = [['Arquivo','N\u00famero','S\u00e9rie','Situa\u00e7\u00e3o','Emiss\u00e3o','Compet\u00eancia','Tomador',
+              'CNPJ/CPF/NIF','Descri\u00e7\u00e3o','Valor','Chave de acesso'].map(esc).join(';')];
+
+  /* Em ordem de número: é assim que a contabilidade confere a sequência. */
+  const porNumero = todas.slice().sort((a, b) =>
+    (parseInt(a.numero, 10) || 0) - (parseInt(b.numero, 10) || 0));
+
+  for(const n of porNumero){
+    const nome = (n.status === 'canc' ? 'canceladas/' : '') +
+                 'NFS-e-' + (n.numero || n.id) + '.xml';
+    try{
+      const xml = await _nfXmlDaNota(n);
+      arquivos.push({ nome: nome, bytes: enc.encode(xml) });
+      L.push([ nome, n.numero || '', n.serie || '', ST[n.status] || n.status || '',
+               _nfData(n.dataEmissao), _nfData(n.competencia || n.dataEmissao),
+               n.cliente || '', n.cnpj || '', n.descricao || '',
+               num(n.valor), n.chaveAcesso || '' ].map(esc).join(';'));
+    }catch(e){
+      /* Uma nota ilegível não derruba o pacote — mas também não some dele:
+         someça calada seria um backup incompleto que parece completo. */
+      faltando.push('NFS-e ' + (n.numero || n.id) + ' \u2014 ' + (e && e.message || 'n\u00e3o consegui ler'));
+    }
+  }
+  if(!arquivos.length){
+    if(typeof showToast === 'function') showToast('N\u00e3o consegui ler nenhum XML', 'err');
+    return;
+  }
+  arquivos.push({ nome:'indice.csv', bytes: enc.encode('\ufeff' + L.join('\r\n')) });
+  if(faltando.length)
+    arquivos.push({ nome:'FALTANDO.txt', bytes: enc.encode(
+      'Estas notas est\u00e3o no Forekash mas o XML n\u00e3o p\u00f4de ser lido:\n\n' +
+      faltando.join('\n') + '\n') });
+
+  const emp = (typeof _nfEmpresaAtiva === 'function') ? _nfEmpresaAtiva() : null;
+  const marca = emp && (emp.razao || emp.nome)
+    ? String(emp.razao || emp.nome).toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 28) + '-'
+    : '';
+  _nfDl('notas-fiscais-' + marca + new Date().toISOString().slice(0,10) + '.zip',
+        fkZip(arquivos));
+  if(typeof showToast === 'function')
+    showToast(validas.length + ' nota(s) v\u00e1lida(s) no pacote' +
+              (faltando.length ? ' \u00b7 ' + faltando.length + ' sem XML' : ''),
+              faltando.length ? 'warn' : 'ok');
+}
+
 function nfBackup(){
   const pacote = {
     formato: 'forekash-notas-fiscais',
     versao: 1,
     geradoEm: new Date().toISOString(),
     empresa: (function(){ const e = _nfEmpresaAtiva(); return e ? { nome:e.razao || e.nome, cnpj:e.cnpj } : null; })(),
-    /* A senha do certificado NÃO vai no backup: o arquivo acaba no e-mail,
-       no Drive, no WhatsApp do contador. */
-    cfg: Object.assign({}, NF.cfg, { certA1Pwd: undefined, nfeIoApiKey: undefined }),
+    /* O COFRE NÃO VAI NO BACKUP. Este arquivo acaba no e-mail, no Drive, no
+       WhatsApp do contador — e o `cfg` guarda o certificado A1 inteiro
+       (cifrado), a senha do SMTP (cifrada) e o token do serviço de emissão,
+       esse em texto puro.
+
+       A lista antiga tirava `certA1Pwd` e `nfeIoApiKey`, nomes de uma versão
+       anterior que não existem mais no `cfg`: ela protegia campos que já
+       tinham sumido enquanto os de hoje saíam inteiros no JSON.
+
+       Agora a regra é ao contrário — em vez de listar o que sai, lista o que
+       pode ficar. Campo novo no `cfg` nasce de fora do backup, que é o lado
+       seguro de errar. */
+    cfg: (function(){
+      const c = NF.cfg || {}, publico = {};
+      for(const k of ['mode','cnae','inscricaoMunicipal','email','serieDps','serieDpsTeste',
+                      'proxDps','proxDpsTeste','autoEmitOnPayment'])
+        if(c[k] !== undefined) publico[k] = c[k];
+      return publico;
+    })(),
     notas: NF.notas
   };
   _nfDl('forekash-notas-backup-' + new Date().toISOString().slice(0,10) + '.json',
@@ -136646,6 +136750,7 @@ function nfBackup(){
 }
 try{ window.nfBaixarMenu = nfBaixarMenu; window.nfBaixarPlanilha = nfBaixarPlanilha;
      window.nfBaixarPdfs = nfBaixarPdfs; window.nfBackup = nfBackup;
+     window.nfBackupXmls = nfBackupXmls;
      window.nfNotasFiltradas = nfNotasFiltradas; }catch(e){}
 
 function nfSetFilter(f, btn){
@@ -138287,7 +138392,7 @@ function nfOpenView(id){
   document.getElementById('nf-modal-view-body').innerHTML =
     '<div class="nf-view-grid">' + dados + documento + '</div>' +
     '<div class="nf-view-actions">' +
-      (n.status === 'aut' ? '<button class="danger" onclick="nfCancel(' + n.id + ')">✕ Cancelar NFS-e</button>' : '') +
+      (n.status === 'aut' ? '<button class="danger fk-escrita" onclick="nfCancel(' + n.id + ')">✕ Cancelar NFS-e</button>' : '') +
       '<div style="flex:1"></div>' +
       '<button onclick="nfCloseModal(\'view\')">Fechar</button>' +
     '</div>';
@@ -165648,6 +165753,37 @@ async function fkCloudFullHydrate(){
       }
     }
   }catch(e){ console.warn('[FK] ☁ pré-carga falhou, indo módulo a módulo:', e && (e.message || e)); }
+
+  /* ══ O PAPEL, E O QUE ELE ALCANÇA ════════════════════════════════
+
+     O contador precisa das NOTAS — é com elas que ele fecha a
+     contabilidade — e não pode ter o COFRE, que mora no mesmo blob: o
+     certificado A1 cifrado, a senha do SMTP cifrada e o token do serviço
+     de emissão, esse em texto puro.
+
+     RLS é por linha, não por campo. Então, quando a linha `nfse` não vem
+     na consulta — porque a política recusou —, as notas entram por uma
+     função do banco que devolve o blob MENOS o `cfg`. Quem pode ver tudo
+     recebe a linha e nunca passa por aqui.
+
+     O papel também acende `fk-so-leitura` no corpo da página, e isso é só
+     cortesia de tela: a barreira de verdade é a do Postgres. */
+  try{
+    if(window.sb){
+      const { data: _papel } = await window.sb.rpc('fk_papel');
+      window.FK_PAPEL = String(_papel || '');
+      document.body.classList.toggle('fk-so-leitura', window.FK_PAPEL === 'contador');
+    }
+  }catch(_){}
+  try{
+    if(_blobs && !_blobs.has('nfse') && window.sb){
+      const { data: _pub } = await window.sb.rpc('fk_nfse_publico');
+      if(_pub && Array.isArray(_pub.notas) && _pub.notas.length){
+        _blobs.set('nfse', { module:'nfse', data: _pub });
+        console.log('[FK] ☁ ' + _pub.notas.length + ' nota(s) fiscal(is) pela via pública — sem o cofre');
+      }
+    }
+  }catch(e){ console.warn('[FK] ☁ notas pela via pública:', e && (e.message || e)); }
   for(const [localKey, moduleName] of Object.entries(FK_CLOUD_MAP)){
     try{
       if(FK_SO_NUVEM.has(moduleName)) continue;   // não desce pro navegador

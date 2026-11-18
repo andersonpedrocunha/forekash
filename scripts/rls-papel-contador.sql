@@ -75,6 +75,28 @@ alter policy module_blobs_select on public.module_blobs
     )
   );
 
+-- ── 2b. AS NOTAS FISCAIS, SEM O COFRE ───────────────────────────────
+-- O contador precisa das NFS-e: é com elas que ele fecha a contabilidade,
+-- e é o XML que o sistema contábil importa. Mas `nfse` NÃO entra na lista
+-- acima, e não é descuido.
+--
+-- Aquele blob guarda, no mesmo objeto, duas coisas de naturezas opostas:
+-- as notas emitidas e o `cfg` — o certificado A1 inteiro cifrado, a senha
+-- do SMTP cifrada e o token do serviço de emissão, esse em texto puro.
+-- Liberar a linha entregaria os três.
+--
+-- RLS é por linha, não por campo. Então a leitura das notas sai por
+-- `fk_nfse_publico()`, que devolve o blob MENOS o `cfg` (migração
+-- `papel_e_notas_publicas_para_o_contador`). O app chama essa função
+-- quando a linha não vem, e o cofre nunca sai do banco.
+--
+-- Do outro lado, `fk_nfse_preserva_cofre_tg` impede que uma escrita sem
+-- `cfg` apague o cofre — porque quem leu o recorte tem, no navegador, um
+-- `nfse` sem ele.
+--
+-- A tela do contador esconde emitir, cancelar e configurar. Isso é
+-- cortesia, não barreira: a barreira é esta política.
+
 -- extrato_lancamentos, catmap_categorias e centros_custo seguem liberados
 -- para leitura: é deles que sai o extrato que ele exporta e os nomes que a
 -- tela mostra.
@@ -117,3 +139,6 @@ commit;
 -- E o seu próprio acesso, que não pode ter mudado:
 --   select fk_papel();        -- deve devolver 'owner'
 --   select fk_pode_escrever(); -- deve devolver true
+--
+-- E o que o contador vê das notas — tem que trazer as notas e NÃO o cfg:
+--   select jsonb_object_keys(fk_nfse_publico());
