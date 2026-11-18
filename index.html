@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794969490"/>
+  <meta name="fk-build" content="forekash-v1794969853"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -23671,7 +23671,7 @@ td.mes.do-extrato{background:#ECFDF5}
           </svg>
           <div class="sb-foot-text">
             <strong>FOREKASH</strong>
-            <small>Hub Financeiro · v1.0</small>
+            <small id="sb-foot-ver" title="Versão publicada">Hub Financeiro</small>
           </div>
         </div>
       </div>
@@ -67978,9 +67978,18 @@ function _viagPrintModal(modo, dados){
   }
 
   if(modo === 'erro'){
+    /* O QUE VOLTOU FICA À MÃO. A primeira versão só dizia "não entendi o que
+       voltou da leitura" e engolia a resposta — e o defeito estava no meu
+       extrator de JSON, não na leitura: o modelo tinha lido a tabela inteira
+       certo. Sem a resposta crua na tela, não havia como saber disso. */
+    const cru = String((dados && dados.cru) || '').trim();
+    const msg = (dados && dados.msg) || dados || 'erro desconhecido';
     ov.innerHTML = '<div class="viag-ocr-card">'
       + cab('Não consegui ler', 'Nada foi lançado no relatório')
-      + '<div class="viag-ocr-bd"><div class="viag-print-erro">' + esc(dados || 'erro desconhecido') + '</div></div>'
+      + '<div class="viag-ocr-bd"><div class="viag-print-erro">' + esc(msg) + '</div>'
+      +   (cru ? '<details class="viag-ocr-raw"><summary>Ver o que a leitura devolveu</summary><pre>'
+              + esc(cru.slice(0, 4000)) + '</pre></details>' : '')
+      + '</div>'
       + '<div class="viag-ocr-foot">'
       +   '<button class="btn-cancel" onclick="_viagPrintFechar()">Fechar</button>'
       +   '<button class="btn-apply" onclick="_viagPrintModal(\'escolher\')">Tentar outra imagem</button>'
@@ -68051,10 +68060,12 @@ function _viagPrintEscolher(){
 async function _viagPrintLer(file){
   if(_VIAG_PRINT_COLA){ document.removeEventListener('paste', _VIAG_PRINT_COLA); _VIAG_PRINT_COLA = null; }
   _viagPrintModal('lendo');
+  let txt = '';
   try{
-    const txt = await mrkDocPerguntar(file, _VIAG_PRINT_INSTRUCAO, false);
-    const j = _mrkDocJson(txt);
-    if(!j || !Array.isArray(j.despesas)) throw new Error('não entendi o que voltou da leitura');
+    txt = await mrkDocPerguntar(file, _VIAG_PRINT_INSTRUCAO, false);
+    const j = _mrkDocJson(txt, ['despesas']);
+    if(!j || !Array.isArray(j.despesas))
+      throw new Error('a leitura voltou num formato que eu não reconheço');
     const v = _viagCurrent();
     _viagEnsureColabs(v);
     const cats = new Set(VIAG_CATEGORIAS.map(c => c.id));
@@ -68091,7 +68102,7 @@ async function _viagPrintLer(file){
     };
     _viagPrintModal('revisar');
   }catch(e){
-    _viagPrintModal('erro', (e && e.message) || 'falhou');
+    _viagPrintModal('erro', { msg: (e && e.message) || 'falhou', cru: txt });
   }
 }
 
@@ -129360,7 +129371,9 @@ function renderSettings(){
     try{ fluxoYears   = (fluxo && fluxo.years ? fluxo.years.length : 0); }catch(e){}
 
     const items = [
-      { lbl:'Versão',           val:'v' + APP_VERSION, sub:'Taller Gestão Financeira' },
+      { lbl:'Versão',           val:'v' + APP_VERSION,
+        sub: (typeof _fkVersaoRotulo === 'function' && _fkVersaoRotulo())
+               ? ('publicado em ' + _fkVersaoRotulo()) : 'versão local' },
       { lbl:'Empréstimos',      val: String(loansCount),   sub: loansCount === 1 ? 'lançamento' : 'lançamentos' },
       { lbl:'Clientes (receita)', val: String(recClients), sub: recClients === 1 ? 'cliente cadastrado' : 'clientes cadastrados' },
       { lbl:'Pessoas',          val: String(peopleCount),  sub: peopleCount === 1 ? 'colaborador' : 'colaboradores' },
@@ -132721,6 +132734,37 @@ async function pwaRegisterSW(){
 
    Aqui a comparação é com o que realmente está carregado: version.txt do
    servidor contra a meta fk-build desta página. */
+/* ══ A VERSÃO QUE APARECE É A QUE ESTÁ RODANDO ═════════════════════
+
+   O rodapé da barra lateral dizia `v1.0` desde o primeiro dia, escrito na
+   mão no HTML. Não era só feio: era a única versão visível na tela, e ela
+   não mudava nunca — então não servia pra responder a única pergunta que
+   uma versão na tela precisa responder, que é "esta aba está rodando o que
+   acabou de subir?".
+
+   Agora sai do `fk-build`, que é o carimbo que o deploy escreve na página.
+   Em data e hora porque o número cru (`forekash-v1794969853`) não diz nada
+   a ninguém; a string inteira fica no title, pra conferir contra o log. */
+function _fkVersaoRotulo(){
+  const v = String(window.FK_VERSION || '').trim();
+  const m = v.match(/v(\d{9,})$/);
+  if(!m) return '';
+  const d = new Date(Number(m[1]) * 1000);
+  if(!isFinite(d.getTime())) return '';
+  const p = n => String(n).padStart(2, '0');
+  return p(d.getDate()) + '/' + p(d.getMonth() + 1) + ' · ' + p(d.getHours()) + 'h' + p(d.getMinutes());
+}
+function fkVersaoPinta(){
+  const el = document.getElementById('sb-foot-ver');
+  if(!el) return;
+  const r = _fkVersaoRotulo();
+  el.textContent = 'Hub Financeiro' + (r ? ' · ' + r : '');
+  el.title = String(window.FK_VERSION || 'versão local, sem carimbo de publicação');
+}
+try{ window.fkVersaoPinta = fkVersaoPinta; window._fkVersaoRotulo = _fkVersaoRotulo;
+     document.addEventListener('DOMContentLoaded', fkVersaoPinta);
+     fkVersaoPinta(); }catch(_){}
+
 let _fkVerAvisada = false;
 /* Devolve o que decidiu ('igual', 'avisado', 'ja-avisado', 'sem-rede'...) em
    vez de sumir em silêncio: função de diagnóstico que não se deixa
@@ -156607,10 +156651,9 @@ async function mrkDocPerguntar(file, instrucao, comPanorama){
 /* Tira o JSON de dentro da resposta. O modelo escreve prosa e depois o bloco;
    pegar o último `{...}` equilibrado é mais robusto que exigir cerca ```json,
    que ele às vezes omite. */
-function _mrkDocJson(txt){
-  const s = String(txt || '');
-  const i = s.lastIndexOf('{');
-  if(i < 0) return null;
+/* Onde termina o objeto que começa em `i`. Conta chaves ignorando o que
+   está dentro de string — senão uma descrição com `{` fecha cedo. */
+function _mrkFimObjeto(s, i){
   let nivel = 0, dentroStr = false, escape = false;
   for(let j = i; j < s.length; j++){
     const c = s[j];
@@ -156619,11 +156662,59 @@ function _mrkDocJson(txt){
     if(c === '"'){ dentroStr = !dentroStr; continue; }
     if(dentroStr) continue;
     if(c === '{') nivel++;
-    else if(c === '}'){ nivel--; if(!nivel){
-      try{ return JSON.parse(s.slice(i, j + 1)); }catch(_){ return null; }
-    }}
+    else if(c === '}'){ nivel--; if(!nivel) return j; }
   }
-  return null;
+  return -1;
+}
+
+/* O MODELO ESCREVE PROSA E DEPOIS O BLOCO. Este aqui acha o bloco.
+
+   A primeira versão procurava o ÚLTIMO `{` do texto, e isso funciona enquanto
+   a resposta é um objeto PLANO. Com uma lista dentro — `{"despesas":[{…},
+   {…}]}` — o último `{` é o do último item do array: um objeto válido, que
+   parseia sem erro e volta sem a chave que quem chamou esperava. Era isso que
+   fazia a leitura de um print de oito linhas morrer em "não entendi o que
+   voltou da leitura" — o modelo tinha lido tudo certo.
+
+   Agora só objetos de nível EXTERNO entram na conta: achou um, pula o bloco
+   inteiro em vez de entrar nos aninhados. E quem chama pode dizer que chave
+   espera, o que resolve de vez o desempate quando há mais de um candidato. */
+function _mrkDocJson(txt, chaves){
+  const s = String(txt || '');
+  const tenta = t => {
+    try{ const j = JSON.parse(t); return (j && typeof j === 'object' && !Array.isArray(j)) ? j : null; }
+    catch(_){ return null; }
+  };
+  const serve = j => !chaves || !chaves.length
+    || chaves.some(k => Object.prototype.hasOwnProperty.call(j, k));
+
+  /* 1. A resposta inteira já é o JSON. */
+  const direto = tenta(s.trim());
+  if(direto && serve(direto)) return direto;
+
+  /* 2. Dentro de uma cerca ```json. */
+  const cerca = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if(cerca){
+    const j = tenta(String(cerca[1]).trim());
+    if(j && serve(j)) return j;
+  }
+
+  /* 3. Varrendo os objetos de nível externo. */
+  const achados = [];
+  for(let i = 0; i < s.length; i++){
+    if(s[i] !== '{') continue;
+    const fim = _mrkFimObjeto(s, i);
+    if(fim < 0) break;
+    const j = tenta(s.slice(i, fim + 1));
+    if(j) achados.push(j);
+    i = fim;                      // não entra no que está dentro deste
+  }
+  if(!achados.length) return direto || null;
+  const comChave = achados.filter(serve);
+  /* Entre os que servem, o ÚLTIMO — que é como era antes, e é o certo:
+     quando o modelo corrige a si mesmo, a versão boa é a de baixo. */
+  const lista = comChave.length ? comChave : achados;
+  return lista[lista.length - 1];
 }
 
 const MRK_DOC_CAMPOS =
