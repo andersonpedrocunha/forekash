@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795010496"/>
+  <meta name="fk-build" content="forekash-v1795011842"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -12681,6 +12681,16 @@
     .pes-kpi.est-kpi-var-combo{position:relative}
     .est-kpi-var-combo .est-kpi-var-row{display:flex;align-items:baseline;gap:8px;
                       margin-top:2px;flex-wrap:wrap}
+    /* Dois cartões ocupam a faixa inteira sem esticar: o grid de quatro
+       deixava cada um estreito demais pro número caber com folga. */
+    .est-kpi-duo{grid-template-columns:repeat(2,minmax(0,1fr))}
+    /* A variação ao lado da média, do tamanho de uma legenda. Vazia, some. */
+    .est-kpi-var-inline{display:inline-block;margin-left:7px;padding:0 6px;
+      border-radius:999px;font-size:.64rem;font-weight:800;letter-spacing:.02em;
+      cursor:help;background:#F1F5F9;color:#64748B}
+    .est-kpi-var-inline:empty{display:none}
+    .est-kpi-var-inline.trend-up{background:#FEF2F2;color:#B91C1C}
+    .est-kpi-var-inline.trend-down{background:#F0FDF4;color:#15803D}
     .est-kpi-var-combo .est-kpi-var-abs{font-size:1.05rem;font-weight:800;
                       letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.15}
     .est-kpi-var-combo .est-kpi-var-pct-pill{display:inline-flex;align-items:center;gap:3px;
@@ -25127,21 +25137,24 @@ td.mes.do-extrato{background:#ECFDF5}
         <!-- Tabs de anos -->
         <div class="pes-year-tabs" id="est-year-tabs"></div>
 
-        <!-- KPIs -->
-        <div class="pes-kpi-grid">
+        <!-- ══ DOIS CARTÕES, NÃO QUATRO ════════════════════════════════
+
+             Eram quatro: total do ano, média mensal, pago × projetado e variação
+             contra o ano anterior. Quatro números grandes antes da primeira linha
+             de custo — e a média é o total dividido pelos meses, a variação é
+             uma comparação que se lê de relance.
+
+             Ficam os dois que respondem o que o módulo existe pra responder:
+             quanto custa a estrutura, e quanto disso já saiu. -->
+        <div class="pes-kpi-grid est-kpi-duo">
           <div class="pes-kpi folha">
-            <div class="pes-kpi-lbl">Gasto Operacional (Ano)</div>
+            <div class="pes-kpi-lbl">Gasto fixo do ano</div>
             <div class="pes-kpi-val blu" id="est-kpi-total">R$ 0,00</div>
-            <div class="pes-kpi-sub">realizado + o que falta</div>
+            <div class="pes-kpi-sub"><span id="est-kpi-media">R$ 0,00</span> por mês
+              <span class="est-kpi-var-inline" id="est-kpi-var-pct"></span></div>
           </div>
-          <div class="pes-kpi media">
-            <div class="pes-kpi-lbl">Média Mensal</div>
-            <div class="pes-kpi-val teal" id="est-kpi-media">R$ 0,00</div>
-            <div class="pes-kpi-sub" id="est-kpi-media-sub">gasto médio/mês</div>
-          </div>
-          <!-- Card split: Total Pago × Total Projetado (baseado no ✓ de cada célula) -->
           <div class="pes-kpi est-kpi-split">
-            <div class="pes-kpi-lbl">Status de Pagamento</div>
+            <div class="pes-kpi-lbl">Quanto disso já saiu</div>
             <div class="est-kpi-split-row">
               <div class="est-kpi-split-cell pago">
                 <span class="est-kpi-split-lbl">Pago</span>
@@ -25149,19 +25162,10 @@ td.mes.do-extrato{background:#ECFDF5}
               </div>
               <div class="est-kpi-split-div" aria-hidden="true"></div>
               <div class="est-kpi-split-cell proj">
-                <span class="est-kpi-split-lbl">Projetado</span>
+                <span class="est-kpi-split-lbl">A pagar</span>
                 <span class="est-kpi-split-val" id="est-kpi-projetado">R$ 0,00</span>
               </div>
             </div>
-          </div>
-          <!-- Card combinado: Variação R$ + % em um só -->
-          <div class="pes-kpi est-kpi-var-combo" id="est-kpi-var-card">
-            <div class="pes-kpi-lbl">Variação vs ano anterior</div>
-            <div class="est-kpi-var-row">
-              <span class="est-kpi-var-abs" id="est-kpi-var-abs">—</span>
-              <span class="est-kpi-var-pct-pill" id="est-kpi-var-pct">—</span>
-            </div>
-            <div class="pes-kpi-sub" id="est-kpi-var-sub">sem dados anteriores</div>
           </div>
         </div>
 
@@ -105094,8 +105098,9 @@ function updateEstKpis(){
 
   const elT = document.getElementById('est-kpi-total');   if(elT) elT.textContent = fmtBRL(total);
   const elM = document.getElementById('est-kpi-media');   if(elM) elM.textContent = fmtBRL(avg);
-  const subM = document.getElementById('est-kpi-media-sub');
-  if(subM) subM.textContent = 'média de ' + comValor + ' mês(es) com gasto';
+  /* A média virou subtexto do total, e o "de quantos meses" virou title:
+     dentro do cartão ela é contexto, não manchete. */
+  if(elM) elM.title = 'média de ' + comValor + ' mês(es) com gasto';
 
   const elPago = document.getElementById('est-kpi-pago');
   const elProj = document.getElementById('est-kpi-projetado');
@@ -105112,44 +105117,36 @@ function updateEstKpis(){
       + 'sai da vista, continua na conta. Pra mudar, marque o lançamento como recorrente.';
   }
 
-  // Variação vs ano anterior
+  /* ══ A VARIAÇÃO VIROU UMA PASTILHA ═════════════════════════════
+
+     Ela ocupava um cartão inteiro com três números — reais, porcentagem e a
+     base de comparação — pra dizer algo que se lê de relance. Agora é um
+     "+8,2%" ao lado da média, com o resto no title.
+
+     Sem ano anterior ela não aparece, em vez de mostrar um traço: delta
+     contra zero nunca foi delta, e já tinha anunciado como alta o próprio
+     total do ano contra o nada. */
   const prevYear = String(+year - 1);
   let prevTotal = 0;
   try{
     if(estrutura.years.includes(prevYear)) prevTotal = estDadosCategorias(prevYear).total;
   }catch(_){ prevTotal = 0; }
-  const absEl   = document.getElementById('est-kpi-var-abs');
-  const pctEl   = document.getElementById('est-kpi-var-pct');
-  const subEl   = document.getElementById('est-kpi-var-sub');
-  const card    = document.getElementById('est-kpi-var-card');
-  const classesSinal = ['trend-up','trend-down','trend-neutral'];
-  const setSinal = (el, cls) => {
-    if(!el) return;
-    for(const c of classesSinal) el.classList.remove(c);
-    if(cls) el.classList.add(cls);
-  };
-  /* Sem ano anterior não existe variação. O card mostrava "+R$ 321.103,56" e
-     logo abaixo "sem gasto em 2025" — ou seja, anunciava como alta o próprio
-     total do ano, contra o nada. Delta contra zero não é delta. */
+  const pctEl = document.getElementById('est-kpi-var-pct');
+  if(!pctEl) return;
+  for(const c of ['trend-up','trend-down','trend-neutral']) pctEl.classList.remove(c);
   if(prevTotal <= 0){
-    if(absEl) absEl.textContent = '—';
-    if(pctEl) pctEl.textContent = '—';
-    if(subEl) subEl.textContent = 'sem base de comparação em ' + prevYear;
-    setSinal(card, 'trend-neutral');
+    pctEl.textContent = '';
+    pctEl.title = 'sem base de comparação em ' + prevYear;
     return;
   }
   const delta = total - prevTotal;
-  const sinal = delta > 0 ? 'trend-up' : (delta < 0 ? 'trend-down' : 'trend-neutral');
-  const prefix = delta > 0 ? '+' : (delta < 0 ? '−' : '');
-  if(absEl) absEl.textContent = prefix + fmtBRL(Math.abs(delta));
   const pct = (delta / prevTotal) * 100;
-  const pctTxt = (pct > 0 ? '+' : (pct < 0 ? '−' : '')) +
-                 Math.abs(pct).toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1}) + '%';
-  if(pctEl) pctEl.textContent = pctTxt;
-  if(subEl) subEl.textContent = 'vs ' + prevYear + ' (' + fmtBRL(prevTotal) + ')';
-  setSinal(card, sinal);
+  pctEl.textContent = (pct > 0 ? '+' : (pct < 0 ? '−' : ''))
+    + Math.abs(pct).toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1}) + '%';
+  pctEl.title = 'vs ' + prevYear + ' · ' + fmtBRL(prevTotal) + ' · '
+    + (delta > 0 ? '+' : (delta < 0 ? '−' : '')) + fmtBRL(Math.abs(delta));
+  pctEl.classList.add(delta > 0 ? 'trend-up' : (delta < 0 ? 'trend-down' : 'trend-neutral'));
 }
-
 // Reorder Estrutura de Custos: só permite reordenar dentro do mesmo tipo + mesma tag.
 function reorderEstrutura(srcId, dstId, placeAbove){
   const src = estrutura.itens.find(it => String(it.id) === String(srcId));
