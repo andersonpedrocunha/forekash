@@ -686,6 +686,7 @@ function paginaSimples(titulo, texto){
    não inventamos etag e tudo volta ao comportamento anterior.
    ═══════════════════════════════════════════════════════════════════════ */
 const CC_APP = 'public, max-age=0, must-revalidate';
+const LM_TESTE = 'Wed, 18 Nov 2026 00:00:00 GMT';
 
 async function versaoDoBuild(env, url){
   try{
@@ -725,7 +726,8 @@ async function servirApp(request, env, url){
   const h = new Headers(resp.headers);
   h.set('x-fk-app', resp.status + '/' + (ver || 'sem-versao'));
   if(etag && resp.ok){
-    h.set('etag', etag);
+    h.set('etag', etag.replace(/^W\//, ''));   // teste: etag forte
+    h.set('last-modified', LM_TESTE);           // teste: validador alternativo
     h.set('cache-control', CC_APP);
   }
   return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: h });
