@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794970513"/>
+  <meta name="fk-build" content="forekash-v1794970700"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -6699,6 +6699,18 @@
     .ext-item-proj .ext-proj-sel:hover{border-color:#C4B5FD;color:#5B21B6}
     .ext-item-proj .ext-proj-sel.is-set{border-style:solid;border-color:#DDD6FE;background-color:#F5F3FF;color:#5B21B6}
     .ext-item-proj .ext-proj-sel:focus{outline:none;border-color:#7C3AED;box-shadow:0 0 0 2px rgba(124,58,237,.12)}
+    /* Tag do item: ocupa a linha inteira abaixo de Categoria e Fornecedor,
+       com a mesma discrição do marcador de projeto — borda tracejada enquanto
+       vazia, porque campo vazio com cara de campo cheio pede preenchimento
+       que ninguém deve. */
+    .ext-item-tags{grid-column:1 / 3;display:flex}
+    .ext-item-tags .fk-tags{flex:1;min-height:30px;padding:3px 6px;border-style:dashed;
+      border-color:#CBD5E1;background:transparent}
+    .ext-item-tags .fk-tags:focus-within{border-style:solid;border-color:#7C3AED;background:#fff}
+    .ext-item-tags .fk-tags:hover{border-color:#C4B5FD}
+    .ext-item-tags .fk-tags-in{font-size:.74rem;min-width:64px}
+    .ext-item-tags .fk-tags-in::placeholder{color:#94A3B8;font-weight:600}
+    .ext-item-tags .fk-tag{font-size:.68rem;padding:1px 3px 1px 7px}
     .ext-item-x{grid-column:3;grid-row:1 / span 2;width:30px;height:30px;align-self:center;
                 background:#FEE2E2;color:#B91C1C;border:1px solid #FECACA;border-radius:6px;
                 cursor:pointer;font-size:1rem;font-weight:700;line-height:1;display:flex;align-items:center;justify-content:center;font-family:inherit}
@@ -36237,6 +36249,32 @@ function _extLinhasDoCliente(nomeCli, ano){
   }catch(_){}
   return out;
 }
+/* ══ A TAG É DO ITEM, NÃO DO LANÇAMENTO ══════════════════════════
+
+   Um pagamento pode carregar coisas de donos diferentes — a fatura do cartão
+   com o hotel de um evento e o almoço de outro cliente na mesma linha. Tag no
+   lançamento inteiro obrigaria a escolher uma das duas, e a conta de qualquer
+   uma sairia errada.
+
+   Cada item vira um lançamento na gravação, então a tag do item chega sozinha
+   ao Extrato. É o mesmo lugar onde o Granatum põe a dele.
+
+   Sem rótulo em cima, igual ao marcador de projeto logo acima: é anotação,
+   não campo obrigatório, e não pode competir com Categoria e Fornecedor. */
+function _extItemTagsHtml(i, it){
+  return '<div class="ext-item-tags">'
+       + fkTagsCampoHtml('ext-it-tags-' + i, it.tags, '+ tag', '_extItemTagsMudou')
+       + '</div>';
+}
+/* O campo devolve (tags, id) — o índice do item sai do próprio id. */
+function _extItemTagsMudou(tags, id){
+  const m = String(id || '').match(/ext-it-tags-(\d+)$/);
+  if(!m) return;
+  _extItemUpdate(+m[1], 'tags', fkTagsLimpar(tags));
+  fkTagsRegistrar(tags);
+}
+try{ window._extItemTagsHtml = _extItemTagsHtml; window._extItemTagsMudou = _extItemTagsMudou; }catch(_){}
+
 function _extItemProjetoHtml(i, it, tipo){
   if(tipo !== 'ganho') return '';
   const linhas = _extLinhasDoCliente(it.contraparte || '');
@@ -83344,7 +83382,7 @@ let _recItems = [];   // itens adicionais do RecKb modal (extras)
 function _extItemRender(){
   const wrap = document.getElementById('ext-items-list');
   if(!wrap) return;
-  if(!_extItems.length) _extItems.push({ descricao:'', valor:0, categoria:'', contraparte:'' });
+  if(!_extItems.length) _extItems.push({ descricao:'', valor:0, categoria:'', contraparte:'', tags:[] });
   const tipo = _extItemsTipo;
   const lblFornCli = tipo === 'ganho' ? 'Cliente' : 'Fornecedor';
   const isMulti = _extItems.length > 1;
@@ -83378,6 +83416,7 @@ function _extItemRender(){
       + '</div>'
       + _extItemProjetoHtml(i, it, tipo)
       + _extItemEmprestimoHtml(i, it, tipo)
+      + _extItemTagsHtml(i, it)
       + (isMulti ? '<button type="button" class="ext-item-x" onclick="_extItemRemove(' + i + ')" title="Remover este item">×</button>' : '')
     + '</div>';
   }
@@ -83386,7 +83425,7 @@ function _extItemRender(){
 }
 
 function _extItemAdd(){
-  _extItems.push({ descricao:'', valor:0, categoria:'', contraparte:'' });
+  _extItems.push({ descricao:'', valor:0, categoria:'', contraparte:'', tags:[] });
   _extItemRender();
   // Foca no novo item
   setTimeout(() => {
@@ -86132,8 +86171,6 @@ function extOpenModal(tipo, editId){
       +             '<div class="field"><label>Referência interna <span class="hint">— opcional</span></label>'
       +               '<input type="text" id="ext-fld-ref" value="' + _extEsc(l.refInterna || '') + '" placeholder="Ex: PED-2026/0042" maxlength="60" oninput="_extDocResumo()">'
       +             '</div>'
-      +             '<div class="field full"><label>Tags <span style="font-weight:500;color:#94A3B8">(para achar depois: evento, projeto, cliente)</span></label>'
-      +               fkTagsCampoHtml('ext-fld-tags', l.tags, '+ tag') + '</div>'
       +             '<div class="field full"><label>Notas</label>' + _ntBarraHtml('ext-fld-notas')
       +               '<div class="nt-pv" id="ext-fld-notas-pv" hidden onclick="ntEditar(\'ext-fld-notas\')" title="Clique para editar"></div>'
       +               '<textarea id="ext-fld-notas" placeholder="Observações sobre este lançamento..." oninput="_extDocResumo()" onblur="_ntPreviewMostrar(\'ext-fld-notas\')">' + _extEsc(l.notas || '') + '</textarea></div>'
@@ -86295,20 +86332,24 @@ function extOpenModal(tipo, editId){
           const tg = _extEstruturaTagOf(c);
           if(tg && tg.nome) cat = tg.nome;
         }
-        return { descricao: c.descricao || '', valor: parseFloat(c.valor) || 0, categoria: cat, contraparte: c.contraparte || '' };
+        return { descricao: c.descricao || '', valor: parseFloat(c.valor) || 0, categoria: cat,
+                 contraparte: c.contraparte || '', tags: fkTagsLimpar(c.tags) };
       });
     } else if(editId && l && Array.isArray(l.itens) && l.itens.length > 0){
       // Edição de manual com múltiplos itens
-      _extItems = l.itens.map(x => ({ descricao:x.descricao||'', valor:parseFloat(x.valor)||0, categoria:x.categoria||'', contraparte:x.contraparte||'' }));
+      _extItems = l.itens.map(x => ({ descricao:x.descricao||'', valor:parseFloat(x.valor)||0,
+                                      categoria:x.categoria||'', contraparte:x.contraparte||'',
+                                      tags: fkTagsLimpar(x.tags) }));
     } else if(editId && l && !(typeof editId === 'string' && editId.startsWith('grp:'))){
       // Edição de manual single (legacy) — promove campos para um item único
       /* Reabrir tem que mostrar o vínculo já escolhido — senão ele some ao
          salvar de novo e o marcador vira trabalho perdido. */
       _extItems = [{ descricao: l.descricao||'', valor: parseFloat(l.valor)||0, categoria: l.categoria||'', contraparte: l.contraparte||'',
                      emprestimoId: l.emprestimoId != null ? l.emprestimoId : null,
-                     receitaRowId: l.receitaRowId != null ? l.receitaRowId : null }];
+                     receitaRowId: l.receitaRowId != null ? l.receitaRowId : null,
+                     tags: fkTagsLimpar(l.tags) }];
     } else {
-      _extItems = [{ descricao:'', valor:0, categoria:'', contraparte:'' }];
+      _extItems = [{ descricao:'', valor:0, categoria:'', contraparte:'', tags:[] }];
     }
     _extItemRender();
     // Inicializa retenções (a partir do lançamento existente, se editando)
@@ -87538,12 +87579,15 @@ function extSaveModal(tipo, comSerieForcado){
   const _avisoSel = (document.getElementById('ext-fld-aviso')?.value || '').trim();
   const documento = (document.getElementById('ext-fld-doc')?.value || '').trim();
   const refInterna = (document.getElementById('ext-fld-ref')?.value || '').trim();
-  /* O campo pode não existir (transferência, grupo): aí `tags` fica vazio e
-     nada se perde — mas, em EDIÇÃO, vazio por ausência do campo apagaria o
-     que o lançamento já tinha. Por isso o fallback é o que estava lá. */
-  const _temCampoTags = !!document.getElementById('ext-fld-tags');
-  const tags = _temCampoTags ? fkTagsDe('ext-fld-tags') : fkTagsLimpar(l && l.tags);
-  if(_temCampoTags && tags.length) fkTagsRegistrar(tags);
+  /* A TAG VEM DO ITEM. O primeiro item é quem define a do lançamento quando
+     ele é único; com vários, cada um leva a sua na própria linha, lá embaixo.
+     Transferência não tem item — aí vale o que o lançamento já tinha, que é
+     o que impede uma edição de transferência de apagar a tag calada. */
+  const _it0 = (typeof _extItems !== 'undefined' && _extItems && _extItems[0]) || null;
+  const tags = (tipo !== 'transferencia' && _it0)
+    ? fkTagsLimpar(_it0.tags)
+    : fkTagsLimpar(l && l.tags);
+  if(tags.length) fkTagsRegistrar(tags);
   // Edição de grupo (multi-itens): apaga registros antigos do grupo na origem
   /* Salvar um grupo APAGA os filhos e recria com ids novos. Tudo o que o modal
      não conhece morre nessa troca — e o modal não conhece `origem` nem
@@ -87712,7 +87756,7 @@ function extSaveModal(tipo, comSerieForcado){
             refInterna,
             tipo,
             centroCustoId,
-            tags,
+            tags: fkTagsLimpar(it.tags),
             grupoId: grupoId,
             dataVencimento: di,
             dataEmissao: (di === data ? dataComp : di),
