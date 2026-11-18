@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795036854"/>
+  <meta name="fk-build" content="forekash-v1795037319"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -4070,6 +4070,21 @@
     .viag-cat-card-split{display:flex;gap:8px;font-size:.7rem;font-family:Consolas,Menlo,monospace;font-weight:700;letter-spacing:.04em;
       padding-top:4px;border-top:1px dashed #F1F5F9}
     .viag-cat-card-split:empty{display:none}
+
+    /* Quebra por subcategoria dentro do card. Sem ícone e sem seta: recuo e
+       fio fino, que é o que ele aceitou no resto do app — a conta é o
+       conteúdo, o rótulo não pode competir com ela. */
+    .viag-cat-subs{display:flex;flex-direction:column;gap:2px;padding-left:9px;
+      border-left:2px solid #E2E8F0;margin:2px 0}
+    .viag-cat-sub{display:flex;justify-content:space-between;gap:8px;font-size:.72rem;
+      color:#475569;font-family:Consolas,Menlo,monospace;letter-spacing:.02em}
+    .viag-cat-sub i{font-style:normal;color:#64748B;overflow:hidden;
+      text-overflow:ellipsis;white-space:nowrap}
+    .viag-drill-sub{font-style:normal;color:#94A3B8;font-size:.68rem}
+    /* O seletor de agrupamento é secundário em relação às abas da tela:
+       mesma forma, um tamanho abaixo. */
+    .viag-agrup-toggle{margin-bottom:12px}
+    .viag-agrup-toggle button{padding:5px 13px;font-size:.74rem}
 
     /* Drill-down (despesas individuais) */
     .viag-cat-card-drill{margin-top:8px;padding-top:10px;border-top:1px solid #E2E8F0;display:flex;flex-direction:column;gap:4px;max-height:340px;overflow:auto}
@@ -65788,8 +65803,14 @@ function _viagCat(id){
   const achou = VIAG_CATEGORIAS.find(c => c.id === id);
   if(achou) return achou;
   const txt = String(id || '').trim();
-  if(txt) return { id: txt, icon: '📁', nome: txt };
-  return VIAG_CATEGORIAS[VIAG_CATEGORIAS.length - 1];
+  if(!txt) return VIAG_CATEGORIAS[VIAG_CATEGORIAS.length - 1];
+  /* Casa também pelo NOME. "Transporte" vem do cadastro universal como
+     texto, não como o id 'transporte' — sem isto toda categoria nova
+     aparecia com a pasta genérica, inclusive as que têm ícone próprio. */
+  const n = _viagCatNorm(txt);
+  const porNome = VIAG_CATEGORIAS.find(c => _viagCatNorm(c.nome) === n);
+  if(porNome) return { id: txt, icon: porNome.icon, nome: txt };
+  return { id: txt, icon: '📁', nome: txt };
 }
 
 /* O seletor da linha de despesa. `optgroup` em vez de uma lista corrida:
@@ -66649,49 +66670,110 @@ function _viagRenderDashboard(lista){
     + '</div>';
 }
 
+/* ══ AGRUPAR PELO QUE O DADO TEM ═══════════════════════════════════════
+
+   A versão antiga montava a lista a partir de VIAG_CATEGORIAS e procurava
+   `byCat[cat.id]` — as nove categorias internas ('transporte', 'voo', …).
+   Só que a despesa passou a guardar a categoria do cadastro universal, por
+   NOME ("Transporte", "Gastos com viagem"). Nenhuma chave batia: a tela
+   dizia "0 / 9 categorias usadas" e escondia as onze despesas atrás de uma
+   faixa de nove categorias "sem despesas".
+
+   Agora os grupos nascem do próprio dado, e o mesmo quadro responde três
+   perguntas pelo seletor de cima: por categoria, por subcategoria e por
+   marcador. Mesmos cards, mesmo detalhamento — muda só a chave. */
+let _viagAgrup = 'categoria';
+function viagSetAgrup(a){
+  _viagAgrup = (a === 'subcategoria' || a === 'tag') ? a : 'categoria';
+  try{ renderViagens(); }catch(_){}
+}
+try{ window.viagSetAgrup = viagSetAgrup; }catch(_){}
+
+/* Em que balde(s) esta despesa entra. Lista, e não valor único, porque um
+   relatório pode ter mais de um marcador — e aí ele conta nos dois, que é
+   como todo relatório por tag funciona. */
+function _viagBaldesDe(d, v, modo){
+  if(modo === 'tag'){
+    const tags = (typeof fkTagsLimpar === 'function')
+      ? fkTagsLimpar(v && v.tags) : ((v && v.tags) || []);
+    if(!tags.length) return [{ chave: '\u0000sem', rotulo: 'Sem marcador', icon: '🏷' }];
+    return tags.map(t => ({ chave: 'tag:' + t, rotulo: t, icon: '🏷' }));
+  }
+  if(modo === 'subcategoria'){
+    /* Sem subcategoria, vale a categoria. Não é remendo: o mesmo gasto é
+       categoria num relatório ("Transporte") e subcategoria no outro
+       ("Gastos com viagem › Transporte"). Olhando só o campo `subcategoria`,
+       metade do transporte sumia da conta. */
+    const nome = String((d && d.subcategoria) || '').trim() || String((d && d.categoria) || '').trim();
+    const c = _viagCat(nome);
+    return [{ chave: 'sub:' + (nome || '—'), rotulo: c.nome, icon: c.icon }];
+  }
+  const c = _viagCat((d && d.categoria) || '');
+  return [{ chave: 'cat:' + c.id, rotulo: c.nome, icon: c.icon }];
+}
+
 function _viagRenderCategoria(lista){
   if(lista.length === 0){
     return '<div class="viag-empty"><span class="viag-empty-icon fkico fkico-folder"></span><div class="viag-empty-title">Nenhum dado pra agregar</div><div class="viag-empty-sub">Crie viagens com despesas pra ver o agrupamento por categoria</div></div>';
   }
-  // Agrega despesas por categoria + por forma de pagamento
-  const byCat = {};
+  const modo = _viagAgrup;
+  const baldes = {};
+  let totalGeral = 0, totalCount = 0;
   for(const v of lista){
     for(const d of (v.despesas || [])){
-      const cId = d.categoria || 'outros';
-      if(!byCat[cId]) byCat[cId] = { total: 0, count: 0, totalEmp: 0, totalFunc: 0, items: [] };
       const val = parseFloat(d.valor) || 0;
-      byCat[cId].total += val;
-      byCat[cId].count++;
-      if((d.pagamento || 'funcionario') === 'empresa') byCat[cId].totalEmp += val;
-      else byCat[cId].totalFunc += val;
-      byCat[cId].items.push({ d, v });
+      totalGeral += val; totalCount++;
+      for(const b of _viagBaldesDe(d, v, modo)){
+        if(!baldes[b.chave]) baldes[b.chave] = { rotulo: b.rotulo, icon: b.icon,
+          total: 0, count: 0, totalEmp: 0, totalFunc: 0, items: [], subs: {} };
+        const g = baldes[b.chave];
+        g.total += val; g.count++;
+        if((d.pagamento || 'funcionario') === 'empresa') g.totalEmp += val;
+        else g.totalFunc += val;
+        g.items.push({ d, v });
+        /* Dentro do card de categoria, a quebra por subcategoria — é a
+           pergunta seguinte de quem está olhando, e cabe no detalhamento
+           que já existe em vez de pedir outra tela. */
+        if(modo === 'categoria'){
+          const sub = String(d.subcategoria || '').trim();
+          if(sub){ g.subs[sub] = (g.subs[sub] || 0) + val; }
+        }
+      }
     }
   }
-  const totalGeral = Object.values(byCat).reduce((s,c) => s + c.total, 0);
-  const totalCount = Object.values(byCat).reduce((s,c) => s + c.count, 0);
-  // Ordena: categorias com dados (por total desc) primeiro, depois vazias
-  const ordered = VIAG_CATEGORIAS
-    .map(cat => Object.assign({}, cat, byCat[cat.id] || { total: 0, count: 0, totalEmp: 0, totalFunc: 0, items: [] }))
-    .sort((a,b) => b.total - a.total);
+  const ordered = Object.keys(baldes).map(k => Object.assign({ chave: k }, baldes[k]))
+                        .sort((a,b) => b.total - a.total);
 
-  // Header com totais
-  let html = '<div class="viag-cat-summary">'
+  const rotuloGrupo = (modo === 'tag') ? 'Marcadores'
+                    : (modo === 'subcategoria') ? 'Subcategorias' : 'Categorias';
+
+  let html = '<div class="viag-agrup-toggle viag-view-toggle">'
+    + [['categoria','Por categoria'],['subcategoria','Por subcategoria'],['tag','Por marcador']]
+        .map(([id, nome]) => '<button type="button" class="' + (modo === id ? 'is-active' : '')
+            + '" onclick="viagSetAgrup(\'' + id + '\')">' + nome + '</button>').join('')
+    + '</div>';
+
+  html += '<div class="viag-cat-summary">'
     + '<div class="viag-cat-summary-cell"><span class="lbl">Total agregado</span><span class="val">' + _viagFmt(totalGeral) + '</span></div>'
     + '<div class="viag-cat-summary-cell"><span class="lbl">Despesas</span><span class="val">' + totalCount + '</span></div>'
-    + '<div class="viag-cat-summary-cell"><span class="lbl">Categorias usadas</span><span class="val">' + ordered.filter(c => c.count > 0).length + ' / ' + VIAG_CATEGORIAS.length + '</span></div>'
+    + '<div class="viag-cat-summary-cell"><span class="lbl">' + rotuloGrupo + '</span><span class="val">' + ordered.length + '</span></div>'
     + '<div class="viag-cat-summary-cell"><span class="lbl">Viagens</span><span class="val">' + lista.length + '</span></div>'
     + '</div>';
 
-  // Grid de cards
+  if(ordered.length === 0){
+    return html + '<div class="viag-empty"><div class="viag-empty-title">Nenhuma despesa no período</div>'
+         + '<div class="viag-empty-sub">Troque o filtro de período acima ou lance despesas nos relatórios</div></div>';
+  }
+
   html += '<div class="viag-cat-grid">';
   for(const c of ordered){
-    if(c.count === 0) continue;
     const pct = totalGeral > 0 ? (c.total / totalGeral * 100) : 0;
     const avg = c.count > 0 ? c.total / c.count : 0;
-    html += '<div class="viag-cat-card" onclick="viagToggleCatDrill(\'' + c.id + '\', this)">'
+    const subs = Object.keys(c.subs || {}).sort((a,b) => c.subs[b] - c.subs[a]);
+    html += '<div class="viag-cat-card" onclick="viagToggleCatDrill(this)">'
       + '<div class="viag-cat-card-hd">'
       +   '<span class="viag-cat-card-icon">' + c.icon + '</span>'
-      +   '<span class="viag-cat-card-name">' + c.nome + '</span>'
+      +   '<span class="viag-cat-card-name">' + esc(c.rotulo) + '</span>'
       +   '<span class="viag-cat-card-pct">' + pct.toFixed(1) + '%</span>'
       + '</div>'
       + '<div class="viag-cat-card-val">' + _viagFmt(c.total) + '</div>'
@@ -66700,38 +66782,35 @@ function _viagRenderCategoria(lista){
       +   '<span>' + c.count + ' despesa' + (c.count === 1 ? '' : 's') + '</span>'
       +   '<span>· média ' + _viagFmt(avg) + '</span>'
       + '</div>'
+      + (subs.length ? '<div class="viag-cat-subs">'
+          + subs.map(sn => '<span class="viag-cat-sub"><i>' + esc(sn) + '</i>' + _viagFmt(c.subs[sn]) + '</span>').join('')
+          + '</div>' : '')
       + '<div class="viag-cat-card-split">'
       +   (c.totalFunc > 0 ? '<span style="color:#7C3AED">💵 ' + _viagFmt(c.totalFunc) + '</span>' : '')
       +   (c.totalEmp > 0 ? '<span style="color:#0F766E">💳 ' + _viagFmt(c.totalEmp) + '</span>' : '')
       + '</div>'
-      + '<div class="viag-cat-card-drill" data-cat="' + c.id + '" style="display:none">'
+      + '<div class="viag-cat-card-drill" style="display:none">'
       +   c.items.slice(0, 50).map(({d, v}) => {
-            const tFmt = _viagFmt(parseFloat(d.valor)||0);
             const dt = d.data ? _viagFmtData(d.data) : '—';
+            const sub = String(d.subcategoria || '').trim();
             return '<div class="viag-cat-drill-item" onclick="event.stopPropagation();viagOpenEditor(' + v.id + ')">'
               + '<span class="dt">' + dt + '</span>'
               + '<span class="tit">' + esc(v.titulo || '(sem título)') + '</span>'
-              + '<span class="desc">' + esc(d.descricao || '—') + '</span>'
-              + '<span class="val">' + tFmt + '</span>'
+              + '<span class="desc">' + esc(d.descricao || '—')
+              + (sub && modo !== 'subcategoria' ? ' <i class="viag-drill-sub">' + esc(sub) + '</i>' : '')
+              + '</span>'
+              + '<span class="val">' + _viagFmt(parseFloat(d.valor)||0) + '</span>'
               + '</div>';
           }).join('')
       +   (c.items.length > 50 ? '<div style="text-align:center;padding:8px;color:#94A3B8;font-style:italic;font-size:.78rem">+ ' + (c.items.length - 50) + ' itens não exibidos</div>' : '')
       + '</div>'
       + '</div>';
   }
-  // Categorias sem dados (collapsable)
-  const empty = ordered.filter(c => c.count === 0);
-  if(empty.length > 0){
-    html += '<div class="viag-cat-empty-section">'
-      + '<div class="viag-cat-empty-hd">Categorias sem despesas no período (' + empty.length + ')</div>'
-      + '<div class="viag-cat-empty-list">'
-      +   empty.map(c => '<span class="viag-cat-empty-tag">' + c.icon + ' ' + c.nome + '</span>').join('')
-      + '</div></div>';
-  }
   html += '</div>';
   return html;
 }
-function viagToggleCatDrill(catId, cardEl){
+function viagToggleCatDrill(cardEl){
+  if(!cardEl) return;
   const drill = cardEl.querySelector('.viag-cat-card-drill');
   if(!drill) return;
   const isOpen = drill.style.display !== 'none';
