@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794973724"/>
+  <meta name="fk-build" content="forekash-v1794973848"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8823,6 +8823,26 @@
       background:#94A3B8;border-color:#94A3B8}
     .viag-reemb-espera{display:block;margin-top:6px;font-size:.72rem;color:#64748B;
       line-height:1.4;text-align:center}
+
+    /* ── HISTÓRICO DO RELATÓRIO ─────────────────────────────────── */
+    .viag-log{margin-top:10px}
+    .viag-log summary{list-style:none;cursor:pointer;font-size:.64rem;font-weight:800;
+      color:#94A3B8;text-transform:uppercase;letter-spacing:.07em;padding:7px 2px;
+      display:flex;align-items:center;gap:7px;user-select:none}
+    .viag-log summary::-webkit-details-marker{display:none}
+    .viag-log summary::before{content:'\25B8';font-size:.7rem;transition:transform .15s}
+    .viag-log[open] summary::before{transform:rotate(90deg)}
+    .viag-log summary:hover{color:#64748B}
+    .viag-log summary .n{background:#F1F5F9;color:#94A3B8;border-radius:999px;
+      padding:0 6px;font-size:.6rem;letter-spacing:0}
+    .viag-log-lista{display:flex;flex-direction:column;gap:0;padding:4px 2px 2px;
+      max-height:230px;overflow:auto}
+    .viag-log-item{display:flex;gap:10px;padding:5px 4px;border-bottom:1px solid #F4F6F9;
+      font-size:.74rem;line-height:1.4}
+    .viag-log-item:last-child{border-bottom:none}
+    .viag-log-item .q{flex:none;color:#CBD5E1;font-family:Consolas,Menlo,monospace;
+      font-size:.68rem;white-space:nowrap}
+    .viag-log-item .d{color:#475569}
 
     /* Como o card vai fechar: a menor coisa do card, no pé, à esquerda.
        É estado de configuração, não conteúdo — quem precisa dele vai
@@ -65641,6 +65661,11 @@ function renderViagens(){
   viagLoad();
   _viagLoadSettings();
   _viagEnsureTimestamps();
+  try{
+    let _mex = false;
+    for(const _v of ((viagens && viagens.itens) || [])) if(_viagAdotarLancamentos(_v)) _mex = true;
+    if(_mex) viagSave();
+  }catch(_){}
   try{ _viagAutoFinalizar(); }catch(_){}
   setTimeout(() => { const cb = document.getElementById('viag-sig-toggle'); if(cb) cb.checked = !!_viagSettings.requireSignature; }, 0);
   // KPIs — esconde em Categoria e Overview (essas views já têm KPIs próprios)
@@ -65897,7 +65922,10 @@ function _viagChangeStatus(v, newStatus, context){
     _viagOpenRejectModal(v);
     return;
   }
+  const _stAntes = (_viagStatus(v.status) || {}).nome || v.status || '—';
   v.status = newStatus;
+  _viagEvento(v, _stAntes + ' → ' + ((_viagStatus(newStatus) || {}).nome || newStatus)
+    + (context === 'auto' ? ' · o Extrato quitou o reembolso' : ''));
   // Aging: marca fechamento se foi pra estado terminal, limpa se reabriu
   if(_viagIsClosed(v)){
     if(!v.fechadoEm) v.fechadoEm = new Date().toISOString();
@@ -66878,6 +66906,28 @@ try{ window._viagLancDoColab = _viagLancDoColab;
      window._viagAutoFinalizar = _viagAutoFinalizar; }catch(e){}
 
 function _viagJaLancado(v){ return _viagLancStatus(v).lancados > 0; }
+
+/* O lançamento nasce no Extrato, e o relatório só descobre depois — na
+   próxima vez que alguém olha. É aqui que ele adota o vínculo e registra,
+   uma vez, que a conta a pagar existe. */
+function _viagAdotarLancamentos(v){
+  let mexeu = false;
+  try{
+    _viagEnsureColabs(v);
+    for(const c of (v.colaboradores || [])){
+      if(c.reembolso && c.reembolso.extratoId) continue;
+      const l = _viagLancDoColab(v, c.cid);
+      if(!l) continue;
+      c.reembolso = { extratoId: l.id, valor: Math.abs(parseFloat(l.valor) || 0),
+                      criadoEm: l.criadoEm || new Date().toISOString() };
+      _viagEvento(v, 'Conta a pagar #' + l.id + ' criada no Extrato · '
+        + (c.nome || '(sem nome)') + ' · ' + _viagFmt(Math.abs(parseFloat(l.valor) || 0)));
+      mexeu = true;
+    }
+  }catch(e){ console.warn('[FK] adotar lançamento:', e && e.message); }
+  return mexeu;
+}
+try{ window._viagAdotarLancamentos = _viagAdotarLancamentos; }catch(e){}
 try{ window._viagLancStatus = _viagLancStatus; }catch(e){}
 try{ window._viagLancamentoExistente = _viagLancamentoExistente;
      window._viagJaLancado = _viagJaLancado; }catch(e){}
@@ -67260,6 +67310,7 @@ function viagAnexarOrigem(){
            uma origem que ninguém conferiu. */
         linhas: 0, total: 0
       });
+      _viagEvento(vv, 'Imagem anexada · ' + (f.name || 'arquivo'));
       viagSave();
       _viagRenderEditor();
       if(typeof toast === 'function') toast('Imagem guardada no relatório');
@@ -67320,6 +67371,7 @@ function viagRmOrigem(i){
     /* As despesas FICAM. A imagem é o comprovante de onde elas vieram, não
        o dono delas — apagar o print junto com oito lançamentos conferidos
        seria uma surpresa cara. */
+    _viagEvento(v, 'Imagem removida · ' + (o.name || 'arquivo'));
     v.origens.splice(i, 1);
     viagSave();
     _viagRenderEditor();
@@ -68495,6 +68547,7 @@ async function viagImportarPlanilha(){
     if(!ok) return;
     if(!Array.isArray(v.despesas)) v.despesas = [];
     for(const d of r.itens) v.despesas.push(Object.assign({ id: viagens.nextDespId++ }, d));
+    _viagEvento(v, r.itens.length + ' despesa(s) importadas da planilha · ' + _viagFmt(total));
     viagSave();
     _viagRenderEditor();
     if(typeof toast === 'function') toast(r.itens.length + ' despesa(s) importada(s) · ' + _viagFmt(total));
@@ -69017,6 +69070,9 @@ function viagPrintAplicar(){
       total: soma
     }));
   }
+  _viagEvento(v, marcadas.length + ' despesa(s) lidas de '
+    + ((_VIAG_PRINT.origem && _VIAG_PRINT.origem.name) || 'uma imagem')
+    + ' · ' + _viagFmt(soma));
   viagSave();
   _viagPrintFechar();
   _VIAG_PRINT = null;
