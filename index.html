@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795011842"/>
+  <meta name="fk-build" content="forekash-v1795012429"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -12683,7 +12683,25 @@
                       margin-top:2px;flex-wrap:wrap}
     /* Dois cartões ocupam a faixa inteira sem esticar: o grid de quatro
        deixava cada um estreito demais pro número caber com folga. */
-    .est-kpi-duo{grid-template-columns:repeat(2,minmax(0,1fr))}
+    /* Dois cartões baixos: o número continua grande, a caixa em volta é que
+       era. Eles são o cabeçalho da tela, não a tela. */
+    .est-kpi-duo{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .est-kpi-duo .pes-kpi{padding:9px 14px}
+    .est-kpi-duo .pes-kpi-lbl{font-size:.6rem;margin-bottom:1px}
+    .est-kpi-duo .pes-kpi-val{font-size:1.25rem;line-height:1.2}
+    .est-kpi-duo .pes-kpi-sub{font-size:.68rem;margin-top:1px}
+    .est-kpi-duo .est-kpi-split-row{margin-top:2px}
+    .est-kpi-duo .est-kpi-split-val{font-size:1.02rem}
+    .est-kpi-duo .est-kpi-split-lbl{font-size:.6rem}
+    /* ── REALIZADO NA CÉLULA ──────────────────────────────────────
+       Embaixo do projetado, menor e tabular. A cor diz o sinal sem precisar
+       de um segundo número: verde saiu menos, âmbar saiu mais. */
+    .est-real-cell{display:block;margin-top:1px;font-size:.64rem;font-weight:700;
+      line-height:1.1;text-align:right;color:#94A3B8;cursor:help;
+      font-variant-numeric:tabular-nums;padding-right:2px}
+    .est-real-cell.abaixo{color:#15803D}
+    .est-real-cell.acima{color:#B45309}
+    .est-real-cell.igual{color:#64748B}
     /* A variação ao lado da média, do tamanho de uma legenda. Vazia, some. */
     .est-kpi-var-inline{display:inline-block;margin-left:7px;padding:0 6px;
       border-radius:999px;font-size:.64rem;font-weight:800;letter-spacing:.02em;
@@ -104736,6 +104754,54 @@ function _estRenderComissaoRow(v, year){
     </td>
   </tr>`;
 }
+/* ══ O REALIZADO DENTRO DA LINHA ═══════════════════════════════
+
+   O módulo tinha duas listas da mesma coisa: a planilha, que é o que a pessoa
+   digita, e a varredura do Extrato por categoria, numa tabela à parte acima
+   dela. Dois recortes do mesmo dinheiro, e nenhum deles respondia a pergunta
+   que a tela existe pra responder: projetei 500 em março, quanto saiu?
+
+   Aqui as duas se encontram. Cada linha procura, entre os grupos que o
+   Extrato descobriu, aquele de mesmo nome e mesma categoria. Achando, o que
+   foi pago aparece na própria célula, embaixo do projetado. Não achando, a
+   linha segue como sempre foi — projeção pura, sem invento. */
+let _estRealIdx = null;
+function _estRealIndice(year){
+  const y = String(year || '');
+  if(_estRealIdx && _estRealIdx.y === y && _estRealIdx.c === _estGruposCache) return _estRealIdx.idx;
+  const idx = new Map();
+  try{
+    for(const g of (estGrupos(y) || [])){
+      if(!g || !g.nome) continue;
+      const k = _estNormCat(g.nome) + '|' + _estNormCat(g.cat || '');
+      const ja = idx.get(k);
+      if(ja){
+        /* Dois grupos de mesmo nome na mesma categoria somam, em vez de um
+           sobrescrever o outro e a linha mostrar metade do que saiu. */
+        for(const ym of Object.keys(g.real || {})) ja[ym] = (ja[ym] || 0) + g.real[ym];
+        for(const ym of Object.keys(g.prev || {})) ja[ym] = (ja[ym] || 0) + g.prev[ym];
+      } else {
+        const o = {};
+        for(const ym of Object.keys(g.real || {})) o[ym] = (o[ym] || 0) + g.real[ym];
+        for(const ym of Object.keys(g.prev || {})) o[ym] = (o[ym] || 0) + g.prev[ym];
+        idx.set(k, o);
+      }
+    }
+  }catch(e){ console.warn('[est] índice do realizado:', e && e.message); }
+  _estRealIdx = { y: y, c: _estGruposCache, idx: idx };
+  return idx;
+}
+function estRealDoItem(it, year){
+  try{
+    if(!it || !it.nome) return null;
+    const tag = ((estrutura && estrutura.tags) || []).find(t => t && t.id === it.tagId);
+    const k = _estNormCat(it.nome) + '|' + _estNormCat((tag && tag.nome) || '');
+    const achado = _estRealIndice(year).get(k);
+    return (achado && Object.keys(achado).length) ? achado : null;
+  }catch(_){ return null; }
+}
+try{ window.estRealDoItem = estRealDoItem; }catch(_){}
+
 function renderEstSheet(){
   const thead = document.getElementById('est-thead');
   const tbody = document.getElementById('est-tbody');
@@ -105002,6 +105068,7 @@ function renderEstRow(it, year, dupCartao){
 
   // Valores mensais
   const pagosMap = it.pagos || {};
+  const realMap = estRealDoItem(it, year) || {};
   const valCells = EST_MESES.map((_,m) => {
     const key = estMesKey(year, m);
     const v = it.valores[key];
@@ -105026,6 +105093,19 @@ function renderEstRow(it, year, dupCartao){
              onfocus="this.value = this.value.replace(/\\./g,''); this.select()"
              onkeydown="if(event.key==='Enter') this.blur()">
       ${btnPagar}
+      ${(function(){
+        const r = realMap[key];
+        if(!r) return '';
+        /* Só o que saiu, pequeno, embaixo. A comparação com o projetado fica
+           no title: na célula ela viraria três números onde cabe um. */
+        const dif = hasReal ? (r - (+v || 0)) : null;
+        const cls = (dif == null) ? '' : (dif > 0.005 ? ' acima' : (dif < -0.005 ? ' abaixo' : ' igual'));
+        const tit = hasReal
+          ? ('projetado ' + fmtBR(+v || 0, 2) + ' · saiu ' + fmtBR(r, 2)
+             + (Math.abs(dif) > 0.005 ? (' · ' + (dif > 0 ? '+' : '−') + fmtBR(Math.abs(dif), 2)) : ' · bateu'))
+          : ('saiu ' + fmtBR(r, 2) + ' sem projeção pra este mês');
+        return '<span class="est-real-cell' + cls + '" title="' + esc(tit) + '">' + fmtBR(r, 2) + '</span>';
+      })()}
     </td>`;
   }).join('');
 
