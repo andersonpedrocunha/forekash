@@ -24,12 +24,15 @@
     // chegaria no Worker. O mesmo vale pro /deck: a apresentação ao vivo é
     // servida pelo Worker, e sem estar nesta lista ela abria o app inteiro
     // em vez do deck — e ainda por cima com 200, que disfarça o problema.
-    // "/" e "/index.html" entraram por causa do etag: o Workers Assets não
-    // manda validador para um arquivo de 9 MB, então quem manda é o Worker
-    // (ver servirApp). Sem passar por aqui, a Cloudflare entrega o asset
-    // direto e o Worker nunca roda — era por isso que o 304 não acontecia.
-    // Qualquer falha em servirApp cai de volta no ASSETS, como antes.
-    "run_worker_first": ["/api/*", "/deck", "/deck/*", "/", "/index.html"]
+    // `true` e não uma lista: o etag do app sai do Worker (ver servirApp em
+    // src/worker.js), porque o Workers Assets não manda validador para um
+    // arquivo de 9 MB — e sem validador toda abertura rebaixa 2,3 MB. Com a
+    // lista, a Cloudflare continuava entregando o "/" direto do asset e o
+    // Worker nunca rodava; a documentação só garante o comportamento com
+    // `true`. O custo é uma invocação por requisição: tudo que não é o app
+    // (ou /api/, ou /deck) cai em env.ASSETS.fetch na primeira linha, e
+    // qualquer erro em servirApp também — o site não depende do atalho.
+    "run_worker_first": true
   },
 
   // A cada 10 minutos. De hora em hora não servia: o Worker só conseguia
