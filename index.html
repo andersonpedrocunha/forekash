@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794973169"/>
+  <meta name="fk-build" content="forekash-v1794973264"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8877,6 +8877,10 @@
     .viag-org-txt b{font-size:.78rem;color:#0F172A;font-weight:700;overflow:hidden;
       text-overflow:ellipsis;white-space:nowrap}
     .viag-org-txt small{font-size:.7rem;color:#94A3B8}
+    .viag-org-dl{flex:none;background:none;border:1px solid #E2E8F0;border-radius:6px;
+      color:#64748B;font-size:.82rem;font-weight:800;line-height:1;cursor:pointer;
+      padding:5px 9px;font-family:inherit}
+    .viag-org-dl:hover{border-color:#7C3AED;color:#5B21B6;background:#F5F3FF}
     .viag-org-x{flex:none;background:none;border:none;color:#CBD5E1;font-size:1.15rem;
       line-height:1;cursor:pointer;padding:3px 6px;font-family:inherit;border-radius:5px}
     .viag-org-x:hover{color:#B91C1C;background:#FEF2F2}
@@ -67117,6 +67121,10 @@ function _viagRenderOrigens(v){
               + (o.total ? ' · ' + _viagFmt(o.total) : '') + (quando ? ' · lido em ' + quando : '')
             : 'anexada' + (quando ? ' em ' + quando : '')) + '</small>'
       + '</div>'
+      /* Abrir serve pra conferir; baixar é o que a contabilidade pede quando
+         quer o arquivo junto do resto do fechamento. */
+      + '<button type="button" class="viag-org-dl" onclick="viagBaixarOrigem(' + i + ')" '
+      +   'title="Baixar ' + esc(o.name || 'arquivo') + '">↓</button>'
       + (locked ? '' : '<button type="button" class="viag-org-x" onclick="viagRmOrigem(' + i + ')" '
           + 'title="Tirar esta imagem do relatório">×</button>')
       + '</div>';
@@ -67189,6 +67197,30 @@ function viagVerOrigem(i){
     + '</body>');
   w.document.close();
 }
+function viagBaixarOrigem(i){
+  const v = _viagCurrent();
+  const o = v && Array.isArray(v.origens) ? v.origens[i] : null;
+  if(!o || !o.data){ if(typeof toast === 'function') toast('Imagem não encontrada'); return; }
+  try{
+    /* dataUrl vira Blob antes de virar download: `href` com base64 de alguns
+       MB trava a aba em alguns navegadores, e o nome do arquivo se perde. */
+    const [cab, b64] = String(o.data).split(',');
+    const mime = (cab.match(/data:([^;]+)/) || [])[1] || (o.type || 'application/octet-stream');
+    const bin = atob(b64 || '');
+    const arr = new Uint8Array(bin.length);
+    for(let k = 0; k < bin.length; k++) arr[k] = bin.charCodeAt(k);
+    const url = URL.createObjectURL(new Blob([arr], { type: mime }));
+    const a = document.createElement('a');
+    a.href = url; a.download = o.name || 'origem';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => { try{ URL.revokeObjectURL(url); }catch(_){} }, 400);
+  }catch(e){
+    console.warn('[FK] baixar origem:', e && e.message);
+    if(typeof toast === 'function') toast('Não consegui baixar o arquivo');
+  }
+}
+try{ window.viagBaixarOrigem = viagBaixarOrigem; }catch(_){}
+
 function viagRmOrigem(i){
   const v = _viagCurrent();
   if(!v || !Array.isArray(v.origens)) return;
@@ -80177,6 +80209,7 @@ function _extLoad(){
         _extMigrarBaixa();
         _extMigrarConta();
         _extHistDaNota();
+        _extHistDaViagem();
       }
     }
   } catch(e){}
@@ -80219,6 +80252,51 @@ function _extHistDaNota(){
     }
   }catch(e){ console.warn('[FK] histórico da nota:', e && e.message); }
 }
+
+/* ══ O MESMO, PARA A PRESTAÇÃO DE CONTAS ═══════════════════════════
+
+   Reembolso criado antes desta versão tem a `origem` guardada e nenhum
+   registro no histórico — abre mostrando só "Editado", como um gasto
+   qualquer digitado à mão.
+
+   Tentei acertar isso escrevendo direto no banco e não durou: a aba aberta
+   sincronizou por cima e o evento sumiu. O conserto tem que nascer no
+   próprio app, que é quem manda no dado — aqui, uma vez, na carga. */
+function _extHistDaViagem(){
+  try{
+    const lista = (extratoData && extratoData.lancamentos) || [];
+    let mexeu = 0;
+    for(const l of lista){
+      const o = l && l.origem;
+      const ref = String((l && l.refInterna) || '');
+      const ehViagem = (o && o.tipo === 'viagem-reembolso') || /^VIAG-\d+-/.test(ref);
+      if(!ehViagem) continue;
+      const vid = (o && o.viagemId != null) ? o.viagemId : (ref.match(/^VIAG-(\d+)-/) || [])[1];
+      const cid = (o && o.colaboradorCid) || (ref.match(/^VIAG-\d+-(.+)$/) || [])[1] || '';
+      if(vid == null) continue;
+      const vg = ((typeof viagens !== 'undefined' && viagens && viagens.itens) || [])
+        .find(x => x && String(x.id) === String(vid));
+      const cb = vg && (vg.colaboradores || []).find(x => x && x.cid === cid);
+      const txt = 'Criado da prestação de contas · viagem #' + vid
+                + (vg && vg.titulo ? ' · ' + vg.titulo : '')
+                + (cb && cb.nome ? ' · ' + cb.nome : '');
+      if(!Array.isArray(l.eventos)) l.eventos = [];
+      /* Compara pelo começo: o título da viagem pode ter sido renomeado
+         depois, e aí o texto antigo não bate inteiro — reescrever viraria
+         dois eventos dizendo a mesma coisa. */
+      if(l.eventos.some(e => e && String(e.d || '').indexOf('Criado da prestação de contas · viagem #' + vid) === 0)) continue;
+      const quando = l.criadoEm || (l.eventos[0] && l.eventos[0].t) || new Date().toISOString();
+      const t = new Date(new Date(quando).getTime() - 1000);
+      l.eventos.unshift({ t: isNaN(t) ? new Date().toISOString() : t.toISOString(), d: txt, a: 1 });
+      mexeu++;
+    }
+    if(mexeu){
+      console.log('[FK] histórico: ' + mexeu + ' reembolso(s) ganharam o registro da viagem');
+      try{ _extSave(); }catch(_){}
+    }
+  }catch(e){ console.warn('[FK] histórico da viagem:', e && e.message); }
+}
+try{ window._extHistDaViagem = _extHistDaViagem; }catch(_){}
 
 /* Conta gravada com o rótulo do arquivo OFX em vez do rótulo do cadastro.
 
@@ -81131,6 +81209,7 @@ async function cloudExtratoFetch(){
     /* Também aqui: a nuvem acabou de SUBSTITUIR a lista, então o conserto
        feito sobre o que veio do navegador não vale mais para estas linhas. */
     _extHistDaNota();
+    _extHistDaViagem();
     _extRecalcNextId();
     try { localStorage.setItem(EXTRATO_KEY, JSON.stringify(extratoData)); } catch(_){}
     try { if (typeof renderExtrato === 'function') renderExtrato(); } catch(_){}
