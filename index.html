@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794975093"/>
+  <meta name="fk-build" content="forekash-v1794975421"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7441,6 +7441,12 @@
                   overflow-y:auto;display:none}
     .cart-cbx-pop.open{display:block}
     .cart-cbx-item{padding:8px 12px;font-size:.84rem;color:#0F172A;cursor:pointer;
+    /* Subcategoria na lista: recuada, menor, com o traço de filiação. Ela
+       pertence à linha de cima — e tem que parecer. */
+    .cart-cbx-item.is-sub{padding-left:30px;font-size:.8rem;color:#64748B;position:relative}
+    .cart-cbx-item.is-sub::before{content:'\21B3';position:absolute;left:14px;
+      color:#CBD5E1;font-size:.78rem}
+    .cart-cbx-item.is-sub:hover{color:#5B21B6}
                    border-bottom:1px solid #F1F5F9;display:flex;align-items:center;gap:8px}
     .cart-cbx-item:last-child{border-bottom:none}
     .cart-cbx-item:hover, .cart-cbx-item.active{background:#EDE9FE;color:#5B21B6}
@@ -84592,7 +84598,7 @@ function _extItemRecalcTotal(){
 // Combobox por item — versão por-índice
 function _extItCbxSource(i, name){
   const tipo = _extItemsTipo;
-  if(name === 'cat') return _extOfficialCats(tipo);
+  if(name === 'cat') return _extCatsComSubs(tipo);
   if(name === 'counter') return _extOfficialCounters(tipo);
   return [];
 }
@@ -84675,8 +84681,18 @@ function _extItCbxPick(i, name, idx){
   const filtered = q ? all.filter(x => semAc(x).includes(q)) : all.slice();
   const v = filtered[idx];
   if(v){
-    inp.value = v;
-    _extItemUpdate(i, name === 'cat' ? 'categoria' : 'contraparte', v);
+    if(name === 'cat'){
+      const pai = _extCatPai(v), filha = _extCatFilha(v);
+      inp.value = pai;
+      _extItemUpdate(i, 'categoria', pai);
+      /* Escolheu a sub: grava as duas. Escolheu só a categoria: limpa a sub,
+         porque a anterior era de outra gaveta. */
+      _extItemUpdate(i, 'subcategoria', filha);
+      try{ _extItemRender(); }catch(_){}
+    } else {
+      inp.value = v;
+      _extItemUpdate(i, 'contraparte', v);
+    }
   }
   _extItCbxClose(i, name);
 }
@@ -85233,7 +85249,47 @@ function _extCatMarcador(nome){
   }catch(_){}
   return '';
 }
+/* ══ A SUBCATEGORIA MORA NA MESMA LISTA ═════════════════════════
+
+   Ela estava só num campo que aparecia DEPOIS de escolher a categoria — e
+   campo que só nasce depois é campo que ninguém descobre. Agora a lista
+   suspensa mostra a categoria e, logo abaixo, as subcategorias dela, com
+   recuo. Uma escolha preenche as duas coisas.
+
+   O separador é interno: viaja na lista pra o filtro casar com o texto da
+   sub, e some na hora de mostrar e de gravar. */
+const FK_SUB_SEP = '\u203A';
+function _extCatPai(v){
+  const t = String(v || '');
+  const i = t.indexOf(FK_SUB_SEP);
+  return i < 0 ? t : t.slice(0, i);
+}
+function _extCatFilha(v){
+  const t = String(v || '');
+  const i = t.indexOf(FK_SUB_SEP);
+  return i < 0 ? '' : t.slice(i + 1);
+}
+/* A lista oficial com as subcategorias intercaladas. */
+function _extCatsComSubs(tipo){
+  const base = _extOfficialCats(tipo) || [];
+  const out = [];
+  for(const c of base){
+    out.push(c);
+    let subs = [];
+    try{ subs = (typeof catmapSubs === 'function') ? catmapSubs(c) : []; }catch(_){}
+    for(const sb of subs) out.push(c + FK_SUB_SEP + sb);
+  }
+  return out;
+}
+try{ window._extCatsComSubs = _extCatsComSubs; window._extCatPai = _extCatPai;
+     window._extCatFilha = _extCatFilha; }catch(_){}
+
 function _extCbxItemHtml(v, onmousedown){
+  const filha = _extCatFilha(v);
+  if(filha){
+    return '<div class="cart-cbx-item is-sub" onmousedown="' + onmousedown + '">'
+         + '<span class="cbx-nome">' + _extEsc(filha) + '</span></div>';
+  }
   const marca = _extCatMarcador(v);
   return '<div class="cart-cbx-item' + (marca ? ' has-tag' : '') + '" onmousedown="' + onmousedown + '">'
        + '<span class="cbx-nome">' + _extEsc(v) + '</span>'
@@ -85317,8 +85373,8 @@ try{ window._extCatEhNaoOperacional = _extCatEhNaoOperacional; }catch(_){}
    bloco, calculado sobre a lista JÁ filtrada pela busca (senão o cabeçalho
    aparece sem nada embaixo quando o filtro corta o grupo inteiro). */
 function _extCatCabecalho(filtrados, k, tipo){
-  const ehNao = _extCatEhNaoOperacional(filtrados[k]);
-  const anterior = k > 0 ? _extCatEhNaoOperacional(filtrados[k-1]) : null;
+  const ehNao = _extCatEhNaoOperacional(_extCatPai(filtrados[k]));
+  const anterior = k > 0 ? _extCatEhNaoOperacional(_extCatPai(filtrados[k-1])) : null;
   if(k > 0 && ehNao === anterior) return '';
   const palavra = (tipo === 'ganho') ? 'Receita' : 'Despesa';
   const txt = ehNao ? (palavra + ' não operacional') : (palavra + ' operacional');
