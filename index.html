@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794974065"/>
+  <meta name="fk-build" content="forekash-v1794974560"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -65892,7 +65892,40 @@ function viagDropCard(ev, newStatus){
   if(v.status === newStatus) return;
   _viagChangeStatus(v, newStatus, /*context=*/'drag');
 }
+/* ══ RELATÓRIO PAGO É DOCUMENTO, NÃO RASCUNHO ═════════════════════
+
+   Fechado com conta a pagar no Extrato, ele deixa de ser só uma tela: existe
+   dinheiro lançado apontando pra ele. Reabrir ou apagar aqui deixaria o
+   lançamento lá, órfão, referenciando um relatório que ninguém mais acha —
+   e o caminho de volta, pra quem auditar seis meses depois, morre.
+
+   Quem precisa desfazer começa pelo Extrato: tirando de lá, o vínculo cai
+   sozinho na próxima vez que alguém abre as Viagens, e aí este relatório
+   volta a ser editável. */
+function _viagTravadoPorVinculo(v){
+  if(!v || v.status !== 'reembolsado') return null;
+  if(!_viagExtratoPronto()) return null;
+  const ids = [];
+  try{
+    for(const c of (v.colaboradores || [])){
+      const l = _viagLancDoColab(v, c.cid);
+      if(l && l.id != null) ids.push(l.id);
+    }
+  }catch(_){}
+  return ids.length ? ids : null;
+}
+try{ window._viagTravadoPorVinculo = _viagTravadoPorVinculo; }catch(e){}
+
 function _viagChangeStatus(v, newStatus, context){
+  const _presos = (context === 'auto') ? null : _viagTravadoPorVinculo(v);
+  if(_presos){
+    if(typeof toast === 'function')
+      toast('⚠ Relatório finalizado e ligado ao Extrato (' + _presos.map(i => '#' + i).join(', ')
+          + ') — desfaça por lá primeiro');
+    try{ _viagRenderEditor(); }catch(_){}
+    try{ renderViagens(); }catch(_){}
+    return;
+  }
   /* ══ QUEM FECHA É O EXTRATO, OU VOCÊ — NÃO OS DOIS ═══════════════════
 
      Com o automático ligado, Reembolsado significa uma coisa precisa: o
@@ -66834,6 +66867,23 @@ function _viagLancStatus(v){
   }catch(_){}
   return r;
 }
+/* ══ O EXTRATO JÁ CHEGOU? ══════════════════════════════════════
+
+   Viagens pode renderizar antes do Extrato ter sido carregado — e aí
+   `extratoData.lancamentos` está vazio, nenhum reembolso é encontrado, e
+   qualquer conclusão tirada daí é sobre uma lista que ainda não existe.
+
+   Foi exatamente isso que fez o AGILE BRAZIL voltar pra Reembolsado a cada
+   refresh: o lançamento estava lá, em aberto, mas no instante em que o card
+   foi desenhado o Extrato ainda não tinha descido. Conclusão sobre lista
+   vazia não é conclusão — é ruído com cara de fato. */
+function _viagExtratoPronto(){
+  try{
+    return typeof extratoData !== 'undefined' && extratoData
+        && Array.isArray(extratoData.lancamentos) && extratoData.lancamentos.length > 0;
+  }catch(_){ return false; }
+}
+
 /* O lançamento de verdade, pra poder olhar o status dele — não só o id. */
 function _viagLancDoColab(v, cid){
   const achado = _viagLancamentoExistente(v, cid);
@@ -66859,8 +66909,17 @@ function _viagReembolsoQuitado(v){
   const st = _viagLancStatus(v);
   if(!st.precisam || st.lancados < st.precisam) return false;
   for(const c of (v.colaboradores || [])){
+    const saldo = (parseFloat(c.adiantamento) || 0) - _viagGastoPorColab(v, c.cid);
+    const precisa = saldo < -0.005;
     const l = _viagLancDoColab(v, c.cid);
-    if(!l) continue;
+    /* ══ "NÃO ACHEI" NÃO É "ESTÁ TUDO CERTO" ═══════════════════════
+
+       Aqui havia um `continue`: colaborador sem lançamento era pulado, e o
+       laço chegava ao fim devolvendo "quitado". Bastava excluir a conta a
+       pagar no Extrato pro relatório se dar por pago — e voltar sozinho pra
+       Reembolsado a cada refresh, com o dinheiro não tendo saído de lugar
+       nenhum. Dinheiro que sumiu do Extrato é motivo pra NÃO fechar. */
+    if(!l) { if(precisa) return false; continue; }
     const pago = (typeof extStatusDe === 'function')
       ? extStatusDe(l) === 'pago'
       : (l.status === 'pago' || l.status === 'recebido');
@@ -66878,6 +66937,7 @@ function _viagAutoFinalizar(){
      aninhado — termina, porque na volta ele já não está em Aprovado, mas
      é pilha à toa e um lugar ótimo pra um laço infinito nascer depois. */
   if(_viagAutoRodando) return 0;
+  if(!_viagExtratoPronto()) return 0;
   _viagAutoRodando = true;
   let n = 0;
   try{
@@ -66912,9 +66972,19 @@ function _viagJaLancado(v){ return _viagLancStatus(v).lancados > 0; }
    uma vez, que a conta a pagar existe. */
 function _viagAdotarLancamentos(v){
   let mexeu = false;
+  if(!_viagExtratoPronto()) return false;
   try{
     _viagEnsureColabs(v);
     for(const c of (v.colaboradores || [])){
+      /* O CAMINHO DE VOLTA. Lançamento excluído no Extrato deixava a marca
+         "✓ lançado" para sempre no relatório, apontando pra um número que
+         não existe — e o botão de criar a conta a pagar nunca mais voltava. */
+      if(c.reembolso && c.reembolso.extratoId && !_viagLancDoColab(v, c.cid)){
+        _viagEvento(v, 'Conta a pagar #' + c.reembolso.extratoId
+          + ' não existe mais no Extrato · vínculo desfeito');
+        delete c.reembolso;
+        mexeu = true;
+      }
       if(c.reembolso && c.reembolso.extratoId) continue;
       const l = _viagLancDoColab(v, c.cid);
       if(!l) continue;
@@ -69160,6 +69230,24 @@ function viagDelDesp(despId){
 function viagDeleteCurrent(){
   const v = _viagCurrent();
   if(!v) return;
+  const presos = _viagTravadoPorVinculo(v);
+  if(presos){
+    if(typeof anaConfirm === 'function'){
+      anaConfirm({
+        eyebrow: 'Relatório finalizado',
+        title: 'Não dá pra excluir este relatório',
+        message: 'Ele já virou dinheiro no Extrato — conta a pagar '
+               + presos.map(i => '<strong>#' + i + '</strong>').join(', ') + '.<br><br>'
+               + 'Apagar aqui deixaria esse lançamento apontando pra um relatório '
+               + 'que não existe mais. Se foi engano, exclua o lançamento no Extrato '
+               + 'primeiro: o vínculo cai sozinho e este card volta a ser editável.',
+        okText: 'Entendi', cancelText: ''
+      }, () => {});
+    } else if(typeof toast === 'function'){
+      toast('⚠ Finalizado e ligado ao Extrato — desfaça por lá primeiro');
+    }
+    return;
+  }
   const doDel = () => {
     viagens.itens = viagens.itens.filter(x => x.id !== v.id);
     viagSave();
