@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794973350"/>
+  <meta name="fk-build" content="forekash-v1794973503"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -65867,6 +65867,24 @@ function viagDropCard(ev, newStatus){
   _viagChangeStatus(v, newStatus, /*context=*/'drag');
 }
 function _viagChangeStatus(v, newStatus, context){
+  /* ══ QUEM FECHA É O EXTRATO, OU VOCÊ — NÃO OS DOIS ═══════════════════
+
+     Com o automático ligado, Reembolsado significa uma coisa precisa: o
+     Extrato quitou. Deixar arrastar o card pra lá na mão esvazia a palavra —
+     metade dos relatórios fechados porque o dinheiro saiu, metade porque
+     alguém achou que ia sair, e nenhum jeito de saber qual é qual olhando.
+
+     Quem quiser fechar na mão desliga o automático na engrenagem: aí a
+     responsabilidade é declaradamente de quem move. */
+  if(newStatus === 'reembolsado' && context !== 'auto'
+     && _viagSettings && _viagSettings.autoReembolso !== false){
+    if(typeof toast === 'function')
+      toast('⟳ O fechamento está automático — ele vai pra Reembolsado quando o Extrato quitar. '
+          + 'Pra mover na mão, desligue na engrenagem.');
+    try{ _viagRenderEditor(); }catch(_){}
+    try{ renderViagens(); }catch(_){}
+    return;
+  }
   // Assinatura só pra Aprovado (Reembolsado/Finalizado é fase pós, não precisa)
   const needSig = _viagSettings.requireSignature && newStatus === 'aprovado';
   if(needSig){
@@ -66766,16 +66784,26 @@ function _viagReembolsoQuitado(v){
 }
 /* Roda ao abrir o módulo. Não há gatilho no Extrato de propósito: o estado
    é derivado, então basta recalcular quando alguém vai olhar. */
+let _viagAutoRodando = false;
 function _viagAutoFinalizar(){
   if(!_viagSettings || _viagSettings.autoReembolso === false) return 0;
+  /* `_viagChangeStatus` termina chamando `renderViagens`, que chama esta
+     função de novo. Sem a trava, cada relatório fechado dispara um render
+     aninhado — termina, porque na volta ele já não está em Aprovado, mas
+     é pilha à toa e um lugar ótimo pra um laço infinito nascer depois. */
+  if(_viagAutoRodando) return 0;
+  _viagAutoRodando = true;
   let n = 0;
   try{
     for(const v of ((viagens && viagens.itens) || [])){
       if(!v || v.status !== 'aprovado') continue;
       if(!_viagReembolsoQuitado(v)) continue;
-      v.status = 'reembolsado';
       v.reembolsadoEm = new Date().toISOString();
       v.reembolsadoAuto = true;
+      /* Pelo mesmo caminho de sempre: é ele que carimba `fechadoEm`, e sem
+         isso o card continuaria contando "aberta há 70 dias" depois de
+         fechado. O contexto 'auto' é o que destrava a porta acima. */
+      _viagChangeStatus(v, 'reembolsado', 'auto');
       n++;
     }
     if(n){
@@ -66784,6 +66812,7 @@ function _viagAutoFinalizar(){
         toast('⟳ ' + n + ' relatório(s) finalizado(s) — o Extrato quitou o reembolso');
     }
   }catch(e){ console.warn('[FK] auto-finalizar viagem:', e && e.message); }
+  finally{ _viagAutoRodando = false; }
   return n;
 }
 try{ window._viagLancDoColab = _viagLancDoColab;
