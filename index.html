@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795013431"/>
+  <meta name="fk-build" content="forekash-v1795013740"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -19953,6 +19953,21 @@
                                 border:1px solid currentColor;font-weight:800;font-size:.72rem;
                                 font-variant-numeric:tabular-nums;flex-shrink:0}
 
+    /* O botão que abre os desvios: mesma família dos de modo, sem roubar
+       a atenção deles — é consulta, não troca de visão. */
+    .orc-top5-btn{border:1px solid var(--bdr);background:#fff;color:#64748B;
+      border-radius:8px;padding:6px 12px;font-size:.76rem;font-weight:700;cursor:pointer;
+      font-family:inherit;white-space:nowrap}
+    .orc-top5-btn:hover{color:#0F172A;border-color:#94A3B8;background:#F8FAFC}
+    /* Ponto no botão quando há alerta disparado — a única coisa que sobrou
+       na tela do que eram três tarjas vermelhas. */
+    .orc-top5-dot{display:inline-block;width:6px;height:6px;border-radius:50%;
+      background:#EF4444;margin-left:6px;vertical-align:2px}
+    .orc-top5-dot[hidden]{display:none}
+    /* No modal a grade de duas colunas vira uma só em tela estreita. */
+    #orc-generic-overlay .orc-top5-body{display:grid;grid-template-columns:1fr 1fr;gap:0}
+    @media (max-width:620px){#orc-generic-overlay .orc-top5-body{grid-template-columns:1fr}}
+
     /* ── Painel Top 5 desvios ── */
     .orc-top5-panel{background:#fff;border:1px solid var(--bdr);border-radius:12px;
                      margin:0 0 14px;overflow:hidden}
@@ -26618,6 +26633,10 @@ td.mes.do-extrato{background:#ECFDF5}
               <button class="orc-mode-btn active" data-mode="comparativo" onclick="orcSetMode('comparativo')">Comparativo</button>
               <button class="orc-mode-btn" data-mode="previsto" onclick="orcSetMode('previsto')">Previsto</button>
             </div>
+            <button class="orc-mode-btn orc-top5-btn" onclick="orcAbrirTop5()"
+                    title="Os maiores desvios entre previsto e realizado neste ano">
+              Maiores desvios<span class="orc-top5-dot" id="orc-top5-dot" hidden></span>
+            </button>
             <div class="orc-ver-wrap">
               <label class="orc-ver-lbl">Versão</label>
               <select class="orc-ver-sel" id="orc-ver-sel" onchange="orcPickVersion(this.value)"></select>
@@ -26629,7 +26648,10 @@ td.mes.do-extrato{background:#ECFDF5}
         </div>
 
         <!-- Alertas de limite -->
-        <div class="orc-alerts-banner" id="orc-alerts-banner" style="display:none"></div>
+        <!-- A faixa de alertas saiu daqui: três tarjas vermelhas no topo, antes
+             de qualquer número, dizendo em texto corrido o que a tabela logo
+             abaixo já mostra em vermelho na célula. Os alertas continuam
+             existindo e configuráveis — o que saiu foi o anúncio. -->
 
         <!-- KPIs anuais -->
         <div class="pes-kpi-grid" id="orc-kpi-grid">
@@ -26659,14 +26681,10 @@ td.mes.do-extrato{background:#ECFDF5}
           </div>
         </div>
 
-        <!-- Top 5 desvios -->
-        <div class="orc-top5-panel" id="orc-top5-panel" style="display:none">
-          <div class="orc-top5-hdr">
-            <b>Top 5 desvios do ano</b>
-            <button class="orc-top5-toggle" onclick="orcToggleTop5Panel()" id="orc-top5-toggle-btn">Ocultar</button>
-          </div>
-          <div class="orc-top5-body" id="orc-top5-body"></div>
-        </div>
+        <!-- Top 5 desvios: mora num modal, atrás de um botão. É uma consulta
+             ocasional — "onde doeu mais este ano" — e ocupava uma faixa de
+             tela inteira, todo dia, entre os indicadores e a tabela. -->
+        <div id="orc-top5-body" hidden></div>
 
         <!-- Sheet -->
         <div class="pes-sheet-wrap">
@@ -49922,7 +49940,22 @@ const ORC_CATS = [
   {id:'emprestimos', nome:'Empréstimos',    grupo:'custo',   color:'#EF4444',
    svg:'<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4v3h6V4"/><path d="M9 11h6"/><path d="M9 15h6"/><path d="M9 19h4"/>'},
   {id:'impostos',    nome:'Impostos',       grupo:'custo',   color:'#E11D48',
-   svg:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/><path d="M7 15h4"/><path d="M7 18h6"/>'}
+   svg:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/><path d="M7 15h4"/><path d="M7 18h6"/>'},
+  /* ══ AS LINHAS QUE FALTAVAM ══════════════════════════════════
+
+     O Demonstrativo tem nove linhas; o Orçamento tinha cinco. Faltavam as
+     duas de Outras Operações — e é justamente lá que mora o que foge do
+     previsto sem ninguém esperar: multa, juros, venda de imobilizado,
+     patrocínio. Orçar só o operacional e comparar com um realizado que
+     inclui o resto faria o desvio aparecer na linha errada.
+
+     Comissões não entra: ela já é somada dentro de Despesas Operacionais
+     (`flxDespesasMes` chama `comissaoTotalMes`). Como linha própria apareceria
+     duas vezes. */
+  {id:'outrasRec',   nome:'Outras Receitas', grupo:'receita', color:'#14B8A6',
+   svg:'<path d="M12 2v20"/><path d="M5 9l7-7 7 7"/>'},
+  {id:'outrasDesp',  nome:'Outras Despesas', grupo:'custo',   color:'#F97316',
+   svg:'<path d="M12 22V2"/><path d="M19 15l-7 7-7-7"/>'}
 ];
 const ORC_CAT_BY_ID = Object.fromEntries(ORC_CATS.map(c => [c.id, c]));
 const ORC_CUSTO_IDS = ORC_CATS.filter(c => c.grupo === 'custo').map(c => c.id);
@@ -50124,6 +50157,8 @@ function orcRealMes(catId, year, mIdx){
     if(catId === 'despesas')    return flxDespesasMes(year, mIdx);
     if(catId === 'emprestimos') return flxEmprestimosMes(year, mIdx);
     if(catId === 'impostos')    return flxImpostoMes(year, mIdx);
+    if(catId === 'outrasRec')   return flxOutrasMes(year, mIdx);
+    if(catId === 'outrasDesp')  return flxOutrasDespMes(year, mIdx);
   }catch(e){ return 0; }
   return 0;
 }
@@ -50174,17 +50209,27 @@ function orcMesFechado(year, mIdx){
 }
 
 // ───── Agregados DRE (prev/real) ─────
+const ORC_RECEITA_IDS = ORC_CATS.filter(c => c.grupo === 'receita').map(c => c.id);
 function orcCustoPrevMes(year, mIdx, vid){
   let s = 0; for(const c of ORC_CUSTO_IDS) s += orcPrevMes(c, year, mIdx, vid); return s;
 }
 function orcCustoRealMes(year, mIdx){
   let s = 0; for(const c of ORC_CUSTO_IDS) s += orcRealMes(c, year, mIdx); return s;
 }
+/* O resultado soma TODAS as linhas de receita, não só a operacional — senão
+   Outras Receitas entraria na tabela e ficaria de fora da conta do resultado,
+   que é pior do que não ter a linha. */
+function orcReceitaPrevMes(year, mIdx, vid){
+  let s = 0; for(const c of ORC_RECEITA_IDS) s += orcPrevMes(c, year, mIdx, vid); return s;
+}
+function orcReceitaRealMes(year, mIdx){
+  let s = 0; for(const c of ORC_RECEITA_IDS) s += orcRealMes(c, year, mIdx); return s;
+}
 function orcResultPrevMes(year, mIdx, vid){
-  return orcPrevMes('receita', year, mIdx, vid) - orcCustoPrevMes(year, mIdx, vid);
+  return orcReceitaPrevMes(year, mIdx, vid) - orcCustoPrevMes(year, mIdx, vid);
 }
 function orcResultRealMes(year, mIdx){
-  return orcRealMes('receita', year, mIdx) - orcCustoRealMes(year, mIdx);
+  return orcReceitaRealMes(year, mIdx) - orcCustoRealMes(year, mIdx);
 }
 
 // ═══════════ Render ═══════════
@@ -50813,17 +50858,15 @@ function updateOrcKpis(){
   renderOrcTop5();
 }
 
-// ═══════════ Alertas ═══════════
-function renderOrcAlertas(){
-  const host = document.getElementById('orc-alerts-banner');
-  if(!host) return;
+/* ══ ALERTAS: CONTINUAM, MUDARAM DE LUGAR ═══════════════════════
+
+   Eles ocupavam o topo da tela em tarjas vermelhas, dizendo em texto corrido
+   o que a tabela logo abaixo mostra em vermelho na célula. Agora aparecem
+   junto dos maiores desvios, no modal — que é onde alguém vai quando quer
+   saber o que saiu do previsto. Configurá-los voltou a ter efeito visível. */
+function orcAlertasHtml(){
   const alerts = orcAlertasCheck(orcActiveYear);
-  if(!alerts.length){
-    host.style.display = 'none';
-    host.innerHTML = '';
-    return;
-  }
-  host.style.display = 'flex';
+  if(!alerts.length) return '';
   const rows = alerts.map(a => {
     const danger = Math.abs(a.pct) > (a.limite + 10);
     const sinal = a.pct >= 0 ? '+' : '';
@@ -50838,28 +50881,52 @@ function renderOrcAlertas(){
              '<div class="orc-alert-pill">'+sinal+fmtBR(a.pct, 1)+'%</div>'+
            '</div>';
   });
-  host.innerHTML = rows.join('');
+  return '<div class="orc-alerts-banner" style="display:flex;margin:0 0 14px">'
+       + rows.join('') + '</div>';
+}
+/* Mantida porque o render principal ainda a chama; sem o banner na tela ela
+   não tem o que fazer. Fica como no-op explícito em vez de erro silencioso. */
+function renderOrcAlertas(){
+  /* O banner saiu da tela (ver orcAlertasHtml). O que sobra é o ponto no
+     botão: sem ele, alerta disparado ficaria escondido atrás de um clique
+     que ninguém tem motivo pra dar. */
+  const dot = document.getElementById('orc-top5-dot');
+  if(!dot) return;
+  let n = 0;
+  try{ n = (orcAlertasCheck(orcActiveYear) || []).length; }catch(_){}
+  dot.hidden = !n;
+  dot.title = n ? (n + ' alerta(s) de limite neste ano') : '';
 }
 
-// ═══════════ Top 5 desvios ═══════════
-let orcTop5Hidden = false;
-function orcToggleTop5Panel(){
-  orcTop5Hidden = !orcTop5Hidden;
-  const body = document.getElementById('orc-top5-body');
-  const btn  = document.getElementById('orc-top5-toggle-btn');
-  if(body) body.style.display = orcTop5Hidden ? 'none' : '';
-  if(btn)  btn.textContent   = orcTop5Hidden ? 'Mostrar' : 'Ocultar';
-}
-function renderOrcTop5(){
-  const panel = document.getElementById('orc-top5-panel');
-  const body  = document.getElementById('orc-top5-body');
-  if(!panel || !body) return;
+/* ══ TOP 5 DESVIOS: UMA CONSULTA, NÃO UM PAINEL ════════════════════
+
+   "Onde doeu mais este ano" é pergunta que se faz de vez em quando, e ela
+   ocupava uma faixa inteira entre os indicadores e a tabela, todo dia. O
+   conteúdo é o mesmo; mudou só o lugar: atrás de um botão. */
+function orcAbrirTop5(){
   const all = orcTopDeviations(orcActiveYear, 10);
-  if(all.length === 0){
-    panel.style.display = 'none';
+  if(!all.length){
+    openGenericModal('Maiores desvios de ' + orcActiveYear,
+      '<p style="font-size:.84rem;color:#64748B;margin:0">Nenhum desvio pra mostrar — '
+      + 'ou o ano ainda não tem realizado, ou previsto e realizado estão batendo.</p>',
+      [{ label:'Fechar', cls:'btn-sec', action: closeGenericModal }]);
     return;
   }
-  panel.style.display = '';
+  renderOrcTop5();
+  const body = document.getElementById('orc-top5-body');
+  openGenericModal('Maiores desvios de ' + orcActiveYear,
+    orcAlertasHtml() + '<div class="orc-top5-body">' + ((body && body.innerHTML) || '') + '</div>',
+    [{ label:'Configurar alertas…', cls:'btn-sec',
+       action: function(){ closeGenericModal(); orcOpenAlertasConfig(); } },
+     { label:'Fechar', cls:'btn-sec', action: closeGenericModal }]);
+}
+try{ window.orcAbrirTop5 = orcAbrirTop5; }catch(_){}
+
+function renderOrcTop5(){
+  const body  = document.getElementById('orc-top5-body');
+  if(!body) return;
+  const all = orcTopDeviations(orcActiveYear, 10);
+  if(all.length === 0){ body.innerHTML = ''; return; }
   // Separa em bons × ruins, top 5 de cada
   const bons = all.filter(d => d.bom).slice(0, 5);
   const ruins = all.filter(d => !d.bom).slice(0, 5);
