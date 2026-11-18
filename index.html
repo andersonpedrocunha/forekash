@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794971674"/>
+  <meta name="fk-build" content="forekash-v1794972352"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8835,9 +8835,17 @@
     .viag-lancado button{flex:none;background:#fff;border:1px solid #BBF7D0;border-radius:7px;
       padding:5px 11px;font-family:inherit;font-size:.72rem;font-weight:700;color:#15803D;cursor:pointer}
     .viag-lancado button:hover{background:#DCFCE7;border-color:#86EFAC}
+    /* Parcial é âmbar, não verde: metade pago não é resolvido. */
+    .viag-lancado--parcial{background:#FFFBEB;border-color:#FDE68A}
+    .viag-lancado--parcial .viag-lancado-ico{background:#D97706}
+    .viag-lancado--parcial b{color:#78350F}
+    .viag-lancado--parcial small{color:#B45309}
+    .viag-lancado--parcial button{border-color:#FDE68A;color:#B45309}
+    .viag-lancado--parcial button:hover{background:#FEF3C7;border-color:#FCD34D}
     /* No card do quadro, a mesma informação em uma linha. */
     .viag-kb-card-lanc{margin-top:7px;padding-top:7px;border-top:1px dashed #E2E8F0;
       font-size:.68rem;font-weight:700;color:#15803D}
+    .viag-kb-card-lanc.parcial{color:#B45309}
 
     /* ── ORIGEM DAS DESPESAS ────────────────────────────────────
        Discreto de propósito: é rodapé de comprovante, não conteúdo. */
@@ -65485,7 +65493,112 @@ function _viagAdiTotal(v){
   return t;
 }
 try{ window._viagAdiTotal = _viagAdiTotal; }catch(e){}
-function _viagCat(id){ return VIAG_CATEGORIAS.find(c => c.id === id) || VIAG_CATEGORIAS[VIAG_CATEGORIAS.length-1]; }
+/* ══ CATEGORIA DE VIAGEM É CATEGORIA DO FOREKASH ════════════════════
+
+   Este módulo nasceu com nove categorias próprias — Transporte, Hospedagem,
+   Alimentação — que não existem em lugar nenhum do resto do app. O gasto saía
+   daqui como "transporte" e chegava ao Extrato como outra coisa, ou como
+   categoria nova inventada na hora. Duas listas pro mesmo dinheiro: o
+   relatório por categoria da viagem nunca ia bater com o do Extrato.
+
+   Agora a lista é a MESMA do lançamento — a do cadastro da empresa. O que
+   sobra do desenho antigo é a ordem: o que se usa em viagem sobe pro topo,
+   porque ninguém quer rolar oitenta categorias pra achar Alimentação. */
+const VIAG_CAT_PALAVRAS = ['viagem','viagens','transporte','uber','taxi','locomoc',
+  'deslocament','passagem','aerea','aviacao','hotel','hosped','alimentac','refeic',
+  'restaurante','combustiv','pedagio','estacionament','diaria'];
+
+function _viagCatNorm(t){
+  return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+function _viagCatsOficiais(){
+  let todas = [];
+  try{ if(typeof _extOfficialCats === 'function') todas = _extOfficialCats('gasto') || []; }catch(_){}
+  const topo = [], resto = [];
+  for(const c of todas){
+    const n = _viagCatNorm(c);
+    (VIAG_CAT_PALAVRAS.some(p => n.indexOf(p) >= 0) ? topo : resto).push(c);
+  }
+  return { topo: topo, resto: resto, todas: todas };
+}
+
+/* O que mostrar pra um valor guardado. Relatório antigo tem o id interno
+   ('transporte'); o novo tem o nome da categoria do cadastro. Os dois
+   precisam continuar legíveis — e os antigos não viram "Outros" calados. */
+function _viagCat(id){
+  const achou = VIAG_CATEGORIAS.find(c => c.id === id);
+  if(achou) return achou;
+  const txt = String(id || '').trim();
+  if(txt) return { id: txt, icon: '📁', nome: txt };
+  return VIAG_CATEGORIAS[VIAG_CATEGORIAS.length - 1];
+}
+
+/* O seletor da linha de despesa. `optgroup` em vez de uma lista corrida:
+   o navegador desenha o cabeçalho e não deixa escolher o rótulo por engano. */
+function _viagCatSelectHtml(d, dis, aoMudar){
+  const atual = String(d.categoria || '');
+  const { topo, resto } = _viagCatsOficiais();
+  const conhecida = topo.concat(resto).some(c => c === atual);
+  const opt = (v, sel) => '<option value="' + esc(v) + '"' + (sel ? ' selected' : '') + '>'
+                        + esc(v) + '</option>';
+  /* O mesmo seletor serve à linha da despesa e à revisão da leitura — o que
+     muda é quem recebe a escolha. */
+  const handler = aoMudar || ('viagUpdateDesp(' + d.id + ', \'categoria\', this.value)');
+  let html = '<select onchange="' + handler + '"' + dis + '>';
+  /* Valor que não está mais na lista (categoria antiga deste módulo, ou
+     apagada do cadastro) continua selecionável — trocar sozinho mudaria o
+     relatório de alguém sem avisar. */
+  if(atual && !conhecida){
+    const c = _viagCat(atual);
+    html += '<optgroup label="Como está guardado">'
+          + '<option value="' + esc(atual) + '" selected>' + (c.icon ? c.icon + ' ' : '')
+          + esc(c.nome) + '</option></optgroup>';
+  }
+  if(!atual) html += '<option value="" selected>— escolha —</option>';
+  if(topo.length){
+    html += '<optgroup label="Mais usadas em viagem">';
+    for(const c of topo) html += opt(c, c === atual);
+    html += '</optgroup>';
+  }
+  if(resto.length){
+    html += '<optgroup label="Todas as categorias">';
+    for(const c of resto) html += opt(c, c === atual);
+    html += '</optgroup>';
+  }
+  if(!topo.length && !resto.length)
+    html += '<option value="" disabled>Nenhuma categoria cadastrada</option>';
+  return html + '</select>';
+}
+/* A leitura por imagem responde com os ids deste módulo — é o vocabulário
+   que cabe numa instrução curta. Aqui eles viram a categoria que existe no
+   cadastro da empresa; o que não tiver equivalente continua como veio, e o
+   seletor mostra como "Como está guardado" em vez de escolher por conta. */
+const VIAG_CAT_PONTE = {
+  transporte:  ['transporte','locomoc','uber','taxi','deslocament','viagem'],
+  voo:         ['passagem','aerea','aviacao','viagem','transporte'],
+  hospedagem:  ['hosped','hotel','diaria','viagem'],
+  alimentacao: ['aliment','refeic','restaurante'],
+  combustivel: ['combustiv','transporte'],
+  pedagio:     ['pedagio','estacionament','transporte'],
+  ingressos:   ['ingresso','evento','treinament','capacitac'],
+  material:    ['material','suprimento','escritorio'],
+  outros:      []
+};
+function _viagCatOficialPara(id){
+  const chave = String(id || '').toLowerCase();
+  const pistas = VIAG_CAT_PONTE[chave];
+  if(!pistas) return id;                       // já é nome de categoria real
+  const { todas } = _viagCatsOficiais();
+  for(const p of pistas){
+    const achou = todas.find(c => _viagCatNorm(c).indexOf(p) >= 0);
+    if(achou) return achou;
+  }
+  return id;
+}
+try{ window._viagCatOficialPara = _viagCatOficialPara; }catch(e){}
+
+try{ window._viagCatsOficiais = _viagCatsOficiais;
+     window._viagCatSelectHtml = _viagCatSelectHtml; }catch(e){}
 function _viagStatus(id){ return VIAG_STATUS.find(s => s.id === id) || VIAG_STATUS[0]; }
 function _viagFmt(n){ return (typeof fmtBRL === 'function') ? fmtBRL(n||0) : 'R$ ' + (n||0).toFixed(2); }
 function _viagFmtData(s){
@@ -65656,15 +65769,16 @@ function renderViagens(){
                 se o dinheiro já saiu exigia abrir o relatório e procurar
                 colaborador por colaborador — e quem não procura, lança de novo. */
              +   (function(){
-                  if(!_viagJaLancado(v)) return '';
-                  const ids = (v.colaboradores || [])
-                    .map(c => (c.reembolso && c.reembolso.extratoId)
-                           || ((_viagLancamentoExistente(v, c.cid) || {}).id))
-                    .filter(Boolean);
-                  return '<div class="viag-kb-card-lanc" title="Já virou conta a pagar no Extrato'
-                       + (ids.length ? ' · lançamento ' + ids.map(i => '#' + i).join(', ') : '')
-                       + '">✓ lançado no Extrato'
-                       + (ids.length === 1 ? ' · #' + ids[0] : '') + '</div>';
+                  const st = _viagLancStatus(v);
+                  if(!st.lancados) return '';
+                  const tudo = st.lancados >= st.precisam;
+                  return '<div class="viag-kb-card-lanc' + (tudo ? '' : ' parcial')
+                       + '" title="' + (st.ids.length ? 'Conta a pagar ' + st.ids.map(i => '#' + i).join(', ') : '')
+                       + (tudo ? '' : ' · falta ' + esc(st.faltam.join(', '))) + '">'
+                       + (tudo
+                           ? '✓ lançado no Extrato' + (st.ids.length === 1 ? ' · #' + st.ids[0] : '')
+                           : '½ ' + st.lancados + ' de ' + st.precisam + ' lançados')
+                       + '</div>';
                 })()
              +   (v.aprovacao ? '<div class="viag-kb-card-sig">🔏 ' + esc(v.aprovacao.aprovador||'') + (v.aprovacao.codigo ? ' · ' + v.aprovacao.codigo : '') + '</div>' : '')
              +   (v.rejeicao ? '<div class="viag-kb-card-rej" title="' + esc(v.rejeicao.motivo||'') + '">❌ ' + esc(v.rejeicao.por||'') + (v.rejeicao.codigo ? ' · ' + v.rejeicao.codigo : '') + '<div style="font-style:italic;font-weight:500;margin-top:2px;font-family:inherit">' + esc((v.rejeicao.motivo||'').slice(0,50)) + ((v.rejeicao.motivo||'').length > 50 ? '…' : '') + '</div></div>' : '')
@@ -66356,19 +66470,20 @@ function _viagRenderEditor(){
     + '</div>'
     // Já virou dinheiro? Antes dos colaboradores, que é onde se cria.
     + (function(){
-        if(!_viagJaLancado(v)) return '';
-        const ids = (v.colaboradores || [])
-          .map(c => (c.reembolso && c.reembolso.extratoId)
-                 || ((_viagLancamentoExistente(v, c.cid) || {}).id))
-          .filter(Boolean);
-        return '<div class="viag-lancado">'
-          + '<span class="viag-lancado-ico">✓</span>'
-          + '<div><b>Este relatório já foi lançado no Extrato</b>'
-          + '<small>' + (ids.length
-              ? 'Conta a pagar ' + ids.map(i => '#' + i).join(', ') + ' · não crie outra pelo mesmo gasto'
-              : 'Não crie outra pelo mesmo gasto') + '</small></div>'
-          + (ids.length === 1
-              ? '<button type="button" onclick="_viagAbrirLancamentoExtrato(' + ids[0] + ')">ver no Extrato</button>'
+        const st = _viagLancStatus(v);
+        if(!st.lancados) return '';
+        const tudo = st.lancados >= st.precisam;
+        const contas = st.ids.length ? 'Conta a pagar ' + st.ids.map(i => '#' + i).join(', ') : '';
+        return '<div class="viag-lancado' + (tudo ? '' : ' viag-lancado--parcial') + '">'
+          + '<span class="viag-lancado-ico">' + (tudo ? '✓' : '½') + '</span>'
+          + '<div><b>' + (tudo
+              ? 'Este relatório já foi lançado no Extrato'
+              : st.lancados + ' de ' + st.precisam + ' reembolsos já lançados') + '</b>'
+          + '<small>' + (tudo
+              ? (contas ? contas + ' · não crie outra pelo mesmo gasto' : 'Não crie outra pelo mesmo gasto')
+              : (contas + (st.faltam.length ? ' · falta ' + esc(st.faltam.join(', ')) : ''))) + '</small></div>'
+          + (st.ids.length === 1
+              ? '<button type="button" onclick="_viagAbrirLancamentoExtrato(' + st.ids[0] + ')">ver no Extrato</button>'
               : '')
           + '</div>';
       })()
@@ -66543,14 +66658,36 @@ function _viagLancamentoExistente(v, cid){
     )) || null;
   }catch(_){ return null; }
 }
-/* O relatório inteiro já virou dinheiro no Extrato? */
-function _viagJaLancado(v){
+/* ══ QUANTOS JÁ VIRARAM DINHEIRO ═════════════════════════════════
+
+   O reembolso é POR COLABORADOR: cada um recebe o seu, em lançamentos
+   separados, porque são pessoas diferentes recebendo valores diferentes.
+
+   Então "este relatório já foi lançado" não é sim ou não — com três
+   colaboradores e um lançado, dizer que o relatório foi lançado esconde
+   dois reembolsos que ninguém pagou ainda.
+
+   Quem não tem saldo a receber (gastou só pelo cartão da empresa, ou o
+   adiantamento cobriu tudo) não entra na conta: não há o que lançar. */
+function _viagLancStatus(v){
+  const r = { precisam: 0, lancados: 0, ids: [], faltam: [] };
   try{
     _viagEnsureColabs(v);
-    return (v.colaboradores || []).some(c =>
-      (c.reembolso && c.reembolso.extratoId) || _viagLancamentoExistente(v, c.cid));
-  }catch(_){ return false; }
+    for(const c of (v.colaboradores || [])){
+      const achado = (c.reembolso && c.reembolso.extratoId)
+        ? { id: c.reembolso.extratoId }
+        : _viagLancamentoExistente(v, c.cid);
+      const saldo = (parseFloat(c.adiantamento) || 0) - _viagGastoPorColab(v, c.cid);
+      const precisa = saldo < -0.005;
+      if(precisa || achado) r.precisam++;
+      if(achado){ r.lancados++; if(achado.id) r.ids.push(achado.id); }
+      else if(precisa) r.faltam.push(c.nome || '(sem nome)');
+    }
+  }catch(_){}
+  return r;
 }
+function _viagJaLancado(v){ return _viagLancStatus(v).lancados > 0; }
+try{ window._viagLancStatus = _viagLancStatus; }catch(e){}
 try{ window._viagLancamentoExistente = _viagLancamentoExistente;
      window._viagJaLancado = _viagJaLancado; }catch(e){}
 
@@ -66835,9 +66972,7 @@ function _viagRenderDespTable(v){
     const porQuem = d.porQuem || (d.pagamento === 'empresa' ? 'empresa' : defaultColabCid);
     html += '<tr>'
       + '<td class="col-data"><input type="date" value="' + (d.data||'') + '" onchange="viagUpdateDesp(' + d.id + ', \'data\', this.value)"' + _vDis + '></td>'
-      + '<td class="col-cat"><select onchange="viagUpdateDesp(' + d.id + ', \'categoria\', this.value)"' + _vDis + '>'
-      +   VIAG_CATEGORIAS.map(c => '<option value="' + c.id + '"' + (d.categoria === c.id ? ' selected' : '') + '>' + c.icon + ' ' + c.nome + '</option>').join('')
-      + '</select></td>'
+      + '<td class="col-cat">' + _viagCatSelectHtml(d, _vDis) + '</td>'
       + '<td><input type="text" value="' + esc(d.descricao||'') + '" placeholder="Ex: Uber aeroporto → hotel" oninput="viagUpdateDesp(' + d.id + ', \'descricao\', this.value)"' + _vDis + '></td>'
       + '<td class="col-porq"><select onchange="_viagSetDespPorQuem(' + d.id + ', this.value)"' + _vDis + '>' + porQuemOpts(porQuem) + '</select></td>'
       + (function(){
@@ -68398,10 +68533,10 @@ function _viagPrintModal(modo, dados){
       + '<td class="c"><input type="checkbox"' + (it.usar ? ' checked' : '')
       +   ' onchange="_viagPrintMarcar(' + i + ', this.checked)"></td>'
       + '<td>' + esc(it.descricao || '(sem descrição)') + '</td>'
-      + '<td class="c"><select onchange="_viagPrintCat(' + i + ', this.value)">'
-      +   VIAG_CATEGORIAS.map(c => '<option value="' + c.id + '"' + (it.categoria === c.id ? ' selected' : '') + '>'
-      +     c.icon + ' ' + c.nome + '</option>').join('')
-      + '</select></td>'
+      + '<td class="c">'
+      +   _viagCatSelectHtml({ id: i, categoria: it.categoria }, '',
+            '_viagPrintCat(' + i + ', this.value)')
+      + '</td>'
       + '<td class="r val">' + _viagFmt(it.valor) + '</td>'
       + '</tr>';
   });
@@ -68473,7 +68608,8 @@ async function _viagPrintLer(file){
         descricao: String((d && d.descricao) || '').trim().slice(0, 160),
         valor: Math.abs(Number(String((d && d.valor) != null ? d.valor : 0).replace(',', '.'))) || 0,
         data: /^\d{4}-\d{2}-\d{2}$/.test(String((d && d.data) || '')) ? d.data : '',
-        categoria: cats.has(String((d && d.categoria) || '')) ? d.categoria : 'outros',
+        categoria: _viagCatOficialPara(
+          cats.has(String((d && d.categoria) || '')) ? d.categoria : 'outros'),
         usar: true
       }))
       /* Linha sem valor não é despesa — é cabeçalho, rodapé ou ruído da
@@ -68607,7 +68743,9 @@ function viagAddDesp(){
   v.despesas.push({
     id: viagens.nextDespId++,
     data: v.dataInicio || new Date().toISOString().slice(0,10),
-    categoria: 'outros',
+    /* Vazia em vez de "Outros": categoria chutada é pior que categoria em
+       branco — some da revisão e entra errada no relatório. */
+    categoria: '',
     descricao: '',
     valor: 0,
     pagamento: 'empresa'
@@ -85721,12 +85859,20 @@ function _extLancDeViagem(editId){
       dataEmissao: v.dataFim || v.dataInicio || hoje,
       valor: valor,
       descricao: 'Reembolso viagem · ' + titulo + ' · ' + nome,
-      categoria: 'Viagens',
+      /* "Viagens" não existe no cadastro desta empresa — chegava no modal
+         oferecendo criar categoria nova. Pergunta ao cadastro; se não houver
+         nenhuma de viagem, vai vazia e quem lança escolhe. */
+      categoria: (typeof _viagCatOficialPara === 'function')
+        ? (_viagCatOficialPara('transporte') === 'transporte' ? '' : _viagCatOficialPara('transporte'))
+        : '',
       contraparte: nome,
       conta: (typeof fkContaPadrao === 'function' ? fkContaPadrao() : ''),
       status: 'pendente',
-      notas: 'Gerado do relatório de viagem #' + v.id
-           + ((v.despesas || []).length ? ' · ' + v.despesas.length + ' despesa(s)' : ''),
+      /* O nome vai nas NOTAS, não na referência interna: a referência é chave
+         de busca e tem que continuar igual mesmo se a pessoa for renomeada
+         no cadastro. Aqui ela é texto pra quem lê. */
+      notas: 'Reembolso de ' + nome + ' · relatório de viagem #' + v.id
+           + ((v.despesas || []).length ? ' · ' + v.despesas.length + ' despesa(s) no relatório' : ''),
       documento: '',
       refInterna: 'VIAG-' + v.id + '-' + c.cid,
       tags: (typeof fkTagsLimpar === 'function') ? fkTagsLimpar(v.tags) : [],
@@ -88343,6 +88489,27 @@ function extSaveModal(tipo, comSerieForcado){
     }
     _extEvento(_newLanc, 'Lançamento criado · ' + _extEvMoeda(valor)
       + (status === 'pago' ? ' · já baixado' : ' · em aberto'));
+    /* ══ DE ONDE ELE VEIO FICA NO HISTÓRICO ═══════════════════════════
+
+       O reembolso nasce aqui com tudo preenchido, mas o histórico só dizia
+       "Lançamento criado" — como qualquer gasto digitado à mão. Quem abrir
+       esse lançamento daqui a seis meses vê R$ 577,90 pra uma pessoa física
+       e não tem como saber que é prestação de contas de uma viagem.
+
+       O vínculo sai do próprio `refInterna`, que já carrega viagem e
+       colaborador — sem estado global entre abrir o modal e salvar. */
+    try{
+      const mv = String(refInterna || '').match(/^VIAG-(\d+)-(.+)$/);
+      if(mv){
+        const vg = ((typeof viagens !== 'undefined' && viagens && viagens.itens) || [])
+          .find(x => x && String(x.id) === mv[1]);
+        const cb = vg && (vg.colaboradores || []).find(x => x && x.cid === mv[2]);
+        _newLanc.origem = { tipo:'viagem-reembolso', viagemId: +mv[1], colaboradorCid: mv[2] };
+        _extEvento(_newLanc, 'Criado da prestação de contas · viagem #' + mv[1]
+          + (vg && vg.titulo ? ' · ' + vg.titulo : '')
+          + (cb && cb.nome ? ' · ' + cb.nome : ''));
+      }
+    }catch(e){ console.warn('[FK] vínculo da viagem:', e && e.message); }
     extratoData.lancamentos.push(_newLanc);
   }
   try{ impParcConcInvalidar(); }catch(_){}
@@ -88425,7 +88592,7 @@ function _extHistItens(){
 /* Eventos gravados antes de o selo AUTO existir não têm a marca e apareceriam
    como se ele tivesse escrito. Reconhece os textos que só o sistema produz —
    é heurística, e vale só pros registros antigos; os novos vêm marcados. */
-const _EXT_EV_AUTO_RE = /^(Pago |Recebido |Editado ·|Lançamento criado|Voltou para Em Aberto|Agrupado com|Vinculado ao|Criado pel|Conciliado com)/;
+const _EXT_EV_AUTO_RE = /^(Pago |Recebido |Editado ·|Lançamento criado|Voltou para Em Aberto|Agrupado com|Vinculado ao|Criado pel|Criado da|Conciliado com)/;
 function _extEvEhAuto(e){ return !!(e && (e.a || _EXT_EV_AUTO_RE.test(e.d || ''))); }
 function _extHistLinhas(itens){
   const lista = itens || [];
