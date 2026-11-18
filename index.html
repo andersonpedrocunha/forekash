@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1794974560"/>
+  <meta name="fk-build" content="forekash-v1794974658"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -8823,6 +8823,22 @@
       background:#94A3B8;border-color:#94A3B8}
     .viag-reemb-espera{display:block;margin-top:6px;font-size:.72rem;color:#64748B;
       line-height:1.4;text-align:center}
+
+    /* ── CARD FECHADO ─────────────────────────────────────────
+       Recuado, não apagado: ele ainda precisa ser lido, só não disputa
+       atenção com o que ainda está aberto. O trilho verde à esquerda é o
+       que se enxerga de longe. */
+    .viag-kb-card.is-fechado{background:#FAFDFB;border-color:#DCFCE7;
+      box-shadow:inset 3px 0 0 #16A34A}
+    .viag-kb-card.is-fechado:hover{border-color:#86EFAC;box-shadow:inset 3px 0 0 #16A34A,0 4px 10px rgba(22,163,74,.12)}
+    .viag-kb-card.is-fechado .viag-kb-card-name{color:#14532D}
+    .viag-kb-card-name .ok{color:#16A34A;font-weight:800;margin-right:5px}
+    /* Preso ao Extrato: um ponto, não um cadeado. O motivo está no title e
+       na tentativa de arrastar — desenhar um cadeado no card seria anunciar
+       um impedimento que quase ninguém vai encontrar. */
+    .viag-kb-card-name .trava{color:#86EFAC;margin-left:6px;font-size:.9rem;
+      vertical-align:1px;cursor:help}
+    .viag-kb-card.is-preso{cursor:default}
 
     /* ── HISTÓRICO DO RELATÓRIO ─────────────────────────────────── */
     .viag-log{margin-top:10px}
@@ -65788,10 +65804,25 @@ function renderViagens(){
         const saldo = _viagSaldo(v);
         const tEmp = _viagTotalEmpresa(v);
         const tFunc = _viagTotalFuncionario(v);
-        html += '<div class="viag-kb-card" draggable="true"'
+        /* ══ CARD FECHADO TEM OUTRA CARA ═══════════════════════════
+
+           Num quadro, a coluna já diz o estado — mas só enquanto se olha o
+           cabeçalho. O card viaja em print, em screenshot, na lateral do
+           olho: ele precisa dizer sozinho que acabou. E dizer também se
+           está preso ao Extrato, porque é isso que explica por que não sai
+           do lugar quando alguém tenta arrastar. */
+        const _fechado = (v.status === 'reembolsado');
+        const _preso = _fechado && !!v.reembolsadoAuto;
+        html += '<div class="viag-kb-card' + (_fechado ? ' is-fechado' : '')
+             +   (_preso ? ' is-preso' : '') + '"'
              +   ' ondragstart="viagDragCard(event, ' + v.id + ')"'
              +   ' onclick="viagOpenEditor(' + v.id + ')">'
-             +   '<div class="viag-kb-card-name">' + esc(v.titulo || 'Sem título') + '</div>'
+             +   '<div class="viag-kb-card-name">'
+             +     (_fechado ? '<span class="ok">✓</span>' : '')
+             +     esc(v.titulo || 'Sem título')
+             +     (_preso ? '<span class="trava" title="Fechado pelo Extrato — '
+                           + 'pra reabrir, desfaça o pagamento lá">•</span>' : '')
+             +   '</div>'
              +   '<div class="viag-kb-card-meta">'
              +     '<div>📍 ' + esc(v.destino || '—') + '</div>'
              +     (_showColab ? _viagRenderColabStack(v) : '')
@@ -65904,6 +65935,11 @@ function viagDropCard(ev, newStatus){
    volta a ser editável. */
 function _viagTravadoPorVinculo(v){
   if(!v || v.status !== 'reembolsado') return null;
+  /* SÓ O QUE O EXTRATO FECHOU FICA PRESO. Quem moveu o card na mão assumiu
+     a decisão e pode desfazê-la — travar aí seria punir quem escolheu
+     controlar o processo manualmente. O que não se desfaz é o que o dinheiro
+     decidiu. */
+  if(!v.reembolsadoAuto) return null;
   if(!_viagExtratoPronto()) return null;
   const ids = [];
   try{
@@ -65957,6 +65993,11 @@ function _viagChangeStatus(v, newStatus, context){
   }
   const _stAntes = (_viagStatus(v.status) || {}).nome || v.status || '—';
   v.status = newStatus;
+  /* Quem fechou manda no carimbo: só o caminho 'auto' deixa a marca que
+     tranca o card. Sem apagar aqui, um relatório fechado pelo Extrato,
+     reaberto e fechado na mão continuaria travado pelo motivo errado. */
+  if(newStatus === 'reembolsado') v.reembolsadoAuto = (context === 'auto');
+  else if(v.reembolsadoAuto) delete v.reembolsadoAuto;
   _viagEvento(v, _stAntes + ' → ' + ((_viagStatus(newStatus) || {}).nome || newStatus)
     + (context === 'auto' ? ' · o Extrato quitou o reembolso' : ''));
   // Aging: marca fechamento se foi pra estado terminal, limpa se reabriu
@@ -69231,6 +69272,11 @@ function viagDeleteCurrent(){
   const v = _viagCurrent();
   if(!v) return;
   const presos = _viagTravadoPorVinculo(v);
+  /* Fechado na mão com lançamento no Extrato: dá pra apagar, mas não às
+     cegas — o aviso diz o que vai ficar pra trás. */
+  const _soltos = (!presos && v.status === 'reembolsado')
+    ? ((v.colaboradores || []).map(c => (_viagLancDoColab(v, c.cid) || {}).id).filter(x => x != null))
+    : [];
   if(presos){
     if(typeof anaConfirm === 'function'){
       anaConfirm({
@@ -69258,7 +69304,12 @@ function viagDeleteCurrent(){
     anaConfirm({
       eyebrow: 'Excluir relatório',
       title: 'Apagar "' + (v.titulo || 'Sem título') + '"?',
-      message: 'Este relatório e todas as ' + (v.despesas||[]).length + ' despesa(s) serão removidos. Esta ação não pode ser desfeita.',
+      message: 'Este relatório e todas as ' + (v.despesas||[]).length + ' despesa(s) serão removidos. Esta ação não pode ser desfeita.'
+             + (_soltos.length
+                 ? '<br><br><strong>Atenção:</strong> a conta a pagar '
+                   + _soltos.map(i => '#' + i).join(', ')
+                   + ' continua no Extrato e vai ficar sem relatório de origem.'
+                 : ''),
       okText: 'Excluir',
       cancelText: 'Cancelar',
       danger: true
