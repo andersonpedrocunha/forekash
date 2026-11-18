@@ -1,20 +1,21 @@
 # O index.html tem 9 MB. Ele PRECISA ser revalidado em toda abertura — é o que
 # garante que uma correção no ar apareça na hora, e a razão de existir o
-# scripts/deploy.sh. Mas revalidar não é o mesmo que baixar de novo: com
-# `max-age=0, must-revalidate` o navegador pergunta ao servidor e, se nada
-# mudou, recebe 304 sem corpo e reaproveita o que já tem.
+# scripts/deploy.sh. Mas revalidar não é o mesmo que baixar de novo: com um
+# validador, o navegador pergunta e, se nada mudou, recebe 304 sem corpo.
 #
-# Era isso que estava quebrado. Com `CDN-Cache-Control: no-store` a Cloudflare
-# devolvia o index SEM etag — enquanto /sw.js e /version.txt vinham com etag
-# normalmente. Sem validador não existe 304, e toda abertura baixava os 2,3 MB
-# comprimidos outra vez (medido: 520 ms de TTFB + 1,27 s de download, com a
-# primeira pintura em 3,2 s).
-#
-# Tirando o no-store o etag volta e a revalidação fica de graça. A garantia de
-# frescor continua a mesma: max-age=0 + must-revalidate obriga a perguntar, no
-# navegador e na borda, e o etag do Workers Assets muda quando o arquivo muda.
+# Quem emite esse validador é o Worker (servirApp, em src/worker.js): o
+# Workers Assets manda etag para /sw.js e /version.txt e não manda para um
+# arquivo de 9 MB. Por isso o CDN-Cache-Control continua `no-store` — sem ele
+# a borda responde sozinha, de dentro do cache dela, e a requisição nunca
+# chega no Worker que põe o etag. `no-store` aqui é só para a BORDA; o
+# navegador segue com max-age=0 + must-revalidate, que é o que faz ele
+# perguntar e aproveitar o 304.
 /index.html
   Cache-Control: public, max-age=0, must-revalidate
+  CDN-Cache-Control: no-store
+  Cloudflare-CDN-Cache-Control: no-store
 
 /
   Cache-Control: public, max-age=0, must-revalidate
+  CDN-Cache-Control: no-store
+  Cloudflare-CDN-Cache-Control: no-store
