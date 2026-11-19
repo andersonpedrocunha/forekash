@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795113144"/>
+  <meta name="fk-build" content="forekash-v1795113524"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -2029,6 +2029,9 @@
     .patrim-real-aviso .ico{font-size:.9rem;line-height:1.2}
     .patrim-real-aviso b{color:#0F172A}
     .patrim-real-aviso.vazio{border-left-color:#CBD5E1;background:#F8FAFC}
+    /* "Posição de agora" é constatação, não alerta: fica no cinza. */
+    .patrim-real-aviso.agora{border-left-color:#94A3B8;background:#F8FAFC;padding:7px 12px;
+      font-size:.71rem}
     #patrim-tab-real.patrim-foto .patrim-toolbar{display:none}
     #patrim-tab-real.patrim-sem-foto .patrim-kpis,
     #patrim-tab-real.patrim-sem-foto .patrim-toolbar,
@@ -151313,12 +151316,41 @@ function _patrimDispo(liquidez){
    receber existe do mesmo jeito: está no Extrato, como ganho em aberto. */
 const _PATRIM_SRC_MIGRA = { 'asaas-pendente': 'ext-receber', 'asaas': 'ext-receber' };
 
-function patrimAutoImport(){
+/* ══ AUSÊNCIA DE DADO NÃO É ZERO ══════════════════════════════════════
+
+   Esta função roda em TODO render, e `patrimRender` salva logo depois. Quando
+   o Patrimônio desenha antes de o Extrato descer da nuvem, `_extCollectReal()`
+   devolve lista vazia e as quatro linhas do Extrato viram R$ 0,00 — gravadas
+   por cima dos valores certos. Foi o que apareceu na tela com o balanço
+   inteiro zerado do lado do Extrato enquanto a nuvem tinha os valores certos.
+
+   Pior que a tela: a foto mensal sai de `PATRIM.contas`. Um fechamento podia
+   ser fotografado zerado em 30 de novembro e ficar assim pra sempre, porque
+   foto não se recalcula.
+
+   Módulo sem nada carregado não tem opinião sobre o valor — a linha fica como
+   estava. A exceção é o botão "Recarregar auto-importados", que passa
+   `forcar`: ali a vontade é explícita, e zerar é resposta legítima pra quem
+   apagou os lançamentos de verdade. */
+function patrimAutoImport(forcar){
   const emp = _patrimEmprestimos();
+  const vazio = (fn) => { try{ return !fn(); }catch(_){ return true; } };
+  const semExtrato = vazio(() => extratoData && Array.isArray(extratoData.lancamentos)
+                                 && extratoData.lancamentos.length);
+  const semDispo   = vazio(() => dispo && Array.isArray(dispo.contas) && dispo.contas.length);
+  const semLoans   = vazio(() => Array.isArray(loans) && loans.length);
+  /* Só segura quando há o que perder: linha já em zero não corre risco. */
+  const segura = (c, fonteVazia) =>
+    !forcar && fonteVazia && Math.abs(Number(c.valor) || 0) > 0.005;
+
   PATRIM.contas.forEach(c => {
     if(!c) return;
     if(c.src && _PATRIM_SRC_MIGRA[c.src]) c.src = _PATRIM_SRC_MIGRA[c.src];
     if(!c.auto || !c.src) return;
+    const ehExt = c.src.indexOf('ext-') === 0;
+    const ehDispo = c.src.indexOf('dispo-') === 0;
+    const ehLoans = c.src.indexOf('loans-') === 0;
+    if(segura(c, (ehExt && semExtrato) || (ehDispo && semDispo) || (ehLoans && semLoans))) return;
     switch(c.src){
       case 'dispo-caixa':   c.valor = _patrimDispo('caixa');   break;
       case 'dispo-reserva': c.valor = _patrimDispo('reserva'); break;
@@ -151368,7 +151400,7 @@ try{ window._patrimLigarAutomaticos = _patrimLigarAutomaticos;
 
 function patrimReimportAll(){
   try{ _patrimLigarAutomaticos(); }catch(_){}
-  patrimAutoImport();
+  patrimAutoImport(true);   // vontade explícita: aqui zerar é resposta válida
   patrimSave();
   patrimRender();
   if(typeof showToast === 'function') showToast('✓ Recarregado · valores atualizados', 'ok');
@@ -152781,20 +152813,56 @@ function _patrimRealAvisoRender(pos){
   if(pane){ pane.classList.toggle('patrim-foto', !pos.aoVivo && !!pos.foto);
             pane.classList.toggle('patrim-sem-foto', !pos.aoVivo && !pos.foto); }
   if(!el) return;
-  if(pos.aoVivo){ el.hidden = true; el.innerHTML = ''; el.classList.remove('vazio'); return; }
   const rot = (typeof fkPerRotulo === 'function') ? fkPerRotulo(_patrimRealPerId()) : '';
   const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x || ''));
+  const hoje = new Date();
+  const fimDoMes = (() => {
+    try{ return _patrimUltimoDiaUtil(hoje.getFullYear(), hoje.getMonth()); }catch(_){ return null; }
+  })();
+  const diaBR = d => { try{ return d.toLocaleDateString('pt-BR', { day:'2-digit', month:'long' }); }
+                       catch(_){ return ''; } };
+
+  /* ══ AO VIVO NÃO É FECHAMENTO ══════════════════════════════════════
+     Balanço é posição num instante, então "como está agora, no meio do mês"
+     é leitura legítima — só não é um FECHAMENTO. A tela não dizia qual das
+     duas estava mostrando, e aí novembro parecia um mês fechado como os
+     outros. Uma linha resolve: isto é agora, a foto sai no último dia útil. */
+  el.classList.remove('vazio');
+  if(pos.aoVivo){
+    const jaSaiu = fimDoMes && hoje >= fimDoMes;
+    el.hidden = false;
+    el.classList.add('agora');
+    el.innerHTML = '<span class="ico">📍</span><span>Posição de <b>agora</b>, não um fechamento'
+      + (jaSaiu
+          ? ' — a foto deste mês já foi tirada e está no Histórico.'
+          : ' — <b>' + esc(rot) + '</b> ainda está em curso'
+            + (fimDoMes ? ', e a foto sai sozinha em <b>' + esc(diaBR(fimDoMes)) + '</b>' : '') + '.')
+      + '</span>';
+    return;
+  }
+  el.classList.remove('agora');
   el.hidden = false;
   if(!pos.foto){
-    const quando = (() => {
-      try{ return _patrimUltimoDiaUtil(new Date().getFullYear(), new Date().getMonth())
-             .toLocaleDateString('pt-BR', { day:'2-digit', month:'long' }); }catch(_){ return ''; }
-    })();
+    /* Mês passado sem foto não precisa ser um beco. Caixa e dívida daquele
+       mês têm registro datado — é o que a série Caixa × Dívida mostra — e
+       dizer os dois vale muito mais que repetir que não há foto. */
+    let conhecido = '';
+    try{
+      const r = (typeof fkPerRangeYm === 'function') ? fkPerRangeYm(_patrimRealPerId()) : null;
+      const serie = (typeof _patrimCxDvSerie === 'function') ? (_patrimCxDvSerie() || []) : [];
+      const dentro = r ? serie.filter(p => p.ym >= r.de && p.ym <= r.ate) : [];
+      const p = dentro.length ? dentro[dentro.length - 1] : null;
+      if(p) conhecido = ' Do que se sabe daquele mês: <b>R$ ' + _patrimFmt(p.caixa)
+        + '</b> em caixa e <b>R$ ' + _patrimFmt(p.divida) + '</b> de dívida'
+        + (p.faltam ? ' (com ' + p.faltam + ' conta' + (p.faltam > 1 ? 's' : '')
+                      + ' sem saldo informado, então o caixa está menor do que foi)' : '')
+        + ' — está no gráfico <b>Caixa × Dívida</b>, no Dashboard.';
+    }catch(_){}
     el.classList.add('vazio');
     el.innerHTML = '<span class="ico">—</span><span>Nenhuma foto de <b>' + esc(rot)
       + '</b>. As fotos saem sozinhas no último dia útil de cada mês'
-      + (quando ? ' — a próxima em <b>' + esc(quando) + '</b>' : '')
-      + '. Aperte <b>Hoje</b> pra voltar pra posição de agora.</span>';
+      + (fimDoMes ? ' — a próxima em <b>' + esc(diaBR(fimDoMes)) + '</b>' : '')
+      + '.' + conhecido + ' Aperte <b>Hoje</b> pra voltar pra posição de agora.</span>';
     return;
   }
   const dia = (() => {
@@ -153073,6 +153141,10 @@ function patrimSnapshotMensal(){
     if(!alvos.length) return 0;
 
     const totals = patrimCalcTotals(PATRIM.contas, PATRIM.capital);
+    /* Cinto além do suspensório do `patrimAutoImport`: balanço inteiro em
+       zero nunca é um fechamento de verdade, e foto não se recalcula depois.
+       Melhor não ter a foto do que ter uma mentindo. */
+    if(Math.abs(totals.totAtivo) < 0.005 && Math.abs(totals.totPassivo) < 0.005) return 0;
     let n = 0;
     for(const a of alvos){
       PATRIM.snapshots.unshift({
