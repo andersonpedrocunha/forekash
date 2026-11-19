@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795101651"/>
+  <meta name="fk-build" content="forekash-v1795102163"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7150,6 +7150,16 @@
     .ext-modal-hd .badge{padding:3px 9px;border-radius:5px;font-size:.7rem;font-weight:700;color:#fff;letter-spacing:.02em}
     .ext-modal-hd .badge.gasto{background:#DC2626}
     .ext-modal-hd .badge.ganho{background:#16A34A}
+    /* O badge do tipo nasceu pra um cabeçalho claro: `.badge` sozinho não tem
+       fundo nem cor, e só `.ext-modal-hd` pintava os seus. No `.dkb-modal-hd`,
+       que a padronização deixou escuro, ele virava texto escuro sobre fundo
+       escuro — invisível, mas ocupando uns cem pixels entre a seta e o
+       título. Era o buraco que fazia o topo parecer mal formatado. */
+    .dkb-modal-hd .badge,
+    .dkb-confirm-hd .badge{background:#334155;color:#E2E8F0}
+    .dkb-modal-hd .badge.gasto{background:#DC2626;color:#fff}
+    .dkb-modal-hd .badge.ganho{background:#16A34A;color:#fff}
+    .dkb-modal-hd .badge.transferencia{background:#2563EB;color:#fff}
     .ext-modal-hd .badge.transferencia{background:#2563EB}
     .ext-modal-x{background:transparent;border:none;font-size:1.1rem;cursor:pointer;color:#94A3B8;padding:4px 8px;border-radius:5px;line-height:1}
     .ext-modal-x:hover{background:#F1F5F9;color:#1E293B}
@@ -88253,8 +88263,8 @@ function extOpenModal(tipo, editId){
       +   '<div class="dkb-modal-grid">'
       +     '<div class="field full"><label>Descrição</label><input type="text" id="ext-fld-desc" value="' + _extEsc(l.descricao || '') + '" placeholder="Ex: Aplicação CDB · pagamento de fatura"></div>'
       +     '<input type="hidden" id="ext-fld-cat" value="Transferência">'
-      +     '<div class="field"><label>Saiu de <span class="hint">conta de origem</span></label><select id="ext-fld-conta" onchange="_extTransfDesc()">' + contaOptsHtml(l.conta || '') + '</select></div>'
-      +     '<div class="field"><label>Entrou em <span class="hint">conta, cartão ou aplicação</span></label><select id="ext-fld-counter" onchange="_extTransfDesc()">' + contaOptsHtml(l.contraparte || '') + '</select></div>'
+      +     '<div class="field"><label>Saiu de <span class="hint">conta de origem</span></label><select id="ext-fld-conta" onchange="_extTransfTrocou()">' + contaOptsHtml(l.conta || '') + '</select></div>'
+      +     '<div class="field"><label>Entrou em <span class="hint">conta, cartão ou aplicação</span></label><select id="ext-fld-counter" onchange="_extTransfTrocou()">' + contaOptsHtml(l.contraparte || '') + '</select></div>'
       +     '<div class="field full"><label>Status</label><select id="ext-fld-status">'
       +       '<option value="pago"' + (l.status === 'pago' ? ' selected' : '') + '>Concluída</option>'
       +       '<option value="pendente"' + (l.status === 'pendente' ? ' selected' : '') + '>Pendente</option>'
@@ -88654,6 +88664,9 @@ function extOpenModal(tipo, editId){
     }
   }catch(e){ console.warn('[ext] trava dos itens:', e && e.message); }
   setTimeout(() => {
+    /* Com a transferência já na tela, tira de cada lado a conta escolhida no
+       outro — inclusive na abertura de um lançamento já gravado. */
+    if(t === 'transferencia'){ try{ _extTransfEspelho(); }catch(_){} }
     const focusId = (t === 'transferencia') ? 'ext-fld-valor' : 'ext-it-desc-0';
     const f = document.querySelector('#' + focusId + ', .ext-it-desc[data-i="0"]');
     if(f){ try { f.focus(); if(f.select) f.select(); } catch(_){} }
@@ -89857,13 +89870,29 @@ function extSaveModal(tipo, comSerieForcado){
      Transferência não tem item — aí vale o que o lançamento já tinha, que é
      o que impede uma edição de transferência de apagar a tag calada. */
   const _it0 = (typeof _extItems !== 'undefined' && _extItems && _extItems[0]) || null;
+  /* O lançamento em edição, pra herdar o que este modal não mostra.
+
+     Aqui havia `l` — uma const que só nasce LÁ EMBAIXO, dentro do
+     `if(_extEditingId)`. Em gasto/ganho a expressão nunca chegava a ler `l`
+     (o `_it0` existe e corta o ternário antes), mas em TRANSFERÊNCIA não há
+     item: a leitura acontecia, estourava ReferenceError e o save morria
+     calado — nenhuma transferência era gravada, nem nova nem editada. */
+  const _lanEdit = (() => {
+    try{
+      const id = String(_extEditingId == null ? '' : _extEditingId);
+      if(!id || id.startsWith('grp:') || id.startsWith('ofx:') || id.startsWith('conc:')) return null;
+      const rid = parseInt(id.replace(/^m:/, ''), 10);
+      if(!isFinite(rid)) return null;
+      return ((extratoData && extratoData.lancamentos) || []).find(x => x && x.id === rid) || null;
+    }catch(_){ return null; }
+  })();
   const tags = (tipo !== 'transferencia' && _it0)
     ? fkTagsLimpar(_it0.tags)
-    : fkTagsLimpar(l && l.tags);
+    : fkTagsLimpar(_lanEdit && _lanEdit.tags);
   if(tags.length) fkTagsRegistrar(tags);
   const subcategoria = (tipo !== 'transferencia' && _it0)
     ? String(_it0.subcategoria || '')
-    : String((l && l.subcategoria) || '');
+    : String((_lanEdit && _lanEdit.subcategoria) || '');
   // Edição de grupo (multi-itens): apaga registros antigos do grupo na origem
   /* Salvar um grupo APAGA os filhos e recria com ids novos. Tudo o que o modal
      não conhece morre nessa troca — e o modal não conhece `origem` nem
@@ -96898,7 +96927,11 @@ try{
    (o formato é o reconhecimento — não guardo marca escondida no lançamento).
    Texto digitado à mão fica onde está: trocar a conta depois de escrever uma
    observação apagaria a observação. */
-const _EXT_TRANSF_AUTO = /^Transfer[êe]ncia de .+ para .+$/i;
+/* As quatro frases que ela mesma escreve. Reconhecer o formato é o que
+   autoriza reescrever: texto digitado à mão não casa com nenhum e fica
+   onde está. "Resgate" pede o " para " justamente pra não engolir um
+   "Resgate de emergência" escrito por quem usa. */
+const _EXT_TRANSF_AUTO = /^(Transfer[êe]ncia de .+ para .+|Aplica[çc][ãa]o em .+|Resgate de .+ para .+|Pagamento de fatura .+)$/i;
 /* "085 · Únilos · 50762-8" → "Únilos". O código do banco é ruído aqui: quem
    lê a linha quer o nome. Duas contas do mesmo banco mantêm o resto do
    rótulo, senão a frase diria "de C6 Bank para C6 Bank". */
@@ -96916,6 +96949,55 @@ function _extContaLonga(rot){
   const semCod = /^\d{3}$/.test(p[0] || '') ? p.slice(1) : p;
   return semCod.join(' · ') || t;
 }
+/* Em que grupo do seletor a conta está: 'caixa', 'reserva' (aplicação) ou
+   'cartao'. É a mesma divisão de `fkContasAgrupadas`, então aplicação é
+   aplicação pelo cadastro — nada de adivinhar pelo nome. */
+function _extContaGrupo(rot){
+  const alvo = String(rot || '').trim().toLowerCase();
+  if(!alvo) return '';
+  try{
+    for(const g of fkContasAgrupadas()){
+      if(!(g.itens || []).some(n => String(n).trim().toLowerCase() === alvo)) continue;
+      const t = String(g.titulo || '').toLowerCase();
+      if(t.indexOf('reserva') === 0) return 'reserva';
+      if(t.indexOf('cart') === 0) return 'cartao';
+      return 'caixa';
+    }
+  }catch(_){}
+  return '';
+}
+
+/* ══ A MESMA CONTA NÃO PODE ESTAR NOS DOIS LADOS ══════════════════════
+   Dinheiro não sai de uma conta para ela mesma. A gravação já recusava, mas
+   só depois de preencher tudo — e recusa no fim é trabalho perdido. Aqui a
+   opção escolhida de um lado simplesmente some do outro, e o grupo vazio
+   some junto (senão sobraria o título "Reserva e investimentos" sem nada). */
+function _extTransfEspelho(){
+  try{
+    const cDe = document.getElementById('ext-fld-conta');
+    const cPara = document.getElementById('ext-fld-counter');
+    if(!cDe || !cPara) return;
+    for(const [alvo, outro] of [[cDe, cPara], [cPara, cDe]]){
+      const proibido = String(outro.value || '').trim();
+      const meu = String(alvo.value || '').trim();
+      for(const op of alvo.options){
+        const v = String(op.value || '').trim();
+        const some = !!v && v === proibido && v !== meu;
+        op.hidden = some; op.disabled = some;
+      }
+      for(const g of alvo.querySelectorAll('optgroup')){
+        const sobrou = Array.from(g.children).some(o => !o.hidden);
+        g.hidden = !sobrou; g.disabled = !sobrou;
+      }
+    }
+  }catch(e){ try{ console.warn('[ext] espelho das contas:', e && e.message); }catch(_){} }
+}
+
+function _extTransfTrocou(){
+  _extTransfEspelho();
+  _extTransfDesc();
+}
+
 function _extTransfDesc(){
   try{
     const cDesc = document.getElementById('ext-fld-desc');
@@ -96928,11 +97010,26 @@ function _extTransfDesc(){
     if(atual && !_EXT_TRANSF_AUTO.test(atual)) return;
     let a = _extContaCurta(de), b = _extContaCurta(para);
     if(a.toLowerCase() === b.toLowerCase()){ a = _extContaLonga(de); b = _extContaLonga(para); }
-    cDesc.value = 'Transferência de ' + a + ' para ' + b;
+    /* Aplicação e fatura não são "transferência de X para Y": são aporte,
+       resgate e pagamento de cartão. O lançamento continua sendo uma
+       transferência — o que muda é a frase que o Extrato vai mostrar. */
+    /* Em aplicação e cartão vale o rótulo inteiro: "Aplicação em Itaú" não
+       diz nada — o que a pessoa quer ler é "Itaú · CDB". Entre contas
+       correntes o nome do banco basta, como já era. */
+    const gDe = _extContaGrupo(de), gPara = _extContaGrupo(para);
+    const aL = _extContaLonga(de), bL = _extContaLonga(para);
+    let frase = 'Transferência de ' + a + ' para ' + b;
+    if(gPara === 'cartao')                            frase = 'Pagamento de fatura ' + bL;
+    else if(gPara === 'reserva' && gDe !== 'reserva') frase = 'Aplicação em ' + bL;
+    else if(gDe === 'reserva' && gPara !== 'reserva') frase = 'Resgate de ' + aL + ' para ' + b;
+    cDesc.value = frase;
     try{ cDesc.dispatchEvent(new Event('input', { bubbles:true })); }catch(_){}
   }catch(e){ try{ console.warn('[ext] descrição da transferência:', e && e.message); }catch(_){} }
 }
-try{ window._extTransfDesc = _extTransfDesc; }catch(_){}
+try{ window._extTransfDesc = _extTransfDesc;
+     window._extTransfEspelho = _extTransfEspelho;
+     window._extTransfTrocou = _extTransfTrocou;
+     window._extContaGrupo = _extContaGrupo; }catch(_){}
 
 function _extNormalizarContas(){
   /* Sem cadastro carregado, não há como resolver — e normalizar às cegas
