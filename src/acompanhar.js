@@ -426,12 +426,27 @@ async function gravarTrilha(env, id, trilha){
 }
 
 /* ── o passo do cron ─────────────────────────────────────────────────── */
-export async function acompanharReceitas(env, canalPadrao, cfgCampos){
+/* `apenasLocalId` existe por um motivo só: avisar na hora.
+
+   O cron passa aqui a cada 10 minutos e conta o que mudou desde a última
+   vez. Isso funciona para o dinheiro, que não muda duas vezes no mesmo
+   minuto — e falhou para a nota: a NFS-e 90 foi cancelada e a 91 emitida
+   com minutos de diferença, dentro da mesma janela. A varredura só viu o
+   estado final e a thread ficou com "nº 90 emitida" como última palavra,
+   sem nunca dizer que foi cancelada.
+
+   A correção não é outra lógica, é a MESMA lógica chamada na hora certa.
+   Por isso aqui só entra um filtro: o app pede a passada de um lançamento
+   assim que carimba a nota, e cartão, thread e selo saem pelo caminho de
+   sempre. Duas implementações do mesmo anúncio divergiriam em uma semana. */
+export async function acompanharReceitas(env, canalPadrao, cfgCampos, apenasLocalId){
   /* Ordem igual à da tela: o canal do próprio lançamento manda, depois o
      canal das receitas, depois o padrão do Slack. */
+  const sóUm = Number(apenasLocalId) || 0;
   const linhas = await sbGet(env,
     'extrato_lancamentos?org_id=eq.' + env.FOREKASH_ORG_ID +
     '&metadata->slackTrack->>ativo=eq.true' +
+    (sóUm ? '&local_id=eq.' + sóUm : '') +
     '&select=id,local_id,data,valor,descricao,categoria,contraparte,conta,status,tipo,' +
     'numero_documento,data_pagamento,metadata&limit=400');
 

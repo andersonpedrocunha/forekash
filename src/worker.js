@@ -807,6 +807,10 @@ export default {
       return interativoSlack(request, env, ctx);
     if(url.pathname === '/api/mrkash/aviso-agora' && request.method === 'POST')
       return avisoAgora(request, env);
+    /* O app pede a passada de UM lançamento assim que a nota muda de
+       estado, em vez de esperar o cron. Ver acompanharReceitas. */
+    if(url.pathname === '/api/slack/avisar-lancamento' && request.method === 'POST')
+      return avisarLancamentoAgora(request, env);
     /* Só pra conferir que o Worker está no ar sem falar com o Slack.
        Não devolve número nenhum: é diagnóstico de encanamento.
 
@@ -1220,6 +1224,41 @@ async function comandoSlack(request, env, ctx){
    despejar mensagem no canal da empresa — basta conhecer a URL. O token do
    Slack fica no servidor, então o navegador não tem como postar sozinho;
    por isso o caminho passa por aqui. */
+/* ══ AVISAR NA HORA ════════════════════════════════════════════════════
+   Mesma varredura do cron, com o filtro de um lançamento. Não duplica
+   regra nenhuma: cartão, recado na thread e selo do ciclo continuam saindo
+   de `acompanharReceitas`.
+
+   Autenticação igual à do `aviso-agora`: sessão do Supabase no cabeçalho.
+   Sem ela, qualquer um com a URL faria o Worker escrever no canal.
+
+   Falhar aqui não pode quebrar nada do lado de lá — quem chama é um
+   `fetch` solto depois do carimbo, e o cron passa de novo em dez minutos
+   de qualquer jeito. Por isso o erro vira resposta, não exceção. */
+async function avisarLancamentoAgora(request, env){
+  const erro = (e, st) => Response.json({ ok:false, erro:e }, { status: st || 400 });
+  const jwt = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  if(!jwt) return erro('sem sessão', 401);
+  const quem = await fetch(env.SUPABASE_URL + '/auth/v1/user', {
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: 'Bearer ' + jwt } });
+  if(!quem.ok) return erro('sessão inválida', 401);
+
+  let localId = 0;
+  try{ const b = (await request.json()) || {}; localId = Number(b.localId) || 0; }catch(_){}
+  if(!localId) return erro('sem localId');
+
+  try{
+    const cfg = await cfgSlack(env);
+    const canal = cfg.canalRec || cfg.canal;
+    if(!canal) return erro('canal não configurado');
+    const r = await acompanharReceitas(env, canal, cfg.cartaoCampos, localId);
+    return Response.json({ ok:true, lancamento: localId, resultado: r });
+  }catch(e){
+    console.error('[trilha] aviso imediato do ' + localId + ':', e && e.message);
+    return erro('não consegui avisar agora: ' + (e && e.message || 'erro'), 500);
+  }
+}
+
 async function avisoAgora(request, env){
   const erro = (e, st) => Response.json({ ok:false, erro:e }, { status: st || 400 });
   const jwt = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');

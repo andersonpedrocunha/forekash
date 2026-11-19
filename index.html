@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795091719"/>
+  <meta name="fk-build" content="forekash-v1795094910"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -139272,6 +139272,48 @@ async function _nfAnexoNoLancamento(n, lan){
 }
 try{ window._nfAnexoNoLancamento = _nfAnexoNoLancamento; }catch(e){}
 
+/* ══ O SLACK FICA SABENDO NA HORA ═════════════════════════════════════
+
+   A trilha do Slack é varrida pelo Worker a cada 10 minutos. Para o
+   dinheiro isso basta — um título não é pago e estornado no mesmo minuto.
+   Para a nota, não bastou: a NFS-e 90 foi cancelada e a 91 emitida dentro
+   da mesma janela, a varredura só viu o estado final, e a thread ficou com
+   "nº 90 emitida" como última palavra — sem nunca dizer que foi cancelada.
+
+   Então, quando o carimbo muda aqui, o app pede a passada daquele
+   lançamento em vez de esperar a próxima volta do relógio. Quem posta
+   continua sendo o Worker, pela MESMA função do cron: o token do bot é
+   dele, e duas implementações do mesmo anúncio divergiriam em uma semana.
+
+   De propósito solto, sem await e sem toast: é recado, não transação. Se
+   falhar — sem sessão, Worker fora do ar, rede ruim — o cron passa em dez
+   minutos e conta a mesma história. O único prejuízo é a demora que já
+   existia antes. */
+function _nfAvisarSlackAgora(lan){
+  try{
+    if(!lan || window.FK_MODE !== 'cloud') return;
+    /* Só lançamento acompanhado tem thread pra receber o recado. */
+    const t = lan.slackTrack;
+    if(!t || t.ativo !== true || !t.ts) return;
+    const local = Number(lan.id) || 0;
+    if(!local) return;
+    Promise.resolve()
+      .then(() => window.sb.auth.getSession())
+      .then(r => {
+        const jwt = ((r && r.data && r.data.session) || {}).access_token || '';
+        if(!jwt) return null;
+        return fetch('/api/slack/avisar-lancamento', {
+          method: 'POST',
+          headers: { 'content-type':'application/json', Authorization: 'Bearer ' + jwt },
+          body: JSON.stringify({ localId: local })
+        });
+      })
+      .then(r => { if(r && !r.ok) console.warn('[trilha] aviso imediato: HTTP ' + r.status); })
+      .catch(e => console.warn('[trilha] aviso imediato falhou (o cron conta depois):', e && e.message));
+  }catch(e){ console.warn('[trilha] aviso imediato:', e && e.message); }
+}
+try{ window._nfAvisarSlackAgora = _nfAvisarSlackAgora; }catch(e){}
+
 function _nfTrilhaSync(n){
   try{
     if(!n || n.mode !== 'producao') return false;
@@ -139357,6 +139399,8 @@ function _nfTrilhaSync(n){
                 : n.status === 'rej'  ? (num + ' rejeitada pela Receita')
                 : (num + ' · ' + (n.status || 'situação desconhecida'));
       try{ if(typeof _extEvento === 'function') _extEvento(lan, txt); }catch(_){}
+      /* Mesma condição do evento: mudou de situação, é notícia. */
+      _nfAvisarSlackAgora(lan);
     }
 
     lan.nfId = n.id;
