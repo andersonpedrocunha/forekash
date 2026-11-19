@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795099640"/>
+  <meta name="fk-build" content="forekash-v1795100369"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1982,6 +1982,26 @@
     .patrim-hist tbody tr:hover td{background:#F8FAFC}
     .patrim-hist-pe,.patrim-hist-vazio{font-size:.7rem;color:#94A3B8;margin-top:9px;line-height:1.5}
     .patrim-hist-vazio{text-align:center;padding:18px}
+    /* Barra de período do dashboard e os cartões de índice. */
+    .patrim-dash-per{margin:-2px 0 12px}
+    .patrim-ind-per{font-size:.74rem;color:#94A3B8;font-family:Consolas,Menlo,monospace}
+    .patrim-ind-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(248px,1fr));gap:14px}
+    .patrim-ind-g{border:1px solid #E2E8F0;border-radius:10px;overflow:hidden}
+    .patrim-ind-g-hd{background:#F8FAFC;padding:8px 12px;border-bottom:1px solid #E2E8F0;
+      display:flex;flex-direction:column;gap:1px}
+    .patrim-ind-g-hd b{font-size:.78rem;color:#0F172A;font-weight:800}
+    .patrim-ind-g-hd span{font-size:.66rem;color:#94A3B8}
+    .patrim-ind-l{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;
+      padding:7px 12px;border-bottom:1px solid #F1F5F9}
+    .patrim-ind-l:last-child{border-bottom:0}
+    .patrim-ind-l .n{font-size:.76rem;color:#475569;display:flex;flex-direction:column;gap:1px}
+    .patrim-ind-l .n i{font-style:normal;font-size:.63rem;color:#A8B3C2}
+    .patrim-ind-l b{font-family:Consolas,Menlo,monospace;font-size:.88rem;font-weight:800;
+      color:#0F172A;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .patrim-ind-pe{font-size:.7rem;color:#94A3B8;margin-top:11px;line-height:1.5}
+    [data-theme="dark"] .patrim-ind-g,[data-theme="dark"] .patrim-ind-g-hd{border-color:#334155}
+    [data-theme="dark"] .patrim-ind-g-hd{background:#1E293B}
+    [data-theme="dark"] .patrim-ind-g-hd b,[data-theme="dark"] .patrim-ind-l b{color:#E2E8F0}
     .patrim-dash-espera{background:#F8FAFC;border:1px dashed #CBD5E1;border-radius:11px;
       padding:26px 22px;text-align:center}
     .patrim-dash-espera h3{margin:0 0 6px;font-size:.95rem;color:#0F172A;font-weight:800}
@@ -150977,104 +150997,315 @@ function patrimRender(){
 }
 
 // ─── Aba DASHBOARD · indicadores patrimoniais no tempo ───
-/* ══ OS INDICADORES MÊS A MÊS ═════════════════════════════════════════
+/* ══ OS INDICADORES DO BALANÇO ════════════════════════════════════════
 
-   O dashboard mostrava os indicadores de HOJE e um gráfico de ativo,
-   passivo e PL ao longo do tempo. Faltava o que ele pediu: a evolução dos
-   INDICADORES — liquidez, endividamento, capital de giro — mês a mês.
+   A base é a divisão clássica do Ross/Westerfield/Jaffe, que separa o que
+   cada grupo responde:
 
-   Dá pra fazer sem guardar nada novo: cada foto carrega o balanço inteiro
-   (`contas` e `capital`), então os indicadores daquele mês se recalculam
-   pela MESMA função que calcula os de hoje. Guardar indicador na foto
-   seria congelar uma fórmula que ainda vai mudar. */
-function _patrimSerieIndicadores(anos){
-  const filtro = String(anos || '');
-  const linhas = [];
-  for(const snap of (PATRIM.snapshots || [])){
-    if(!snap || !Array.isArray(snap.contas)) continue;
-    if(filtro && String(snap.ym || '').slice(0,4) !== filtro) continue;
-    const t = patrimCalcTotals(snap.contas, snap.capital || []);
-    const ancAtivo = t.totAtivo - t.acAtivo;
-    const pncPassivo = t.totPassivo - t.pcPassivo;
-    linhas.push({
-      ym: snap.ym,
-      estimado: !!snap.estimado,
-      ativo: t.totAtivo, passivo: t.totPassivo, pl: t.plReal,
-      /* Os quatro que respondem perguntas diferentes: consigo pagar o
-         curto prazo, quanto do que tenho é de terceiros, e quanto sobra
-         de folga depois de quitar o circulante. */
-      liquidez: t.pcPassivo > 0 ? (t.acAtivo / t.pcPassivo) : null,
-      endividamento: t.totAtivo > 0 ? (t.totPassivo / t.totAtivo * 100) : null,
-      giro: t.acAtivo - t.pcPassivo,
-      imobilizacao: t.plReal > 0 ? (ancAtivo / t.plReal * 100) : null
-    });
-  }
-  linhas.sort((a, b) => String(a.ym).localeCompare(String(b.ym)));
-  return linhas;
+     liquidez      pago as contas dos próximos meses?
+     alavancagem   quanto do que eu tenho é de terceiros?
+     gestão        o ativo que eu carrego gera receita?
+     rentabilidade esse ativo e esse capital dão retorno?
+
+   Ficam de fora os índices de mercado (preço/lucro, valor de mercado sobre
+   contábil): dependem de ação negociada em bolsa, e não existe empresa
+   fechada com preço por ação. Os de estoque — liquidez seca e giro de
+   estoques — ficam CONDICIONAIS, não excluídos: empresa de software não
+   tem estoque, mas o Forekash não é só de empresa de software. Quando a
+   linha de estoque tiver valor, os dois aparecem sozinhos.
+
+   Os três primeiros grupos saem só do balanço. Gestão e rentabilidade
+   cruzam o balanço com a receita e o resultado do período — por isso o
+   filtro de período manda nos dois. */
+
+/* Receita e resultado do intervalo, pela mesma fonte do Demonstrativo. */
+function _patrimDrePeriodo(deYm, ateYm){
+  const r = { receita: 0, resultado: 0, meses: 0 };
+  try{
+    if(!deYm || !ateYm) return r;
+    const [a1, m1] = deYm.split('-').map(Number);
+    const [a2, m2] = ateYm.split('-').map(Number);
+    for(let a = a1; a <= a2; a++){
+      const de = (a === a1) ? m1 - 1 : 0;
+      const ate = (a === a2) ? m2 - 1 : 11;
+      for(let m = de; m <= ate; m++){
+        const y = String(a);
+        if(typeof flxReceitaMes === 'function') r.receita += Number(flxReceitaMes(y, m)) || 0;
+        if(typeof flxOutrasMes === 'function')  r.receita += Number(flxOutrasMes(y, m)) || 0;
+        if(typeof orcResultRealMes === 'function') r.resultado += Number(orcResultRealMes(y, m)) || 0;
+        r.meses++;
+      }
+    }
+  }catch(e){ console.warn('[patrim] DRE do período:', e && e.message); }
+  return r;
 }
-try{ window._patrimSerieIndicadores = _patrimSerieIndicadores; }catch(e){}
 
-let _PATRIM_DASH_ANO = '';
-function patrimDashAno(v){ _PATRIM_DASH_ANO = String(v || ''); patrimRenderDashTab(); }
-try{ window.patrimDashAno = patrimDashAno; }catch(e){}
-
-/* A tabela da evolução. Tabela e não gráfico: são quatro indicadores em
-   escalas diferentes (vezes, porcentagem, reais) e um gráfico só com os
-   três juntos ou mente na escala ou precisa de três eixos. Aqui o número
-   é o conteúdo, e a variação contra o mês anterior fica ao lado. */
-function _patrimHistHtml(){
-  const serie = _patrimSerieIndicadores(_PATRIM_DASH_ANO);
-  const anos = Array.from(new Set((PATRIM.snapshots || [])
-    .map(s => String((s && s.ym) || '').slice(0,4)).filter(Boolean))).sort().reverse();
-  const seletor = anos.length
-    ? '<select class="patrim-hist-ano" onchange="patrimDashAno(this.value)">'
-      + '<option value=""' + (_PATRIM_DASH_ANO ? '' : ' selected') + '>Todo o período</option>'
-      + anos.map(a => '<option value="' + a + '"' + (_PATRIM_DASH_ANO === a ? ' selected' : '') + '>' + a + '</option>').join('')
-      + '</select>'
-    : '';
-  if(serie.length === 0){
-    return '<div class="patrim-chart-wrap"><div class="patrim-hist-hd">'
-      + '<h4>Indicadores mês a mês</h4>' + seletor + '</div>'
-      + '<div class="patrim-hist-vazio">Sem foto no período escolhido. '
-      + 'As fotos saem sozinhas no último dia útil de cada mês.</div></div>';
+/* O estoque de uma posição. Zero quer dizer "esta empresa não tem", e é o
+   que faz os índices de estoque sumirem em vez de mostrar divisão por zero. */
+function _patrimEstoque(contas){
+  let v = 0;
+  for(const c of (contas || [])){
+    if(c && /estoque|invent[áa]rio|mercadoria/i.test(String(c.nome || ''))) v += Number(c.valor) || 0;
   }
-  const num = (v, casas) => v == null ? '—'
-    : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas });
+  return v;
+}
+function _patrimCaixa(contas){
+  let v = 0;
+  for(const c of (contas || [])){
+    if(!c) continue;
+    if(c.src === 'dispo-caixa' || c.src === 'dispo-reserva'
+       || /caixa|equivalente|aplica/i.test(String(c.nome || ''))) v += Number(c.valor) || 0;
+  }
+  return v;
+}
+function _patrimReceber(contas){
+  let v = 0;
+  for(const c of (contas || [])){
+    if(!c) continue;
+    if(c.src === 'ext-receber' || /a receber|cliente/i.test(String(c.nome || ''))) v += Number(c.valor) || 0;
+  }
+  return v;
+}
+
+/* Divisão que não explode: denominador zero devolve nada, não Infinity. */
+function _patrimDiv(a, b){
+  const d = Number(b) || 0;
+  if(Math.abs(d) < 0.005) return null;
+  return (Number(a) || 0) / d;
+}
+
+/* Todos os índices de uma posição. `dre` é opcional: sem ele, os grupos
+   que cruzam com o resultado não aparecem. */
+function _patrimIndicadores(contas, capital, dre){
+  const t = patrimCalcTotals(contas, capital);
+  const anc = t.totAtivo - t.acAtivo;
+  const pnc = t.totPassivo - t.pcPassivo;
+  const estoque = _patrimEstoque(contas);
+  const caixa = _patrimCaixa(contas);
+  const receber = _patrimReceber(contas);
+  const rec = dre ? (Number(dre.receita) || 0) : null;
+  const lucro = dre ? (Number(dre.resultado) || 0) : null;
+  const meses = dre ? (Number(dre.meses) || 0) : 0;
+  /* Anualiza pra comparar com o ativo, que é um retrato: três meses de
+     receita contra o ativo inteiro daria um giro que não existe. */
+  const fator = meses > 0 ? (12 / meses) : 1;
+  const recAno = rec == null ? null : rec * fator;
+  const lucroAno = lucro == null ? null : lucro * fator;
+
+  /* ══ COM PATRIMÔNIO NEGATIVO, O ÍNDICE MENTE ═══════════════════════
+
+     Dívida sobre patrimônio de −1,16x, endividamento de longo prazo de
+     −22,3%: a conta está certa e a leitura é impossível. Todo índice que
+     divide por PL pressupõe capital próprio positivo — é a premissa do
+     Ross e de qualquer manual.
+
+     Passivo a descoberto não é um número ruim, é outra situação: o ativo
+     não cobre a dívida. Então estes índices não aparecem com sinal
+     trocado; aparecem dizendo o que está acontecendo. */
+  const plPositivo = t.plReal > 0.005;
+  const sePl = (valor, refOk) => plPositivo
+    ? { v: valor, ref: refOk }
+    : { v: null, ref: 'patrimônio líquido negativo — o índice perde sentido' };
+
+  const G = [];
+  G.push({ id:'liq', nome:'Liquidez', sub:'consigo pagar o curto prazo?', itens:[
+    { id:'lc', nome:'Liquidez corrente', v:_patrimDiv(t.acAtivo, t.pcPassivo), fmt:'x',
+      bom:'maior', ref:'acima de 1,0 cobre o circulante',
+      conta:'ativo circulante ÷ passivo circulante' },
+    estoque > 0.005
+      ? { id:'ls', nome:'Liquidez seca', v:_patrimDiv(t.acAtivo - estoque, t.pcPassivo), fmt:'x',
+          bom:'maior', ref:'tira o estoque da conta',
+          conta:'(ativo circulante − estoques) ÷ passivo circulante' }
+      : null,
+    { id:'li', nome:'Liquidez imediata', v:_patrimDiv(caixa, t.pcPassivo), fmt:'x',
+      bom:'maior', ref:'só com o dinheiro que já está em conta',
+      conta:'caixa e aplicações ÷ passivo circulante' }
+  ].filter(Boolean) });
+
+  G.push({ id:'alav', nome:'Alavancagem', sub:'quanto do que eu tenho é de terceiros?', itens:[
+    { id:'eg', nome:'Endividamento geral',
+      v:(() => { const d=_patrimDiv(t.totAtivo - t.plReal, t.totAtivo); return d==null?null:d*100; })(), fmt:'%',
+      bom:'menor', ref:'parte do ativo financiada por dívida',
+      conta:'(ativo − patrimônio líquido) ÷ ativo' },
+    Object.assign({ id:'dpl', nome:'Dívida sobre patrimônio', fmt:'x', bom:'menor',
+      conta:'passivo total ÷ patrimônio líquido' },
+      sePl(_patrimDiv(t.totPassivo, t.plReal), 'dívida para cada real de capital próprio')),
+    Object.assign({ id:'mpl', nome:'Multiplicador do PL', fmt:'x', bom:'menor',
+      conta:'ativo ÷ patrimônio líquido' },
+      sePl(_patrimDiv(t.totAtivo, t.plReal), 'ativo girado por real de capital próprio')),
+    Object.assign({ id:'elp', nome:'Endividamento de longo prazo', fmt:'%', bom:'menor',
+      conta:'passivo não circulante ÷ (passivo não circulante + PL)' },
+      sePl((() => { const d=_patrimDiv(pnc, pnc + t.plReal); return d==null?null:d*100; })(),
+           'peso da dívida longa na estrutura'))
+  ] });
+
+  if(dre){
+    G.push({ id:'gest', nome:'Gestão de ativos', sub:'o que eu carrego gera receita?', itens:[
+      { id:'gat', nome:'Giro do ativo total', v:_patrimDiv(recAno, t.totAtivo), fmt:'x',
+        bom:'maior', ref:'receita anual por real de ativo',
+        conta:'receita anualizada ÷ ativo total' },
+      { id:'gcr', nome:'Giro de contas a receber', v:_patrimDiv(recAno, receber), fmt:'x',
+        bom:'maior', ref:'quantas vezes a carteira gira no ano',
+        conta:'receita anualizada ÷ contas a receber' },
+      { id:'pmr', nome:'Prazo médio de recebimento',
+        v:(() => { const g = _patrimDiv(recAno, receber); return g ? 365 / g : null; })(), fmt:'d',
+        bom:'menor', ref:'dias entre faturar e receber',
+        conta:'365 ÷ giro de contas a receber' },
+      estoque > 0.005
+        ? { id:'ge', nome:'Giro de estoques', v:_patrimDiv(recAno, estoque), fmt:'x',
+            bom:'maior', ref:'aproximado pela receita, não pelo CMV',
+            conta:'receita anualizada ÷ estoques' }
+        : null
+    ].filter(Boolean) });
+
+    G.push({ id:'rent', nome:'Rentabilidade', sub:'esse capital dá retorno?', itens:[
+      { id:'roa', nome:'Retorno sobre o ativo (ROA)', v:(() => { const d=_patrimDiv(lucroAno, t.totAtivo); return d==null?null:d*100; })(), fmt:'%',
+        bom:'maior', ref:'resultado anualizado sobre o ativo',
+        conta:'resultado anualizado ÷ ativo total' },
+      Object.assign({ id:'roe', nome:'Retorno sobre o patrimônio (ROE)', fmt:'%', bom:'maior',
+        conta:'resultado anualizado ÷ patrimônio líquido' },
+        sePl((() => { const d=_patrimDiv(lucroAno, t.plReal); return d==null?null:d*100; })(),
+             'resultado anualizado sobre o capital próprio'))
+    ] });
+  }
+  /* Os dois de mercado do Ross não entram: preço por ação não existe em
+     empresa fechada, e inventar um seria pior que não ter o índice. */
+  return { grupos: G, totais: t, estoque, caixa, receber, dre: dre || null };
+}
+try{ window._patrimIndicadores = _patrimIndicadores;
+     window._patrimDrePeriodo = _patrimDrePeriodo; }catch(e){}
+
+/* Formatação por tipo: vezes, porcentagem, dias. */
+function _patrimIndFmt(v, tipo){
+  if(v == null || !isFinite(v)) return '—';
+  const n = (x, c) => Number(x).toLocaleString('pt-BR', { minimumFractionDigits:c, maximumFractionDigits:c });
+  /* Quem chama já entrega em porcentagem: adivinhar pela magnitude
+     ("se for menor que 1,5 deve ser fração") erra em endividamento de 1,2%. */
+  if(tipo === '%') return n(v, 1) + '%';
+  if(tipo === 'd') return n(v, 0) + ' d';
+  return n(v, 2) + 'x';
+}
+
+/* ══ O PAINEL, COM O FILTRO PADRÃO ═══════════════════════════════════
+
+   Mês e ano, sem dia: balanço é retrato de fechamento, e "12 a 19 de
+   novembro" não é um fechamento. Usa o mesmo `fkPer` do resto do app —
+   mesma barra, mesmas setas, mesmo "Hoje".
+
+   O período manda em duas coisas: quais fotos entram na tabela e qual
+   receita/resultado cruza com o balanço nos grupos de gestão e
+   rentabilidade. */
+function _patrimPerId(){ return 'patrim-dash'; }
+function _patrimPerInit(){
+  if(typeof fkPerNovo !== 'function') return null;
+  return fkPerNovo(_patrimPerId(), {
+    grain: 'ano', graos: ['mes','ano'], ym: true,
+    onChange: () => { try{ patrimRenderDashTab(); }catch(_){} }
+  });
+}
+
+function _patrimFotosDoPeriodo(){
+  const todas = (PATRIM.snapshots || []).filter(x => x && Array.isArray(x.contas));
+  let r = null;
+  try{ r = (typeof fkPerRangeYm === 'function') ? fkPerRangeYm(_patrimPerId()) : null; }catch(_){}
+  const dentro = r ? todas.filter(x => String(x.ym) >= r.de && String(x.ym) <= r.ate) : todas;
+  return { lista: dentro.slice().sort((a,b) => String(a.ym).localeCompare(String(b.ym))), range: r };
+}
+
+/* A tabela mês a mês. Quatro colunas e não quatorze: o resto está nos
+   cartões do período, abaixo. */
+function _patrimHistHtml(){
+  const { lista, range } = _patrimFotosDoPeriodo();
+  const barra = (typeof fkPerHtml === 'function') ? fkPerHtml(_patrimPerId()) : '';
+  const cab = '<div class="patrim-hist-hd"><h4>Indicadores mês a mês</h4></div>'
+            + '<div class="patrim-dash-per">' + barra + '</div>';
+  if(!lista.length){
+    const quando = (() => {
+      try{ const h=new Date(); return _patrimUltimoDiaUtil(h.getFullYear(), h.getMonth())
+             .toLocaleDateString('pt-BR', { day:'2-digit', month:'long' }); }catch(_){ return ''; }
+    })();
+    return '<div class="patrim-chart-wrap">' + cab
+      + '<div class="patrim-hist-vazio">Nenhuma foto neste período.'
+      + (quando ? ' A próxima sai sozinha em <b>' + quando + '</b>.' : '') + '</div></div>';
+  }
   const mesBR = ym => {
     const M = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
     return (M[parseInt(String(ym).slice(5,7),10)-1] || '?') + '/' + String(ym).slice(2,4);
   };
   const seta = (a, b, maiorMelhor) => {
-    if(a == null || b == null || Math.abs(b) < 0.0001) return '';
+    if(a == null || b == null) return '';
     const d = a - b;
     if(Math.abs(d) < 0.0001) return '';
-    const bom = maiorMelhor ? d > 0 : d < 0;
-    return '<i class="' + (bom ? 'sobe' : 'desce') + '">' + (d > 0 ? '▲' : '▼') + '</i>';
+    return '<i class="' + ((maiorMelhor ? d > 0 : d < 0) ? 'sobe' : 'desce') + '">'
+         + (d > 0 ? '▲' : '▼') + '</i>';
   };
-  const linhas = serie.map((l, i) => {
-    const p = i > 0 ? serie[i-1] : null;
+  const achar = (ind, id) => {
+    for(const g of ind.grupos) for(const it of g.itens) if(it.id === id) return it.v;
+    return null;
+  };
+  const linhas = lista.map((snap, i) => {
+    /* Cada foto com a receita do SEU mês: cruzar o balanço de março com a
+       receita do ano inteiro daria um giro que não aconteceu. */
+    const dre = _patrimDrePeriodo(snap.ym, snap.ym);
+    const ind = _patrimIndicadores(snap.contas, snap.capital || [], dre);
+    const ant = i > 0
+      ? _patrimIndicadores(lista[i-1].contas, lista[i-1].capital || [],
+                           _patrimDrePeriodo(lista[i-1].ym, lista[i-1].ym))
+      : null;
+    const cel = (id, tipo, maiorMelhor) => {
+      const v = achar(ind, id), a = ant ? achar(ant, id) : null;
+      return '<td>' + _patrimIndFmt(v, tipo) + seta(v, a, maiorMelhor) + '</td>';
+    };
+    const pl = ind.totais.plReal, plAnt = ant ? ant.totais.plReal : null;
     return '<tr>'
-      + '<td class="mes">' + mesBR(l.ym) + (l.estimado ? '<i title="Tirada depois do fechamento, com os saldos do dia">~</i>' : '') + '</td>'
-      + '<td>' + num(l.pl, 0) + (p ? seta(l.pl, p.pl, true) : '') + '</td>'
-      + '<td>' + (l.liquidez == null ? '—' : num(l.liquidez, 2) + 'x') + (p ? seta(l.liquidez, p.liquidez, true) : '') + '</td>'
-      + '<td>' + (l.endividamento == null ? '—' : num(l.endividamento, 1) + '%') + (p ? seta(l.endividamento, p.endividamento, false) : '') + '</td>'
-      + '<td>' + num(l.giro, 0) + (p ? seta(l.giro, p.giro, true) : '') + '</td>'
+      + '<td class="mes">' + mesBR(snap.ym)
+      +   (snap.estimado ? '<i title="Tirada depois do fechamento, com os saldos do dia">~</i>' : '')
+      + '</td>'
+      + '<td>' + (pl < 0 ? '-' : '') + _patrimFmt(pl) + seta(pl, plAnt, true) + '</td>'
+      + cel('lc', 'x', true)
+      + cel('eg', '%', false)
+      + cel('roe', '%', true)
       + '</tr>';
   }).join('');
-  return '<div class="patrim-chart-wrap">'
-    + '<div class="patrim-hist-hd"><h4>Indicadores mês a mês</h4>' + seletor + '</div>'
+  return '<div class="patrim-chart-wrap">' + cab
     + '<div class="patrim-hist-rol"><table class="patrim-hist">'
     + '<thead><tr><th>Mês</th><th>Patrimônio líquido</th><th>Liquidez corrente</th>'
-    + '<th>Endividamento</th><th>Capital de giro</th></tr></thead>'
-    + '<tbody>' + linhas + '</tbody></table></div>'
-    + '<div class="patrim-hist-pe">Recalculados a partir do balanço guardado em cada foto. '
-    + '<b>~</b> marca a foto tirada depois do fechamento, com os saldos do dia.</div></div>';
+    + '<th>Endividamento</th><th>ROE</th></tr></thead><tbody>' + linhas + '</tbody></table></div>'
+    + '<div class="patrim-hist-pe">Recalculados do balanço guardado em cada foto, com a receita '
+    + 'do próprio mês. <b>~</b> marca a foto tirada depois do fechamento.</div></div>';
 }
-try{ window._patrimHistHtml = _patrimHistHtml; }catch(e){}
+
+/* Os cartões do período: a posição de hoje passada pelos quatro grupos. */
+function _patrimIndicadoresHtml(){
+  const { range } = _patrimFotosDoPeriodo();
+  const dre = range ? _patrimDrePeriodo(range.de, range.ate) : null;
+  const ind = _patrimIndicadores(PATRIM.contas, PATRIM.capital, dre);
+  const rot = (typeof fkPerRotulo === 'function') ? fkPerRotulo(_patrimPerId()) : '';
+  const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x||''));
+  const grupos = ind.grupos.map(g =>
+      '<div class="patrim-ind-g">'
+    +   '<div class="patrim-ind-g-hd"><b>' + esc(g.nome) + '</b><span>' + esc(g.sub) + '</span></div>'
+    +   g.itens.map(it =>
+          '<div class="patrim-ind-l" title="' + esc(it.conta) + '">'
+        +   '<span class="n">' + esc(it.nome) + '<i>' + esc(it.ref) + '</i></span>'
+        +   '<b>' + _patrimIndFmt(it.v, it.fmt) + '</b></div>').join('')
+    + '</div>').join('');
+  const nota = ind.dre
+    ? '<div class="patrim-ind-pe">Gestão e rentabilidade cruzam o balanço de hoje com a receita e o '
+      + 'resultado de <b>' + esc(rot) + '</b>, anualizados — o ativo é um retrato, a receita é um fluxo.</div>'
+    : '';
+  return '<div class="patrim-chart-wrap"><div class="patrim-hist-hd">'
+    + '<h4>Índices do balanço</h4><span class="patrim-ind-per">' + esc(rot) + '</span></div>'
+    + '<div class="patrim-ind-grid">' + grupos + '</div>' + nota + '</div>';
+}
+try{ window._patrimHistHtml = _patrimHistHtml;
+     window._patrimIndicadoresHtml = _patrimIndicadoresHtml;
+     window._patrimPerInit = _patrimPerInit; }catch(e){}
 
 function patrimRenderDashTab(){
   const el = document.getElementById('patrim-dash-content');
   if(!el) return;
+  try{ _patrimPerInit(); }catch(_){}
   // Snapshots + atual (mais recentes em ordem cronológica)
   const series = [];
   (PATRIM.snapshots || []).slice().reverse().forEach(snap => {
@@ -151107,7 +151338,7 @@ function patrimRenderDashTab(){
     const hoje = new Date();
     const fim = _patrimUltimoDiaUtil(hoje.getFullYear(), hoje.getMonth());
     const quando = fim.toLocaleDateString('pt-BR', { day:'2-digit', month:'long' });
-    el.innerHTML = _patrimHistHtml()
+    el.innerHTML = _patrimIndicadoresHtml() + _patrimHistHtml()
       + '<div class="patrim-dash-espera">'
       +   '<h3>A comparação entre meses começa na segunda foto</h3>'
       +   '<p>A próxima sai sozinha em <b>' + quando + '</b>, no fechamento do mês. '
@@ -151296,7 +151527,7 @@ function patrimRenderDashTab(){
   /* A evolução dos indicadores entra no topo: é a pergunta que ele
      fez — como estava mês a mês — e o resto do painel é o retrato de
      hoje. */
-  html = _patrimHistHtml() + html;
+  html = _patrimIndicadoresHtml() + _patrimHistHtml() + html;
   el.innerHTML = html;
 }
 
@@ -151598,7 +151829,9 @@ function _patrimRenderConfere(totals){
     return;
   }
   const dif = Math.round((totals.lucros - r.total) * 100) / 100;
-  const fmt = n => 'R$ ' + _patrimFmt(n);
+  /* `_patrimFmt` devolve o módulo — o sinal é de quem chama. Sem isto a
+     conferência mostrava um prejuízo acumulado como se fosse lucro. */
+  const fmt = n => (Number(n) < 0 ? '-' : '') + 'R$ ' + _patrimFmt(n);
   const mesBR = ym => {
     const M = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
     return (M[parseInt(ym.slice(5,7),10)-1] || '?') + '/' + ym.slice(2,4);
