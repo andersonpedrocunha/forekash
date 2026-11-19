@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795098786"/>
+  <meta name="fk-build" content="forekash-v1795099238"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1578,6 +1578,21 @@
     .patrim-hist tbody tr:hover td{background:#F8FAFC}
     .patrim-hist-pe,.patrim-hist-vazio{font-size:.7rem;color:#94A3B8;margin-top:9px;line-height:1.5}
     .patrim-hist-vazio{text-align:center;padding:18px}
+    .patrim-dash-espera{background:#F8FAFC;border:1px dashed #CBD5E1;border-radius:11px;
+      padding:26px 22px;text-align:center}
+    .patrim-dash-espera h3{margin:0 0 6px;font-size:.95rem;color:#0F172A;font-weight:800}
+    .patrim-dash-espera p{margin:0 auto;max-width:460px;font-size:.82rem;color:#64748B;line-height:1.55}
+    /* Modal de nova conta: um campo embaixo do outro, rótulo acima. */
+    .patrim-nova{display:flex;flex-direction:column;gap:12px}
+    .patrim-nova label{display:flex;flex-direction:column;gap:5px;font-size:.74rem;
+      font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.05em}
+    .patrim-nova select,.patrim-nova input{font-family:inherit;font-size:.88rem;padding:9px 11px;
+      border:1px solid #E2E8F0;border-radius:8px;background:#fff;color:#0F172A;font-weight:500;
+      text-transform:none;letter-spacing:0}
+    .patrim-nova input:focus,.patrim-nova select:focus{outline:2px solid #BFDBFE;outline-offset:-1px;border-color:#60A5FA}
+    .patrim-nova-pe{margin:0;font-size:.72rem;color:#94A3B8;line-height:1.5}
+    [data-theme="dark"] .patrim-nova select,[data-theme="dark"] .patrim-nova input{
+      background:#0F172A;border-color:#334155;color:#E2E8F0}
     [data-theme="dark"] .patrim-hist td{color:#E2E8F0;border-color:#1E293B}
     [data-theme="dark"] .patrim-snap-filtro select,[data-theme="dark"] .patrim-snap-filtro input{
       background:#0F172A;border-color:#334155;color:#E2E8F0}
@@ -150672,8 +150687,26 @@ function patrimRenderDashTab(){
     obs:'posição atual', isCurrent:true
   });
 
+  /* ══ O QUE DÁ PRA MOSTRAR COM POUCA FOTO ══════════════════════════
+
+     A comparação entre pontos (variação, tendência) precisa mesmo de duas
+     fotos. A tabela de indicadores, não: com UMA já dá pra ler liquidez,
+     endividamento e capital de giro daquele mês — e sem nenhuma, o que
+     falta dizer é QUANDO a primeira sai, não "clique em salvar".
+
+     Antes a função saía aqui e levava a tabela junto, que é por que ele
+     não via indicador nenhum. */
   if(series.length < 2){
-    el.innerHTML = '<div style="padding:50px 20px;text-align:center;color:#64748B;background:#F8FAFC;border-radius:11px"><div style="font-size:3rem;margin-bottom:12px" class="fkico fkico-trend"></div><h3 style="margin:0 0 8px;color:#0F172A">Dashboard precisa de pelo menos 2 snapshots</h3><p style="max-width:480px;margin:0 auto;font-size:.86rem;line-height:1.55">Vá na aba <b>Posição Real</b> e clique em <b>Salvar snapshot</b>. Cada snapshot é um ponto no tempo — quanto mais, mais rica fica a análise.</p></div>';
+    const hoje = new Date();
+    const fim = _patrimUltimoDiaUtil(hoje.getFullYear(), hoje.getMonth());
+    const quando = fim.toLocaleDateString('pt-BR', { day:'2-digit', month:'long' });
+    el.innerHTML = _patrimHistHtml()
+      + '<div class="patrim-dash-espera">'
+      +   '<h3>A comparação entre meses começa na segunda foto</h3>'
+      +   '<p>A próxima sai sozinha em <b>' + quando + '</b>, no fechamento do mês. '
+      +     'Se quiser uma agora, use <b>Salvar snapshot</b> na aba Posição Real — '
+      +     'as duas convivem.</p>'
+      + '</div>';
     return;
   }
 
@@ -151073,32 +151106,75 @@ function _patrimRmCap(id){
 }
 
 // ── Nova conta (modal simples via prompt) ─────────────────────────
-async function patrimOpenAddAccount(){
-  const secao = await _patrimPickSection();
-  if(!secao) return;
-  const nome = window.prompt('Nome da conta (ex.: Estoque, Fornecedor X):');
-  if(!nome || !nome.trim()) return;
-  const valorStr = window.prompt('Valor (R$):', '0');
-  if(valorStr === null) return;
-  const valor = Number((valorStr || '0').replace(/[^\d,.-]/g,'').replace(',', '.')) || 0;
-  if(secao === 'pl'){
-    PATRIM.capital.push({ id: PATRIM.nextId++, nome: nome.trim(), valor });
-  } else {
-    PATRIM.contas.push({ id: PATRIM.nextId++, secao, nome: nome.trim(), valor });
+/* ══ UMA CAIXA, NÃO TRÊS ══════════════════════════════════════════════
+
+   Criar uma linha do balanço pedia três `window.prompt` seguidos: seção,
+   nome e valor. Dois problemas, e o segundo é pior.
+
+   O primeiro é o atrito: três caixas pra uma resposta só, sem poder
+   voltar.
+
+   O segundo é que `window.prompt` está interceptado neste app — ele
+   desenha a caixa do Forekash e recebe o texto já escapado. A lista de
+   seções era montada com `\n`, o interceptador trocou por `<br>`, e o
+   `<br>` apareceu escrito na tela. Era isso que estava sem formatação.
+
+   Agora é um modal só, com o seletor de seção ao lado dos dois campos. */
+const _PATRIM_SECOES = [
+  { id:'ac',  nome:'Ativo Circulante',          ajuda:'vira dinheiro em até 12 meses' },
+  { id:'anc', nome:'Ativo Não Circulante',      ajuda:'imobilizado, intangível, longo prazo' },
+  { id:'pc',  nome:'Passivo Circulante',        ajuda:'a pagar em até 12 meses' },
+  { id:'pnc', nome:'Passivo Não Circulante',    ajuda:'a pagar depois de 12 meses' },
+  { id:'pl',  nome:'Patrimônio Líquido',        ajuda:'capital social, reservas' }
+];
+
+function patrimOpenAddAccount(){
+  const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x || ''));
+  const html =
+      '<div class="patrim-nova">'
+    + '<label>Seção'
+    +   '<select id="patrim-nova-secao">'
+    +     _PATRIM_SECOES.map(x => '<option value="' + x.id + '">' + esc(x.nome) + ' · ' + esc(x.ajuda) + '</option>').join('')
+    +   '</select></label>'
+    + '<label>Nome da conta'
+    +   '<input type="text" id="patrim-nova-nome" placeholder="Ex.: Equipamentos, Adiantamento a fornecedor" autocomplete="off"></label>'
+    + '<label>Valor (R$)'
+    +   '<input type="text" id="patrim-nova-valor" inputmode="decimal" placeholder="0,00" value="0,00"></label>'
+    + '<p class="patrim-nova-pe">A linha nasce manual. As que puxam de outro módulo '
+    +   'aparecem marcadas como <b>auto</b> e não se editam aqui.</p>'
+    + '</div>';
+  openGenericModal('Nova conta no balanço', html, [
+    { label:'Cancelar', cls:'btn-sec', action: closeGenericModal },
+    { label:'Adicionar', cls:'btn-pri', action: patrimAddAccountSalvar }
+  ]);
+  setTimeout(() => { const i = document.getElementById('patrim-nova-nome'); if(i) i.focus(); }, 40);
+}
+
+function patrimAddAccountSalvar(){
+  const secao = (document.getElementById('patrim-nova-secao') || {}).value || '';
+  const nome  = String((document.getElementById('patrim-nova-nome') || {}).value || '').trim();
+  const bruto = String((document.getElementById('patrim-nova-valor') || {}).value || '0');
+  if(!nome){
+    if(typeof showToast === 'function') showToast('Dê um nome à conta', 'warn');
+    const i = document.getElementById('patrim-nova-nome'); if(i) i.focus();
+    return;
   }
+  /* Aceita "1.234,56" e "1234.56": quem digita de um jeito não devia ter
+     que descobrir o outro. */
+  const limpo = bruto.replace(/[^\d,.-]/g, '');
+  const valor = Number(
+      (limpo.indexOf(',') >= 0 ? limpo.replace(/\./g, '').replace(',', '.') : limpo)
+    ) || 0;
+  if(secao === 'pl') PATRIM.capital.push({ id: PATRIM.nextId++, nome, valor });
+  else PATRIM.contas.push({ id: PATRIM.nextId++, secao, nome, valor });
   patrimSave();
+  closeGenericModal();
   patrimRenderRealTab();
+  if(typeof showToast === 'function') showToast('✓ "' + nome + '" no balanço', 'ok');
 }
-async function _patrimPickSection(){
-  // Lista as 5 seções via prompt (sem modal customizado pra MVP)
-  const map = ['ac','anc','pc','pnc','pl'];
-  const labels = ['Ativo Circulante','Ativo Não Circulante','Passivo Circulante','Passivo Não Circulante','Patrimônio Líquido (Capital)'];
-  const txt = labels.map((l,i) => (i+1) + '. ' + l).join('\n');
-  const ans = window.prompt('Em qual seção?\n' + txt + '\n\nDigite o número (1-5):', '1');
-  if(!ans) return null;
-  const n = Number(ans) - 1;
-  return map[n] || null;
-}
+try{ window.patrimOpenAddAccount = patrimOpenAddAccount;
+     window.patrimAddAccountSalvar = patrimAddAccountSalvar; }catch(e){}
+
 
 // ── Snapshots ─────────────────────────────────────────────────────
 /* A prova dos nove do balanço: o resíduo contra o resultado que o
