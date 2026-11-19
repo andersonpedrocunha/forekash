@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795113817"/>
+  <meta name="fk-build" content="forekash-v1795114129"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -152118,7 +152118,9 @@ function _patrimIndStatus(id, v){
    leitura honesta de regra do que um cartão dizendo que não deu. */
 function _patrimLeituraLocal(ind, contas){
   const t = ind.totais;
-  const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x == null ? '' : x));
+  /* Sem escapar nada aqui: isto devolve TEXTO, e quem escapa é o pintor. A
+     leitura da IA chega crua pelo mesmo caminho, então escapar dos dois lados
+     fazia "(>12m)" virar "(&gt;12m)" na tela — dois escapes, um visível. */
   const val = id => { for(const g of ind.grupos) for(const it of g.itens) if(it.id === id) return it.v; return null; };
   const din = n => 'R$ ' + _patrimFmt(Math.abs(Number(n) || 0));
   const lc = val('lc'), li = val('li'), eg = val('eg'), roa = val('roa'), pmr = val('pmr');
@@ -152155,7 +152157,7 @@ function _patrimLeituraLocal(ind, contas){
     const maior = passivos[0];
     if(maior && maior.v > 0.005 && t.totPassivo > 0.005){
       const peso = maior.v / t.totPassivo * 100;
-      alav = { tit:esc(maior.nome) + ' responde por ' + _patrimIndFmt(peso, '%') + ' do passivo.',
+      alav = { tit:String(maior.nome) + ' responde por ' + _patrimIndFmt(peso, '%') + ' do passivo.',
                txt:'São ' + din(maior.v) + ' de um total de ' + din(t.totPassivo) + '. '
                  + (plNeg ? 'Fechar o patrimônio exige ' + din(t.plReal) + ' entre resultado retido e aporte — '
                           + 'é nessa linha que cada real amortizado pesa mais.'
@@ -152173,7 +152175,7 @@ function _patrimLeituraLocal(ind, contas){
     const zeradas = manuais.filter(c => Math.abs(Number(c.valor) || 0) < 0.005);
     if(manuais.length && zeradas.length === manuais.length){
       cego = { tit:'O ativo está sem ' + zeradas.length + ' linha' + (zeradas.length > 1 ? 's' : '') + '.',
-               txt:esc(zeradas.map(c => String(c.nome || '').replace(/\s*\(.*$/, '').trim()).join(', '))
+               txt:zeradas.map(c => String(c.nome || '').replace(/\s*\(.*$/, '').trim()).join(', ')
                  + ' — tudo em zero. Nenhuma delas se auto-importa: saem de lançamento manual. '
                  + 'Enquanto estiverem assim, o ativo é menor do que a empresa tem, e todo índice '
                  + 'que divide por ele sai pior do que a realidade.' };
@@ -159147,14 +159149,49 @@ function slackSave(){
   try{ slackRender(); }catch(_){}
 }
 
+/* ══ TOKEN VENCIDO NÃO É FALTA DE LOGIN ═══════════════════════════════
+
+   `autoRefreshToken` renova em segundo plano, mas só com a aba viva. Uma aba
+   que passou a noite aberta, ou um login de semanas atrás, chega aqui com um
+   access token que o Supabase já não aceita — e o portão do worker responde
+   "sem sessão". A tela dizia isso ao pé da letra, e "sem sessão" para quem
+   está olhando os próprios números é uma frase sem sentido.
+
+   Uma tentativa de renovar antes de desistir resolve o caso comum. Se nem o
+   refresh token vale mais, aí sim é entrar de novo — e a mensagem diz isso,
+   em vez do código interno. */
+async function _slkToken(renovar){
+  try{
+    if(renovar){
+      const rr = await window.sb.auth.refreshSession();
+      const sNovo = rr && rr.data && rr.data.session;
+      if(sNovo && sNovo.access_token) return sNovo.access_token;
+      return '';
+    }
+    return ((await window.sb.auth.getSession()).data.session || {}).access_token || '';
+  }catch(_){ return ''; }
+}
 async function _slkFetch(rota, opts){
-  let jwt = '';
-  try{ jwt = ((await window.sb.auth.getSession()).data.session || {}).access_token || ''; }catch(_){}
-  if(!jwt) throw new Error('precisa estar logado na nuvem');
-  const r = await fetch(rota, Object.assign({
-    headers: Object.assign({ Authorization:'Bearer ' + jwt }, (opts && opts.headers) || {})
-  }, opts || {}));
-  const j = await r.json().catch(() => ({}));
+  let jwt = await _slkToken(false);
+  if(!jwt){
+    jwt = await _slkToken(true);
+    if(!jwt) throw new Error('precisa estar logado na nuvem');
+  }
+  const bater = async (t) => {
+    const r = await fetch(rota, Object.assign({
+      headers: Object.assign({ Authorization:'Bearer ' + t }, (opts && opts.headers) || {})
+    }, opts || {}));
+    return { r, j: await r.json().catch(() => ({})) };
+  };
+  let { r, j } = await bater(jwt);
+  /* 401 é a única resposta que renovar pode consertar: 403 é permissão e
+     502 é o provedor. Retentar essas só gastaria a chamada duas vezes. */
+  if(r.status === 401){
+    const novo = await _slkToken(true);
+    if(novo && novo !== jwt) ({ r, j } = await bater(novo));
+    if(r.status === 401)
+      throw new Error('sua sessão expirou — saia e entre de novo pra continuar');
+  }
   if(!r.ok || j.ok === false){
     const e = new Error(j.erro || ('erro ' + r.status));
     e.escopo = j.escopo;
