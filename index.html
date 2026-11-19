@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795100833"/>
+  <meta name="fk-build" content="forekash-v1795101651"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -1984,6 +1984,23 @@
     .patrim-hist-vazio{text-align:center;padding:18px}
     /* Barra de período do dashboard e os cartões de índice. */
     .patrim-dash-per{margin:0 0 14px}
+    /* Barra de período da Posição Real: ela escolhe QUAL foto está na tela.
+       O aviso só aparece quando a tela não é a posição de agora — a vista
+       padrão continua sem nenhuma linha a mais. */
+    .patrim-real-per{margin:0 0 12px}
+    .patrim-real-aviso{display:flex;gap:9px;align-items:flex-start;padding:9px 12px;
+      border:1px solid #E2E8F0;border-left:3px solid #7C3AED;border-radius:8px;
+      background:#FAF8FF;margin:0 0 14px;font-size:.72rem;line-height:1.55;color:#475569}
+    /* `display:flex` na classe vence o `[hidden]` do navegador — sem esta
+       linha, a faixa vazia aparecia na posição ao vivo. */
+    .patrim-real-aviso[hidden]{display:none}
+    .patrim-real-aviso .ico{font-size:.9rem;line-height:1.2}
+    .patrim-real-aviso b{color:#0F172A}
+    .patrim-real-aviso.vazio{border-left-color:#CBD5E1;background:#F8FAFC}
+    #patrim-tab-real.patrim-foto .patrim-toolbar{display:none}
+    #patrim-tab-real.patrim-sem-foto .patrim-kpis,
+    #patrim-tab-real.patrim-sem-foto .patrim-toolbar,
+    #patrim-tab-real.patrim-sem-foto .patrim-grid{display:none}
     .patrim-ind-per{font-size:.74rem;color:#94A3B8;font-family:Consolas,Menlo,monospace}
     .patrim-ind-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(248px,1fr));gap:14px}
     .patrim-ind-g{border:1px solid #E2E8F0;border-radius:10px;overflow:hidden}
@@ -27642,6 +27659,9 @@ td.mes.do-extrato{background:#ECFDF5}
 
         <!-- Aba REAL -->
         <div id="patrim-tab-real" class="tab-pane active">
+          <!-- Filtro de período: escolhe qual foto do balanço está na tela -->
+          <div class="patrim-real-per" id="patrim-real-per"></div>
+          <div class="patrim-real-aviso" id="patrim-real-aviso" hidden></div>
           <!-- KPIs resumo -->
           <div class="patrim-kpis">
             <div class="patrim-kpi ativo">
@@ -139890,9 +139910,21 @@ function _nfTrilhaSync(n){
     let limpou = false;
     for(const l of lancs){
       if(!l || l === lan) continue;
-      if(!(l.nf && String(l.nf.id) === String(n.id))) continue;
+      /* ══ RESÍDUO PARCIAL TAMBÉM É RESÍDUO ═══════════════════════════
+
+         A condição era só `l.nf` apontando pra esta nota. Mas o carimbo
+         são três campos — `nf`, `nfId` e `nfNumero` — e uma limpeza
+         anterior podia ter levado o objeto e deixado o `nfId` para trás.
+         Com o laço exigindo o objeto, esse `nfId` sozinho nunca mais
+         saía: foi o que manteve o BMH-018 marcado como se tivesse a
+         NFS-e 89, que é do BMH-017.
+
+         Agora qualquer um dos dois vestígios basta pra entrar na limpeza. */
+      const temObjeto = !!(l.nf && String(l.nf.id) === String(n.id));
+      const temIdSolto = String(l.nfId == null ? '' : l.nfId) === String(n.id);
+      if(!temObjeto && !temIdSolto) continue;
       delete l.nf;
-      if(String(l.nfId) === String(n.id)){ delete l.nfId; delete l.nfNumero; }
+      if(temIdSolto){ delete l.nfId; delete l.nfNumero; }
       if(n.numero && l.documento === 'NFS-e ' + n.numero) delete l.documento;
       try{
         if(typeof _extEvento === 'function')
@@ -150959,7 +150991,10 @@ function patrimReimportAll(){
 
    Por isso a conta mostra desde QUANDO ela soma: resultado acumulado de
    dois anos não se compara com um PL que carrega dez. */
-function _patrimResultadoAcumulado(){
+/* `ateYm` existe por causa da foto antiga: comparar o resíduo do balanço de
+   março com o resultado acumulado até HOJE acusaria uma diferença que é só a
+   passagem do tempo. Sem argumento, continua valendo até o mês corrente. */
+function _patrimResultadoAcumulado(ateYm){
   const vazio = { total: 0, desde: '', meses: 0, ok: false };
   try{
     if(typeof orcResultRealMes !== 'function') return vazio;
@@ -150971,8 +151006,13 @@ function _patrimResultadoAcumulado(){
     }
     if(!menor) return vazio;
     const hoje = new Date();
-    const aFim = hoje.getFullYear(), mFim = hoje.getMonth();
+    let aFim = hoje.getFullYear(), mFim = hoje.getMonth();
+    if(/^\d{4}-\d{2}$/.test(String(ateYm || ''))){
+      aFim = parseInt(String(ateYm).slice(0, 4), 10);
+      mFim = parseInt(String(ateYm).slice(5, 7), 10) - 1;
+    }
     const aIni = parseInt(menor.slice(0, 4), 10), mIni = parseInt(menor.slice(5, 7), 10) - 1;
+    if(aFim < aIni || (aFim === aIni && mFim < mIni)) return vazio;
     /* Teto de 15 anos: protege de uma data torta na importação virar um
        laço de mil meses dentro do render. */
     if(!isFinite(aIni) || aFim - aIni > 15) return vazio;
@@ -151028,6 +151068,7 @@ function patrimSwitchTab(tab, btn){
   if(pane){ pane.style.display = ''; pane.classList.add('active'); }
   if(tab === 'snap') patrimRenderSnapTab();
   else if(tab === 'dash') patrimRenderDashTab();
+  else if(tab === 'real') patrimRenderRealTab();
 }
 
 function patrimRender(){
@@ -151701,8 +151742,91 @@ function _patrimFmtK(v){
   return v.toFixed(0);
 }
 
+/* ══ QUAL FOTO ESTÁ NA TELA ═══════════════════════════════════════════
+
+   A Posição Real mostrava sempre o agora. Com uma foto guardada por mês, a
+   pergunta "como estava o balanço em março" não tinha resposta nesta aba —
+   só no Histórico, em quatro colunas de resumo.
+
+   Então o filtro aqui não recorta soma nenhuma: ele escolhe o retrato. O
+   mês corrente (padrão) é a posição ao vivo, igual a antes. Mês passado é a
+   foto daquele fechamento, em leitura — editar valor de uma foto seria
+   reescrever o passado, e a foto perde o sentido de foto. Mês sem foto diz
+   que não tem foto, em vez de mostrar os saldos de hoje com outro rótulo. */
+function _patrimRealPerId(){ return 'patrim-real'; }
+function _patrimRealPerInit(){
+  if(typeof fkPerNovo !== 'function') return null;
+  return fkPerNovo(_patrimRealPerId(), {
+    grain: 'mes', graos: ['mes','ano'], ym: true,
+    onChange: () => { try{ patrimRenderRealTab(); }catch(_){} }
+  });
+}
+
+function _patrimFotoDaPosicao(){
+  const vivo = { contas: PATRIM.contas, capital: PATRIM.capital, foto: null, aoVivo: true };
+  let r = null;
+  try{ r = (typeof fkPerRangeYm === 'function') ? fkPerRangeYm(_patrimRealPerId()) : null; }catch(_){}
+  if(!r) return vivo;
+  /* Mês local, não `toISOString`: às 21h do dia 30 o UTC já virou o mês
+     seguinte, e a posição de hoje apareceria como foto inexistente. */
+  const h = new Date();
+  const ymHoje = h.getFullYear() + '-' + String(h.getMonth() + 1).padStart(2, '0');
+  if(String(r.de) <= ymHoje && ymHoje <= String(r.ate)) return vivo;
+  const dentro = (PATRIM.snapshots || [])
+    .filter(x => x && Array.isArray(x.contas)
+                 && String(x.ym) >= r.de && String(x.ym) <= r.ate)
+    .sort((a, b) => String(a.ym).localeCompare(String(b.ym)));
+  /* Recorte de um ano pega doze fotos: vale a última, que é como o ano
+     fechou — e o Histórico está ali ao lado pra ver as outras onze. */
+  const foto = dentro.length ? dentro[dentro.length - 1] : null;
+  if(!foto) return { contas: [], capital: [], foto: null, aoVivo: false, range: r };
+  return { contas: foto.contas, capital: foto.capital || [], foto, aoVivo: false, range: r };
+}
+
+function _patrimRealAvisoRender(pos){
+  const pane = document.getElementById('patrim-tab-real');
+  const el = document.getElementById('patrim-real-aviso');
+  if(pane){ pane.classList.toggle('patrim-foto', !pos.aoVivo && !!pos.foto);
+            pane.classList.toggle('patrim-sem-foto', !pos.aoVivo && !pos.foto); }
+  if(!el) return;
+  if(pos.aoVivo){ el.hidden = true; el.innerHTML = ''; el.classList.remove('vazio'); return; }
+  const rot = (typeof fkPerRotulo === 'function') ? fkPerRotulo(_patrimRealPerId()) : '';
+  const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x || ''));
+  el.hidden = false;
+  if(!pos.foto){
+    const quando = (() => {
+      try{ return _patrimUltimoDiaUtil(new Date().getFullYear(), new Date().getMonth())
+             .toLocaleDateString('pt-BR', { day:'2-digit', month:'long' }); }catch(_){ return ''; }
+    })();
+    el.classList.add('vazio');
+    el.innerHTML = '<span class="ico">—</span><span>Nenhuma foto de <b>' + esc(rot)
+      + '</b>. As fotos saem sozinhas no último dia útil de cada mês'
+      + (quando ? ' — a próxima em <b>' + esc(quando) + '</b>' : '')
+      + '. Aperte <b>Hoje</b> pra voltar pra posição de agora.</span>';
+    return;
+  }
+  const dia = (() => {
+    try{ return new Date(pos.foto.ts).toLocaleDateString('pt-BR'); }catch(_){ return ''; }
+  })();
+  el.classList.remove('vazio');
+  el.innerHTML = '<span class="ico">📸</span><span>Foto de <b>' + esc(rot) + '</b>'
+    + (dia ? ', fechada em <b>' + esc(dia) + '</b>' : '')
+    + ' — valores como estavam naquele dia, em leitura.'
+    + (pos.foto.estimado ? ' Tirada depois do fechamento, com os saldos do dia: vale como série, não como fechamento auditado.' : '')
+    + (pos.foto.obs ? ' <i>' + esc(pos.foto.obs) + '</i>' : '')
+    + '</span>';
+}
+try{ window._patrimRealPerInit = _patrimRealPerInit;
+     window._patrimFotoDaPosicao = _patrimFotoDaPosicao; }catch(e){}
+
 function patrimRenderRealTab(){
-  const totals = patrimCalcTotals(PATRIM.contas, PATRIM.capital);
+  try{ _patrimRealPerInit(); }catch(_){}
+  const barra = document.getElementById('patrim-real-per');
+  if(barra && typeof fkPerHtml === 'function') barra.innerHTML = fkPerHtml(_patrimRealPerId());
+  const pos = _patrimFotoDaPosicao();
+  _patrimRealAvisoRender(pos);
+  const soLeitura = !pos.aoVivo;
+  const totals = patrimCalcTotals(pos.contas, pos.capital);
   document.getElementById('patrim-kpi-ativo').textContent = 'R$ ' + _patrimFmt(totals.totAtivo);
   document.getElementById('patrim-kpi-passivo').textContent = 'R$ ' + _patrimFmt(totals.totPassivo);
   const plEl = document.getElementById('patrim-kpi-pl');
@@ -151716,8 +151840,8 @@ function patrimRenderRealTab(){
     const list = document.getElementById('patrim-list-' + secao);
     if(!list) return;
     list.innerHTML = '';
-    PATRIM.contas.filter(c => c.secao === secao).forEach(c => {
-      list.appendChild(_patrimRenderItem(c, false));
+    pos.contas.filter(c => c.secao === secao).forEach(c => {
+      list.appendChild(_patrimRenderItem(c, false, soLeitura));
     });
   });
 
@@ -151725,8 +151849,8 @@ function patrimRenderRealTab(){
   const listPl = document.getElementById('patrim-list-pl');
   if(listPl){
     listPl.innerHTML = '';
-    PATRIM.capital.forEach(c => {
-      listPl.appendChild(_patrimRenderCapitalItem(c, false));
+    pos.capital.forEach(c => {
+      listPl.appendChild(_patrimRenderCapitalItem(c, false, soLeitura));
     });
   }
 
@@ -151736,8 +151860,9 @@ function patrimRenderRealTab(){
     lucEl.textContent = (totals.lucros < 0 ? '-' : '') + 'R$ ' + _patrimFmt(totals.lucros);
     lucEl.style.color = totals.lucros >= 0 ? '#065F46' : '#991B1B';
   }
-  /* Logo depois do resíduo, a conferência contra o Demonstrativo. */
-  try{ _patrimRenderConfere(totals); }catch(_){}
+  /* Logo depois do resíduo, a conferência contra o Demonstrativo — numa
+     foto, acumulado até o mês DELA. */
+  try{ _patrimRenderConfere(totals, pos.foto ? pos.foto.ym : null); }catch(_){}
 
   // Totais
   document.getElementById('patrim-tot-ativo').textContent = 'R$ ' + _patrimFmt(totals.totAtivo);
@@ -151745,29 +151870,36 @@ function patrimRenderRealTab(){
   document.getElementById('patrim-tot-pl').textContent = (totals.totPL < 0 ? '-' : '') + 'R$ ' + _patrimFmt(totals.totPL);
 }
 
-function _patrimRenderItem(c, isSimulation){
+/* `soLeitura` vale pra foto antiga: a linha vira valor, sem campo e sem
+   remover. Linha auto já era assim — agora é o mesmo caminho pros dois. */
+function _patrimRenderItem(c, isSimulation, soLeitura){
   const div = document.createElement('div');
-  div.className = 'patrim-item' + (c.auto && !isSimulation ? ' auto' : '');
+  const auto = c.auto && !isSimulation;
+  const fixo = !!soLeitura || auto;
+  div.className = 'patrim-item' + (auto ? ' auto' : '');
   div.innerHTML =
     '<div class="patrim-item-name">' + (c.nome || '—') +
-      (c.auto && !isSimulation ? '<small>auto · ' + (c.src || '') + '</small>' : '') +
+      (auto ? '<small>auto · ' + (c.src || '') + '</small>' : '') +
     '</div>' +
-    (c.auto && !isSimulation
+    (fixo
       ? '<div class="patrim-item-val">R$ ' + _patrimFmt(c.valor) + '</div>'
       : '<input class="patrim-item-input" type="text" inputmode="decimal" value="' + _patrimFmt(c.valor || 0) + '" data-id="' + c.id + '" onchange="' + (isSimulation ? '_patrimSimEditVal(this)' : '_patrimEditVal(this)') + '" onfocus="this.select()">') +
-    (c.auto && !isSimulation
+    (fixo
       ? '<span style="width:24px"></span><span style="width:24px"></span>'
       : '<button class="patrim-item-rm" onclick="' + (isSimulation ? '_patrimSimRm(' + c.id + ')' : '_patrimRm(' + c.id + ')') + '" title="Tirar esta linha do balanço">remover</button>');
   return div;
 }
-function _patrimRenderCapitalItem(c, isSimulation){
+function _patrimRenderCapitalItem(c, isSimulation, soLeitura){
   const div = document.createElement('div');
   div.className = 'patrim-item';
   div.innerHTML =
     '<div class="patrim-item-name">' + (c.nome || '—') + '</div>' +
-    '<input class="patrim-item-input" type="text" inputmode="decimal" value="' + _patrimFmt(c.valor || 0) + '" data-id="' + c.id + '" onchange="' + (isSimulation ? '_patrimSimEditCap(this)' : '_patrimEditCap(this)') + '" onfocus="this.select()">' +
-    '<span style="width:24px"></span>' +
-    '<button class="patrim-item-rm" onclick="' + (isSimulation ? '_patrimSimRmCap(' + c.id + ')' : '_patrimRmCap(' + c.id + ')') + '" title="Tirar esta linha do balanço">remover</button>';
+    (soLeitura
+      ? '<div class="patrim-item-val">R$ ' + _patrimFmt(c.valor) + '</div>'
+        + '<span style="width:24px"></span><span style="width:24px"></span>'
+      : '<input class="patrim-item-input" type="text" inputmode="decimal" value="' + _patrimFmt(c.valor || 0) + '" data-id="' + c.id + '" onchange="' + (isSimulation ? '_patrimSimEditCap(this)' : '_patrimEditCap(this)') + '" onfocus="this.select()">'
+        + '<span style="width:24px"></span>'
+        + '<button class="patrim-item-rm" onclick="' + (isSimulation ? '_patrimSimRmCap(' + c.id + ')' : '_patrimRmCap(' + c.id + ')') + '" title="Tirar esta linha do balanço">remover</button>');
   return div;
 }
 
@@ -151865,10 +151997,10 @@ try{ window.patrimOpenAddAccount = patrimOpenAddAccount;
 /* A prova dos nove do balanço: o resíduo contra o resultado que o
    Demonstrativo calcula sozinho. Um fecha por construção, o outro não —
    e é a distância entre os dois que diz se o balanço se sustenta. */
-function _patrimRenderConfere(totals){
+function _patrimRenderConfere(totals, ateYm){
   const el = document.getElementById('patrim-confere');
   if(!el) return;
-  const r = _patrimResultadoAcumulado();
+  const r = _patrimResultadoAcumulado(ateYm);
   if(!r.ok){
     el.innerHTML = '<div class="patrim-section-hd">Conferência</div>'
       + '<div class="patrim-conf-vazio">Sem lançamento no Extrato ainda — '
