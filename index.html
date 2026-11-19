@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795111833"/>
+  <meta name="fk-build" content="forekash-v1795112563"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -2174,6 +2174,31 @@
     .patrim-chart-hd h4{margin:0;font-size:.94rem;font-weight:800;color:#0F172A;letter-spacing:-.01em}
     .patrim-chart-hd small{color:#94A3B8;font-size:.72rem}
     .patrim-svg-chart{width:100%;height:auto;max-height:280px;display:block}
+    /* Caixa × Dívida: três números em cima, gráfico no meio, legenda embaixo.
+       Mesma gramática da ficha — rótulo em mono, valor grande, nota abaixo. */
+    .patrim-cxdv-top{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:2px 0 14px}
+    @media (max-width:640px){.patrim-cxdv-top{grid-template-columns:1fr;gap:11px}}
+    .patrim-cxdv-c span{display:block;font-family:'JetBrains Mono',Consolas,monospace;font-size:.57rem;
+      font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:#94A3B8}
+    .patrim-cxdv-c b{display:block;margin-top:5px;font-size:1.12rem;font-weight:800;color:#0F172A;
+      letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1}
+    .patrim-cxdv-c i{display:block;margin-top:4px;font-style:normal;font-size:.68rem;color:#64748B;
+      font-variant-numeric:tabular-nums}
+    .patrim-cxdv-c.cx b{color:#059669}
+    .patrim-cxdv-c.dv b{color:#DC2626}
+    .patrim-cxdv-c b.neg{color:#DC2626}
+    .patrim-cxdv-c b.ok{color:#059669}
+    .patrim-cxdv-leg{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:.7rem;color:#64748B}
+    .patrim-cxdv-leg span{display:flex;align-items:center;gap:6px}
+    .patrim-cxdv-leg i{width:11px;height:11px;border-radius:50%;flex-shrink:0}
+    .patrim-cxdv-leg i.cx{background:#10B981}
+    .patrim-cxdv-leg i.dv{background:#DC2626}
+    .patrim-cxdv-leg i.vz{background:#fff;border:2px solid #94A3B8}
+    [data-theme="dark"] .patrim-cxdv-c b{color:#F1F5F9}
+    [data-theme="dark"] .patrim-cxdv-c.cx b{color:#34D399}
+    [data-theme="dark"] .patrim-cxdv-c.dv b,[data-theme="dark"] .patrim-cxdv-c b.neg{color:#F87171}
+    [data-theme="dark"] .patrim-cxdv-c b.ok{color:#34D399}
+    [data-theme="dark"] .patrim-cxdv-leg i.vz{background:#0F172A}
     .patrim-dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
     @media (max-width:880px){.patrim-dash-grid{grid-template-columns:1fr}}
     .patrim-donut-wrap{display:grid;grid-template-columns:200px 1fr;gap:18px;align-items:center}
@@ -151728,6 +151753,255 @@ function _patrimHistHtml(){
     + 'do próprio mês. <b>~</b> marca a foto tirada depois do fechamento.</div></div>';
 }
 
+/* ══ SÉRIE CAIXA × DÍVIDA ═════════════════════════════════════════════
+   A foto do balanço não existe no passado: o Extrato guardou a data do
+   PAGAMENTO e quase nunca o vencimento, então "o que estava em aberto em
+   março" não é recuperável. Mas duas linhas têm registro datado de verdade,
+   e são justamente as duas que mandam no fôlego da empresa — quanto havia em
+   caixa e quanto se devia ao banco.
+
+   CAIXA · o fechamento informado mês a mês em Disponibilidades. Onde não foi
+   informado, o saldo calculado pela âncora da conta mais o que o Extrato
+   baixou até ali. Onde nem isso dá (conta sem ponto de partida), a conta fica
+   de fora DAQUELE mês e o mês é marcado. Essa marca é o ponto todo: outubro
+   tinha 4 das 9 contas informadas, e somar sem avisar faz o caixa parecer
+   despencar de 257 mil pra 85 mil sem ter despencado.
+
+   DÍVIDA · o saldo de hoje mais tudo que foi amortizado depois daquele mês,
+   pelos registros mensais de cada contrato (parcela e amortização extra). A
+   âncora é o saldo de hoje, não o valor contratado: o contratado ignoraria a
+   amortização anterior ao primeiro registro.
+
+   Não é balanço e não vira foto: é a evolução de duas linhas que existem. */
+/* Quanto a conta tinha no fim de `ym`.
+
+   `dispoCalcSaldoEsperado` existe e faz quase isto, mas ancora SEMPRE no
+   saldo inicial e só olha `snapshots` — ignora os fechamentos que ele digita
+   mês a mês. Pra outubro isso significaria repetir dez meses de extrato
+   desde dezembro, acumulando toda falha de lançamento do caminho. Aqui a
+   âncora é a informação mais recente que existe até o mês pedido, que é o
+   mesmo critério do `dispoSaldoHoje` — só que com teto de mês em vez de
+   hoje. Fechamento informado vale mais que cálculo: foi conferido contra o
+   extrato do banco. */
+function _patrimCaixaDaConta(conta, ym){
+  if(!conta || !ym) return null;
+  const cmp = (typeof _dispoYmCmp === 'function')
+    ? _dispoYmCmp
+    : ((a, b) => String(a).slice(0, 7) < String(b).slice(0, 7) ? -1
+              : (String(a).slice(0, 7) > String(b).slice(0, 7) ? 1 : 0));
+  const saldos = conta.saldos || {};
+  const direto = saldos[ym];
+  if(direto != null && direto !== '' && isFinite(+direto)) return { valor:+direto, informado:true };
+
+  let anc = null;
+  const melhor = (data, valor) => {
+    if(!anc || cmp(data, anc.data) > 0) anc = { data, valor };
+  };
+  if(conta.saldoInicialMes){
+    if(cmp(ym, conta.saldoInicialMes) < 0) return null;      // antes de existir
+    melhor(conta.saldoInicialMes, parseFloat(conta.saldoInicial) || 0);
+  }
+  for(const s of (Array.isArray(conta.snapshots) ? conta.snapshots : [])){
+    if(s && s.ym && cmp(s.ym, ym) <= 0) melhor(s.ym, parseFloat(s.valor) || 0);
+  }
+  for(const k of Object.keys(saldos)){
+    const v = saldos[k];
+    if(v == null || v === '' || !isFinite(+v)) continue;
+    if(cmp(k, ym) >= 0) continue;                            // o próprio mês já foi testado
+    const ultimoDia = new Date(+k.slice(0, 4), +k.slice(5, 7), 0).getDate();
+    melhor(k + '-' + String(ultimoDia).padStart(2, '0'), +v);
+  }
+  if(!anc) return null;                                      // nunca houve saldo conhecido
+  const nome = (typeof _dispoNomeConta === 'function') ? _dispoNomeConta(conta) : '';
+  if(!nome) return { valor:anc.valor, informado:false };
+  let mov = 0;
+  try{
+    if(typeof dispoMovimentacoesApos === 'function') mov = dispoMovimentacoesApos(nome, anc.data, ym) || 0;
+  }catch(_){}
+  return { valor:anc.valor + mov, informado:false };
+}
+
+function _patrimCxDvSerie(){
+  const ymDe = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  const somaMes = (ym, n) => {
+    const a = parseInt(String(ym).slice(0, 4), 10), m = parseInt(String(ym).slice(5, 7), 10) - 1;
+    return ymDe(new Date(a, m + n, 1));
+  };
+  const h = new Date();
+  /* Fecha no mês ANTERIOR: o corrente ainda está correndo, e meio mês de
+     caixa ao lado de doze meses fechados desenha uma queda que não houve. */
+  const fim = somaMes(ymDe(h), -1);
+
+  const contas = (typeof dispo !== 'undefined' && dispo && Array.isArray(dispo.contas))
+    ? dispo.contas.filter(c => c && c.ativo !== false) : [];
+  const emprestimos = Array.isArray(loans) ? loans : [];
+
+  /* Começo da janela: o dado mais antigo que existe dos dois lados, com teto
+     de 24 meses pra não desenhar duas dúzias de meses vazios. */
+  let ini = null;
+  const cand = (ym) => { if(/^\d{4}-\d{2}$/.test(String(ym || '')) && (!ini || ym < ini)) ini = ym; };
+  contas.forEach(c => Object.keys((c && c.saldos) || {}).forEach(cand));
+  emprestimos.forEach(l => ((l && l.registros) || []).forEach(r => cand(r && r.mes)));
+  if(!ini) return [];
+  const teto = somaMes(fim, -23);
+  if(ini < teto) ini = teto;
+  if(ini > fim) return [];
+
+  /* Mês de nascimento do contrato: o primeiro registro ou a primeira parcela,
+     o que vier antes. Sem ele, um empréstimo de julho apareceria com saldo em
+     janeiro — a soma de amortizações "depois de janeiro" devolve o valor
+     inicial dele, que naquele mês ainda não existia. */
+  const nasceu = (l) => {
+    let n = null;
+    const p = (ym) => { if(/^\d{4}-\d{2}$/.test(String(ym || '')) && (!n || ym < n)) n = ym; };
+    ((l && l.registros) || []).forEach(r => p(r && r.mes));
+    p(String((l && l.inicio) || '').slice(0, 7));
+    return n;
+  };
+  const amortDoMes = (reg) => {
+    let a = parseFloat(reg && reg.amortEfetivada);
+    a = isFinite(a) ? a : 0;
+    for(const ex of ((reg && reg.extras) || [])){
+      const e = parseFloat(ex && ex.amort);
+      if(isFinite(e)) a += e;
+    }
+    return a;
+  };
+
+  const out = [];
+  for(let ym = ini; ym <= fim; ym = somaMes(ym, 1)){
+    let caixa = 0, faltam = 0, informadas = 0;
+    for(const c of contas){
+      const r = _patrimCaixaDaConta(c, ym);
+      if(r == null) faltam++;
+      else { caixa += r.valor; if(r.informado) informadas++; }
+    }
+    let divida = 0;
+    for(const l of emprestimos){
+      const n = nasceu(l);
+      if(n && ym < n) continue;                       // não existia ainda
+      let saldo = parseFloat(l && l.saldo);
+      saldo = isFinite(saldo) ? saldo : 0;
+      for(const r of ((l && l.registros) || [])){
+        if(r && String(r.mes || '') > ym) saldo += amortDoMes(r);
+      }
+      divida += saldo;
+    }
+    out.push({ ym, caixa:Math.round(caixa * 100) / 100, divida:Math.round(divida * 100) / 100,
+               faltam, informadas, contas:contas.length });
+  }
+  return out;
+}
+
+/* O gráfico. Duas linhas e nada mais: a pergunta é se a dívida cede enquanto
+   o caixa segura, e isso se lê no cruzamento. Mês com conta faltando ganha
+   ponto vazado — o furo aparece na linha em vez de virar queda. */
+function _patrimCxDvChart(serie){
+  const W = 900, H = 250, PL = 58, PR = 16, PT = 18, PB = 34;
+  const vals = serie.reduce((a, p) => a.concat([p.caixa, p.divida]), [0]);
+  const max = Math.max.apply(null, vals) || 1;
+  const x = i => PL + (serie.length === 1 ? (W - PL - PR) / 2
+                     : (i / (serie.length - 1)) * (W - PL - PR));
+  const y = v => H - PB - (v / max) * (H - PT - PB);
+  const linha = chave => 'M' + serie.map((p, i) => x(i).toFixed(1) + ',' + y(p[chave]).toFixed(1)).join(' L');
+  const areaCaixa = linha('caixa') + ' L' + x(serie.length - 1).toFixed(1) + ',' + (H - PB)
+                  + ' L' + x(0).toFixed(1) + ',' + (H - PB) + ' Z';
+  const mesBR = ym => {
+    const M = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    return (M[parseInt(String(ym).slice(5, 7), 10) - 1] || '?') + '/' + String(ym).slice(2, 4);
+  };
+  /* Com muitos meses o rótulo de todos vira borrão: mostra um a cada dois. */
+  const passo = serie.length > 13 ? 2 : 1;
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="patrim-svg-chart" role="img" '
+    + 'aria-label="Caixa e dívida mês a mês">'
+    + '<defs><linearGradient id="patgrad-cx" x1="0" x2="0" y1="0" y2="1">'
+    +   '<stop offset="0%" stop-color="#10B981" stop-opacity=".22"/>'
+    +   '<stop offset="100%" stop-color="#10B981" stop-opacity="0"/></linearGradient></defs>'
+    + [0, .25, .5, .75, 1].map(t => {
+        const yy = PT + t * (H - PT - PB);
+        return '<line x1="' + PL + '" x2="' + (W - PR) + '" y1="' + yy + '" y2="' + yy
+             + '" stroke="#E2E8F0" stroke-width="1" stroke-dasharray="2,4"/>'
+             + '<text x="' + (PL - 7) + '" y="' + (yy + 3.5) + '" text-anchor="end" font-size="10.5" '
+             + 'fill="#94A3B8" font-family="JetBrains Mono,monospace">'
+             + _patrimFmtK(max * (1 - t)) + '</text>';
+      }).join('')
+    + '<path d="' + areaCaixa + '" fill="url(#patgrad-cx)"/>'
+    + '<path d="' + linha('divida') + '" fill="none" stroke="#DC2626" stroke-width="2.4" '
+    +   'stroke-linecap="round" stroke-linejoin="round"/>'
+    + '<path d="' + linha('caixa') + '" fill="none" stroke="#10B981" stroke-width="2.4" '
+    +   'stroke-linecap="round" stroke-linejoin="round"/>'
+    + serie.map((p, i) => {
+        const vazado = p.faltam > 0;
+        const tit = mesBR(p.ym) + ' · caixa R$ ' + _patrimFmt(p.caixa)
+                  + ' · dívida R$ ' + _patrimFmt(p.divida)
+                  + (vazado ? ' · ' + p.faltam + ' de ' + p.contas + ' contas sem saldo neste mês' : '');
+        const pt = (v, cor) => '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(v).toFixed(1) + '" r="'
+          + (vazado ? 3.6 : 3.2) + '" fill="' + (vazado ? '#fff' : cor) + '" stroke="' + cor
+          + '" stroke-width="' + (vazado ? 2 : 1.6) + '"/>';
+        return '<g><title>' + tit + '</title>' + pt(p.divida, '#DC2626') + pt(p.caixa, '#10B981')
+          + (i % passo === 0
+              ? '<text x="' + x(i).toFixed(1) + '" y="' + (H - PB + 17) + '" text-anchor="middle" '
+                + 'font-size="10.5" fill="#64748B" font-family="JetBrains Mono,monospace">'
+                + mesBR(p.ym) + '</text>'
+              : '') + '</g>';
+      }).join('')
+    + '</svg>';
+}
+
+function _patrimCxDvHtml(){
+  let serie = [];
+  try{ serie = _patrimCxDvSerie(); }catch(e){
+    try{ console.warn('[patrim] série caixa × dívida:', e && e.message); }catch(_){}
+  }
+  if(serie.length < 2) return '';
+  const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x == null ? '' : x));
+  const a = serie[0], z = serie[serie.length - 1];
+  const mesBR = ym => {
+    const M = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    return (M[parseInt(String(ym).slice(5, 7), 10) - 1] || '?') + '/' + String(ym).slice(2, 4);
+  };
+  const delta = (de, para) => {
+    const d = para - de;
+    return (d >= 0 ? '+' : '−') + 'R$ ' + _patrimFmt(Math.abs(d));
+  };
+  const furados = serie.filter(p => p.faltam > 0).length;
+  /* A folga é o que a pessoa procura no cruzamento das duas linhas. */
+  const folga = z.caixa - z.divida;
+  return '<div class="patrim-chart-wrap">'
+    + '<div class="patrim-hist-hd"><h4>Caixa × Dívida</h4>'
+    +   '<span class="patrim-ind-per">' + esc(mesBR(a.ym)) + ' — ' + esc(mesBR(z.ym)) + '</span></div>'
+    + '<div class="patrim-cxdv-top">'
+    +   '<div class="patrim-cxdv-c cx"><span>Caixa em ' + esc(mesBR(z.ym)) + '</span>'
+    +     '<b>R$ ' + _patrimFmt(z.caixa) + '</b><i>' + esc(delta(a.caixa, z.caixa))
+    +     ' desde ' + esc(mesBR(a.ym)) + '</i></div>'
+    +   '<div class="patrim-cxdv-c dv"><span>Dívida em ' + esc(mesBR(z.ym)) + '</span>'
+    +     '<b>R$ ' + _patrimFmt(z.divida) + '</b><i>' + esc(delta(a.divida, z.divida))
+    +     ' desde ' + esc(mesBR(a.ym)) + '</i></div>'
+    +   '<div class="patrim-cxdv-c"><span>Diferença</span>'
+    +     '<b class="' + (folga >= 0 ? 'ok' : 'neg') + '">' + (folga < 0 ? '−' : '')
+    +     'R$ ' + _patrimFmt(Math.abs(folga)) + '</b>'
+    +     '<i>' + (folga >= 0 ? 'o caixa cobre a dívida' : 'a dívida passa do caixa') + '</i></div>'
+    + '</div>'
+    + _patrimCxDvChart(serie)
+    + '<div class="patrim-cxdv-leg">'
+    +   '<span><i class="cx"></i>Caixa e aplicações</span>'
+    +   '<span><i class="dv"></i>Saldo devedor</span>'
+    +   (furados ? '<span><i class="vz"></i>mês com conta sem saldo informado</span>' : '')
+    + '</div>'
+    + '<div class="patrim-ind-pe">Caixa: o fechamento informado em Disponibilidades, ou o saldo '
+    + 'calculado pela âncora da conta quando o mês não foi informado. Dívida: o saldo de hoje mais '
+    + 'o que foi amortizado depois de cada mês. '
+    + (furados
+        ? '<b>' + furados + ' ' + (furados > 1 ? 'meses têm' : 'mês tem') + ' conta sem saldo</b> — '
+          + 'o ponto vazado marca onde a linha do caixa está menor do que foi, por falta de '
+          + 'lançamento e não por queda.'
+        : 'Todos os meses têm as ' + z.contas + ' contas cobertas.')
+    + ' Isto não é um balanço: são as duas linhas que têm registro datado.</div>'
+    + '</div>';
+}
+try{ window._patrimCxDvSerie = _patrimCxDvSerie;
+     window._patrimCxDvHtml = _patrimCxDvHtml; }catch(e){}
+
 /* ══ VEREDITO POR ÍNDICE ══════════════════════════════════════════════
    Faixas de manual, não benchmark de setor — por isso a tabela diz isso no
    rodapé. Servem pra orientar a leitura ("0,95x está abaixo de 1"), não pra
@@ -151965,7 +152239,7 @@ function patrimRenderDashTab(){
     const hoje = new Date();
     const fim = _patrimUltimoDiaUtil(hoje.getFullYear(), hoje.getMonth());
     const quando = fim.toLocaleDateString('pt-BR', { day:'2-digit', month:'long' });
-    el.innerHTML = _patrimIndicadoresHtml() + _patrimHistHtml()
+    el.innerHTML = _patrimIndicadoresHtml() + _patrimCxDvHtml() + _patrimHistHtml()
       + '<div class="patrim-dash-espera">'
       +   '<h3>A comparação entre meses começa na segunda foto</h3>'
       +   '<p>A próxima sai sozinha em <b>' + quando + '</b>, no fechamento do mês. '
@@ -152144,17 +152418,15 @@ function patrimRenderDashTab(){
     '</tbody></table>' +
   '</div>';
 
-  // Dica final
-  html += '<div style="background:linear-gradient(135deg,#FAF5FF 0%,#F3E8FF 100%);border:1px solid #DDD6FE;border-radius:11px;padding:14px 18px;margin-top:6px;font-size:.82rem;color:#5B21B6;line-height:1.55">' +
-    '<b>Dica de análise (MR KASH):</b> Nenhum indicador deve ser analisado isoladamente. ' +
-    'Uma Liquidez Corrente alta pode parecer ótima, mas se inflada por estoque obsoleto, a realidade muda. ' +
-    'Compare com seu histórico (snapshots acima) e com a média do setor.' +
-  '</div>';
+  /* A dica genérica do MR KASH saiu daqui. Ela dizia a mesma frase pra
+     qualquer balanço, e agora existe o parecer de verdade no topo da aba,
+     que lê os números desta empresa. Duas falas dele na mesma tela, uma
+     delas sem olhar pro dado, só tirava crédito da outra. */
 
   /* A evolução dos indicadores entra no topo: é a pergunta que ele
      fez — como estava mês a mês — e o resto do painel é o retrato de
      hoje. */
-  html = _patrimIndicadoresHtml() + _patrimHistHtml() + html;
+  html = _patrimIndicadoresHtml() + _patrimCxDvHtml() + _patrimHistHtml() + html;
   el.innerHTML = html;
 }
 
