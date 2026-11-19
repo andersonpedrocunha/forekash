@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795108267"/>
+  <meta name="fk-build" content="forekash-v1795110645"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -30564,6 +30564,65 @@ document.addEventListener('mouseup', () => {
 // ═══════════════════════════════════════════════════
 //  PERSISTENCE + MIGRATION
 // ═══════════════════════════════════════════════════
+/* ══ HISTORICO DE SALDO E PARCELA: O `prev` QUE PERDEU O PONTO ════════
+   `saveField` gravava `prev: parseBR(loan.saldo)`, e o saldo guardado ja e
+   numero. O `parseBR` existe pra ler "128.933,16" digitado a mao: apaga os
+   pontos e troca a virgula por ponto. Passando um NUMERO por ele, o ponto
+   apagado e o decimal — 128933.16 virou 12893316, cem vezes maior.
+
+   Dois estragos sairam dai. O `prev` do historico ficou errado, e a guarda
+   `parsed !== parseBR(loan.saldo)` passou a achar mudanca onde nao houve,
+   registrando alteracao que ninguem fez. Valor inteiro passava ileso (nao
+   tem ponto pra apagar), e por isso o estrago e intercalado: no mesmo
+   emprestimo ha linha certa e linha errada.
+
+   O historico e a unica fonte de saldo passado dos emprestimos, entao vale
+   consertar mesmo nao afetando numero nenhum na tela de hoje — quem le o
+   passado ia ler errado.
+
+   Idempotente e roda em toda carga, local e da nuvem: a copia de quem abriu
+   o app antes do acerto tambem passa por aqui. */
+function _loanSemPonto(n){
+  if(typeof n !== 'number' || !isFinite(n)) return null;
+  const s = String(n);
+  if(s.indexOf('.') < 0) return null;          // sem decimal, parseBR nao estraga
+  const r = Number(s.replace('.', ''));
+  return isFinite(r) ? r : null;
+}
+function _loanHistCorrige(hist){
+  if(!Array.isArray(hist) || !hist.length) return hist;
+  /* A ordem do array e mista: um escritor usa push, outro unshift. Pra achar
+     o antecessor de cada linha vale o relogio, nao a posicao. */
+  const porTs = hist.slice().sort((a, b) =>
+    String((a && a.ts) || '').localeCompare(String((b && b.ts) || '')));
+  const antesDe = new Map();
+  for(let i = 1; i < porTs.length; i++) antesDe.set(porTs[i], porTs[i - 1]);
+  const limpo = [];
+  for(const e of hist){
+    if(!e || typeof e.prev !== 'number'){ limpo.push(e); continue; }
+    const ant = antesDe.get(e);
+    /* Candidatos ao valor verdadeiro, do mais confiavel pro menos: o proprio
+       `val` (caso em que nada mudou) e o `val` da linha anterior. So conta
+       como estrago se o `prev` for EXATAMENTE o candidato sem o ponto — um
+       saldo nao cai a um centesimo do que era, entao coincidencia aqui nao
+       acontece na pratica. */
+    let certo = null;
+    for(const c of [e.val, ant && ant.val]){
+      if(_loanSemPonto(c) === e.prev){ certo = c; break; }
+    }
+    if(certo === null){ limpo.push(e); continue; }   // `prev` ja esta sao
+    if(certo === e.val) continue;                    // nada mudou: linha sobra
+    limpo.push(Object.assign({}, e, { prev: certo }));
+  }
+  return limpo;
+}
+function _loanHistSane(l){
+  if(!l) return l;
+  if(Array.isArray(l.saldoHist))   l.saldoHist   = _loanHistCorrige(l.saldoHist);
+  if(Array.isArray(l.parcelaHist)) l.parcelaHist = _loanHistCorrige(l.parcelaHist);
+  return l;
+}
+
 function migrate(l){
   l.parcelaVal    = l.parcelaVal    ?? '';
   l.parcelaHist   = l.parcelaHist   ?? [];
@@ -30583,7 +30642,7 @@ function migrate(l){
       if(!ex.tipo) ex.tipo = 'parcela_extra';
     }
   }
-  return l;
+  return _loanHistSane(l);
 }
 
 function loadData(){
@@ -30687,6 +30746,8 @@ function _loanFromRow(r){
   if (!Array.isArray(out.saldoHist))   out.saldoHist   = [];
   if (!Array.isArray(out.contratos))   out.contratos   = [];
   if (!Array.isArray(out.registros))   out.registros   = [];
+  // migrate() nao passa por aqui: a nuvem monta o shape por conta propria.
+  _loanHistSane(out);
   return out;
 }
 
@@ -32434,13 +32495,21 @@ function _extrApply(loanId){
 function saveField(id,field,rawVal){
   const loan=loans.find(l=>l.id===id); if(!loan)return;
   const parsed=parseBR(rawVal);
-  if(field==='saldo'&&parsed!==''&&parsed!==parseBR(loan.saldo)){
-    loan.saldoHist.push({val:parsed,prev:parseBR(loan.saldo)||0,ts:new Date().toISOString()});
+  /* `rawVal` vem do input, e e string: parseBR e pra ele. O valor GUARDADO ja
+     e numero, e passa-lo por parseBR apagaria o ponto decimal — era o que
+     inflava o `prev` em 100x e fazia a guarda abaixo achar mudanca onde nao
+     houve. Ver _loanHistCorrige. */
+  const atual = f => {
+    const v = loan[f];
+    return (typeof v === 'number' && isFinite(v)) ? v : (parseBR(v) || 0);
+  };
+  if(field==='saldo'&&parsed!==''&&parsed!==atual('saldo')){
+    loan.saldoHist.push({val:parsed,prev:atual('saldo'),ts:new Date().toISOString()});
     const meta=document.querySelector(`tr[data-id="${id}"] .saldo-meta`);
     if(meta)meta.innerHTML=buildMeta(loan.saldoHist,id,'saldo');
   }
-  if(field==='parcelaVal'&&parsed!==''&&parsed!==parseBR(loan.parcelaVal)){
-    loan.parcelaHist.push({val:parsed,prev:parseBR(loan.parcelaVal)||0,ts:new Date().toISOString()});
+  if(field==='parcelaVal'&&parsed!==''&&parsed!==atual('parcelaVal')){
+    loan.parcelaHist.push({val:parsed,prev:atual('parcelaVal'),ts:new Date().toISOString()});
     const meta=document.querySelector(`tr[data-id="${id}"] .parcela-meta`);
     if(meta)meta.innerHTML=buildMeta(loan.parcelaHist,id,'parcela');
   }
