@@ -13,7 +13,8 @@ import { carregar, briefing, consultar, vocabulario, criarLancamento,
          salvarMemoria, grafico, GRAFICOS } from './forekash.js';
 import { perguntar, postar, assinaturaValida, APRENDER,
          LANCAR, GRAFICAR, separarLancamento, separarMemoria,
-         cartaoLancamento, analisarNoticias, copilotar, lerDiagnostico } from './mrkash.js';
+         cartaoLancamento, analisarNoticias, copilotar, lerDiagnostico,
+         lerPatrimonio } from './mrkash.js';
 import { acompanharReceitas, avisarLancamentos } from './acompanhar.js';
 import { montarDeck, renderDeck, narrarDeck, assinarDeck, conferirDeck, listaTemas } from './deck.js';
 
@@ -967,6 +968,23 @@ export default {
       try{ corpo = await request.json(); }catch(_){ return Response.json({ ok:false, erro:'corpo inválido' }, { status: 400 }); }
       try{
         const d = await lerDiagnostico(env, corpo.ind || {}, corpo.alertas || []);
+        return Response.json({ ok:true, leitura: d });
+      }catch(e){
+        return Response.json({ ok:false, erro: String(e && e.message || e).slice(0,200) }, { status: 502 });
+      }
+    }
+
+    /* A leitura do balanço. Mesma regra das outras: os números vêm prontos
+       da tela e ele só interpreta. */
+    if(url.pathname === '/api/mrkash/patrimonio' && request.method === 'POST'){
+      if(!await sessaoValida(request, env))
+        return Response.json({ ok:false, erro:'sem sessão' }, { status: 401 });
+      if(!env.ANTHROPIC_API_KEY)
+        return Response.json({ ok:false, erro:'sem chave da Anthropic' }, { status: 503 });
+      let corpo;
+      try{ corpo = await request.json(); }catch(_){ return Response.json({ ok:false, erro:'corpo inválido' }, { status: 400 }); }
+      try{
+        const d = await lerPatrimonio(env, corpo.bal || {}, corpo.ind || {}, corpo.serie || []);
         return Response.json({ ok:true, leitura: d });
       }catch(e){
         return Response.json({ ok:false, erro: String(e && e.message || e).slice(0,200) }, { status: 502 });

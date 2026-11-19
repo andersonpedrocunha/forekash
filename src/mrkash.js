@@ -768,6 +768,83 @@ Responda SÓ com JSON, sem cerca de código:
    qual é a decisão de maior alavanca.
 
    Os números continuam vindo do app. Ele lê o que já foi medido. */
+/* A leitura do balanço patrimonial. Separada da do Diagnóstico porque a
+   pergunta é outra: lá é "como foi o período", aqui é "como esta empresa
+   está montada, e isso se sustenta". Recebe o balanço, os índices já
+   calculados e a série de caixa × dívida — nada de nome de cliente nem de
+   empresa: o retrato financeiro basta e identificar quem é não melhora a
+   leitura. */
+export async function lerPatrimonio(env, bal, ind, serie){
+  const regra =
+`Você é o MR KASH lendo o BALANÇO PATRIMONIAL desta empresa.
+
+Recebe o balanço fechado, os ÍNDICES já calculados e a SÉRIE mês a mês de
+caixa e dívida. Sua tarefa é a leitura que a tabela não dá:
+
+1. "retrato": uma frase dizendo como esta empresa está montada. Não repita o
+   índice — diga o que a estrutura significa.
+2. "fio": 2 a 4 frases ligando o balanço à série. O que explica o quadro de
+   hoje: a dívida subiu, o caixa não acompanhou, o circulante não cobre o
+   que vence. Causa e consequência, não lista.
+3. "alavanca": a ÚNICA decisão que mais muda a estrutura, e o porquê em uma
+   frase. Concreta e do tamanho desta empresa.
+4. "ponto_cego": o que o balanço NÃO está mostrando e ele deveria conferir.
+   Linha zerada que deveria ter valor conta. Se não houver nada, null.
+
+CUIDADOS DESTE BALANÇO:
+- patrimônio líquido negativo é passivo a descoberto, não "nota baixa": o
+  ativo não cobre a dívida. Índice que divide por PL não tem leitura e vem
+  como null — não comente o sinal dele.
+- a série de caixa × dívida sobe quando entra contrato novo. Degrau na linha
+  da dívida é captação, não erro.
+- mês marcado com "faltam" tem conta sem saldo informado: o caixa daquele
+  mês está menor do que foi. Não leia como queda.
+
+PROIBIDO:
+- inventar número: só os que vieram, copiados.
+- repetir índice como análise. "Liquidez de 0,95x" é o dado; a leitura é o
+  que isso custa no próximo vencimento.
+- conselho genérico ("corte custos", "renegocie") sem dizer onde e quanto.
+- passar de 90 palavras no "fio".
+
+Responda SÓ com JSON, sem cerca de código:
+{"retrato":"...","fio":"...","alavanca":{"o_que":"...","porque":"..."},"ponto_cego":"... ou null"}`;
+
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: Object.assign(
+      { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2026-10-21',
+        'content-type': 'application/json' },
+      env.ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': env.ANTHROPIC_WORKSPACE_ID } : {}),
+    body: JSON.stringify({
+      model: env.MRK_MODEL || 'claude-opus-5-5',
+      max_tokens: 2000,
+      output_config: { effort: 'medium' },
+      system: [{ type: 'text', text: VOZ_BASE + OPINIAO + IDENTIDADE + SO_NUMEROS + regra }],
+      messages: [{ role: 'user', content:
+        'BALANÇO:\n' + JSON.stringify(bal || {}, null, 1) +
+        '\n\nÍNDICES:\n' + JSON.stringify(ind || {}, null, 1) +
+        '\n\nCAIXA × DÍVIDA mês a mês:\n' + JSON.stringify(serie || [], null, 1) }]
+    })
+  });
+  if(!r.ok){
+    let det = ''; try{ det = ((await r.json()).error || {}).message || ''; }catch(_){}
+    throw new Error('Anthropic ' + r.status + (det ? ' · ' + det.slice(0,200) : ''));
+  }
+  const j = await r.json();
+  const txt = (j.content || []).filter(b => b && b.type === 'text').map(b => b.text).join('\n');
+  const d = _jsonAninhado(txt);
+  if(!d || !d.retrato) throw new Error('A leitura veio fora de formato');
+  return {
+    retrato: String(d.retrato).slice(0, 300),
+    fio: String(d.fio || '').slice(0, 900),
+    alavanca: d.alavanca && d.alavanca.o_que
+      ? { o_que: String(d.alavanca.o_que).slice(0,200), porque: String(d.alavanca.porque || '').slice(0,300) }
+      : null,
+    ponto_cego: d.ponto_cego ? String(d.ponto_cego).slice(0, 300) : null
+  };
+}
+
 export async function lerDiagnostico(env, ind, alertas){
   const regra =
 `Você é o MR KASH olhando o diagnóstico desta empresa.
