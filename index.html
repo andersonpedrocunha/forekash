@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795114907"/>
+  <meta name="fk-build" content="forekash-v1795115203"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -159287,10 +159287,24 @@ async function _slkFetch(rota, opts){
     jwt = await _slkToken(true);
     if(!jwt) throw new Error('precisa estar logado na nuvem');
   }
+  /* ══ O HEADER QUE SUMIA ════════════════════════════════════════════
+
+     Era `Object.assign({headers: {Authorization, ...opts.headers}}, opts)`.
+     O `opts` do lado de fora carrega o PRÓPRIO `headers`, e no Object.assign
+     a última chave vence: o objeto montado com o Authorization era trocado
+     inteiro pelo `{'content-type':'application/json'}` de quem chamou.
+
+     Quem passava `headers` ia sem token e ouvia "sem sessão" — Diagnóstico,
+     copiloto, a leitura do balanço. Quem não passava (canais, pessoas)
+     funcionava, e foi por isso que o erro atravessou tantas versões: parecia
+     problema de login, com o login perfeito.
+
+     Agora o Authorization entra POR ÚLTIMO, onde nada o alcança. */
   const bater = async (t) => {
-    const r = await fetch(rota, Object.assign({
-      headers: Object.assign({ Authorization:'Bearer ' + t }, (opts && opts.headers) || {})
-    }, opts || {}));
+    const o = Object.assign({}, opts || {});
+    o.headers = Object.assign({}, (opts && opts.headers) || {},
+                              { Authorization: 'Bearer ' + t });
+    const r = await fetch(rota, o);
     return { r, j: await r.json().catch(() => ({})) };
   };
   let { r, j } = await bater(jwt);
