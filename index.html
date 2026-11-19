@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795094910"/>
+  <meta name="fk-build" content="forekash-v1795097722"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -150191,94 +150191,196 @@ function patrimLoad(){
   // Garante valores numéricos
   PATRIM.contas.forEach(c => { c.valor = Number(c.valor) || 0; });
   PATRIM.capital.forEach(c => { c.valor = Number(c.valor) || 0; });
+  /* As linhas que nasceram manuais e nunca foram preenchidas passam a
+     puxar do Extrato — ver _patrimLigarAutomaticos. Na carga, porque
+     quem já tem o módulo montado não vai apagar e recriar pra ganhar
+     isso. */
+  try{ if(_patrimLigarAutomaticos()) patrimSave(); }catch(_){}
 }
 function patrimSave(){
   try{ localStorage.setItem(PATRIM_KEY, JSON.stringify(PATRIM)); }catch(_){}
 }
 
 // ── Auto-import: puxa valores reais de Dispo/Asaas/Empréstimos ────
+/* ══ DE ONDE VEM CADA LINHA DO BALANÇO ════════════════════════════════
+
+   O auto-import lia um formato que nunca existiu: procurava
+   `dispoData.contas[].tipo === 'CC'` e `.saldoAtual`, enquanto a conta de
+   verdade tem `tipoId` apontando pra uma tabela de tipos e saldo calculado
+   por `dispoSaldoHoje`. Resultado: tudo zero, e um balanço 100% genérico
+   numa conta cheia de dado.
+
+   Empresa de tecnologia não tem estoque nem galpão — o balanço dela é quase
+   todo circulante, e ele já está lançado em outros módulos. O que faltava
+   era ligar os fios:
+
+     caixa e aplicações  ← Disponibilidades, pela liquidez do tipo
+     contas a receber    ← Extrato, ganhos em aberto
+     fornecedores        ← Extrato, gastos em aberto que não são
+                           imposto, folha nem empréstimo
+     impostos a pagar    ← Extrato, gastos em aberto do módulo Impostos
+     salários e encargos ← Extrato, gastos em aberto do módulo Pessoas
+     empréstimos CP/LP   ← saldo devedor, repartido pela amortização
+
+   O que continua na mão é o que só o dono sabe: imobilizado, intangível,
+   investimentos de longo prazo e capital social. */
+
+/* Em aberto é o que ainda não saiu nem entrou: pendente ou parcialmente
+   baixado. Transferência nunca entra — é o mesmo dinheiro trocando de
+   conta, não direito nem obrigação. */
+function _patrimEmAberto(tipo, filtro){
+  let total = 0;
+  try{
+    const base = (typeof _extCollectReal === 'function') ? _extCollectReal() : [];
+    for(const it of base){
+      if(!it || it.tipo !== tipo) continue;
+      if(it.sourceKind === 'cartao-fatura' || it.sourceKind === 'cartao') continue;
+      const st = (typeof extStatusDe === 'function') ? extStatusDe(it) : (it.status || '');
+      if(st === 'pago') continue;
+      if(typeof filtro === 'function' && !filtro(it)) continue;
+      /* O que falta receber/pagar, não o valor cheio: baixa parcial já
+         saiu do direito. */
+      const falta = (typeof extSaldo === 'function') ? extSaldo(it)
+                  : (Math.abs(parseFloat(it.valor) || 0));
+      total += Math.abs(Number(falta) || 0);
+    }
+  }catch(e){ console.warn('[patrim] em aberto:', e && e.message); }
+  return Math.round(total * 100) / 100;
+}
+
+/* A qual módulo esta categoria pertence, pelo cadastro universal. É o mesmo
+   mapa que o Demonstrativo usa pra decidir em que linha o gasto entra. */
+function _patrimModuloDaCat(it){
+  try{
+    const nome = String((it && it.categoria) || '').trim().toLowerCase();
+    if(!nome) return '';
+    const c = (catmapData.categorias || [])
+      .find(x => x && String(x.nome || '').trim().toLowerCase() === nome);
+    return (c && c.moduloId) || '';
+  }catch(_){ return ''; }
+}
+
+/* Saldo devedor repartido em curto e longo prazo.
+
+   A versão antiga somava as PARCELAS futuras — principal mais juros que
+   ainda nem correram. Balanço não registra juros futuros: a obrigação de
+   hoje é o saldo devedor. Então o que se reparte é o saldo, pela
+   amortização de cada parcela (parcela menos juros do mês), doze meses pra
+   dentro. O que amortiza em até 12 meses é circulante; o resto não é. */
+function _patrimEmprestimos(){
+  const r = { curto: 0, longo: 0 };
+  try{
+    if(!Array.isArray(loans)) return r;
+    for(const l of loans){
+      const saldo = parseFloat(l && l.saldo) || 0;
+      if(saldo <= 0) continue;
+      const parcela = parseFloat(l.parcelaVal) || 0;
+      const taxa = (parseFloat(l.taxa) || 0) / 100;
+      let restante = saldo, cp = 0;
+      if(parcela > 0){
+        for(let m = 0; m < 12 && restante > 0.005; m++){
+          const juros = restante * taxa;
+          const amort = Math.max(0, parcela - juros);
+          if(amort <= 0.005) break;          // parcela não cobre nem o juro
+          const passo = Math.min(amort, restante);
+          cp += passo; restante -= passo;
+        }
+      } else {
+        /* Sem parcela informada, reparte pelo prazo que sobra — aproximação
+           linear, e é melhor do que jogar tudo em longo prazo. */
+        let meses = 0;
+        try{
+          if(l.termino){
+            const t = new Date(l.termino + 'T00:00:00'), h = new Date();
+            meses = Math.max(0, (t.getFullYear()-h.getFullYear())*12 + (t.getMonth()-h.getMonth()));
+          }
+        }catch(_){}
+        cp = (meses > 0 && meses < 12) ? saldo : (meses > 0 ? saldo * (12 / meses) : saldo);
+      }
+      cp = Math.min(cp, saldo);
+      r.curto += cp;
+      r.longo += (saldo - cp);
+    }
+  }catch(e){ console.warn('[patrim] empréstimos:', e && e.message); }
+  r.curto = Math.round(r.curto * 100) / 100;
+  r.longo = Math.round(r.longo * 100) / 100;
+  return r;
+}
+
+function _patrimDispo(liquidez){
+  let total = 0;
+  try{
+    if(typeof dispo === 'undefined' || !dispo || !Array.isArray(dispo.contas)) return 0;
+    for(const c of dispo.contas){
+      if(!c || c.ativo === false) continue;
+      const reserva = (typeof _fkContaIsReserva === 'function') ? _fkContaIsReserva(c) : false;
+      if(liquidez === 'reserva' ? !reserva : reserva) continue;
+      const v = (typeof dispoSaldoHoje === 'function') ? dispoSaldoHoje(c) : null;
+      if(v != null) total += Number(v) || 0;
+    }
+  }catch(e){ console.warn('[patrim] disponibilidades:', e && e.message); }
+  return Math.round(total * 100) / 100;
+}
+
+/* Linha velha aponta pro Asaas, que esta conta não usa. O direito de
+   receber existe do mesmo jeito: está no Extrato, como ganho em aberto. */
+const _PATRIM_SRC_MIGRA = { 'asaas-pendente': 'ext-receber', 'asaas': 'ext-receber' };
+
 function patrimAutoImport(){
+  const emp = _patrimEmprestimos();
   PATRIM.contas.forEach(c => {
+    if(!c) return;
+    if(c.src && _PATRIM_SRC_MIGRA[c.src]) c.src = _PATRIM_SRC_MIGRA[c.src];
     if(!c.auto || !c.src) return;
-    if(c.src === 'dispo-caixa'){
-      let total = 0;
-      try{
-        if(typeof dispoData !== 'undefined' && dispoData && Array.isArray(dispoData.contas)){
-          dispoData.contas.forEach(d => {
-            if(d.tipo === 'CC' || d.tipo === 'Conta corrente' || !d.tipo){
-              total += Number(d.saldoAtual || d.saldo || 0);
-            }
-          });
-        }
-      }catch(_){}
-      c.valor = total;
-    }
-    else if(c.src === 'dispo-reserva'){
-      let total = 0;
-      try{
-        if(typeof dispoData !== 'undefined' && dispoData && Array.isArray(dispoData.contas)){
-          dispoData.contas.forEach(d => {
-            if(d.tipo === 'Aplicação' || d.tipo === 'Poupança' || d.tipo === 'Reserva'){
-              total += Number(d.saldoAtual || d.saldo || 0);
-            }
-          });
-        }
-      }catch(_){}
-      c.valor = total;
-    }
-    else if(c.src === 'asaas-pendente'){
-      let total = 0;
-      try{
-        if(typeof ASAAS !== 'undefined' && ASAAS && Array.isArray(ASAAS.cobrancas)){
-          ASAAS.cobrancas.forEach(cb => {
-            if(cb.status === 'pendente' || cb.status === 'atrasado'){
-              total += Number(cb.valor) || 0;
-            }
-          });
-        }
-      }catch(_){}
-      c.valor = total;
-    }
-    else if(c.src === 'loans-curto'){
-      let total = 0;
-      try{
-        if(typeof DATA !== 'undefined' && Array.isArray(DATA)){
-          const hoje = new Date();
-          const limite = new Date(hoje); limite.setMonth(limite.getMonth() + 12);
-          DATA.forEach(e => {
-            if(!Array.isArray(e.parcelas)) return;
-            e.parcelas.forEach(p => {
-              if(p.status === 'pago' || p.status === 'baixado') return;
-              const venc = new Date(p.vencimento || p.data || hoje);
-              if(venc <= limite) total += Number(p.valor) || 0;
-            });
-          });
-        }
-      }catch(_){}
-      c.valor = total;
-    }
-    else if(c.src === 'loans-longo'){
-      let total = 0;
-      try{
-        if(typeof DATA !== 'undefined' && Array.isArray(DATA)){
-          const hoje = new Date();
-          const limite = new Date(hoje); limite.setMonth(limite.getMonth() + 12);
-          DATA.forEach(e => {
-            if(!Array.isArray(e.parcelas)) return;
-            e.parcelas.forEach(p => {
-              if(p.status === 'pago' || p.status === 'baixado') return;
-              const venc = new Date(p.vencimento || p.data || hoje);
-              if(venc > limite) total += Number(p.valor) || 0;
-            });
-          });
-        }
-      }catch(_){}
-      c.valor = total;
+    switch(c.src){
+      case 'dispo-caixa':   c.valor = _patrimDispo('caixa');   break;
+      case 'dispo-reserva': c.valor = _patrimDispo('reserva'); break;
+      case 'ext-receber':
+        c.valor = _patrimEmAberto('ganho'); break;
+      case 'ext-fornecedores':
+        c.valor = _patrimEmAberto('gasto', it => {
+          const m = _patrimModuloDaCat(it);
+          return m !== 'impostos' && m !== 'pessoas' && m !== 'emprestimos';
+        }); break;
+      case 'ext-impostos':
+        c.valor = _patrimEmAberto('gasto', it => _patrimModuloDaCat(it) === 'impostos'); break;
+      case 'ext-folha':
+        c.valor = _patrimEmAberto('gasto', it => _patrimModuloDaCat(it) === 'pessoas'); break;
+      case 'loans-curto':   c.valor = emp.curto; break;
+      case 'loans-longo':   c.valor = emp.longo; break;
     }
   });
 }
 
+/* ══ LIGAR O QUE JÁ ESTAVA NA TELA ════════════════════════════════════
+   Fornecedores, impostos e salários nasceram como linha manual, e ficaram
+   zeradas desde sempre. Ligá-las no Extrato é o que torna o balanço real —
+   mas só quando ainda estão zeradas: linha com número digitado é resposta
+   de alguém, e sobrescrever seria apagar trabalho sem avisar. */
+const _PATRIM_LIGAR = [
+  { nome:/fornecedor/i,              src:'ext-fornecedores' },
+  { nome:/imposto/i,                 src:'ext-impostos'     },
+  { nome:/sal[áa]rio|encargo|folha/i,src:'ext-folha'        },
+  { nome:/contas a receber|receb/i,  src:'ext-receber'      }
+];
+function _patrimLigarAutomaticos(){
+  let mexeu = false;
+  for(const c of (PATRIM.contas || [])){
+    if(!c || c.auto || c.src) continue;
+    if(Math.abs(parseFloat(c.valor) || 0) > 0.005) continue;
+    const regra = _PATRIM_LIGAR.find(r => r.nome.test(String(c.nome || '')));
+    if(!regra) continue;
+    c.src = regra.src; c.auto = true; mexeu = true;
+  }
+  return mexeu;
+}
+try{ window._patrimLigarAutomaticos = _patrimLigarAutomaticos;
+     window._patrimEmAberto = _patrimEmAberto;
+     window._patrimEmprestimos = _patrimEmprestimos;
+     window._patrimDispo = _patrimDispo; }catch(e){}
+
 function patrimReimportAll(){
+  try{ _patrimLigarAutomaticos(); }catch(_){}
   patrimAutoImport();
   patrimSave();
   patrimRender();
