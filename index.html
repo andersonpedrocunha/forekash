@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795100484"/>
+  <meta name="fk-build" content="forekash-v1795100833"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7057,6 +7057,17 @@
     .ext-table .col-cliente{width:200px;color:#475569}
     .ext-table .col-conta{width:130px;color:#64748B;font-size:.72rem}
     .ext-table .col-val,.ext-table .col-saldo{width:120px;text-align:right;font-family:Consolas,Menlo,monospace;font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+    /* ══ O SALDO É CONTEXTO, O VALOR É O FATO ═══════════════════════
+       Os dois saíam no mesmo peso e no mesmo vermelho, lado a lado — e
+       lidos de relance viravam um número só, repetido. O valor é o que
+       aconteceu naquela linha; o saldo é onde a conta chegou. Recua em
+       peso e em cor, continua legível, e para de disputar atenção. */
+    .ext-table .col-saldo{font-weight:500;color:#94A3B8}
+    .ext-table .col-saldo .saldo-neg{color:#D98A8A}
+    [data-theme="dark"] .ext-table .col-saldo{color:#64748B}
+    [data-theme="dark"] .ext-table .col-saldo .saldo-neg{color:#A86A6A}
+    /* Escondido por escolha de quem olha — ver extColSaldoVisivel. */
+    .ext-sem-saldo .ext-table .col-saldo{display:none}
     .ext-table .col-st{width:90px}
     .ext-table .col-act{width:36px}
     .ext-table .col-sel{width:30px;text-align:center}
@@ -83944,6 +83955,31 @@ function _extFiltrosAtivos(){
          (_extState.categorias||[]).length + (_extState.busca ? 1 : 0) +
          (_extState.semTransf ? 1 : 0);
 }
+/* ══ MOSTRAR OU NÃO O SALDO ACUMULADO ═══════════════════════════════
+   Pedido dele: poder ocultar a coluna, aparecendo por padrão. É escolha
+   de quem olha e não filtro de dado — por isso fica guardada no navegador
+   e não entra nos chips de filtro, que contam o que está sendo tirado da
+   CONTA. Esconder uma coluna não muda número nenhum. */
+const EXT_COL_SALDO_KEY = 'forekash:ext:col-saldo:v1';
+function extColSaldoVisivel(){
+  try{ return localStorage.getItem(EXT_COL_SALDO_KEY) !== '0'; }catch(_){ return true; }
+}
+function extColSaldoSet(v){
+  try{ localStorage.setItem(EXT_COL_SALDO_KEY, v ? '1' : '0'); }catch(_){}
+  extColSaldoAplicar();
+  try{ extFiltrosRender(); }catch(_){}
+}
+/* Uma classe no contêiner em vez de reconstruir a tabela: a coluna some e
+   volta sem redesenhar duzentas linhas. */
+function extColSaldoAplicar(){
+  const w = document.getElementById('mod-extrato');
+  if(!w) return;
+  w.classList.toggle('ext-sem-saldo', !extColSaldoVisivel());
+}
+try{ window.extColSaldoSet = extColSaldoSet;
+     window.extColSaldoVisivel = extColSaldoVisivel;
+     window.extColSaldoAplicar = extColSaldoAplicar; }catch(e){}
+
 function extFiltrosToggle(){
   const p = document.getElementById('ext-fpanel');
   if(!p) return;
@@ -83969,7 +84005,12 @@ function extFiltrosRender(){
           '<input type="checkbox"' + (_extState.semTransf ? ' checked' : '') +
           ' onchange="extFiltroSemTransf(this.checked)"><span>Desconsiderar transferências</span></label>' +
       '</div>' +
-      '<div class="ext-fp-col"><b>Situação</b>' + EXT_F_SIT.map(x => cx('situacao',x[0],x[1])).join('') + '</div>' +
+      '<div class="ext-fp-col"><b>Situação</b>' + EXT_F_SIT.map(x => cx('situacao',x[0],x[1])).join('') +
+        '<b style="margin-top:12px;display:block">Colunas</b>' +
+        '<label class="ext-f-cx' + (extColSaldoVisivel() ? ' on' : '') + '">' +
+          '<input type="checkbox"' + (extColSaldoVisivel() ? ' checked' : '') +
+          ' onchange="extColSaldoSet(this.checked)"><span>Saldo acumulado</span></label>' +
+      '</div>' +
       '<div class="ext-fp-col wide"><b>Categorias</b><div class="ext-fp-cats">' +
         (cats.length ? cats.map(c => cx('categorias',c[0],c[0],c[1])).join('')
                      : '<span class="ext-fp-vazio">nenhuma categoria nos lançamentos</span>') +
@@ -84963,6 +85004,7 @@ function renderExtrato(){
   if(lbl) lbl.textContent = _extPeriodLabel();
 
   const all = _extCollectReal();
+  try{ extColSaldoAplicar(); }catch(_){}
   const filtered = _extSortAsc(_extFilter(all));
 
   // KPIs
