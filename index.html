@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795114751"/>
+  <meta name="fk-build" content="forekash-v1795114907"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -159299,8 +159299,19 @@ async function _slkFetch(rota, opts){
   if(r.status === 401){
     const novo = await _slkToken(true);
     if(novo && novo !== jwt) ({ r, j } = await bater(novo));
-    if(r.status === 401)
-      throw new Error('sua sessão expirou — saia e entre de novo pra continuar');
+    if(r.status === 401){
+      /* Duas causas diferentes, e dizer a errada custa caro: mandei o usuário
+         sair e entrar quando o token dele estava perfeito — gravando na nuvem
+         naquele mesmo minuto — e o 401 vinha do portão do Worker. Se o
+         refresh devolveu token novo e o 401 persistiu, o problema não é a
+         sessão dele; é o portão. A mensagem do servidor vale mais que o meu
+         palpite, então ela vai junto. */
+      const motivo = (j && j.erro) ? String(j.erro) : '';
+      throw new Error(novo
+        ? ('o portão recusou a sessão' + (motivo ? ' — ' + motivo : '')
+           + '; isto é configuração do servidor, não o seu login')
+        : 'sua sessão expirou — saia e entre de novo pra continuar');
+    }
   }
   if(!r.ok || j.ok === false){
     const e = new Error(j.erro || ('erro ' + r.status));
