@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795115612"/>
+  <meta name="fk-build" content="forekash-v1795116026"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -2161,6 +2161,37 @@
     .patrim-mrk-skel.curto{width:58%}
     .patrim-mrk-pe{margin-top:13px;padding-top:11px;border-top:1px solid rgba(148,163,184,.14);
       font-size:.71rem;color:#64748B;line-height:1.5}
+    /* Histórico: uma linha por leitura, nada além do necessário pra achar
+       a que interessa — quando, a primeira frase, e sobre que período. */
+    .patrim-mrk-hist-bt{background:rgba(148,163,184,.14);border:0;color:#94A3B8;font-family:inherit;
+      font-size:.72rem;padding:6px 11px;border-radius:7px;cursor:pointer;flex-shrink:0}
+    .patrim-mrk-hist-bt:hover{background:rgba(148,163,184,.24);color:#E2E8F0}
+    .patrim-mrk-hist-bt[hidden]{display:none}
+    .patrim-mrk-hist{display:flex;flex-direction:column;gap:1px}
+    .patrim-mrk-hrow{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:baseline;
+      width:100%;padding:9px 11px;background:transparent;border:0;border-radius:7px;cursor:pointer;
+      font-family:inherit;text-align:left;color:#CBD5E1}
+    .patrim-mrk-hrow:hover{background:rgba(148,163,184,.09)}
+    .patrim-mrk-hrow:focus-visible{outline:2px solid #34D399;outline-offset:-2px}
+    .patrim-mrk-hrow b{font-family:'JetBrains Mono',Consolas,monospace;font-size:.71rem;
+      color:#F1F5F9;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+    .patrim-mrk-hrow span{font-size:.79rem;line-height:1.45;overflow:hidden;
+      display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical}
+    .patrim-mrk-hrow i{font-style:normal;font-size:.66rem;color:#64748B;white-space:nowrap}
+    @media (max-width:620px){
+      .patrim-mrk-hrow{grid-template-columns:1fr;gap:2px}
+      .patrim-mrk-hrow span{-webkit-line-clamp:2}
+    }
+    /* Conselho velho lido como novo é o risco aqui, então a faixa diz de
+       que balanço aquela leitura falava. */
+    .patrim-mrk-antiga{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 13px;
+      padding:9px 12px;border-radius:0 8px 8px 0;background:rgba(251,191,36,.07);
+      border-left:3px solid #FBBF24;font-size:.73rem;color:#CBD5E1;line-height:1.5}
+    .patrim-mrk-antiga span{flex:1;min-width:200px}
+    .patrim-mrk-antiga b{color:#FEF3C7}
+    .patrim-mrk-antiga button{background:rgba(251,191,36,.16);border:0;color:#FCD34D;
+      font-family:inherit;font-size:.71rem;padding:5px 11px;border-radius:6px;cursor:pointer;flex-shrink:0}
+    .patrim-mrk-antiga button:hover{background:rgba(251,191,36,.28);color:#FEF3C7}
     .patrim-mrk-igual{margin-top:13px;padding-top:11px;border-top:1px solid rgba(148,163,184,.14);
       display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:.73rem;color:#94A3B8;line-height:1.5}
     .patrim-mrk-igual span{flex:1;min-width:220px}
@@ -151170,6 +151201,11 @@ function patrimLoad(){
   if(!Array.isArray(PATRIM.capital)) PATRIM.capital = [];
   if(!Array.isArray(PATRIM.snapshots)) PATRIM.snapshots = [];
   if(!Array.isArray(PATRIM.simulacoes)) PATRIM.simulacoes = [];
+  /* As leituras do MR KASH moram aqui, e não no localStorage, porque o blob
+     do Patrimônio sobe pra nuvem: a leitura feita no desktop aparece no
+     celular. Limitadas a _PATRIM_MRK_MAX — histórico é pra comparar o que
+     ele disse, não pra virar arquivo morto. */
+  if(!Array.isArray(PATRIM.leituras)) PATRIM.leituras = [];
   if(typeof PATRIM.nextId !== 'number') PATRIM.nextId = 1;
   // Bootstrap se vazio
   if(PATRIM.contas.length === 0){
@@ -152241,9 +152277,43 @@ function _patrimLeituraLocal(ind, contas){
 /* Estado da leitura. Guarda a CHAVE do balanço em que ela foi feita: se o
    balanço mudou depois, a leitura continua válida como texto mas já não fala
    dos números da tela — e é isso que o carimbo precisa dizer. */
-let _patrimMrkEstado = null;   // { chave, leitura, origem, ts, motivo }
+let _patrimMrkEstado = null;   // a leitura MAIS NOVA — é dela que o carimbo fala
+let _patrimMrkVendo  = null;   // uma leitura antiga aberta pelo histórico
+let _patrimMrkLista  = false;  // a lista do histórico está na tela?
 let _patrimMrkAberto = false;
 let _patrimMrkLendo  = false;
+const _PATRIM_MRK_MAX = 10;
+
+/* Guarda a leitura e recupera a última. Sem isso, recarregar a página
+   apagava o que o MR KASH acabou de dizer, e o botão voltava a oferecer
+   uma leitura nova — cobrando de novo pelo texto que já existia. */
+function _patrimMrkGravar(e){
+  try{
+    if(!Array.isArray(PATRIM.leituras)) PATRIM.leituras = [];
+    PATRIM.leituras.unshift({
+      /* Só o relógio não basta: duas leituras no mesmo milissegundo ficavam
+         com o mesmo id, e `patrimMrkVer` abriria a errada. */
+      id: 'l_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      ts: e.ts, chave: e.chave,
+      origem: e.origem, motivo: e.motivo || '',
+      periodo: (typeof fkPerRotulo === 'function') ? fkPerRotulo(_patrimPerId()) : '',
+      leitura: e.leitura,
+      totais: (() => { try{ const t = patrimCalcTotals(PATRIM.contas, PATRIM.capital);
+                            return { ativo:t.totAtivo, passivo:t.totPassivo, pl:t.plReal }; }
+                       catch(_){ return null; } })()
+    });
+    if(PATRIM.leituras.length > _PATRIM_MRK_MAX)
+      PATRIM.leituras = PATRIM.leituras.slice(0, _PATRIM_MRK_MAX);
+    patrimSave();
+  }catch(_){}
+}
+function _patrimMrkRecuperar(){
+  try{
+    const l = (PATRIM.leituras || [])[0];
+    if(!l || !l.leitura) return null;
+    return { chave:l.chave, leitura:l.leitura, origem:l.origem, motivo:l.motivo || '', ts:l.ts };
+  }catch(_){ return null; }
+}
 
 function _patrimMrkChave(){
   try{
@@ -152291,6 +152361,9 @@ function _patrimMrkHtml(){
      carimbo é que avisa que já existe leitura guardada. */
   _patrimMrkAberto = false;
   _patrimMrkLendo = false;
+  _patrimMrkVendo = null;
+  _patrimMrkLista = false;
+  if(!_patrimMrkEstado) _patrimMrkEstado = _patrimMrkRecuperar();
   return '<div class="patrim-mrk" id="patrim-mrk">'
     + '<div class="patrim-mrk-bar">'
     +   (av ? '<img src="' + av + '" alt="" draggable="false">' : '')
@@ -152299,6 +152372,8 @@ function _patrimMrkHtml(){
     +   '<button type="button" class="patrim-mrk-acao" id="patrim-mrk-acao" '
     +     'onclick="patrimMrkAcao()" aria-controls="patrim-mrk-cp" aria-expanded="false">'
     +     _patrimMrkRotulo() + '</button>'
+    +   '<button type="button" class="patrim-mrk-hist-bt" id="patrim-mrk-hist-bt" '
+    +     'onclick="patrimMrkHist()" hidden></button>'
     +   '<button type="button" class="patrim-mrk-ocultar" id="patrim-mrk-ocultar" '
     +     'onclick="patrimMrkOcultar()" hidden>ocultar</button>'
     + '</div>'
@@ -152327,6 +152402,12 @@ function _patrimMrkBarra(){
          a.classList.toggle('alerta', _patrimMrkVelha());
          a.setAttribute('aria-expanded', _patrimMrkAberto ? 'true' : 'false'); }
   if(o) o.hidden = !_patrimMrkAberto;
+  const h = document.getElementById('patrim-mrk-hist-bt');
+  if(h){
+    const n = ((PATRIM.leituras || []).length) || 0;
+    h.hidden = !_patrimMrkAberto || n < 2;
+    h.textContent = _patrimMrkLista ? 'voltar' : ('histórico · ' + n);
+  }
   if(bl) bl.classList.toggle('aberto', _patrimMrkAberto);
 }
 
@@ -152395,7 +152476,10 @@ function _patrimMrkLer(){
   }
   const fecha = (leitura, origem, motivo) => {
     _patrimMrkLendo = false;
+    _patrimMrkVendo = null;
+    _patrimMrkLista = false;
     _patrimMrkEstado = { chave, leitura, origem, motivo:motivo || '', ts: Date.now() };
+    _patrimMrkGravar(_patrimMrkEstado);
     _patrimMrkPinta();
     _patrimMrkBarra();
   };
@@ -152449,7 +152533,7 @@ function _patrimMrkCarga(ind){
 
 function _patrimMrkPinta(){
   const cp = document.getElementById('patrim-mrk-cp');
-  const e = _patrimMrkEstado;
+  const e = _patrimMrkVendo || _patrimMrkEstado;
   if(!cp || !e || !e.leitura) return;
   const l = e.leitura;
   const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x == null ? '' : x));
@@ -152471,9 +152555,67 @@ function _patrimMrkPinta(){
         : '<div class="patrim-mrk-pe">Leitura automática, por regra — o MR KASH não pôde ser '
           + 'consultado agora' + (e.motivo ? ' (' + esc(String(e.motivo).slice(0, 90)) + ')' : '')
           + '.</div>');
+  /* Leitura antiga falava de outro balanço: dizer quando e com que números
+     evita ler conselho velho como se fosse de agora. */
+  if(_patrimMrkVendo){
+    const d = new Date(_patrimMrkVendo.ts);
+    let quando = ''; try{ quando = d.toLocaleDateString('pt-BR') + ' às '
+      + d.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }); }catch(_){}
+    const tot = _patrimMrkVendo.totais;
+    const faixa = document.createElement('div');
+    faixa.className = 'patrim-mrk-antiga';
+    faixa.innerHTML = '<span>Leitura de <b>' + esc(quando) + '</b>'
+      + (_patrimMrkVendo.periodo ? ', sobre <b>' + esc(_patrimMrkVendo.periodo) + '</b>' : '')
+      + (tot ? ' — o patrimônio era <b>' + (tot.pl < 0 ? '-' : '') + 'R$ '
+               + _patrimFmt(tot.pl) + '</b>' : '') + '.</span>'
+      + '<button type="button" onclick="patrimMrkAtual()">ver a atual</button>';
+    cp.insertBefore(faixa, cp.firstChild);
+  }
+}
+
+/* ══ O HISTÓRICO ═══════════════════════════════════════════════════════
+   Uma linha por leitura: quando, sobre que período, e a primeira frase. É o
+   suficiente pra achar aquela que interessa sem virar outra tela. */
+function patrimMrkHist(){
+  if(_patrimMrkLista){ return patrimMrkAtual(); }
+  const cp = document.getElementById('patrim-mrk-cp');
+  if(!cp) return;
+  const esc = (typeof _extEsc === 'function') ? _extEsc : (x => String(x == null ? '' : x));
+  const ls = PATRIM.leituras || [];
+  _patrimMrkLista = true;
+  cp.innerHTML = '<div class="patrim-mrk-hist">' + ls.map((l, i) => {
+    const d = new Date(l.ts);
+    let q = ''; try{ q = d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' })
+      + ' · ' + d.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }); }catch(_){}
+    const txt = String((l.leitura && l.leitura.retrato) || '').slice(0, 120);
+    return '<button type="button" class="patrim-mrk-hrow" onclick="patrimMrkVer(\'' + l.id + '\')">'
+      + '<b>' + esc(q) + '</b>'
+      + '<span>' + esc(txt) + (txt.length >= 120 ? '…' : '') + '</span>'
+      + '<i>' + esc(l.periodo || '') + (i === 0 ? ' · atual' : '')
+      + (l.origem === 'ia' ? '' : ' · regra') + '</i></button>';
+  }).join('') + '</div>';
+  _patrimMrkBarra();
+}
+function patrimMrkVer(id){
+  const l = (PATRIM.leituras || []).find(x => x && x.id === id);
+  if(!l) return;
+  _patrimMrkLista = false;
+  /* A primeira da lista É a atual: abrir ela não é "ver uma antiga". */
+  _patrimMrkVendo = ((PATRIM.leituras || [])[0] === l) ? null
+    : { leitura:l.leitura, origem:l.origem, motivo:l.motivo || '', ts:l.ts,
+        periodo:l.periodo, totais:l.totais };
+  _patrimMrkPinta();
+  _patrimMrkBarra();
+}
+function patrimMrkAtual(){
+  _patrimMrkVendo = null;
+  _patrimMrkLista = false;
+  _patrimMrkPinta();
+  _patrimMrkBarra();
 }
 try{ window.patrimMrkAcao = patrimMrkAcao; window.patrimMrkOcultar = patrimMrkOcultar;
-     window.patrimMrkForcar = patrimMrkForcar; }catch(e){}
+     window.patrimMrkForcar = patrimMrkForcar; window.patrimMrkHist = patrimMrkHist;
+     window.patrimMrkVer = patrimMrkVer; window.patrimMrkAtual = patrimMrkAtual; }catch(e){}
 
 /* Os cartões do período: a posição de hoje passada pelos quatro grupos. */
 function _patrimIndicadoresHtml(){
