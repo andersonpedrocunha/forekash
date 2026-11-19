@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795102163"/>
+  <meta name="fk-build" content="forekash-v1795108267"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -150902,8 +150902,48 @@ function patrimSave(){
 /* Em aberto é o que ainda não saiu nem entrou: pendente ou parcialmente
    baixado. Transferência nunca entra — é o mesmo dinheiro trocando de
    conta, não direito nem obrigação. */
+/* ══ TETO DO CIRCULANTE ═══════════════════════════════════════════════
+   A importação do Granatum semeou custo fixo recorrente com vencimento ao
+   longo de 2027 (e Benefícios até 05/12/2030). Sem teto de data, esta função
+   somava tudo isso como passivo circulante: R$ 1,92 mi de folha de 2027
+   dentro do balanço de 2026, contra R$ 2,2 mil realmente devidos. Eram ~2,8
+   mi de projeção no passivo, e o balanço mostrava a empresa insolvente sem
+   ela ser.
+
+   Folha do ano que vem não é obrigação deste ano — o serviço não foi
+   prestado. O corte é o fim do mês CORRENTE: pega a folha deste mês
+   (trabalhada agora, paga no dia 5) e os boletos do mês, sem puxar o ano
+   seguinte.
+
+   Vale nos DOIS lados. No ativo a projeção também estava: os 13 recebíveis
+   com vencimento em 2027 eram a mesma assinatura mensal de R$ 1.205,20
+   semeada pelo mesmo import — receita que ainda não foi faturada não é
+   direito a receber.
+
+   A projeção continua certa onde mora, no Extrato, que serve ao fluxo de
+   caixa. Errada era a leitura do balanço. */
+function _patrimTetoCirculante(){
+  const h = new Date();
+  const fim = new Date(h.getFullYear(), h.getMonth() + 1, 0);   // dia 0 = último do mês
+  return fim.getFullYear() + '-' + String(fim.getMonth() + 1).padStart(2, '0')
+       + '-' + String(fim.getDate()).padStart(2, '0');
+}
+/* Vencimento pelo mesmo acessor que decide "atrasado" (`_extDueDate`), NÃO
+   pelo `_extDateOf` — aquele muda com o modo Caixa/Competência escolhido na
+   tela, e balanço não pode depender de filtro de UI. Item sem data
+   reconhecível fica: não dá pra excluir o que não se sabe datar. */
+function _patrimNoCirculante(it, teto){
+  const d = (typeof _extDueDate === 'function')
+    ? _extDueDate(it)
+    : ((it && (it.dataVencimento || it.data)) || '');
+  const s = String(d || '').slice(0, 10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return true;
+  return s <= teto;
+}
+
 function _patrimEmAberto(tipo, filtro){
   let total = 0;
+  const teto = _patrimTetoCirculante();
   try{
     const base = (typeof _extCollectReal === 'function') ? _extCollectReal() : [];
     for(const it of base){
@@ -150911,6 +150951,7 @@ function _patrimEmAberto(tipo, filtro){
       if(it.sourceKind === 'cartao-fatura' || it.sourceKind === 'cartao') continue;
       const st = (typeof extStatusDe === 'function') ? extStatusDe(it) : (it.status || '');
       if(st === 'pago') continue;
+      if(!_patrimNoCirculante(it, teto)) continue;
       if(typeof filtro === 'function' && !filtro(it)) continue;
       /* O que falta receber/pagar, não o valor cheio: baixa parcial já
          saiu do direito. */
