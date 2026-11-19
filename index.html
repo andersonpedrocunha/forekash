@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795115203"/>
+  <meta name="fk-build" content="forekash-v1795115612"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -2161,6 +2161,13 @@
     .patrim-mrk-skel.curto{width:58%}
     .patrim-mrk-pe{margin-top:13px;padding-top:11px;border-top:1px solid rgba(148,163,184,.14);
       font-size:.71rem;color:#64748B;line-height:1.5}
+    .patrim-mrk-igual{margin-top:13px;padding-top:11px;border-top:1px solid rgba(148,163,184,.14);
+      display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:.73rem;color:#94A3B8;line-height:1.5}
+    .patrim-mrk-igual span{flex:1;min-width:220px}
+    .patrim-mrk-igual b{color:#CBD5E1}
+    .patrim-mrk-igual button{background:rgba(148,163,184,.14);border:0;color:#94A3B8;
+      font-family:inherit;font-size:.71rem;padding:5px 11px;border-radius:6px;cursor:pointer;flex-shrink:0}
+    .patrim-mrk-igual button:hover{background:rgba(148,163,184,.24);color:#E2E8F0}
     .patrim-mrk-fios{display:flex;flex-direction:column;gap:8px;margin-bottom:13px}
     .patrim-mrk-fio{display:flex;gap:11px;align-items:baseline;font-size:.83rem;line-height:1.55;color:#CBD5E1}
     .patrim-mrk-fio b{font-family:'JetBrains Mono',Consolas,monospace;font-size:.8rem;color:#F8FAFC;
@@ -152241,8 +152248,17 @@ let _patrimMrkLendo  = false;
 function _patrimMrkChave(){
   try{
     const t = patrimCalcTotals(PATRIM.contas, PATRIM.capital);
+    /* O período entra junto: ele não mexe no balanço, mas manda nos índices
+       de giro e rentabilidade, que saem da receita do recorte. Trocar de Mês
+       pra Ano muda o que o modelo recebe — sem isto, "nada mudou" seria
+       mentira justamente quando havia o que ler de novo. */
+    let per = '';
+    try{
+      const r = (typeof fkPerRangeYm === 'function') ? fkPerRangeYm(_patrimPerId()) : null;
+      if(r) per = String(r.de) + '>' + String(r.ate);
+    }catch(_){}
     return [Math.round(t.totAtivo), Math.round(t.totPassivo), Math.round(t.plReal),
-            Math.round(t.acAtivo), Math.round(t.pcPassivo)].join('|');
+            Math.round(t.acAtivo), Math.round(t.pcPassivo), per].join('|');
   }catch(_){ return 'x'; }
 }
 function _patrimMrkVelha(){
@@ -152315,17 +152331,41 @@ function _patrimMrkBarra(){
 }
 
 /* Um clique só, com três sentidos: ler pela primeira vez, mostrar o que já
-   foi lido, ou reler quando o balanço mudou. */
+   foi lido, ou reler quando mudou alguma coisa.
+
+   Antes, "reler" com o painel aberto chamava a IA sempre — e com os mesmos
+   números a resposta é a mesma, então era crédito gasto pra ouvir o que já
+   estava na tela. Agora, sem mudança, ele avisa em vez de chamar. Insistir
+   continua possível: é um clique a mais, consciente. */
 function patrimMrkAcao(){
   if(_patrimMrkLendo) return;
   const cp = document.getElementById('patrim-mrk-cp');
   if(!cp) return;
-  const precisa = !_patrimMrkEstado || _patrimMrkVelha() || _patrimMrkAberto;
   _patrimMrkAberto = true;
   cp.hidden = false;
-  if(precisa) _patrimMrkLer();
-  else { _patrimMrkPinta(); _patrimMrkBarra(); }
+  if(!_patrimMrkEstado || _patrimMrkVelha()){ _patrimMrkLer(); return; }
+  _patrimMrkPinta();
+  _patrimMrkIgual();
+  _patrimMrkBarra();
 }
+
+/* O aviso de "nada mudou". Mora no fim do painel e some sozinho na próxima
+   pintura, porque `_patrimMrkPinta` reescreve o conteúdo inteiro. */
+function _patrimMrkIgual(){
+  const cp = document.getElementById('patrim-mrk-cp');
+  if(!cp || !_patrimMrkEstado) return;
+  let hora = '';
+  try{ hora = new Date(_patrimMrkEstado.ts)
+         .toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }); }catch(_){}
+  const d = document.createElement('div');
+  d.className = 'patrim-mrk-igual';
+  d.innerHTML = '<span>Os números não mudaram desde a leitura'
+    + (hora ? ' das <b>' + hora + '</b>' : '')
+    + ' — ler de novo gastaria uma consulta pra ouvir a mesma coisa.</span>'
+    + '<button type="button" onclick="patrimMrkForcar()">Ler mesmo assim</button>';
+  cp.appendChild(d);
+}
+function patrimMrkForcar(){ if(!_patrimMrkLendo) _patrimMrkLer(); }
 
 function patrimMrkOcultar(){
   const cp = document.getElementById('patrim-mrk-cp');
@@ -152432,7 +152472,8 @@ function _patrimMrkPinta(){
           + 'consultado agora' + (e.motivo ? ' (' + esc(String(e.motivo).slice(0, 90)) + ')' : '')
           + '.</div>');
 }
-try{ window.patrimMrkAcao = patrimMrkAcao; window.patrimMrkOcultar = patrimMrkOcultar; }catch(e){}
+try{ window.patrimMrkAcao = patrimMrkAcao; window.patrimMrkOcultar = patrimMrkOcultar;
+     window.patrimMrkForcar = patrimMrkForcar; }catch(e){}
 
 /* Os cartões do período: a posição de hoje passada pelos quatro grupos. */
 function _patrimIndicadoresHtml(){
