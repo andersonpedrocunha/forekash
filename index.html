@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795037319"/>
+  <meta name="fk-build" content="forekash-v1795090779"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7040,6 +7040,46 @@
         border:1px solid #E2E8F0;border-radius:8px;padding:7px 12px;font-family:inherit;
         font-size:.78rem;font-weight:600;color:#475569;cursor:pointer}
     .ext-filtros-btn:hover{border-color:#CBD5E1;color:#0F172A}
+
+    /* Análise por marcador (modal) — lista, não grade: o modal é estreito e
+       a leitura é de cima pra baixo, uma linha por marcador. */
+    .ext-tagan{display:flex;flex-direction:column;gap:12px;max-height:60vh;overflow:auto}
+    .ext-tagan-row{display:flex;flex-direction:column;gap:5px}
+    .ext-tagan-hd{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+    .ext-tagan-nome{font-size:.86rem;font-weight:800;color:#0F172A;overflow:hidden;
+      text-overflow:ellipsis;white-space:nowrap}
+    .ext-tagan-saldo{font-family:Consolas,Menlo,monospace;font-size:.95rem;font-weight:900;
+      letter-spacing:-.01em;font-variant-numeric:tabular-nums;flex-shrink:0}
+    .ext-tagan-bar{height:5px;background:#F1F5F9;border-radius:3px;overflow:hidden}
+    .ext-tagan-bar .fill{height:100%;border-radius:3px;
+      background:linear-gradient(90deg,#0F766E,#14B8A6)}
+    .ext-tagan-meta{display:flex;gap:10px;font-size:.71rem;color:#64748B;
+      font-family:Consolas,Menlo,monospace;letter-spacing:.02em}
+    .ext-tagan-pe{border-top:1px dashed #E2E8F0;padding-top:10px;font-size:.71rem;
+      color:#94A3B8;line-height:1.6}
+
+    /* Conferência antes de assinar a NFS-e. Lista, não tabela: são seis
+       linhas e o modal é estreito — e o número tem que pesar mais que o
+       rótulo, porque é ele que se confere. */
+    .nf-conf{display:flex;flex-direction:column;gap:1px;margin:2px 0 12px;
+      border:1px solid #E2E8F0;border-radius:8px;overflow:hidden}
+    .nf-conf-l{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+      padding:7px 12px;background:#fff;font-size:.8rem;color:#64748B}
+    .nf-conf-l + .nf-conf-l{border-top:1px solid #F1F5F9}
+    .nf-conf-l b{font-family:Consolas,Menlo,monospace;font-weight:800;color:#0F172A;
+      font-variant-numeric:tabular-nums;text-align:right}
+    .nf-conf-l.forte{background:#F8FAFC}
+    .nf-conf-l.forte b{font-size:.95rem}
+    .nf-conf-aviso{background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;
+      padding:10px 12px;font-size:.78rem;color:#92400E;line-height:1.55;margin-bottom:10px}
+    .nf-conf-pe{font-size:.72rem;color:#94A3B8;margin:0;line-height:1.5}
+    [data-theme="dark"] .nf-conf{border-color:#334155}
+    [data-theme="dark"] .nf-conf-l{background:#0F172A;color:#94A3B8}
+    [data-theme="dark"] .nf-conf-l b{color:#E2E8F0}
+    [data-theme="dark"] .nf-conf-l.forte{background:#1E293B}
+    [data-theme="dark"] .ext-tagan-nome{color:#E2E8F0}
+    [data-theme="dark"] .ext-tagan-bar{background:#1E293B}
+    [data-theme="dark"] .ext-tagan-pe{border-color:#334155}
     .ext-filtros-n{display:none;background:#10B981;color:#fff;border-radius:999px;
         min-width:17px;height:17px;line-height:17px;text-align:center;font-size:.66rem;
         font-weight:800;padding:0 4px}
@@ -24406,6 +24446,11 @@ td.mes.do-extrato{background:#ECFDF5}
               <button class="ext-filtros-btn" id="ext-filtros-btn" onclick="extFiltrosToggle()">
                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="10" y1="18" x2="14" y2="18"/></svg>
                 Filtros<span class="ext-filtros-n" id="ext-filtros-n"></span>
+              </button>
+              <button class="ext-filtros-btn" id="ext-tagan-btn" onclick="extAbrirTags()"
+                      title="Quanto entrou e quanto saiu por marcador, no período e nos filtros de agora">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0l-7.2-7.2a2 2 0 01-.6-1.4V4a2 2 0 012-2h8a2 2 0 011.4.6l7.2 7.2a2 2 0 010 2.8z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg>
+                Marcadores
               </button>
               <div class="ext-fpanel" id="ext-fpanel" hidden></div>
             </div>
@@ -65639,6 +65684,59 @@ const VIAG_STATUS = [
 ];
 let _viagFilter = 'all';
 let _viagEditingId = null;
+/* ══ SUBCATEGORIA NÃO PODE ESTAR NO LUGAR DE CATEGORIA ═════════════════
+
+   "Transporte" existe duas vezes no cadastro: como subcategoria de "Gastos
+   com viagem" e como categoria solta. Cada colaborador escolheu uma, e a
+   mesma despesa de ônibus apareceu em dois cards diferentes do relatório —
+   R$ 577,90 num, R$ 421,17 no outro, sem nada dizendo que é a mesma coisa.
+
+   Aqui a despesa de viagem que guardou uma SUBcategoria no campo de
+   categoria é recolocada no lugar: a categoria vira o pai, e o nome vai
+   para a subcategoria.
+
+   O que NÃO é tocado:
+   · id interno antigo ('transporte', 'voo', 'hospedagem'), que é o
+     vocabulário dos relatórios anteriores ao cadastro universal;
+   · despesa que já tem subcategoria preenchida;
+   · e nada fora das viagens. No Extrato a categoria "Transporte" solta é
+     legítima e tem sete lançamentos de motoboy e pedágio — serviço de
+     entrega de documento não é viagem de ninguém. */
+function _viagNormalizarSubs(){
+  try{
+    if(typeof catmapData === 'undefined' || !catmapData || !Array.isArray(catmapData.categorias)) return 0;
+    const paiDe = new Map();
+    for(const c of catmapData.categorias){
+      for(const sub of (Array.isArray(c && c.subs) ? c.subs : [])){
+        const k = _viagCatNorm(sub);
+        if(k && !paiDe.has(k)) paiDe.set(k, { pai: String(c.nome || ''), sub: String(sub) });
+      }
+    }
+    if(!paiDe.size) return 0;
+    const legado = new Set(VIAG_CATEGORIAS.map(c => c.id));
+    let n = 0;
+    for(const v of ((viagens && viagens.itens) || [])){
+      for(const d of ((v && v.despesas) || [])){
+        const cat = String((d && d.categoria) || '').trim();
+        if(!cat || legado.has(cat)) continue;
+        if(String(d.subcategoria || '').trim()) continue;
+        const achado = paiDe.get(_viagCatNorm(cat));
+        if(!achado || !achado.pai) continue;
+        if(_viagCatNorm(achado.pai) === _viagCatNorm(cat)) continue;
+        d.categoria = achado.pai;
+        d.subcategoria = achado.sub;
+        n++;
+      }
+    }
+    if(n){
+      console.log('[FK] ' + n + ' despesa(s) de viagem: subcategoria estava no campo de categoria');
+      try{ viagSave(); }catch(_){}
+    }
+    return n;
+  }catch(e){ console.warn('[FK] normalizar subcategoria:', e && e.message); return 0; }
+}
+try{ window._viagNormalizarSubs = _viagNormalizarSubs; }catch(_){}
+
 function viagLoad(){
   try {
     const raw = localStorage.getItem(VIAGENS_KEY);
@@ -65651,6 +65749,9 @@ function viagLoad(){
       }
     }
   } catch(e){ console.warn('viagens load:', e); }
+  /* Depois de ler, e tanto faz se veio do navegador ou da nuvem: o
+     `cloudViagensFetch` substitui a lista e chama `viagLoad` de novo. */
+  _viagNormalizarSubs();
 }
 function viagSave(){
   try { localStorage.setItem(VIAGENS_KEY, JSON.stringify(viagens)); }
@@ -66682,7 +66783,9 @@ function _viagRenderDashboard(lista){
    Agora os grupos nascem do próprio dado, e o mesmo quadro responde três
    perguntas pelo seletor de cima: por categoria, por subcategoria e por
    marcador. Mesmos cards, mesmo detalhamento — muda só a chave. */
-let _viagAgrup = 'categoria';
+/* Abre na subcategoria: é o nível em que ele lê o relatório ("trata
+   subcategoria como categoria"). A categoria continua a um clique. */
+let _viagAgrup = 'subcategoria';
 function viagSetAgrup(a){
   _viagAgrup = (a === 'subcategoria' || a === 'tag') ? a : 'categoria';
   try{ renderViagens(); }catch(_){}
@@ -83405,6 +83508,92 @@ try{
   window.extFiltroSemTransf = extFiltroSemTransf; window.extFiltrosRender = extFiltrosRender;
   window.extFiltrosChips = extFiltrosChips;
 }catch(_){}
+
+/* ══ QUANTO ANDOU POR MARCADOR ════════════════════════════════════════
+
+   A mesma leitura da Prestação de Contas, no Extrato: a tag é universal,
+   nasce numa viagem ou num lançamento e vale nos dois lados. Aqui ela
+   responde "quanto esse evento/projeto custou no total", juntando o que
+   foi reembolso, o que foi gasto direto e o que entrou.
+
+   Olha exatamente o que está na tela — mesmo período, mesmos filtros —
+   porque é a lista que a pessoa está vendo que ela quer somar. Ler o
+   extrato inteiro daria outro número, sem aviso.
+
+   Saldo e não só saída: tag de projeto tem entrada (a nota paga) e saída
+   (o custo). Com os dois na mesma linha, dá pra ver se sobrou. */
+function _extTagAnalise(){
+  let base = [];
+  try{ base = _extFilter(_extCollectReal()); }catch(_){ return null; }
+  const porTag = {};
+  let semTag = { entradas: 0, saidas: 0, n: 0 };
+  /* Transferência não entra: ela não é gasto nem receita, é o mesmo dinheiro
+     trocando de conta. Contada, inflaria qualquer marcador posto nela. Por
+     isso o rodapé conta só o que foi considerado — senão as contas do pé não
+     fecham com as linhas de cima. */
+  let considerados = 0;
+  for(const it of base){
+    if(!it || it.tipo === 'transferencia') continue;
+    considerados++;
+    const v = Math.abs(parseFloat(it.valor) || 0);
+    const ganho = (it.tipo === 'ganho');
+    const tags = (typeof fkTagsLimpar === 'function') ? fkTagsLimpar(it.tags) : [];
+    if(!tags.length){
+      semTag.n++; if(ganho) semTag.entradas += v; else semTag.saidas += v;
+      continue;
+    }
+    /* Com dois marcadores, o lançamento conta nos dois — é assim que
+       relatório por tag funciona, e por isso a soma das linhas pode passar
+       do total do período. O rodapé do modal diz isso. */
+    for(const t of tags){
+      if(!porTag[t]) porTag[t] = { tag: t, entradas: 0, saidas: 0, n: 0, itens: [] };
+      const g = porTag[t];
+      g.n++; if(ganho) g.entradas += v; else g.saidas += v;
+      g.itens.push(it);
+    }
+  }
+  const linhas = Object.values(porTag)
+    .map(g => Object.assign(g, { saldo: g.entradas - g.saidas, mov: g.entradas + g.saidas }))
+    .sort((a, b) => b.mov - a.mov);
+  return { linhas, semTag, total: considerados };
+}
+
+function extAbrirTags(){
+  const r = _extTagAnalise();
+  const fechar = [{ label: 'Fechar', cls: 'btn-sec', action: closeGenericModal }];
+  if(!r || !r.linhas.length){
+    openGenericModal('Por marcador',
+      '<p style="font-size:.84rem;color:#64748B;margin:0;line-height:1.6">'
+      + 'Nenhum lançamento com marcador no período e nos filtros de agora.<br>'
+      + 'O marcador se põe no próprio lançamento, no campo <b>+ tag</b> — e vale '
+      + 'também nos relatórios de viagem.</p>', fechar);
+    return;
+  }
+  const fmt = (n) => (typeof fmtBRL === 'function') ? fmtBRL(n) : ('R$ ' + (n||0).toFixed(2));
+  const maior = Math.max(...r.linhas.map(l => l.mov), 1);
+  const corpo = r.linhas.map(l => {
+    const pct = (l.mov / maior) * 100;
+    const corSaldo = l.saldo > 0.005 ? '#059669' : (l.saldo < -0.005 ? '#DC2626' : '#64748B');
+    return '<div class="ext-tagan-row">'
+      + '<div class="ext-tagan-hd">'
+      +   '<span class="ext-tagan-nome">' + _extEsc(l.tag) + '</span>'
+      +   '<span class="ext-tagan-saldo" style="color:' + corSaldo + '">' + fmt(l.saldo) + '</span>'
+      + '</div>'
+      + '<div class="ext-tagan-bar"><div class="fill" style="width:' + pct.toFixed(1) + '%"></div></div>'
+      + '<div class="ext-tagan-meta">'
+      +   (l.entradas > 0.005 ? '<span style="color:#059669">entrou ' + fmt(l.entradas) + '</span>' : '')
+      +   (l.saidas  > 0.005 ? '<span style="color:#DC2626">saiu ' + fmt(l.saidas) + '</span>' : '')
+      +   '<span>' + l.n + ' lanç.</span>'
+      + '</div></div>';
+  }).join('');
+  const rodape = '<div class="ext-tagan-pe">'
+    + r.linhas.length + ' marcador' + (r.linhas.length === 1 ? '' : 'es') + ' em ' + r.total + ' lançamento(s) na tela'
+    + (r.semTag.n ? ' · ' + r.semTag.n + ' sem marcador' : '')
+    + '<br>Um lançamento com dois marcadores conta nos dois.'
+    + '</div>';
+  openGenericModal('Por marcador', '<div class="ext-tagan">' + corpo + rodape + '</div>', fechar);
+}
+try{ window.extAbrirTags = extAbrirTags; window._extTagAnalise = _extTagAnalise; }catch(_){}
 
 function _extFilter(items){
   const r = _extPeriodRange();
@@ -134163,6 +134352,74 @@ window.cloudUkvSync  = cloudUkvSync;
 // ═══════════════════════════════════════════════════
 // Chamado por fkBootApp() em cloud mode. Cada módulo migrado da
 // Fase 2 adiciona seu cloudXxxFetch() aqui.
+/* ══ QUATRO MÓDULOS SÓ SABIAM SUBIR ════════════════════════════════════
+
+   `cloudBlobSync` manda pra nuvem; `cloudBlobFetch` traz de volta. Vinte
+   módulos tinham os dois. Estes quatro tinham só o primeiro: subiam a cada
+   alteração e NUNCA eram lidos de volta.
+
+   O efeito: a nuvem guardava a verdade e o navegador ignorava. Em outro
+   computador, ou depois de limpar o cache, os códigos fiscais dos serviços
+   voltavam vazios mesmo estando salvos — e a primeira edição local
+   sobrescrevia a nuvem com o vazio.
+
+   Foi assim que os percentuais de retenção do serviço apareceram zerados na
+   tela depois de gravados: não era cache teimoso, era caminho de volta que
+   não existia.
+
+   Mesmo contrato dos outros: a nuvem manda quando existe; quando está
+   vazia, o que está aqui sobe pra lá. */
+async function cloudNfServicosFetch(){
+  const d = await cloudBlobFetch('nf_servicos');
+  if(d == null){
+    if(NF_SERVICOS && (NF_SERVICOS.list || []).length) nfServSave();
+    return;
+  }
+  if(d && typeof d === 'object' && Array.isArray(d.list)){
+    NF_SERVICOS = d;
+    if(!Array.isArray(NF_SERVICOS.list)) NF_SERVICOS.list = [];
+    if(typeof NF_SERVICOS.nextId !== 'number') NF_SERVICOS.nextId = 1;
+    try{ localStorage.setItem(NF_SERV_KEY, JSON.stringify(NF_SERVICOS)); }catch(_){}
+  }
+}
+try{ window.cloudNfServicosFetch = cloudNfServicosFetch; }catch(_){}
+
+async function cloudConciliacaoFetch(){
+  const d = await cloudBlobFetch('conciliacao');
+  if(d == null){
+    try{ if(conciliacaoData && Object.keys(conciliacaoData).length) _concSave(); }catch(_){}
+    return;
+  }
+  if(d && typeof d === 'object'){
+    conciliacaoData = d;
+    try{ localStorage.setItem(CONCILIACAO_KEY, JSON.stringify(conciliacaoData)); }catch(_){}
+  }
+}
+try{ window.cloudConciliacaoFetch = cloudConciliacaoFetch; }catch(_){}
+
+async function cloudKashScoreFetch(){
+  const d = await cloudBlobFetch('kashscore');
+  if(d == null){
+    try{ if(kashScoreData && Object.keys(kashScoreData).length) _ksSave(); }catch(_){}
+    return;
+  }
+  if(d && typeof d === 'object'){
+    kashScoreData = d;
+    try{ localStorage.setItem(KASH_SCORE_KEY, JSON.stringify(kashScoreData)); }catch(_){}
+  }
+}
+try{ window.cloudKashScoreFetch = cloudKashScoreFetch; }catch(_){}
+
+async function cloudAsaasFetch(){
+  const d = await cloudBlobFetch('asaas');
+  if(d == null) return;
+  if(d && typeof d === 'object'){
+    try{ localStorage.setItem('forekash:asaas:v1', JSON.stringify(d)); }catch(_){}
+    try{ if(typeof asaasLoad === 'function') asaasLoad(); }catch(_){}
+  }
+}
+try{ window.cloudAsaasFetch = cloudAsaasFetch; }catch(_){}
+
 async function fkcSyncCloudData(){
   if (window.FK_MODE !== 'cloud') return;
   if (!window.sb || !window._FK_CLOUD_USER) return;
@@ -134193,6 +134450,10 @@ async function fkcSyncCloudData(){
   try { if (typeof cloudOutrasOpFetch        === 'function') await cloudOutrasOpFetch();        } catch(e) { console.warn('[FK] sync outras_op:', e); }
   try { if (typeof cloudAnaliseFetch         === 'function') await cloudAnaliseFetch();         } catch(e) { console.warn('[FK] sync ana:', e); }
   // Per-user (cross-org)
+  try { if (typeof cloudNfServicosFetch      === 'function') await cloudNfServicosFetch();      } catch(e) { console.warn('[FK] sync nf_servicos:', e); }
+  try { if (typeof cloudConciliacaoFetch     === 'function') await cloudConciliacaoFetch();     } catch(e) { console.warn('[FK] sync conciliação:', e); }
+  try { if (typeof cloudKashScoreFetch       === 'function') await cloudKashScoreFetch();       } catch(e) { console.warn('[FK] sync kashscore:', e); }
+  try { if (typeof cloudAsaasFetch           === 'function') await cloudAsaasFetch();           } catch(e) { console.warn('[FK] sync asaas:', e); }
   try { if (typeof cloudSettingsFetch        === 'function') await cloudSettingsFetch();        } catch(e) { console.warn('[FK] sync settings:', e); }
   try { if (typeof cloudGuiaProgressFetch    === 'function') await cloudGuiaProgressFetch();    } catch(e) { console.warn('[FK] sync guia:', e); }
   // Fase 4 completa. Próxima: Fase 5 (cutover, cloud-mode default, telemetria).
@@ -140676,6 +140937,86 @@ function nfRenderCreateForm(){
   }catch(_){}
 }
 
+/* ══ ASSINAR É IRREVERSÍVEL. CONFERIR NÃO CUSTA NADA. ═══════════════════
+
+   Em produção, clicar "Emitir nota fiscal" assinava com o certificado e
+   mandava pra Receita no mesmo gesto. Deu no que tinha que dar: a NFS-e
+   #90 saiu válida, em produção, sem as retenções federais — e desfazer
+   isso é um cancelamento formal, com motivo registrado, que o fisco lê
+   depois.
+
+   O que esta tela mostrava não bastava: o painel do líquido fica no fim do
+   formulário, e "Sem retenção" em cinza não para ninguém que está com
+   pressa. O número que importa precisa aparecer no caminho do clique.
+
+   Então, antes de assinar, o resumo do que vai ser enviado — tomador,
+   valor, cada retenção, líquido, série e número. E um aviso quando não há
+   retenção nenhuma configurada e o cliente também não está marcado como
+   isento: pra quem não é optante do Simples isso é quase sempre engano, e
+   é exatamente o engano que aconteceu.
+
+   Só em produção. Demo e produção restrita não geram documento válido —
+   ali o atrito seria só atrito. */
+async function _nfConfirmarAntesDeAssinar(){
+  if(NF.cfg.mode !== 'producao') return true;
+  let m = null;
+  try{ m = nfMontarDPS({ ambiente: 'producao' }); }catch(_){ m = null; }
+  const d = m && m.dps;
+  /* Sem conseguir montar o resumo, não trava a emissão: quem valida de
+     verdade é o passo seguinte, que já devolve o que falta. */
+  if(!d) return true;
+
+  const base = Number(d.vServ) || 0;
+  const semRet = !!d.semRetencao;
+  const vl = k => semRet ? 0 : +(base * (Number(d[k]) || 0) / 100).toFixed(2);
+  const pis = vl('pPis'), cof = vl('pCofins'), csll = vl('pCsll'),
+        irrf = vl('pIrrf'), inss = vl('pInss');
+  const ret = +(pis + cof + csll + irrf + inss).toFixed(2);
+  const liq = +(base - ret).toFixed(2);
+  const money = n => (typeof _nfFmtBRL === 'function') ? _nfFmtBRL(n)
+                   : ('R$ ' + Number(n || 0).toFixed(2).replace('.', ','));
+  const esc = (typeof _nfEsc === 'function') ? _nfEsc : (x => String(x == null ? '' : x));
+
+  const linha = (rot, val, destaque) =>
+    '<div class="nf-conf-l' + (destaque ? ' forte' : '') + '">'
+    + '<span>' + esc(rot) + '</span><b>' + val + '</b></div>';
+
+  let corpo = linha('Tomador', esc(d.toma && (d.toma.xNome || '') || '—'))
+    + linha('CNPJ/CPF', esc((d.toma && (d.toma.CNPJ || d.toma.CPF)) || '—'))
+    + linha('Valor do serviço', money(base), true);
+
+  if(ret > 0.004){
+    if(pis + cof + csll > 0.004) corpo += linha('PIS/COFINS/CSLL', '− ' + money(pis + cof + csll));
+    if(irrf > 0.004) corpo += linha('IRRF', '− ' + money(irrf));
+    if(inss > 0.004) corpo += linha('INSS', '− ' + money(inss));
+    corpo += linha('Entra no caixa', money(liq), true);
+  } else {
+    corpo += linha('Retenções', 'nenhuma');
+  }
+  corpo += linha('DPS', esc(d.serie || '—') + ' / ' + esc(d.nDPS || '—'));
+  if(d.dCompet) corpo += linha('Competência', esc(d.dCompet));
+
+  /* O aviso só aparece quando o silêncio é suspeito: sem retenção nenhuma,
+     com o cliente que NÃO foi marcado como isento e fora dos casos em que
+     o próprio app já sabe que não se retém (exportação, pessoa física,
+     tomador no exterior). */
+  const aviso = (!semRet && ret <= 0.004)
+    ? '<div class="nf-conf-aviso">Esta nota vai <b>sem nenhuma retenção federal</b>. '
+      + 'Se o serviço deveria reter PIS/COFINS/CSLL/IRRF, cancele aqui e preencha os '
+      + 'percentuais em <b>Serviços que você presta</b> — depois de assinada, só por cancelamento.</div>'
+    : '';
+
+  return await anaConfirmAsync({
+    eyebrow: 'Produção · documento fiscal válido',
+    title: 'Assinar e emitir esta NFS-e?',
+    message: '<div class="nf-conf">' + corpo + '</div>' + aviso
+           + '<p class="nf-conf-pe">Assinada, ela existe na Receita. Desfazer é cancelamento com motivo registrado.</p>',
+    okText: 'Assinar e emitir',
+    cancelText: 'Voltar e conferir'
+  });
+}
+try{ window._nfConfirmarAntesDeAssinar = _nfConfirmarAntesDeAssinar; }catch(e){}
+
 async function nfSubmitCreate(){
   // Captura valores
   _nfDraftDaTela();
@@ -140683,6 +141024,9 @@ async function nfSubmitCreate(){
     if(typeof showToast === 'function') showToast('Cliente, valor e descrição obrigatórios', 'err');
     return;
   }
+  /* A conferência vem ANTES de desabilitar o botão: quem volta pra
+     conferir precisa do botão vivo pra tentar de novo. */
+  if(!(await _nfConfirmarAntesDeAssinar())) return;
   const btn = document.getElementById('nf-create-submit');
   if(btn){ btn.disabled = true; btn.textContent = 'Emitindo...'; }
   try{
