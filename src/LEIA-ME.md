@@ -54,7 +54,7 @@ salvas); o resto pode ser texto.
 
 | nome | o que é |
 |---|---|
-| `ANTHROPIC_API_KEY` | a mesma key que você usa no app — mas aqui ela mora no servidor |
+| `ANTHROPIC_API_KEY` | a key da Anthropic — aqui ela mora no servidor. **Atual: `mr-kash-worker`, criada em 20/11/2026, escopo Organização, sem expiração.** |
 | `SLACK_BOT_TOKEN` | o `xoxb-...` |
 | `SLACK_SIGNING_SECRET` | de Basic Information |
 | `SUPABASE_SERVICE_KEY` | painel do Supabase → Project Settings → API → `service_role` |
@@ -64,6 +64,31 @@ salvas); o resto pode ser texto.
 | `SLACK_CANAL_EQUIPE` | o ID do canal dos avisos (`C...`, pega em Ver detalhes do canal) |
 | `MRK_SLACK_USERS` | quem pode PERGUNTAR — IDs separados por espaço. Começa só com o seu |
 | `MRK_DIA_NOTA` | dia do mês do lembrete da nota (padrão `1`) |
+
+### Sobre a validade da key da Anthropic
+
+A validade é escolhida **na criação e não muda depois** — não existe estender,
+só criar outra. Por isso a atual é **sem expiração**: ela mora num Secret, que
+é o lugar certo pra uma key longeva.
+
+A anterior (`mr-kash`, de 23/10/2026) tinha prazo e venceu em 22/11, derrubando
+toda leitura de IA — balanço, Diagnóstico, copiloto e avisos — de uma vez. Se
+precisar trocar de novo:
+
+1. `platform.claude.com/settings/keys`, na organização **Taller** (confira no
+   canto inferior esquerdo; criar na org errada gera uma key que não serve).
+2. **Criar chave** → `Expira: Nunca` → `Escopo: Organização`.
+3. `npx wrangler secret put ANTHROPIC_API_KEY` e colar o valor **no terminal**.
+   Vale na hora, sem deploy.
+4. Conferir em Patrimônio → Dashboard → **reler**.
+
+Escopo `Organização` exige o cabeçalho `anthropic-workspace-id` em toda
+requisição — as seis chamadas do `mrkash.js` já mandam, lendo de
+`ANTHROPIC_WORKSPACE_ID`. Se um dia a key passar a ser de um workspace só,
+esse cabeçalho precisa casar com ele.
+
+A Anthropic avisa por e-mail o criador da key: 7 dias antes pra validade de
+14+ dias, 1 dia antes pra 7+ dias. Validade curta não avisa.
 | `MRK_DIA_BENEFICIOS` | dia do lembrete de benefícios (padrão `7`) |
 
 Opcionais: `MRK_TEXTO_NOTA` e `MRK_TEXTO_BENEFICIOS` trocam o texto dos avisos
