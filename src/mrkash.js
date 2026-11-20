@@ -349,6 +349,26 @@ const COMO_CONSULTAR =
 + 'O que a consulta não devolve, não existe para você: o que está escondido por '
 + 'privacidade sai de lá já filtrado, igual ao quadro.';
 
+/* ══ O ERRO QUE CHEGA NA TELA ══════════════════════════════════════════
+   Era "Anthropic 401", que não diz nada a quem está olhando o próprio
+   balanço — e 401 é justamente o que acontece quando a chave expira, que é
+   o dia em que mais importa entender a mensagem. Cada caso vira uma frase
+   com a causa e o que fazer; o detalhe do provedor continua no fim, pra
+   quem for investigar. */
+function _erroAnthropic(status, detalhe){
+  const d = detalhe ? ' · ' + String(detalhe).slice(0, 200) : '';
+  if(status === 401 || status === 403)
+    return new Error('a chave da Anthropic foi recusada, provavelmente expirada ou revogada — '
+      + 'gere outra no Console e atualize o secret ANTHROPIC_API_KEY' + d);
+  if(status === 429)
+    return new Error('limite de uso da Anthropic atingido — tente de novo em alguns minutos' + d);
+  if(status === 529 || status === 503)
+    return new Error('a Anthropic está sobrecarregada agora — tente de novo em instantes' + d);
+  if(status === 400)
+    return new Error('a Anthropic recusou o pedido' + d);
+  return new Error('Anthropic ' + status + d);
+}
+
 export async function perguntar(env, pergunta, quadro, historico, extra, ferramentas){
   /* A API não aceita a conversa abrindo pelo assistente nem dois turnos
      seguidos do mesmo lado. Thread de Slack não respeita nenhuma das duas:
@@ -390,7 +410,7 @@ export async function perguntar(env, pergunta, quadro, historico, extra, ferrame
     });
     if(!r.ok){
       let det = ''; try{ det = ((await r.json()).error || {}).message || ''; }catch(_){}
-      throw new Error('Anthropic ' + r.status + (det ? ' · ' + det.slice(0,300) : ''));
+      throw _erroAnthropic(r.status, det);
     }
     return r.json();
   };
@@ -508,7 +528,7 @@ export async function analisarNoticias(env, itens, fonte, materias){
   });
   if(!r.ok){
     let det = ''; try{ det = ((await r.json()).error || {}).message || ''; }catch(_){}
-    throw new Error('Anthropic ' + r.status + (det ? ' · ' + det.slice(0,200) : ''));
+    throw _erroAnthropic(r.status, det);
   }
   const j = await r.json();
   if(j.stop_reason === 'refusal') throw new Error('Passo essa.');
@@ -552,7 +572,7 @@ export async function redigirAviso(env, instrucao){
       messages: [{ role: 'user', content: instrucao }]
     })
   });
-  if(!r.ok) throw new Error('Anthropic ' + r.status);
+  if(!r.ok) throw _erroAnthropic(r.status, '');
   const j = await r.json();
   return (j.content || []).filter(b => b && b.type === 'text').map(b => b.text).join('\n').trim();
 }
@@ -743,7 +763,7 @@ Responda SÓ com JSON, sem cerca de código:
   });
   if(!r.ok){
     let det = ''; try{ det = ((await r.json()).error || {}).message || ''; }catch(_){}
-    throw new Error('Anthropic ' + r.status + (det ? ' · ' + det.slice(0,200) : ''));
+    throw _erroAnthropic(r.status, det);
   }
   const j = await r.json();
   const txt = (j.content || []).filter(b => b && b.type === 'text').map(b => b.text).join('\n');
@@ -829,7 +849,7 @@ Responda SÓ com JSON, sem cerca de código:
   });
   if(!r.ok){
     let det = ''; try{ det = ((await r.json()).error || {}).message || ''; }catch(_){}
-    throw new Error('Anthropic ' + r.status + (det ? ' · ' + det.slice(0,200) : ''));
+    throw _erroAnthropic(r.status, det);
   }
   const j = await r.json();
   const txt = (j.content || []).filter(b => b && b.type === 'text').map(b => b.text).join('\n');
@@ -890,7 +910,7 @@ Responda SÓ com JSON, sem cerca de código:
   });
   if(!r.ok){
     let det = ''; try{ det = ((await r.json()).error || {}).message || ''; }catch(_){}
-    throw new Error('Anthropic ' + r.status + (det ? ' · ' + det.slice(0,200) : ''));
+    throw _erroAnthropic(r.status, det);
   }
   const j = await r.json();
   const txt = (j.content || []).filter(b => b && b.type === 'text').map(b => b.text).join('\n');
