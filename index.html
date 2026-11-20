@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795190534"/>
+  <meta name="fk-build" content="forekash-v1795191876"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7346,6 +7346,20 @@
     [data-theme="dark"] .ext-table .col-saldo .saldo-neg{color:#A86A6A}
     /* Escondido por escolha de quem olha — ver extColSaldoVisivel. */
     .ext-sem-saldo .ext-table .col-saldo{display:none}
+    /* O controle mora na própria coluna: quem quer sumir com ela está
+       olhando pra ela, não pro painel de filtros. Só aparece no hover do
+       cabeçalho — enquanto não é preciso, não ocupa peso nenhum. */
+    .ext-table th.col-saldo .ext-col-x{margin-left:5px;padding:0 3px;border:0;
+      background:transparent;cursor:pointer;font-family:inherit;font-size:.95rem;
+      line-height:1;color:#CBD5E1;opacity:0;transition:opacity .12s}
+    .ext-table th.col-saldo:hover .ext-col-x{opacity:1}
+    .ext-table th.col-saldo .ext-col-x:hover{color:#DC2626}
+    .ext-table th.col-saldo .ext-col-x:focus-visible{opacity:1;outline:2px solid #7C3AED;
+      outline-offset:1px;border-radius:3px}
+    /* Sem hover (toque) o botão nunca apareceria. */
+    @media (hover:none){.ext-table th.col-saldo .ext-col-x{opacity:.55}}
+    @media (prefers-reduced-motion:reduce){.ext-table th.col-saldo .ext-col-x{transition:none}}
+    [data-theme="dark"] .ext-table th.col-saldo .ext-col-x{color:#475569}
     .ext-table .col-st{width:90px}
     .ext-table .col-act{width:36px}
     .ext-table .col-sel{width:30px;text-align:center}
@@ -25275,7 +25289,9 @@ td.mes.do-extrato{background:#ECFDF5}
                   <th class="col-cliente">Cliente / Fornecedor</th>
                   <th class="col-conta">Conta</th>
                   <th class="col-val">Valor</th>
-                  <th class="col-saldo">Saldo</th>
+                  <th class="col-saldo">Saldo<button type="button" class="ext-col-x"
+                      onclick="extColSaldoSet(false, true)"
+                      title="Ocultar a coluna Saldo">&times;</button></th>
                   <th class="col-st">Status</th>
                   <th class="col-act"></th>
                 </tr></thead>
@@ -84327,10 +84343,15 @@ const EXT_COL_SALDO_KEY = 'forekash:ext:col-saldo:v1';
 function extColSaldoVisivel(){
   try{ return localStorage.getItem(EXT_COL_SALDO_KEY) !== '0'; }catch(_){ return true; }
 }
-function extColSaldoSet(v){
+function extColSaldoSet(v, daColuna){
   try{ localStorage.setItem(EXT_COL_SALDO_KEY, v ? '1' : '0'); }catch(_){}
   extColSaldoAplicar();
   try{ extFiltrosRender(); }catch(_){}
+  /* Oculta pelo × a coluna some inteira, e com ela o caminho de volta. O
+     aviso só sai nesse caso: quem desmarcou no painel de filtros está
+     olhando pra caixa que traz de volta. */
+  if(!v && daColuna && typeof toast === 'function')
+    toast('Coluna Saldo oculta — volta em Filtros › Colunas');
 }
 /* Uma classe no contêiner em vez de reconstruir a tabela: a coluna some e
    volta sem redesenhar duzentas linhas. */
