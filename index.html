@@ -22,7 +22,7 @@
   <meta name="theme-color" content="#0F172A"/>
   <!-- Reescrito por scripts/bump.sh a cada deploy. Serve pra conferir, no DOM,
        qual build o navegador realmente carregou — o cache já enganou a gente. -->
-  <meta name="fk-build" content="forekash-v1795191876"/>
+  <meta name="fk-build" content="forekash-v1795192197"/>
 
   <!-- ═══════ PWA · Web App Manifest inline (data URI) ═══════
        Permite "Adicionar à Tela de Início" no celular sem precisar
@@ -7344,22 +7344,37 @@
     .ext-table .col-saldo .saldo-neg{color:#D98A8A}
     [data-theme="dark"] .ext-table .col-saldo{color:#64748B}
     [data-theme="dark"] .ext-table .col-saldo .saldo-neg{color:#A86A6A}
-    /* Escondido por escolha de quem olha — ver extColSaldoVisivel. */
-    .ext-sem-saldo .ext-table .col-saldo{display:none}
-    /* O controle mora na própria coluna: quem quer sumir com ela está
-       olhando pra ela, não pro painel de filtros. Só aparece no hover do
-       cabeçalho — enquanto não é preciso, não ocupa peso nenhum. */
+    /* ══ O CONTROLE MORA NA PRÓPRIA COLUNA ════════════════════════════
+       Quem quer sumir com ela está olhando pra ela, não pro painel de
+       filtros. O `−` só aparece no hover do cabeçalho: enquanto não é
+       preciso, não ocupa peso nenhum.
+
+       Oculta, a coluna NÃO sai do fluxo — vira uma tira do tamanho do
+       botão. Dois motivos: é nela que mora o `+` que traz de volta, e o
+       rodapé da tabela soma 10 colunas por `colspan`, então remover uma do
+       corpo desalinharia o total. */
     .ext-table th.col-saldo .ext-col-x{margin-left:5px;padding:0 3px;border:0;
       background:transparent;cursor:pointer;font-family:inherit;font-size:.95rem;
       line-height:1;color:#CBD5E1;opacity:0;transition:opacity .12s}
+    .ext-table th.col-saldo .ext-col-x i{font-style:normal}
+    .ext-table th.col-saldo .ext-col-x .mos{display:none}
     .ext-table th.col-saldo:hover .ext-col-x{opacity:1}
-    .ext-table th.col-saldo .ext-col-x:hover{color:#DC2626}
+    .ext-table th.col-saldo .ext-col-x:hover{color:#7C3AED}
     .ext-table th.col-saldo .ext-col-x:focus-visible{opacity:1;outline:2px solid #7C3AED;
       outline-offset:1px;border-radius:3px}
     /* Sem hover (toque) o botão nunca apareceria. */
     @media (hover:none){.ext-table th.col-saldo .ext-col-x{opacity:.55}}
     @media (prefers-reduced-motion:reduce){.ext-table th.col-saldo .ext-col-x{transition:none}}
     [data-theme="dark"] .ext-table th.col-saldo .ext-col-x{color:#475569}
+    /* Oculta: rótulo e números somem, a largura cai pro botão, e o `+` fica
+       sempre visível — hover-only aqui deixaria a volta invisível. */
+    .ext-sem-saldo .ext-table .col-saldo{width:26px;min-width:26px;max-width:26px;
+      padding-left:0;padding-right:0;text-align:center}
+    .ext-sem-saldo .ext-table th.col-saldo .ext-col-rot{display:none}
+    .ext-sem-saldo .ext-table td.col-saldo{font-size:0;line-height:0;color:transparent}
+    .ext-sem-saldo .ext-table th.col-saldo .ext-col-x{opacity:1;margin-left:0}
+    .ext-sem-saldo .ext-table th.col-saldo .ext-col-x .esc{display:none}
+    .ext-sem-saldo .ext-table th.col-saldo .ext-col-x .mos{display:inline}
     .ext-table .col-st{width:90px}
     .ext-table .col-act{width:36px}
     .ext-table .col-sel{width:30px;text-align:center}
@@ -25289,9 +25304,10 @@ td.mes.do-extrato{background:#ECFDF5}
                   <th class="col-cliente">Cliente / Fornecedor</th>
                   <th class="col-conta">Conta</th>
                   <th class="col-val">Valor</th>
-                  <th class="col-saldo">Saldo<button type="button" class="ext-col-x"
-                      onclick="extColSaldoSet(false, true)"
-                      title="Ocultar a coluna Saldo">&times;</button></th>
+                  <th class="col-saldo"><span class="ext-col-rot">Saldo</span><button
+                      type="button" class="ext-col-x" id="ext-col-saldo-bt"
+                      onclick="extColSaldoToggle()"
+                      title="Ocultar a coluna Saldo"><i class="esc">&minus;</i><i class="mos">+</i></button></th>
                   <th class="col-st">Status</th>
                   <th class="col-act"></th>
                 </tr></thead>
@@ -84343,24 +84359,29 @@ const EXT_COL_SALDO_KEY = 'forekash:ext:col-saldo:v1';
 function extColSaldoVisivel(){
   try{ return localStorage.getItem(EXT_COL_SALDO_KEY) !== '0'; }catch(_){ return true; }
 }
-function extColSaldoSet(v, daColuna){
+function extColSaldoSet(v){
   try{ localStorage.setItem(EXT_COL_SALDO_KEY, v ? '1' : '0'); }catch(_){}
   extColSaldoAplicar();
-  try{ extFiltrosRender(); }catch(_){}
-  /* Oculta pelo × a coluna some inteira, e com ela o caminho de volta. O
-     aviso só sai nesse caso: quem desmarcou no painel de filtros está
-     olhando pra caixa que traz de volta. */
-  if(!v && daColuna && typeof toast === 'function')
-    toast('Coluna Saldo oculta — volta em Filtros › Colunas');
 }
+function extColSaldoToggle(){ extColSaldoSet(!extColSaldoVisivel()); }
 /* Uma classe no contêiner em vez de reconstruir a tabela: a coluna some e
    volta sem redesenhar duzentas linhas. */
 function extColSaldoAplicar(){
   const w = document.getElementById('mod-extrato');
   if(!w) return;
-  w.classList.toggle('ext-sem-saldo', !extColSaldoVisivel());
+  const vis = extColSaldoVisivel();
+  w.classList.toggle('ext-sem-saldo', !vis);
+  /* O desenho do botão troca por CSS; o título, não — e é ele que o leitor
+     de tela anuncia. */
+  const bt = document.getElementById('ext-col-saldo-bt');
+  if(bt){
+    bt.title = vis ? 'Ocultar a coluna Saldo' : 'Mostrar a coluna Saldo';
+    bt.setAttribute('aria-label', bt.title);
+    bt.setAttribute('aria-expanded', vis ? 'true' : 'false');
+  }
 }
 try{ window.extColSaldoSet = extColSaldoSet;
+     window.extColSaldoToggle = extColSaldoToggle;
      window.extColSaldoVisivel = extColSaldoVisivel;
      window.extColSaldoAplicar = extColSaldoAplicar; }catch(e){}
 
@@ -84390,10 +84411,6 @@ function extFiltrosRender(){
           ' onchange="extFiltroSemTransf(this.checked)"><span>Desconsiderar transferências</span></label>' +
       '</div>' +
       '<div class="ext-fp-col"><b>Situação</b>' + EXT_F_SIT.map(x => cx('situacao',x[0],x[1])).join('') +
-        '<b style="margin-top:12px;display:block">Colunas</b>' +
-        '<label class="ext-f-cx' + (extColSaldoVisivel() ? ' on' : '') + '">' +
-          '<input type="checkbox"' + (extColSaldoVisivel() ? ' checked' : '') +
-          ' onchange="extColSaldoSet(this.checked)"><span>Saldo acumulado</span></label>' +
       '</div>' +
       '<div class="ext-fp-col wide"><b>Categorias</b><div class="ext-fp-cats">' +
         (cats.length ? cats.map(c => cx('categorias',c[0],c[0],c[1])).join('')
